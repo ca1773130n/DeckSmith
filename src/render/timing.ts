@@ -50,9 +50,9 @@
 import type { z } from "zod";
 import { CUE_MAX_CHARS, type Cue, splitCue } from "../deck/subtitles.js";
 import { emitScene } from "../emit/archetypes/index.js";
-import { type DeckNarration, openSeconds, speechPlan } from "../emit/composition.js";
+import { type DeckNarration, speechPlan, stageScene } from "../emit/composition.js";
 import type { EmitContext } from "../emit/kit.js";
-import { pace, resolveTheme } from "../emit/theme.js";
+import { resolveTheme } from "../emit/theme.js";
 import type { DeckTheme } from "../emit/themes/index.js";
 import { familyFor } from "../source/fonts.js";
 import type { Beat, Format, Source, Storyboard, segmentSchema } from "../types.js";
@@ -223,17 +223,20 @@ function holdsFor(
   theme: DeckTheme,
   sid: string,
   speed: number,
+  segments?: readonly Segment[],
 ): { holds: number[]; open: number } {
   const ctx: EmitContext = { source, format, theme, sid };
-  const scene = pace(emitScene(beat, ctx), speed);
+  // `stageScene` is the one place pacing and filling happen, shared with
+  // `planCut` and `layout`. The narration has to be passed in: the fill factor is
+  // computed from the sentence's length, so a manifest built without it would
+  // describe reveals at different times from the ones the deck contains — and on
+  // a linear format there is no island for `assertHoldsAgree` to catch it with.
+  const { scene, open } = stageScene(emitScene(beat, ctx), speed, segments);
   return {
     holds: [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
       (a, b) => a - b,
     ),
-    // From the SAME emit as the holds. `layout` sized this scene with the number
-    // this call reproduces, so a manifest that recomputed it any other way would
-    // be describing a deck that was not built.
-    open: openSeconds(scene),
+    open,
   };
 }
 
@@ -433,10 +436,10 @@ export function planTiming(input: TimingInput): Timing {
   const spoken: Record<string, Segment[]> = {};
   beats.forEach((beat, i) => {
     const scene = scenes[i] as TimedScene;
-    const staging = holdsFor(beat, source, format, theme, scene.id, speed);
+    const segments = narration?.beats[beat.id];
+    const staging = holdsFor(beat, source, format, theme, scene.id, speed, segments);
     scene.holds = staging.holds;
     scene.open = staging.open;
-    const segments = narration?.beats[beat.id];
     if (segments?.length) spoken[scene.id] = segments;
   });
 

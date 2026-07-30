@@ -823,6 +823,89 @@ same measurement goes from 0 of 1103 parts over 1.0s early to **222 of 1103**.
 The detector that is worthless today becomes load-bearing the instant the build
 is slowed. Land them together, or land the detector first.
 
+---
+
+## 13. THE BUILD FILLS THE SENTENCE, and the detector that had to ship with it
+
+§12 measured the remaining defect: **63% of all narration played over a picture
+that had already stopped moving**, because each beat's build covered only 10-56%
+of its sentence and then froze.
+
+### `fillFactor` + `stretchAfter`
+
+Each scene's reveals are slowed so the build finishes as the sentence does. Three
+things make it safe rather than the warp §12 rejected:
+
+**It is not `pace`.** A per-scene `pace` factor scales EVERYTHING, including the
+headline entrance the voice waits for, so `openSeconds` grows with the factor and
+every scene gains head silence — measured at 3.2s per deck, which is what §11
+just spent itself removing. `stretchAfter` is piecewise linear with ONE knot at
+`open`: chrome untouched, build stretched. A tween's new duration is
+`w(at + d) − w(at)`, so one straddling the knot keeps both endpoints exactly.
+
+**It cannot run slower than the deck was authored.** The ceiling is `1 / speed` —
+a duration target derives `animationSpeed` *below* 1 to make the reveals fit, and
+this gives back as much of that as the sentence can absorb and not one frame more.
+`max(1, …)` on the ceiling is load-bearing: at `--speed 2` the animation is
+deliberately slow, `1 / speed` is 0.5, and a bare `min` would turn the cap into a
+compressor. It also makes the factor exactly 1 at `animationSpeed: 1`, so an
+un-narrated deck is byte-identical — the `pace` identity preserved rather than
+re-argued. A test caught that; it was written wrong first.
+
+**One segment only.** `speechPlan` ignores `holds` for a single sentence, so the
+sentence's end does not move when the holds do. With two or more a later sentence
+WAITS for its reveal, so stretching moves the speech the stretch was computed
+from. Not worth a fixed point for a case that already spreads its sentences.
+
+`stageScene` is the single place pacing and filling happen, shared by `planCut`,
+`layout` and `holdsFor` — which matters because `assertHoldsAgree` only runs on a
+navigable format, so on `video-16x9` a divergence between the emitter and the
+manifest is invisible.
+
+### The detector, and why it is in the same commit
+
+`scanNarrationLead` warns when the narration names a part more than a second
+before it is drawn. §12 measured that this defect **did not exist**: 0 of 1103
+named parts, because the build ran ~4× faster than the voice.
+
+Slowing the build is exactly what makes it reachable. Measured on the same deck,
+same narration, the flag flipped by one line:
+
+```
+  without the stretch:  1 warning
+  with the stretch:     8 warnings
+```
+
+That is the whole argument for one commit rather than two. The detector is not a
+smoke alarm for a fire already burning; it is the one fitted before the gas is
+turned on. It is conservative in three ways — earliest-possible appearance,
+`scanHeadlines`'s five-character prefix match, and a full-second threshold — so
+it under-reports rather than crying wolf.
+
+### Measured
+
+| | §11 | §12 | §13 |
+|---|---|---|---|
+| length | 60.76s | 60.10s | 60.03s |
+| speech | 42.51s (70%) | 42.67s (71%) | 42.54s (71%) |
+| silence | 18.25s (30%) | 17.43s (29%) | 17.49s (29%) |
+| **static under the voice** | 63% | 63% | **18%** |
+| build covers its sentence | 10-56% | 10-56% | **24-100%**, six at 100% |
+
+The audio is deliberately unchanged — this moves pictures, not words. What a
+viewer sees is the diagram assembling across the whole sentence instead of
+snapping together in the first second and then sitting there.
+`renders/filled-12beat-60s.mp4`, with `fill-s5-building.png` (two stages, mid
+sentence) and `fill-s5-settled.png` (all four, as the voice ends).
+
+### STILL OPEN after §13
+
+The eight warnings are real and unfixed: the planner writes a sentence naming
+parts in an order the emitter does not draw them in. Nothing steers it yet, and
+per §9 a prompt rule about this can be met cosmetically — the honest lever is
+probably to let the beat declare its reveal ORDER from the sentence rather than
+the other way round.
+
 ### STILL OPEN after §11
 
 - **30% silence, not 15%.** The model predicts 16% (`open + SETTLE` per scene);

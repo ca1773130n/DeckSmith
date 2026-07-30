@@ -169,7 +169,7 @@ export { verify } from "./verify/index.js";
  * storyboard — no browser, no built deck — so a caller can run it on a plan
  * before spending anything on it, which is the only moment it is worth acting on.
  */
-export { scanHeadlines, scanRepeatedObject } from "./verify/index.js";
+export { scanHeadlines, scanNarrationLead, scanRepeatedObject } from "./verify/index.js";
 export { check, parseCheckReport } from "./verify/check.js";
 export type { CheckOptions } from "./verify/check.js";
 
