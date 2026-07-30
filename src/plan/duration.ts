@@ -73,23 +73,53 @@ export const MOTION_SHARE = 0.35;
 export const MIN_SENTENCE_CHARS = 30;
 
 /**
- * Characters below which a sentence captions rather than explains.
+ * The scene chrome's settle time at `animationSpeed: 1`, in seconds.
+ *
+ * The eyebrow runs at 0.15s over 0.5s and the headline at 0.3s over 0.6s, so the
+ * headline lands at 0.9s and that is when the voice may start. `openSeconds` in
+ * src/emit/composition.ts reads the real number off the real scene; this is the
+ * same number in closed form, because the budget has to be struck before any
+ * scene exists to measure. They agree by construction on every archetype that
+ * uses the shared chrome, and the emitter's measured value is what the deck is
+ * actually built with.
+ */
+export const OPEN_SECONDS_AT_SPEED = 0.9;
+
+/** Stillness after the last word, before the cut. `HANDOFF_SECONDS`. */
+export const SETTLE_SECONDS = 0.4;
+
+/**
+ * The sentence length this deck aims for: what "explains something" measures.
  *
  * MEASURED on `demo/storyboard.json`, the deck every other number in this file
  * is measured against: 39 narration sentences, mean 72.1 characters, median 74,
- * first quartile 59. The real 60s-over-12-slides plan came out at mean 40.1 and
- * median 40 — barely half — and the owner, watching it, said the sentences were
- * "too short with lack of explanation". So the floor is the demo's own first
- * quartile, rounded: under it this deck says less per slide than the worst
- * quarter of the deck that works.
+ * first quartile 59.
+ *
+ * IT WAS 60 — the first quartile — and that was the wrong number twice over. It
+ * was picked as a FLOOR, "below this a slide captions rather than explains", and
+ * the owner then rejected two decks that cleared it, both times in the same
+ * words: too short to explain the paper. A floor is what a deck must not go
+ * under; a target is what it should hit. `fastEnough` reads this as a target, so
+ * a bar set at the worst quarter of the deck that works produced decks at the
+ * worst quarter of the deck that works.
+ *
+ * So it is the MEAN of the deck that works. At a 60-second target over twelve
+ * slides that is reached at a `+10%` speaking rate, against the `+30%` the
+ * first-quartile bar demanded — more words AND more readable captions, because
+ * the seconds came from overlapping speech with motion rather than from speed.
  *
  * Distinct from `MIN_SENTENCE_CHARS`, which is where a sentence stops being a
  * sentence at all. Between the two the deck is perfectly buildable and thin,
  * and that is a thing to be TOLD rather than prevented — the arithmetic is not
  * wrong, it is just what the requested slide count costs, and only the author
  * can decide whether to spend slides or seconds to buy it back.
+ *
+ * RAISE THIS to make every deck say more, at the cost of the subtitle: the
+ * physical ceiling is the speech time a target has (`duration - slides * quiet`)
+ * times the fastest rate `RATE_STEPS` allows, which at 60s over twelve slides is
+ * about 94 characters a slide.
  */
-export const EXPLAINING_CHARS = 60;
+export const EXPLAINING_CHARS = 72;
 
 /** Broadcast subtitle practice. Past this the captions stop being readable. */
 export const COMFORTABLE_CPS = 17;
@@ -386,7 +416,15 @@ export function playbackWarning(factor: number, p95: number): string | undefined
 function budget(duration: number, slides: number, stops: number, cps: number) {
   const beatSeconds = duration / slides;
   const speed = round3(clamp((MOTION_SHARE * beatSeconds) / LAST_HOLD_SECONDS, 0.25, 1));
-  const speechSeconds = Math.max(0, beatSeconds - LAST_HOLD_SECONDS * speed);
+  // SPEECH AND MOTION OVERLAP, so the beat does not pay for both. It used to:
+  // `beatSeconds - lastHold * speed` reserved the whole build before a word was
+  // spoken, which is the arithmetic behind the 49%-silent video. The voice now
+  // starts when the headline lands and runs to a settle at the end, so what it
+  // cannot have is only those two — see `openSeconds` and `SETTLE_SECONDS` in
+  // src/emit/composition.ts, whose sum at the speeds a short target derives is
+  // about 0.75s against the 1.75s the old term took.
+  const quiet = OPEN_SECONDS_AT_SPEED * speed + SETTLE_SECONDS;
+  const speechSeconds = Math.max(0, beatSeconds - quiet);
   return { beatSeconds, speed, speechSeconds, chars: Math.round((speechSeconds * cps) / stops) };
 }
 

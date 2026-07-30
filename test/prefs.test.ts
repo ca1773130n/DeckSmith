@@ -99,7 +99,15 @@ describe("systemPrompt", () => {
       prefsSchema.parse({ slides: 7, lang: "ko", tone: "punchy", density: "sparse" }),
     );
 
-    expect(prompt).toMatch(/about 7 beats/);
+    // "Write 7 beats", not "about 7 beats". Four of the last five real plans came
+    // back short of the target — 8, 9, 9 and 10 against 12 — and the prompt was
+    // telling them that was fine ("a target to come close to, not a quota to
+    // fill"). It is not fine any more: `beatSeconds` derives from the REQUESTED
+    // count, so every missing beat is duration the finished video does not use.
+    expect(prompt).toMatch(/Write 7 beats/);
+    // The anti-padding half has to survive, or the cure is worse: RULE 9 exists
+    // because a visual repeated to say one more small thing reads as padding.
+    expect(prompt).toContain("PADDING");
     expect(prompt).toContain("Korean (ko)");
     expect(prompt).toMatch(/TONE\s+punchy/);
     expect(prompt).toMatch(/DENSITY\s+sparse/);

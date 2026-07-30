@@ -50,7 +50,7 @@
 import type { z } from "zod";
 import { CUE_MAX_CHARS, type Cue, splitCue } from "../deck/subtitles.js";
 import { emitScene } from "../emit/archetypes/index.js";
-import type { DeckNarration } from "../emit/composition.js";
+import { type DeckNarration, openSeconds, speechPlan } from "../emit/composition.js";
 import type { EmitContext } from "../emit/kit.js";
 import { pace, resolveTheme } from "../emit/theme.js";
 import type { DeckTheme } from "../emit/themes/index.js";
@@ -87,6 +87,12 @@ export interface TimedScene {
   duration: number;
   /** Absolute composition seconds: sorted, deduplicated, one per stop. */
   holds: number[];
+  /**
+   * Scene-relative seconds at which this scene may start speaking — when its
+   * headline has landed. Read from the same emit the holds come from, so the two
+   * cannot disagree. See `openSeconds`.
+   */
+  open: number;
 }
 
 export interface TimedSegment {
@@ -156,6 +162,7 @@ export function readSceneWindows(html: string): TimedScene[] {
       start: Number(m[2]),
       duration: Number(m[3]),
       holds: [],
+      open: 0,
     });
   }
   for (const [i, scene] of scenes.entries()) {
@@ -216,10 +223,18 @@ function holdsFor(
   theme: DeckTheme,
   sid: string,
   speed: number,
-): number[] {
+): { holds: number[]; open: number } {
   const ctx: EmitContext = { source, format, theme, sid };
   const scene = pace(emitScene(beat, ctx), speed);
-  return [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort((a, b) => a - b);
+  return {
+    holds: [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+      (a, b) => a - b,
+    ),
+    // From the SAME emit as the holds. `layout` sized this scene with the number
+    // this call reproduces, so a manifest that recomputed it any other way would
+    // be describing a deck that was not built.
+    open: openSeconds(scene),
+  };
 }
 
 /**
@@ -271,21 +286,30 @@ export function place(scenes: TimedScene[], spoken: Record<string, Segment[]>): 
         `${scene.id}: narrated but has no hold to speak at. Re-run \`narrate\` for this format.`,
       );
     }
-    let freezes = 0;
-    for (const segment of segments) {
+    // THE SPEECH CLOCK. Sentences run back to back from the moment the headline
+    // lands, and the picture is NOT waited for. Anchoring each sentence to its own
+    // hold is what put 93% of the deck's silence astride the cut: the voice sat
+    // out the entrance of every scene and then stopped while the beat finished
+    // building, so a viewer heard nothing for 1.0-3.4s at every slide change.
+    //
+    // `beatSeconds` reserved the room for this, so no freeze is needed to make it
+    // fit and `hold` is now only a description of the picture — kept because
+    // `assertFits` checks the sentence against the reveal it speaks over, and
+    // because a manifest that could not say which reveal a sentence belongs to
+    // could not be checked at all.
+    const { starts } = speechPlan(scene.open, scene.holds, segments);
+    for (const [i, segment] of segments.entries()) {
       const index = Math.min(segment.stop, scene.holds.length - 1);
-      const hold = scene.start + (scene.holds[index] as number);
       out.push({
         id: `${scene.id}.${segment.stop}`,
         scene: scene.id,
         stop: segment.stop,
         audio: segment.audio,
-        hold: round(hold),
-        start: round(hold + freezes),
+        hold: round(scene.start + (scene.holds[index] as number)),
+        start: round(scene.start + (starts[i] as number)),
         duration: segment.seconds,
         cues: segment.cues.flatMap((c) => splitCue(c, cueMax(c.text))),
       });
-      freezes += segment.seconds;
     }
   }
   return out;
@@ -305,13 +329,52 @@ export function assertFits(scenes: TimedScene[], segments: TimedSegment[]): void
   for (const scene of scenes) {
     const mine = segments.filter((s) => s.scene === scene.id);
     if (mine.length === 0) continue;
-    const lastHold = Math.max(...mine.map((s) => s.hold)) - scene.start;
+
+    // 1. THE SPEECH FITS. Everything is spoken inside the scene that owns it, so
+    //    no sentence is still running when the deck has cut to the next slide.
     const spoken = mine.reduce((sum, s) => sum + s.duration, 0);
-    const need = lastHold + spoken;
+    const need = scene.open + spoken;
     if (need > scene.duration + EPS) {
       throw new Error(
-        `${scene.id}: ${spoken.toFixed(2)}s of narration after a hold at ${lastHold.toFixed(2)}s needs ${need.toFixed(2)}s, but the scene is only ${scene.duration.toFixed(2)}s. Re-run \`build\` so \`beatSeconds\` can lengthen the beat; the video is not stretched to fit.`,
+        `${scene.id}: ${spoken.toFixed(2)}s of narration from ${scene.open.toFixed(2)}s needs ${need.toFixed(2)}s, but the scene is only ${scene.duration.toFixed(2)}s. Re-run \`build\` so \`beatSeconds\` can lengthen the beat; the video is not stretched to fit.`,
       );
+    }
+
+    // 2. THE MOTION FITS. `beatSeconds` reserves `lastHold + SETTLE`, so a reveal
+    //    landing outside its own scene means the manifest and the composition were
+    //    built from different numbers — the failure that puts every sentence of a
+    //    deck on the wrong picture, and the one no gate downstream can see.
+    const lastHold = Math.max(...mine.map((s) => s.hold)) - scene.start;
+    if (lastHold > scene.duration + EPS) {
+      throw new Error(
+        `${scene.id}: a reveal at ${lastHold.toFixed(2)}s falls outside its own ${scene.duration.toFixed(2)}s scene. The manifest disagrees with the composition; rebuild the deck.`,
+      );
+    }
+
+    // 3. THE SENTENCE IS HEARD OVER THE REVEAL IT DESCRIBES — the property the
+    //    speech clock gives up, so it is the one that has to be asserted rather
+    //    than assumed. This is NOT a restatement of the construction: `hold` comes
+    //    from `emitScene` via `holdsFor` and `start` comes from the measured mp3
+    //    lengths, so the two sides have no term in common and the comparison can
+    //    genuinely fail. It is what catches narration re-cut after the fact, or a
+    //    deck narrated for one format and built for another whose staging differs.
+    //
+    //    A CLAMPED stop is exempt, and only a clamped one: `place` maps a stop the
+    //    staging does not have onto the final hold deliberately — speaking late
+    //    over the finished picture beats dropping the sentence — so that
+    //    documented degradation must not become a hard failure. "Clamped" is
+    //    `stop >= holds.length`, which is a fact about the deck. Exempting "the
+    //    last segment" instead would have been the same size of code and would
+    //    have blinded the check to a real desync on the last sentence of every
+    //    scene, which is where a beat's deepest reveal lives.
+    for (const [i, seg] of mine.entries()) {
+      if (seg.stop >= scene.holds.length) continue;
+      const ends = mine[i + 1]?.start ?? seg.start + seg.duration;
+      if (seg.hold > ends + EPS) {
+        throw new Error(
+          `${seg.id}: the reveal it speaks over lands at ${(seg.hold - scene.start).toFixed(2)}s, after the sentence has already finished at ${(ends - scene.start).toFixed(2)}s. The voice would describe a picture the viewer cannot see yet. Re-run \`narrate\` for this format.`,
+        );
+      }
     }
   }
 }
@@ -370,7 +433,9 @@ export function planTiming(input: TimingInput): Timing {
   const spoken: Record<string, Segment[]> = {};
   beats.forEach((beat, i) => {
     const scene = scenes[i] as TimedScene;
-    scene.holds = holdsFor(beat, source, format, theme, scene.id, speed);
+    const staging = holdsFor(beat, source, format, theme, scene.id, speed);
+    scene.holds = staging.holds;
+    scene.open = staging.open;
     const segments = narration?.beats[beat.id];
     if (segments?.length) spoken[scene.id] = segments;
   });

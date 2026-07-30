@@ -380,11 +380,18 @@ ${
            spent below: it is where the ${prefs.slides}-beat target and the sentence length
            come from. Do not restate it, and never mention it in a beat.\n`
 }
-LENGTH     Aim for about ${prefs.slides} beats. That is a target to come close to, not a
-           quota to fill. Padding to reach it — a beat restating an earlier one, a
-           divider nobody needed, a visual repeated to say one more small thing —
-           costs the deck more than being short does. A thin source yields a short
-           deck, and that is the right answer rather than a failure.
+LENGTH     Write ${prefs.slides} beats. Each one you leave out is ${
+    prefs.duration === undefined
+      ? "a piece of the explanation the viewer never gets"
+      : `about ${Math.round(prefs.duration / prefs.slides)} seconds the finished video does not use and roughly ${plan.chars ?? 0} characters it never says`
+  } — four
+           of the last five plans came back short and each one lost that much of
+           its explanation, so treat ${prefs.slides} as the number and not as a ceiling.
+           What is still forbidden is PADDING to reach it: a beat restating an
+           earlier one, a divider nobody needed, a visual repeated to say one more
+           small thing. Those cost more than being short does. If the source
+           genuinely will not carry ${prefs.slides} distinct points, say fewer — but split a
+           point that has two halves before you drop one.
 LANGUAGE   Write every word the audience sees or hears in ${languageName(prefs.lang)}:
            headlines, eyebrows, claims, labels, notes, and every narration
            sentence. Write it in that language rather than translating an English
