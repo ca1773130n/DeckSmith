@@ -33,7 +33,14 @@ import {
 } from "./camera.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, tweenText } from "./kit.js";
-import { baseCss, type DeckTheme, FONT_BUNDLE_HREF, pace, resolveTheme } from "./theme.js";
+import {
+  baseCss,
+  type DeckTheme,
+  FONT_BUNDLE_HREF,
+  pace,
+  resolveTheme,
+  stretchAfter,
+} from "./theme.js";
 
 /** Pinned: a floating CDN version would break determinism between renders. */
 /**
@@ -195,8 +202,13 @@ export function planCut(
   const floor = storyboard.beats.filter((b) => b.weight >= format.minWeight);
   const seconds: Record<string, number> = {};
   floor.forEach((beat, i) => {
-    const scene = pace(emitScene(beat, { source, format, theme, sid: `s${i + 1}` }), speed);
-    const own = beatSeconds(beat.seconds * speed, scene, opts.narration?.beats[beat.id]);
+    const segments = opts.narration?.beats[beat.id];
+    const { scene } = stageScene(
+      emitScene(beat, { source, format, theme, sid: `s${i + 1}` }),
+      speed,
+      segments,
+    );
+    const own = beatSeconds(beat.seconds * speed, scene, segments);
     // A camera's travel-and-dip is part of what this beat costs the deck's TOTAL
     // — `layout` adds `diveTail` to this same beat's window — so a selection
     // blind to it under-counts by 1.8s per dive and hands `verify` a cut that
@@ -285,8 +297,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
-    const scene = pace(emitScene(beat, ctx), speed);
     const segments = opts.narration?.beats[beat.id];
+    const { scene } = stageScene(emitScene(beat, ctx), speed, segments);
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);
 
     // A camera leaves from this scene only if the NEXT surviving beat says it
@@ -507,6 +519,81 @@ function beatSeconds(authored: number, scene: Scene, segments?: Segment[]): numb
   );
   const ends = speechPlan(openSeconds(scene), usable, segments).end;
   return Math.max(authored, lastHold + SETTLE_SECONDS, ends + SETTLE_SECONDS);
+}
+
+/**
+ * The scene as the deck actually contains it: paced, then filled.
+ *
+ * ONE function because three callers have to agree exactly — `planCut` measures
+ * with it, `layout` emits with it, and `holdsFor` in src/render/timing.ts builds
+ * the manifest with it. `assertHoldsAgree` cross-checks the last against the
+ * island the first two wrote, but ONLY on a navigable format; `video-16x9` and
+ * `short-9x16` carry no island, so on the artifact anybody actually watches a
+ * divergence between them is invisible. Sharing the code is the only thing that
+ * makes them the same answer.
+ */
+export function stageScene(
+  scene: Scene,
+  speed: number,
+  segments?: readonly Segment[],
+): { scene: Scene; open: number; k: number } {
+  const paced = pace(scene, speed);
+  const { open, k } = fillFactor(paced, speed, segments);
+  return { scene: k === 1 ? paced : stretchAfter(paced, open, k), open, k };
+}
+
+/**
+ * Slow this scene's reveals so its build finishes as its sentence does.
+ *
+ * THE DEFECT, measured on the shipped 60-second deck: the build covers 10-56% of
+ * its sentence and then stops, so **63% of all narration plays over a picture
+ * that has already stopped moving** — 31.19s of 49.68s. The voice and the motion
+ * are simultaneous but uncorrelated, which is what a viewer reads as the slide
+ * being finished while someone keeps talking about it.
+ *
+ * ONE SEGMENT ONLY, deliberately. `speechPlan` ignores `holds` entirely when a
+ * beat has a single sentence (`if (i > 0)`), so the sentence's end does not move
+ * when the holds do and this is a plain calculation. With two or more, a later
+ * sentence WAITS for its own reveal, so stretching the reveals moves the speech
+ * that the stretch was computed from — circular, and the fixed point is not worth
+ * chasing for a case that already spreads its sentences across its stops. That is
+ * `density: low`, which is the case the defect was measured in.
+ *
+ * NEVER COMPRESSES. A build already longer than its sentence is left alone: the
+ * factor floors at 1, so the reveals can only slow down. Speeding them up to meet
+ * a short sentence would be cutting the animation the author asked for.
+ *
+ * CAPPED SO THE SCENE NEVER RUNS SLOWER THAN IT WAS AUTHORED. A duration target
+ * derives an `animationSpeed` below 1 to make the reveals fit; this gives back as
+ * much of that as the sentence can absorb, and not one frame more. The ceiling is
+ * therefore `1 / speed` — at the 0.417 a 60-second target derives, the reveals may
+ * be slowed by up to 2.4× to land back at the pace the archetype was written for.
+ *
+ * `max(1, …)` on the ceiling matters and is not defensive noise: at `--speed 2`
+ * the animation is DELIBERATELY slow, `1 / speed` is 0.5, and a bare `min` would
+ * turn the cap into a compressor and speed the reveals up. It also means the
+ * factor is exactly 1 at `animationSpeed: 1`, so a deck built without a duration
+ * target is byte-identical — the identity `pace` gives, preserved rather than
+ * re-argued.
+ */
+export function fillFactor(
+  scene: Scene,
+  speed: number,
+  segments?: readonly Segment[],
+): { open: number; k: number } {
+  const open = openSeconds(scene);
+  if (!segments || segments.length !== 1) return { open, k: 1 };
+  const usable = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+    (a, b) => a - b,
+  );
+  const lastHold = usable[usable.length - 1];
+  // Nothing to spread: a beat with no reveal after the chrome has no build.
+  if (lastHold === undefined || lastHold <= open) return { open, k: 1 };
+  const spoken = (segments[0] as Segment).seconds;
+  const want = open + spoken - lastHold;
+  const have = lastHold - open;
+  const ceiling = Math.max(1, speed > 0 ? 1 / speed : 1);
+  return { open, k: rnd(Math.min(Math.max(1, (have + want) / have), ceiling)) };
 }
 
 /**

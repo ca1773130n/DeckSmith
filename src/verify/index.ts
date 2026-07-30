@@ -9,6 +9,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { DECK_PAGE } from "../emit/composition.js";
+import { TIMING_FILE } from "../render/timing.js";
 import { type Beat, DIAGRAMMATIC, type Finding, type Storyboard, type Verdict } from "../types.js";
 import { scanBudget } from "./budget.js";
 import { type CheckOptions, check } from "./check.js";
@@ -113,7 +114,11 @@ export async function verify(
   );
   const budget = html.flatMap(([, text]) => scanBudget(text, storyboard, kept));
   const type = html.flatMap(([file, text]) => scanTypeFloor(text, file));
-  const ours = [...determinism, ...narration, ...budget, ...type];
+  // Needs the manifest AND the beats it was built from, so it runs only where
+  // both are in hand — `build`, not `verify <dir>`. Absent either, silence: a
+  // check that cannot see its inputs must not report that it found nothing.
+  const lead = kept ? await readTiming(dir).then((t) => (t ? scanNarrationLead(kept, t) : [])) : [];
+  const ours = [...determinism, ...narration, ...budget, ...type, ...lead];
   // Both boot a Chrome, and they boot different ones, so they overlap almost
   // perfectly rather than contending: `check` is a child process pinning ~40% of
   // one core (scripts/score.mjs measured that), this one is in-process.
@@ -189,6 +194,27 @@ export function scanNarration(page: string, files: ReadonlySet<string>): Finding
       message: `${missing.size} narration file(s) named by ${DECK_PAGE} are not in the deck: ${[...missing].sort().slice(0, 5).join(", ")}. Re-run \`decksmith build\` with --narration.`,
     },
   ];
+}
+
+/**
+ * The manifest `build` wrote, or `undefined` if there is not one.
+ *
+ * Absent is ORDINARY, not an error: an un-narrated deck has no timing.json, and
+ * `build` deliberately writes none when the narration cannot be placed — that
+ * failure is already reported where it happens, and reporting it twice from a
+ * gate would say the deck is broken in two ways when it is broken in one.
+ */
+async function readTiming(
+  dir: string,
+): Promise<Parameters<typeof scanNarrationLead>[1] | undefined> {
+  const raw = await readFile(join(dir, TIMING_FILE), "utf8").catch(() => "");
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.scenes) && Array.isArray(parsed?.segments) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Deck-relative paths of everything that shipped, for the narration gate. */
@@ -383,6 +409,116 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
     }
   }
   return findings;
+}
+
+/**
+ * How far a name may precede the thing it names before a viewer notices.
+ *
+ * A second, which is generous on purpose. The word position inside a cue is
+ * estimated proportionally by character offset — the same model `splitCue`
+ * already uses — so it carries a few hundred milliseconds of error, and a
+ * threshold tighter than that would be reporting its own arithmetic.
+ */
+export const LEAD_SECONDS = 1;
+
+/**
+ * Warn when the narration names a part before that part is on screen.
+ *
+ * `scanHeadlines` one level down, and the reason it did not exist until now is
+ * worth keeping: THE DEFECT WAS NOT REACHABLE. Measured across all 136 plans in
+ * `experiments/` and `demo/` — 1103 named parts over 337 containers, every word
+ * placed on the scene clock at the speed a 60-second target derives — the lead
+ * came out at median −6.87s, p90 −2.47s, maximum +0.87s, and **zero** parts were
+ * named more than a second early. Transplanting §9's own defect sentence onto a
+ * real pipeline produced zero early names too. The build ran roughly four times
+ * faster than the voice, so the narration simply could not outrun the picture.
+ *
+ * `fillFactor` is what makes it reachable. Slowing each scene's build to fill its
+ * sentence takes that same measurement from 0 of 1103 to 222 of 1103 — the words
+ * stay put and the pictures they describe move later. So this ships in the same
+ * change as the stretch, not after it: the detector is not a smoke alarm for a
+ * fire already burning, it is the one fitted before the gas is turned on.
+ *
+ * CONSERVATIVE BY CONSTRUCTION, in three ways, because a warning that cries wolf
+ * is a warning people learn to scroll past:
+ *   - a part is assumed to appear at the EARLIEST hold that could be its own,
+ *     `holds[min(j, last)]`. Where an archetype spends its first hold on a
+ *     landing rather than a part, the real appearance is later than this and the
+ *     finding is missed rather than invented.
+ *   - only labels the narration actually names are considered, by the same
+ *     five-character prefix match `scanHeadlines` uses — tuned on exactly this
+ *     problem, where the headline said "encoding" and the stage was `Encoder`.
+ *   - the word's time inside its cue is estimated proportionally, and the
+ *     threshold is a whole second.
+ *
+ * A warning, never an error. Which sentence describes which reveal is editorial,
+ * and `place` already guarantees the containment that matters — no sentence ends
+ * before the reveal it speaks over appears (`assertFits`).
+ */
+export function scanNarrationLead(
+  beats: readonly Beat[],
+  timing: {
+    scenes: readonly { id: string; start: number; holds: readonly number[] }[];
+    segments: readonly {
+      scene: string;
+      start: number;
+      cues: readonly { start: number; end: number; text: string }[];
+    }[];
+  },
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const [i, scene] of timing.scenes.entries()) {
+    const beat = beats[i];
+    if (!beat || scene.holds.length === 0) continue;
+    const labels = partLabels(beat.params as Record<string, unknown>);
+    if (labels.length === 0) continue;
+    const mine = timing.segments.filter((s) => s.scene === scene.id);
+    if (mine.length === 0) continue;
+
+    const early: string[] = [];
+    for (const [j, label] of labels.entries()) {
+      const appears = scene.start + (scene.holds[Math.min(j, scene.holds.length - 1)] as number);
+      const said = firstMention(mine, label);
+      if (said !== undefined && said + LEAD_SECONDS < appears) {
+        early.push(`"${label}" at ${said.toFixed(1)}s, drawn at ${appears.toFixed(1)}s`);
+      }
+    }
+    if (early.length > 0) {
+      findings.push({
+        severity: "warning",
+        gate: "narration",
+        rule: "name_before_reveal",
+        message: `${beat.id}: the narration names ${early.length} part(s) more than ${LEAD_SECONDS}s before they are drawn — ${early.join("; ")}. The viewer hears the word over a picture that does not have it yet. Reorder the sentence, or let the beat build faster.`,
+      });
+    }
+  }
+  return findings;
+}
+
+/** When a label is first spoken, in absolute seconds, or `undefined`. */
+function firstMention(
+  segments: readonly {
+    start: number;
+    cues: readonly { start: number; end: number; text: string }[];
+  }[],
+  label: string,
+): number | undefined {
+  for (const segment of segments) {
+    for (const cue of segment.cues) {
+      const words = cue.text.split(/\s+/);
+      let at = 0;
+      for (const word of words) {
+        if (mentions(word, label)) {
+          // Proportional within the cue, which is the model `splitCue` uses to
+          // decide where a cue breaks in the first place.
+          const share = cue.text.length > 0 ? at / cue.text.length : 0;
+          return segment.start + cue.start + share * (cue.end - cue.start);
+        }
+        at += word.length + 1;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**

@@ -219,6 +219,56 @@ function paceTween(t: Tween, speed: number): Tween {
 }
 
 /**
+ * Slow a scene's REVEALS without touching the chrome that precedes them.
+ *
+ * WHY NOT `pace`. The problem this solves is that a beat's build finishes long
+ * before its sentence does — measured on the shipped 60-second deck, the build
+ * covers 10-56% of its sentence and then the picture sits still for the rest,
+ * which is 63% of all narration. The obvious fix is a per-scene `pace` factor,
+ * and it is wrong: `pace` scales EVERYTHING, including the headline entrance the
+ * voice waits for, so `openSeconds` grows with the factor and every scene gains
+ * head silence. Measured at 3.2s per deck, which is the silence §11 just spent
+ * itself removing.
+ *
+ * So the map is piecewise linear with ONE knot, at `from`:
+ *
+ *     t <= from        ->  t                        (chrome, untouched)
+ *     t >  from        ->  from + (t - from) * k    (the build, stretched)
+ *
+ * A tween's new duration is `w(at + d) - w(at)` — a length in warped time rather
+ * than a scaled number — so a tween that straddles the knot keeps its endpoints
+ * exactly and only the ones wholly inside a segment get a uniform scale. Both
+ * cases are exact; there is no averaging anywhere.
+ *
+ * INVARIANT 11. This is arithmetic on `Tween.at` and `Tween.to.duration` before
+ * the timeline is ever serialised, structurally identical to `pace`. Nothing is
+ * written from a callback and nothing is read at capture time.
+ *
+ * `k === 1` returns the scene untouched, by construction rather than by
+ * arithmetic that happens to round back — the same guarantee `pace` gives at
+ * speed 1, and what keeps an un-narrated deck byte-identical.
+ */
+export function stretchAfter(scene: Scene, from: number, k: number): Scene {
+  if (k === 1) return scene;
+  const w = (t: number) => (t <= from ? t : from + (t - from) * k);
+  return {
+    ...scene,
+    tl: scene.tl.map((t) => {
+      const d = typeof t.to.duration === "number" ? t.to.duration : 0;
+      // The local slope, exact for any tween lying wholly on one side of the
+      // knot and exact in TOTAL for one that straddles it.
+      const slope = d > 0 ? (w(t.at + d) - w(t.at)) / d : 1;
+      return { ...t, at: round(w(t.at)), from: paceVars(t.from, slope), to: paceVars(t.to, slope) };
+    }),
+    // Three places, for the reason `pace` documents below: `emitIsland` and the
+    // scene divs both publish `round3(start + hold)`, and a hold kept at four
+    // survives that rounding differently depending on the scene start it lands
+    // on — which made `assertHoldsAgree` compare 87.200 against 87.199.
+    holds: scene.holds.map((h) => round3(w(h))),
+  };
+}
+
+/**
  * Recursive, because `stagger` and `snap` both nest, and because the text this
  * replaced was scanned end to end — a `duration` at any depth was scaled, and a
  * pass that only looked one level down would silently stop pacing the grid
