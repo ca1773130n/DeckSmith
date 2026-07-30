@@ -438,21 +438,111 @@ function withCamera(
 }
 
 /**
+ * How long the finished picture is held after the last word, before the cut.
+ *
+ * `HANDOFF_SECONDS`, deliberately: the outgoing scene's dissolve begins where its
+ * slide ends, so the settled frame gets exactly one handoff of stillness before
+ * it starts fading. Two scenes therefore have `SETTLE + open` between them — a
+ * breath, against the 1.86-3.44s of dead air measured on the deck this replaces.
+ */
+export const SETTLE_SECONDS = HANDOFF_SECONDS;
+
+/**
+ * When the voice may start inside a scene: as soon as the headline has landed.
+ *
+ * MEASURED off the scene rather than fixed, which is the whole point. The chrome
+ * is `#sid-e` at 0.15s over 0.5s and `#sid-h` at 0.3s over 0.6s, so it settles at
+ * 0.9s unpaced — but `pace` has already scaled the scene by the time this is
+ * asked, so at the 0.417 a 60-second target derives the same headline lands at
+ * 0.375s. A constant would have been right at one speed and wrong at every other,
+ * and starting the voice over a 46%-opacity headline is the failure it would have
+ * shipped.
+ *
+ * Falls back to the first hold when a scene draws no chrome, which is the same
+ * answer the deck gives today.
+ */
+export function openSeconds(scene: Scene): number {
+  let settled = 0;
+  for (const t of scene.tl) {
+    const target = String(t.target);
+    if (!/-[eh]$/.test(target)) continue;
+    const d = typeof t.to.duration === "number" ? t.to.duration : 0;
+    settled = Math.max(settled, t.at + d);
+  }
+  if (settled > 0) return rnd(settled);
+  const first = scene.holds.filter((h) => Number.isFinite(h) && h > 0).sort((a, b) => a - b)[0];
+  return rnd(first ?? 0);
+}
+
+/**
  * How long a beat lasts once it has something to say.
  *
- * The timing model is that speech drives the deck: a stop lasts as long as the
- * sentence spoken at it, not as long as a number someone typed into `seconds`.
- * A linear render has no stops to pause at, so the equivalent is the last reveal
- * plus every measured segment — enough room for all the motion and all the
- * words. Never shorter than the authored length, because a hold outside its own
- * slide window fails `emitIsland` (invariant 8), and never anything at all when
- * the beat is silent, so an un-narrated deck emits the bytes it always did.
+ * WAS `max(authored, lastHold + spoken)`, which stated as arithmetic that speech
+ * and motion are CONSECUTIVE: the voice waited for the beat's FIRST hold and the
+ * beat then reserved room out to its LAST one plus the whole sentence, so every
+ * second of speech bought a second of frozen picture. Measured on the 60-second
+ * deck that shipped: 49% of the video was silence, and 93% of that silence sat
+ * astride the cut between slides — the tail one scene reserved and never used,
+ * running straight into the head the next one spent waiting. Ten gaps of 1.0-3.4s,
+ * one at every slide change, which is exactly where a viewer reads it as the deck
+ * having nothing to say.
+ *
+ * The two terms now OVERLAP. The voice starts as soon as the headline lands and
+ * runs continuously; the reveals play underneath it. So a beat is as long as the
+ * longer of the two things happening in it, plus a breath to settle on:
+ *
+ *     max(authored, lastHold + SETTLE, open + spoken + SETTLE)
+ *
+ * `lastHold + SETTLE` is what keeps the motion from being cut off when a beat
+ * builds for longer than its sentence — invariant 8 still holds, a hold can never
+ * fall outside its own slide. `authored` still wins when the author asked for more
+ * room than either needs. And a silent beat is untouched, so an un-narrated deck
+ * emits the bytes it always did.
  */
 function beatSeconds(authored: number, scene: Scene, segments?: Segment[]): number {
   if (!segments?.length) return authored;
   const lastHold = scene.holds.reduce((a, b) => Math.max(a, b), 0);
-  const spoken = segments.reduce((sum, s) => sum + s.seconds, 0);
-  return Math.max(authored, lastHold + spoken);
+  const usable = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+    (a, b) => a - b,
+  );
+  const ends = speechPlan(openSeconds(scene), usable, segments).end;
+  return Math.max(authored, lastHold + SETTLE_SECONDS, ends + SETTLE_SECONDS);
+}
+
+/**
+ * When each sentence of a beat is spoken, on one continuous clock.
+ *
+ * THE FIRST SENTENCE NEVER WAITS. It describes the beat arriving, the headline is
+ * already up by `open`, and making it wait for the first reveal is what put
+ * 0.65-1.52s of silence at the head of every scene — which ran straight into the
+ * tail of the one before it and became a 1.0-3.4s hole at every slide change.
+ *
+ * A LATER SENTENCE WAITS FOR THE REVEAL IT NAMES, and only when the clock has not
+ * already passed it. That is the whole synchronisation rule and it is one
+ * `Math.max`. When speech is dense — a short target, the case this was built for —
+ * the clock is always ahead, so the sentences run back to back with no gap at all.
+ * When the animation is deliberately slowed (`--speed 2`), the build outruns the
+ * voice and each sentence waits for its own reveal rather than describing a
+ * picture that is still seconds away. The gap that opens there is not dead air:
+ * it is the motion the author asked to be slow enough to watch.
+ *
+ * Shared by `beatSeconds` and `place` so the room RESERVED and the room USED are
+ * one piece of arithmetic rather than two statements of it that can drift apart.
+ */
+export function speechPlan(
+  open: number,
+  holds: readonly number[],
+  segments: readonly Segment[],
+): { starts: number[]; end: number } {
+  const starts: number[] = [];
+  let at = open;
+  for (const [i, segment] of segments.entries()) {
+    const hold = holds[Math.min(segment.stop, holds.length - 1)] ?? 0;
+    if (i > 0) at = Math.max(at, hold);
+    starts.push(at);
+    at += segment.seconds;
+  }
+  return { starts, end: at };
 }
 
 export function emitComposition(

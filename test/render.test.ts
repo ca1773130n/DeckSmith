@@ -326,7 +326,7 @@ describe("planTiming", () => {
 });
 
 describe("assertHoldsAgree", () => {
-  const scene: TimedScene = { id: "s1", start: 0, duration: 10, holds: [2, 4] };
+  const scene: TimedScene = { id: "s1", start: 0, duration: 10, holds: [2, 4], open: 0 };
 
   it("passes when the emitter and the island say the same thing", () => {
     expect(() => assertHoldsAgree([scene], { s1: [2, 4] })).not.toThrow();
@@ -343,7 +343,7 @@ describe("assertHoldsAgree", () => {
 /* ---------------------------------------------------------------- Placement */
 
 describe("place", () => {
-  const scene: TimedScene = { id: "s1", start: 10, duration: 40, holds: [1.5, 3, 4.5] };
+  const scene: TimedScene = { id: "s1", start: 10, duration: 40, holds: [1.5, 3, 4.5], open: 0 };
   const spoken = {
     s1: [
       { stop: 0, text: "", audio: "a.mp3", seconds: 5, cues: [] },
@@ -352,12 +352,34 @@ describe("place", () => {
     ],
   };
 
-  it("starts each segment on its own reveal, once the earlier freezes are in", () => {
-    const placed = place([scene], spoken);
-    // Holds are absolute 11.5, 13, 14.5. The video freezes for 5s at the first
-    // and 6s at the second, so the third sentence begins at 14.5 + 5 + 6.
+  /**
+   * WAS "starts each segment on its own reveal, once the earlier freezes are in",
+   * pinning `[11.5, 18, 25.5]` — each sentence anchored to its hold, with the
+   * earlier freezes pushed in front of it.
+   *
+   * That is the arithmetic that made the shipped 60-second deck 49% silent, and
+   * 93% of that silence sat astride the cut between slides: the voice waited out
+   * every scene's entrance and then stopped while the beat finished building.
+   * Sentences now run back to back from the moment the headline lands, and the
+   * picture is not waited for.
+   */
+  it("runs the sentences back to back from the moment the headline lands", () => {
+    const placed = place([{ ...scene, open: 0.9 }], spoken);
+    // Scene starts at 10, headline lands at 0.9, sentences are 5s, 6s, 7s.
+    expect(placed.map((s) => s.start)).toEqual([10.9, 15.9, 21.9]);
+    // `hold` still says which reveal each sentence speaks over — it is what
+    // `assertFits` checks the placement against, and the two are now derived from
+    // genuinely different things.
     expect(placed.map((s) => s.hold)).toEqual([11.5, 13, 14.5]);
-    expect(placed.map((s) => s.start)).toEqual([11.5, 18, 25.5]);
+  });
+
+  it("leaves no gap between one sentence and the next", () => {
+    // The whole point: continuous speech. Any gap here is dead air a viewer hears.
+    const placed = place([{ ...scene, open: 0.9 }], spoken);
+    for (let i = 1; i < placed.length; i++) {
+      const previous = placed[i - 1] as (typeof placed)[number];
+      expect(placed[i]?.start).toBeCloseTo(previous.start + previous.duration, 9);
+    }
   });
 
   it("never overlaps two sentences", () => {
@@ -385,7 +407,7 @@ describe("place", () => {
 
   it("refuses to place a sentence on a scene that never holds", () => {
     expect(() =>
-      place([{ id: "s1", start: 0, duration: 10, holds: [] }], {
+      place([{ id: "s1", start: 0, duration: 10, holds: [], open: 0 }], {
         s1: [{ stop: 0, text: "", audio: "a.mp3", seconds: 3, cues: [] }],
       }),
     ).toThrow(/no hold to speak at/);
@@ -397,22 +419,90 @@ describe("place", () => {
 });
 
 describe("assertFits", () => {
-  const scene: TimedScene = { id: "s1", start: 0, duration: 10, holds: [2] };
+  const scene: TimedScene = { id: "s1", start: 0, duration: 10, holds: [2], open: 0.9 };
 
   it("passes the exact fit beatSeconds produces", () => {
-    // `beatSeconds` sizes a narrated beat at lastHold + spoken, so the ordinary
-    // case is equality, and equality must not read as overflow.
+    // `beatSeconds` sizes a narrated beat at `open + spoken + SETTLE`, so the
+    // ordinary case is equality, and equality must not read as overflow.
     const segments = place([scene], {
-      s1: [{ stop: 0, text: "", audio: "a.mp3", seconds: 8, cues: [] }],
+      s1: [{ stop: 0, text: "", audio: "a.mp3", seconds: 9.1, cues: [] }],
     });
     expect(() => assertFits([scene], segments)).not.toThrow();
   });
 
   it("fails loudly rather than truncating a sentence", () => {
     const segments = place([scene], {
-      s1: [{ stop: 0, text: "", audio: "a.mp3", seconds: 8.5, cues: [] }],
+      s1: [{ stop: 0, text: "", audio: "a.mp3", seconds: 9.5, cues: [] }],
     });
     expect(() => assertFits([scene], segments)).toThrow(/the video is not stretched to fit/);
+  });
+
+  /**
+   * THE CHECK THAT REPLACES A GUARANTEE. While the picture was frozen at the hold
+   * a sentence spoke over, sync was true by construction and unfalsifiable. The
+   * speech clock gives that up, so it has to be asserted — and the assertion is
+   * only worth having because its two sides come from genuinely different places:
+   * `hold` from `emitScene` via `holdsFor`, `start` from the measured mp3 lengths.
+   */
+  it("refuses a sentence that ends before the reveal it speaks over appears", () => {
+    // Hand-built rather than placed, because `speechPlan` now makes this
+    // impossible to construct — which is the point of it. What is left for the
+    // check to catch is a manifest that DISAGREES with the composition: narration
+    // re-cut after the deck was built, or a deck narrated for one format and
+    // built for another whose staging is deeper. Both put every sentence of a
+    // beat on the wrong picture, and nothing downstream can see it.
+    const deep: TimedScene = { id: "s1", start: 0, duration: 20, holds: [1, 12], open: 0.5 };
+    const stale = [
+      {
+        id: "s1.0",
+        scene: "s1",
+        stop: 0,
+        audio: "a.mp3",
+        hold: 1,
+        start: 0.5,
+        duration: 2,
+        cues: [],
+      },
+      {
+        id: "s1.1",
+        scene: "s1",
+        stop: 1,
+        audio: "b.mp3",
+        hold: 12,
+        start: 2.5,
+        duration: 3,
+        cues: [],
+      },
+    ];
+    // Sentence two runs 2.5-5.5s but speaks over a reveal at 12s — the voice
+    // would describe a picture that is still six and a half seconds away.
+    expect(() => assertFits([deep], stale)).toThrow(/cannot see yet/);
+  });
+
+  it("makes a later sentence wait for its own reveal when the build is slow", () => {
+    // The other half of the same rule, and the reason the case above can only be
+    // reached by a stale manifest. `--speed 2` slows the animation without
+    // shortening the narration, so the voice would otherwise run ahead of the
+    // picture. It waits instead, and the gap is motion worth watching.
+    const deep: TimedScene = { id: "s1", start: 0, duration: 20, holds: [1, 12], open: 0.5 };
+    const placed = place([deep], {
+      s1: [
+        { stop: 0, text: "", audio: "a.mp3", seconds: 2, cues: [] },
+        { stop: 1, text: "", audio: "b.mp3", seconds: 3, cues: [] },
+      ],
+    });
+    expect(placed.map((s) => s.start)).toEqual([0.5, 12]);
+    expect(() => assertFits([deep], placed)).not.toThrow();
+  });
+
+  it("still speaks a clamped stop late over the finished picture", () => {
+    // `place` deliberately clamps a surplus stop onto the last hold rather than
+    // dropping the sentence. That degradation is documented and must not become a
+    // hard failure, so the check exempts the final segment.
+    const segments = place([scene], {
+      s1: [{ stop: 9, text: "", audio: "z.mp3", seconds: 3, cues: [] }],
+    });
+    expect(() => assertFits([scene], segments)).not.toThrow();
   });
 });
 
@@ -428,8 +518,8 @@ const timing: Timing = {
   audioDir: "audio",
   voice: "v",
   scenes: [
-    { id: "s1", start: 0, duration: 10, holds: [2] },
-    { id: "s2", start: 10, duration: 20, holds: [4, 8] },
+    { id: "s1", start: 0, duration: 10, holds: [2], open: 0 },
+    { id: "s2", start: 10, duration: 20, holds: [4, 8], open: 0 },
   ],
   segments: [
     {
@@ -510,7 +600,7 @@ describe("framePlan", () => {
     const camera: Timing = {
       ...timing,
       duration: 9.8,
-      scenes: [{ id: "s1", start: 0, duration: 9.8, holds: [1, 3] }],
+      scenes: [{ id: "s1", start: 0, duration: 9.8, holds: [1, 3], open: 0 }],
       segments: [
         {
           id: "s1.0",
@@ -575,7 +665,7 @@ describe("framePlan", () => {
   it("throws when the freezes overrun the scene rather than producing a short video", () => {
     const tight: Timing = {
       ...timing,
-      scenes: [{ id: "s1", start: 0, duration: 5, holds: [2] }],
+      scenes: [{ id: "s1", start: 0, duration: 5, holds: [2], open: 0 }],
       segments: [{ ...(timing.segments[0] as Timing["segments"][number]), duration: 9 }],
     };
     expect(() => framePlan(tight, 30)).toThrow(/does not fit/);
@@ -593,7 +683,7 @@ describe("framePlan", () => {
       lang: "en",
       audioDir: "audio",
       voice: "v",
-      scenes: [{ id: "s1", start: 0, duration: 10, holds: [2] }],
+      scenes: [{ id: "s1", start: 0, duration: 10, holds: [2], open: 0 }],
       segments: [
         {
           id: "s1.0",
@@ -665,7 +755,7 @@ describe("framePlan", () => {
     const pipeline: Timing = {
       ...timing,
       duration,
-      scenes: [{ id: "s1", start: 0, duration, holds }],
+      scenes: [{ id: "s1", start: 0, duration, holds, open: 0 }],
       segments: [
         {
           id: "s1.0",

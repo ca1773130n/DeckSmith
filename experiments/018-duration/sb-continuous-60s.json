@@ -1,0 +1,518 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b01-title",
+      "intent": "The problem is a mismatch between compact CTM thought and dense super-resolution output.",
+      "claim": "CTM's thought representation is compact; super-resolution needs a dense spatial field.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec1"
+        }
+      ],
+      "narration": "The challenge is keeping compact reasoning tied to every image location.",
+      "weight": 0.93,
+      "seconds": 5,
+      "archetype": "title",
+      "params": {
+        "eyebrow": "ThinkSR",
+        "headline": "Compact thought must produce dense super-resolution.",
+        "sub": "CTM reasoning needs a spatial carrier."
+      }
+    },
+    {
+      "id": "b02-compare",
+      "intent": "ThinkSR is framed against CTM and a window-wise adaptation.",
+      "claim": "CTM, a window-wise adaptation, and DQ-CTM compared.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-compare"
+        }
+      ],
+      "narration": "The comparison shows why a direct compact thought is not enough.",
+      "weight": 0.72,
+      "seconds": 6,
+      "archetype": "annotated-figure",
+      "params": {
+        "eyebrow": "Design pressure",
+        "headline": "The comparison isolates the representation mismatch.",
+        "figureId": "fig-compare",
+        "notes": [
+          {
+            "x": 0.18,
+            "y": 0.42,
+            "text": "compact CTM representation",
+            "tone": "a"
+          },
+          {
+            "x": 0.5,
+            "y": 0.42,
+            "text": "window-wise adaptation",
+            "tone": "b"
+          },
+          {
+            "x": 0.82,
+            "y": 0.42,
+            "text": "DQ-CTM comparison point",
+            "tone": "c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b03-carrier",
+      "intent": "A persistent dense carrier is the bridge between compact thought and a spatial field.",
+      "claim": "A persistent dense carrier, read and updated by a compact thought process.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "narration": "The carrier keeps spatial detail present while thought stays compact.",
+      "weight": 0.9,
+      "seconds": 6,
+      "archetype": "split-compare",
+      "params": {
+        "eyebrow": "Core idea",
+        "headline": "A dense carrier bridges compact thought and pixels.",
+        "left": {
+          "label": "Compact thought",
+          "lines": [
+            "small state",
+            "reasoning process"
+          ]
+        },
+        "right": {
+          "label": "Dense carrier",
+          "lines": [
+            "spatial field",
+            "read and updated"
+          ]
+        },
+        "note": "The method connects the two representations."
+      }
+    },
+    {
+      "id": "b04-equation",
+      "intent": "The low-resolution image is encoded into a dense feature carrier and partitioned into windows.",
+      "claim": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+      "evidence": [
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        }
+      ],
+      "narration": "Encoding creates the field, and windowing makes it usable by ticks.",
+      "weight": 0.86,
+      "seconds": 7,
+      "archetype": "equation-walk",
+      "params": {
+        "eyebrow": "Carrier formation",
+        "headline": "Encoding and windowing make the dense state explicit.",
+        "equationId": "eq-carrier",
+        "terms": [
+          {
+            "tex": "\\mathbf{I}_{\\mathrm{LR}}",
+            "label": "low-resolution input",
+            "tone": "a"
+          },
+          {
+            "tex": "\\mathcal{E}",
+            "label": "encoder mapping",
+            "tone": "b"
+          },
+          {
+            "tex": "\\mathbf{F}",
+            "label": "dense feature carrier",
+            "tone": "c"
+          },
+          {
+            "tex": "\\mathcal{W}",
+            "label": "window partition",
+            "tone": "d"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b05-pipeline",
+      "intent": "ThinkSR runs end to end through encoder, windows, shared DQ-CTM ticks, and decoder.",
+      "claim": "ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        }
+      ],
+      "narration": "The full path turns one low-resolution input into a decoded output.",
+      "weight": 0.88,
+      "seconds": 7,
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "End to end",
+        "headline": "ThinkSR routes dense features through shared thought ticks.",
+        "stages": [
+          {
+            "label": "Encoder",
+            "note": "makes the feature carrier",
+            "tone": "a"
+          },
+          {
+            "label": "Windows",
+            "note": "partitions the carrier",
+            "tone": "b"
+          },
+          {
+            "label": "Shared DQ-CTM ticks",
+            "note": "read and update windows",
+            "tone": "c"
+          },
+          {
+            "label": "Decoder",
+            "note": "produces reconstruction",
+            "tone": "d"
+          }
+        ],
+        "note": "The stages follow Figure 2."
+      }
+    },
+    {
+      "id": "b06-windows",
+      "intent": "Window partitioning gives the dense carrier a local field structure for the compact process to use.",
+      "inside": {
+        "beat": "b05-pipeline",
+        "element": "stage1"
+      },
+      "claim": "ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        },
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        }
+      ],
+      "narration": "Windows make the dense carrier addressable without losing location.",
+      "weight": 0.62,
+      "seconds": 5,
+      "archetype": "grid",
+      "params": {
+        "eyebrow": "Windowed field",
+        "headline": "Windowing turns the carrier into local regions.",
+        "cols": 4,
+        "rows": 3,
+        "regions": [
+          {
+            "x": 0,
+            "y": 0,
+            "w": 2,
+            "h": 2,
+            "label": "window group",
+            "tone": "b"
+          },
+          {
+            "x": 2,
+            "y": 0,
+            "w": 2,
+            "h": 2,
+            "label": "window group",
+            "tone": "c"
+          },
+          {
+            "x": 0,
+            "y": 2,
+            "w": 2,
+            "h": 1,
+            "label": "remaining cells",
+            "tone": "a"
+          },
+          {
+            "x": 2,
+            "y": 2,
+            "w": 2,
+            "h": 1,
+            "label": "remaining cells",
+            "tone": "d"
+          }
+        ],
+        "note": "The grid represents the window partition in the method."
+      }
+    },
+    {
+      "id": "b07-ticks",
+      "intent": "Shared DQ-CTM ticks repeatedly operate on the windowed dense carrier.",
+      "inside": {
+        "beat": "b06-windows",
+        "element": "rgn0"
+      },
+      "claim": "ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        },
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "narration": "The same compact process can be reused across the dense field.",
+      "weight": 0.76,
+      "seconds": 6,
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Shared ticks",
+        "headline": "Shared DQ-CTM ticks read and update windows.",
+        "stages": [
+          {
+            "label": "Read carrier",
+            "note": "window features enter",
+            "tone": "a"
+          },
+          {
+            "label": "Compact thought",
+            "note": "shared DQ-CTM tick",
+            "tone": "b"
+          },
+          {
+            "label": "Update carrier",
+            "note": "window state changes",
+            "tone": "c"
+          }
+        ],
+        "loop": {
+          "from": 2,
+          "to": 0,
+          "label": "next tick"
+        },
+        "note": "The source describes a persistent dense carrier read and updated by compact thought."
+      }
+    },
+    {
+      "id": "b08-progress",
+      "intent": "Reconstructions are shown over ticks from T=0 through T=4 against bicubic and ground truth.",
+      "claim": "Reconstruction at T=0 through T=4 against bicubic and ground truth.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-progress"
+        }
+      ],
+      "narration": "The reconstruction sequence makes each thought tick visible in output.",
+      "weight": 0.8,
+      "seconds": 7,
+      "archetype": "annotated-figure",
+      "params": {
+        "eyebrow": "Reconstruction over ticks",
+        "headline": "The output is compared across T=0 through T=4.",
+        "figureId": "fig-progress",
+        "notes": [
+          {
+            "x": 0.18,
+            "y": 0.5,
+            "text": "bicubic reference",
+            "tone": "a"
+          },
+          {
+            "x": 0.38,
+            "y": 0.5,
+            "text": "early reconstruction",
+            "tone": "b"
+          },
+          {
+            "x": 0.62,
+            "y": 0.5,
+            "text": "later ticks",
+            "tone": "c"
+          },
+          {
+            "x": 0.84,
+            "y": 0.5,
+            "text": "ground truth",
+            "tone": "d"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b09-error",
+      "intent": "Absolute-error maps compare the same crops using one shared colour scale.",
+      "claim": "Absolute-error maps on the same crops, one shared colour scale.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-error"
+        }
+      ],
+      "narration": "A shared colour scale keeps the error maps directly comparable.",
+      "weight": 0.68,
+      "seconds": 6,
+      "archetype": "annotated-figure",
+      "params": {
+        "eyebrow": "Error view",
+        "headline": "Absolute-error maps use the same crops and scale.",
+        "figureId": "fig-error",
+        "notes": [
+          {
+            "x": 0.24,
+            "y": 0.28,
+            "text": "same crop basis",
+            "tone": "a"
+          },
+          {
+            "x": 0.5,
+            "y": 0.54,
+            "text": "absolute error",
+            "tone": "b"
+          },
+          {
+            "x": 0.78,
+            "y": 0.82,
+            "text": "shared colour scale",
+            "tone": "c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b10-results",
+      "intent": "DQ-CTM-SR is competitive with CNN baselines on the reported five-benchmark average.",
+      "claim": "Competitive with CNN baselines; behind recent lightweight transformers.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec3"
+        },
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "narration": "The reported average puts DQ-CTM-SR close to the CNN baselines.",
+      "weight": 0.78,
+      "seconds": 7,
+      "archetype": "bar-compare",
+      "params": {
+        "eyebrow": "Five-benchmark average",
+        "headline": "DQ-CTM-SR is competitive with CNN baselines.",
+        "unit": "average score",
+        "bars": [
+          {
+            "label": "CARN",
+            "value": 28.97,
+            "tone": "a"
+          },
+          {
+            "label": "IMDN",
+            "value": 28.968,
+            "tone": "a"
+          },
+          {
+            "label": "RFDN",
+            "value": 29.022,
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM-SR",
+            "value": 28.983,
+            "tone": "c"
+          }
+        ],
+        "note": "Average over five ×4 lightweight super-resolution benchmarks."
+      }
+    },
+    {
+      "id": "b11-transformer-gap",
+      "intent": "The same benchmark places DQ-CTM-SR behind the recent lightweight transformer CATANet.",
+      "claim": "Competitive with CNN baselines; behind recent lightweight transformers.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec3"
+        },
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "narration": "CATANet marks the current lightweight transformer gap in the table.",
+      "weight": 0.74,
+      "seconds": 6,
+      "archetype": "bar-compare",
+      "params": {
+        "eyebrow": "Transformer gap",
+        "headline": "DQ-CTM-SR trails CATANet on the reported average.",
+        "unit": "average score",
+        "bars": [
+          {
+            "label": "DQ-CTM-SR",
+            "value": 28.983,
+            "tone": "c"
+          },
+          {
+            "label": "CATANet",
+            "value": 29.482,
+            "tone": "d"
+          }
+        ],
+        "note": "Both values come from Table 1."
+      }
+    },
+    {
+      "id": "b12-cost",
+      "intent": "DQ-CTM-SR uses more parameters than IMDN, RFDN, and CATANet, but fewer than CARN.",
+      "claim": "×4 lightweight super-resolution, average over five benchmarks.",
+      "evidence": [
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "narration": "The parameter count is moderate, not the smallest in the group.",
+      "weight": 0.7,
+      "seconds": 6,
+      "archetype": "bar-compare",
+      "params": {
+        "eyebrow": "Model size",
+        "headline": "DQ-CTM-SR sits between CARN and the smaller models.",
+        "unit": "million parameters",
+        "bars": [
+          {
+            "label": "CATANet",
+            "value": 0.535,
+            "tone": "d"
+          },
+          {
+            "label": "RFDN",
+            "value": 0.55,
+            "tone": "a"
+          },
+          {
+            "label": "IMDN",
+            "value": 0.715,
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM-SR",
+            "value": 1.129,
+            "tone": "c"
+          },
+          {
+            "label": "CARN",
+            "value": 1.592,
+            "tone": "a"
+          }
+        ],
+        "note": "Parameter counts are reported in Table 1."
+      }
+    }
+  ]
+}

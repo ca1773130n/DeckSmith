@@ -22,10 +22,12 @@ import {
   EXPLAINING_CHARS,
   LAST_HOLD_SECONDS,
   MIN_SENTENCE_CHARS,
+  OPEN_SECONDS_AT_SPEED,
   p95CueRate,
   playbackFactor,
   playbackWarning,
   RATE_STEPS,
+  SETTLE_SECONDS,
   SPEAKING_STOPS,
   SPEECH_CPS,
   tempoChain,
@@ -69,16 +71,23 @@ describe("durationPlan", () => {
 
   it("divides the budget by STOPS, so high density at 60s is refused in words", () => {
     const high = durationPlan(prefs({ duration: 60, slides: 12 }));
-    // 3.25s of speech across 3.1 stops is ~15 characters. That is the trap the
-    // whole feature exists to avoid, and it must be said, not silently clamped.
-    expect(high.warnings.join(" ")).toContain("fragment");
-    expect(high.chars).toBe(MIN_SENTENCE_CHARS);
+    // 4.2s of speech across 3.1 stops is ~20 characters, and even the fastest
+    // rate only reaches 31 — six words a reveal. That is the trap the whole
+    // feature exists to avoid, and it must be SAID, not silently clamped.
+    //
+    // It used to be caught by the `fragment` floor. Overlapping speech with
+    // motion bought this case a second of speech per beat, so it now squeaks past
+    // `MIN_SENTENCE_CHARS` and is caught by the advisory instead. The deck is
+    // still refused in words; a different sentence does the refusing.
+    expect(high.chars).toBeLessThan(EXPLAINING_CHARS / 2);
+    expect(high.warnings.join(" ")).toContain("caption rather than explain");
 
     // Low density buys a real sentence out of the same 60 seconds — that is the
     // whole trade this feature exists to make, and it still holds.
     const low = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
     expect(low.chars).toBeGreaterThan(MIN_SENTENCE_CHARS);
     expect(low.warnings.join(" ")).not.toContain("fragment");
+    expect(low.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
   });
 
   /**
@@ -233,10 +242,25 @@ describe("durationPlan", () => {
     expect(plan.warnings.join(" ")).toContain("4× floor");
   });
 
-  it("reserves the reveal schedule out of every beat", () => {
+  /**
+   * WAS "reserves the reveal schedule out of every beat", asserting
+   * `speechSeconds === beatSeconds - LAST_HOLD_SECONDS * speed`. That formula is
+   * the 49%-silent video written down: it charged the beat for its whole build
+   * BEFORE a word was spoken, because speech and motion were consecutive. They
+   * overlap now, so a beat pays only for the two things that are genuinely
+   * quiet — the headline landing, and the settle before the cut.
+   */
+  it("charges a beat only for the silence it actually has", () => {
     const plan = durationPlan(prefs({ duration: 120, slides: 12 }));
     expect(plan.beatSeconds).toBe(10);
-    expect(plan.speechSeconds).toBeCloseTo(10 - LAST_HOLD_SECONDS * plan.speed, 3);
+    expect(plan.speechSeconds).toBeCloseTo(
+      10 - (OPEN_SECONDS_AT_SPEED * plan.speed + SETTLE_SECONDS),
+      3,
+    );
+
+    // The point of the change, stated as a comparison: the beat now affords more
+    // speech than the reveal schedule alone would have left it.
+    expect(plan.speechSeconds).toBeGreaterThan(10 - LAST_HOLD_SECONDS * plan.speed);
   });
 });
 

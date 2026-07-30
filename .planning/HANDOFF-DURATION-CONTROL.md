@@ -610,7 +610,132 @@ deck goes 13.9 to 18.75 characters a second. The cost lands exactly where the
 warning says it does: subtitle p95 16.3 → 21.3 cps, over the 17 cps practice.
 `renders/fast-60char-54s.mp4` is the artifact.
 
-### STILL OPEN, and it is the next real problem
+---
+
+## 11. THE SILENCE, and where it actually was
+
+The owner, on the deck §10 produced: *"still the sentences are too short to
+explain the paper. make the narration speak more even on pause, animation on the
+slide and in between to transition to the next slide so fully explain even though
+the duration is set to short. but make sure you must synchronize everything."*
+
+### The measurement that found it
+
+Not from the timing model — from `silencedetect` on the shipped mp4:
+
+```
+real-plan-57s.mp4   57.20s   speech 28.25s (49%)   SILENCE 28.95s (51%)
+```
+
+**Half the video says nothing.** And the gaps are not scattered: assigning each
+to a scene boundary,
+
+```
+  SPANNING A CUT   24.81s   93%   <- ten gaps, one at every slide change
+  INSIDE A SCENE    1.00s    4%
+  SCENE ENTRANCE    0.93s    3%
+```
+
+Ten gaps of 1.0-3.4s, each one astride a cut. Decomposed further, every gap is
+the same two pieces: the TAIL the outgoing scene reserved and never used, running
+straight into the HEAD the incoming one spent waiting.
+
+Both come from one line. `beatSeconds` was `max(authored, lastHold + spoken)` and
+`place` anchored each sentence to its own hold, so a scene reserved room out to
+its LAST reveal plus the whole sentence, while the voice only occupied from the
+FIRST reveal. tail = `(lastHold - firstHold) * speed`, head = `firstHold`. Speech
+and motion were CONSECUTIVE, stated as arithmetic.
+
+### What changed
+
+Three things, and none of them is the warp the design fan-out recommended — that
+retimes the emitted scene and buys sync at the cost of the emitter, invariant 11
+and the camera dive. The silence needed none of it.
+
+1. **`beatSeconds` overlaps the two terms.** `max(authored, lastHold + SETTLE,
+   speechEnd + SETTLE)`. A beat is as long as the longer of the two things
+   happening in it, not their sum.
+2. **`speechPlan` is one continuous clock.** The first sentence starts when the
+   HEADLINE lands (`openSeconds`, measured off the scene, ~0.375s at the speed a
+   60s target derives — not a constant, which would have been right at one speed
+   and started the voice over a half-drawn headline at every other). Later
+   sentences run back to back, and wait only if their own reveal has not happened.
+3. **`budget` stops charging for the build.** `beatSeconds - lastHold*speed`
+   became `beatSeconds - (open + SETTLE)`, which is ~0.75s against ~1.75s.
+
+`framePlan` needed no change at all: the `if (!next)` fix from §10 already pays
+the freeze out of the dead tail, so `dropped == freeze` stays honest.
+
+### Synchronisation, which was the hard half
+
+The frozen picture was a guarantee by construction and therefore unfalsifiable.
+Giving it up means asserting it, and `assertFits` now has three checks. The third
+is the real one: **a sentence must not end before the reveal it speaks over
+appears.** It is worth having because its two sides share no term — `hold` comes
+from `emitScene` via `holdsFor`, `start` from the measured mp3 lengths — so it
+can genuinely fail. It catches narration re-cut after the build, and a deck
+narrated for one format and built for another with deeper staging.
+
+The other direction is prevented rather than detected: `speechPlan`'s `Math.max`
+makes a later sentence wait for its reveal, so the voice cannot run ahead of the
+picture even at `--speed 2`. A clamped stop (`stop >= holds.length`) is exempt,
+because speaking late over the finished picture is a documented degradation and
+must not become a build failure.
+
+### The bar was the wrong statistic
+
+`EXPLAINING_CHARS` was 60, the demo's first QUARTILE, picked as a floor. But
+`fastEnough` reads it as a TARGET, so a bar set at the worst quarter of the deck
+that works produced decks at the worst quarter of the deck that works — twice,
+and the owner rejected both. It is now 72, the demo's MEAN.
+
+That interaction is worth remembering: the overlap freed a second of speech per
+beat, and `fastEnough` immediately gave it back by dropping the rate from `+30%`
+to `+0%`, for a net gain of nothing. A floor and a target cannot be one constant.
+
+### The prompt was telling the planner to come up short
+
+*"Aim for about N beats. That is a target to come close to, not a quota to fill."*
+Four of the last five plans came back short — 8, 9, 9, 10 against 12 — and since
+`beatSeconds` derives from the REQUESTED count, every missing beat is duration the
+video does not use. The anti-padding half survives (RULE 9 is why it was written);
+what changed is that the cost of being short is now stated, in seconds and
+characters.
+
+### Measured, end to end
+
+| | original | rate knob (§10) | now |
+|---|---|---|---|
+| length | 57.20s | 54.23s | 60.76s |
+| **speech** | 28.25s (49%) | 27.49s (51%) | **42.51s (70%)** |
+| **silence** | 28.95s (51%) | 26.74s (49%) | **18.25s (30%)** |
+| worst gap | 3.96s | 3.81s | **2.07s** |
+| beats | 12 | 10 | 12 |
+| narration | 481 chars | 603 | **794** |
+| mean sentence | 40.1 | 60.3 | 66.2 |
+
+**The voice now speaks for 70% of the video against 49%, and says 65% more.** The
+deck also passes with 0 errors and 0 warnings, which no 12-beat plan in this
+experiment had done before. `renders/continuous-12beat-60s.mp4`.
+
+### STILL OPEN after §11
+
+- **30% silence, not 15%.** The model predicts 16% (`open + SETTLE` per scene);
+  `silencedetect` sees 30% because it also counts edge-tts's own breath pauses
+  INSIDE a sentence, at a 0.3s threshold. Some of that is real prosody and should
+  stay. Nobody has separated the two, so the true remaining seam silence is
+  somewhere under 30% and above 16%.
+- **`speechPlan`'s wait rule is per-segment, not per-clause.** At `density: low`
+  there is one sentence per beat, so it is sentence-level containment only: the
+  reveals play under the voice, but no word is aligned to the reveal it names.
+  `segment.cues` carries edge-tts word boundaries and is unused. That is what
+  would turn "the reveals happen while it talks" into "each name lands on the
+  thing arriving", and it is the honest next step.
+- **The subtitle is now the binding constraint**, at p95 18.6 cps against the 17
+  practice. `render` says so. Raising `EXPLAINING_CHARS` further trades directly
+  against it.
+
+### The old §10 note, now partly answered
 
 **Longer sentences are costing beats.** Twelve requested; 12 → 10 → 9/10/8 as the
 budget and then the floor went up. Four runs, all under target, so unlike §9's
