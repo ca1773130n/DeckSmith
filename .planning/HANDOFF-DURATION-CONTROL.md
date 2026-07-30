@@ -718,6 +718,111 @@ characters.
 deck also passes with 0 errors and 0 warnings, which no 12-beat plan in this
 experiment had done before. `renders/continuous-12beat-60s.mp4`.
 
+---
+
+## 12. THE WORD-ALIGNMENT STEP, and why it is not the next one
+
+§11 left "align each reveal to the word that names it" as the honest next step.
+Three designs were built and adversarially verified against the real emitter.
+All three scored 3-4 of 10, and the reason is a measurement, not a review
+opinion.
+
+### The defect it was going to fix does not exist
+
+The premise was §9's shape one level down: a name spoken before its thing
+arrives. Measured over all 136 plans in `experiments/` and `demo/` — 496 of 498
+beats emitted, each part container mapped to its own reveal time off the paced
+`Scene.tl`, every narration word placed on the scene clock, at the speed a 60s
+target derives:
+
+```
+  1103 named parts across 337 containers
+  lead (part appears − word spoken): median −6.87s, p90 −2.47s, MAX +0.87s
+  parts named more than 1.0s before they appear:  0 of 1103
+```
+
+The positive control fails too: transplanting §9's own defect sentence —
+*"ThinkSR runs through encoder, windows, ticks, and decoder."* — onto a real
+pipeline beat produces **zero** early names, because the build finishes at 2.40s
+and the sentence runs 2.95s.
+
+That is geometry. The build is roughly 4× faster than the voice, so narration
+cannot outrun the picture. `scanHeadlines` catches the enumeration defect in a
+HEADLINE because a headline is instantaneous — all four names are on screen at
+0.375s while one stage is drawn. Spread the same four names over three seconds of
+speech and the defect evaporates.
+
+A second measurement kills the mechanism independently: **only 39% of drawn part
+labels are ever named in the narration** (15 of 38 on the shipped plan). That is
+not an accident — `cadenceFor` forbids enumerating a beat's parts, deliberately,
+because of §9. So word-matching has nothing to align for 61% of reveals, and its
+fallback is the thing it was supposed to improve on.
+
+### What the fan-out found instead, which was worth the run
+
+`framePlan` ignored `place`. It re-derived each segment's audio position by
+playing the video to `segment.hold`, so the speech clock §11 introduced was
+overridden on every scene of the shipped deck:
+
+```
+  scene   place said   render did   drift
+  s1        0.334s       0.800s     0.466
+  s4        0.375s       0.999s     0.624
+  s10       0.375s       1.363s     0.988
+  s12       0.375s       1.529s     1.154
+                              total 6.03s
+```
+
+**This is not extra silence** — per scene it is still `open + SETTLE`, just
+shifted from the tail to the head. It is a SYNC bug: every sentence was heard
+later against its own reveals than the manifest said, and `assertFits`'s
+sync check tested `start`, a number the renderer was not using. The check was
+therefore unfalsifiable in exactly the way §11 claimed to have fixed.
+
+Fixing it collapsed `framePlan`: with speech and motion overlapping, `beatSeconds`
+already sizes every scene for both, so **no freeze is ever needed**. One piece per
+scene, `freeze: 0`, every source frame played in order. Drift 6.03s → 0.109s
+(frame quantisation). The camera-dive anchoring that shipped a bug once is now
+true by construction rather than by arithmetic, and `retime` skips the whole
+re-encode — a narrated video is the capture itself with audio muxed on, no
+generation loss.
+
+### Measured
+
+| | original | §11 | §12 |
+|---|---|---|---|
+| length | 57.20s | 60.76s | 60.10s |
+| speech | 28.25s (49%) | 42.51s (70%) | **42.67s (71%)** |
+| silence | 28.95s (51%) | 18.25s (30%) | **17.43s (29%)** |
+| audio drift from manifest | — | 6.03s | **0.109s** |
+| re-encode | full | full | **skipped** |
+
+`renders/synced-12beat-60s.mp4`.
+
+### THE REAL REMAINING DEFECT, measured
+
+**63% of all narration plays over a picture that has already stopped moving** —
+31.19s of 49.68s. Per beat the build covers only 10-56% of its sentence and then
+freezes:
+
+```
+  s1 10%   s2 40%   s3 27%   s4 56%   s5 43%   s6 41%
+  s7 53%   s8 48%   s9 43%   s10 28%  s11 24%  s12 42%
+```
+
+That, not word alignment, is what a viewer notices. The fix is to spread each
+scene's build across its own sentence — a PER-SCENE `pace` factor, which is the
+existing tested mechanism with a different argument rather than any new warp
+machinery. It was designed and scored 3, with one fatal worth carrying forward:
+`animationSpeed: 1` is not a no-op under it, so the identity that keeps an
+un-narrated deck byte-identical has to be re-established explicitly.
+
+Note the interaction, which is why it must not be done casually: apply that
+stretch and the name-before-reveal defect **appears for the first time** — the
+same measurement goes from 0 of 1103 parts over 1.0s early to **222 of 1103**.
+The detector that is worthless today becomes load-bearing the instant the build
+is slowed. Land them together, or land the detector first.
+
 ### STILL OPEN after §11
 
 - **30% silence, not 15%.** The model predicts 16% (`open + SETTLE` per scene);
