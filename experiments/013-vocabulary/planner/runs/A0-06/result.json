@@ -1,0 +1,23 @@
+{
+  "arm": "A0",
+  "i": 6,
+  "ms": 68179,
+  "exit": 0,
+  "promptChars": 14506,
+  "schemaChars": 18265,
+  "outChars": 11664,
+  "stage": "valid",
+  "units": 12,
+  "jsonChars": 11413,
+  "refsResolve": true,
+  "shared": [
+    "beat[8] b09-results-summary: narration 4 sentences, 6 reveals",
+    "beat[9] b10-params: narration 4 sentences, 6 reveals",
+    "beat[11] b12-close: headline 63 chars > 60",
+    "beat[11] b12-close: claim 146 chars > 140",
+    "beat[11] b12-close: narration 2 sentences, 3 reveals"
+  ],
+  "algebra": [],
+  "soft": [],
+  "coherent": false
+}

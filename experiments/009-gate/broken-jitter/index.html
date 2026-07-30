@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Plain fixture</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link rel="stylesheet" href="./katex/katex.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px;
+        overflow: hidden; background: #0b0d10;
+      }
+      body { font-family: "Inter", system-ui, sans-serif; color: #e8eaed; font-weight: 400; }
+
+      /* Centred, not top-anchored. Top-anchoring left every archetype but the
+         title sitting in the upper 40% above a 500-600px dead band — it passes
+         every gate and reads as unfinished. Centring is safe here because the
+         gate still catches anything taller than the canvas; it just now
+         overflows symmetrically instead of only downwards. */
+      .scene { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+               padding: 84px 110px; display: flex; flex-direction: column;
+               justify-content: center; }
+
+      @keyframes ds-breathe { from { filter: brightness(1); } to { filter: brightness(1.12); } }
+      @keyframes ds-drift { from { transform: scale(1); } to { transform: scale(1.012); } }
+      .eyebrow{font-size:40px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:66px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .titleslide{display:flex;flex-direction:column;justify-content:center;height:100%}
+      .bighead{font-size:88px;line-height:1.12;font-weight:700;letter-spacing:-.02em;color:#e8eaed}
+      .sub{font-size:42px;line-height:1.55;color:#9aa7b5;margin-top:34px;max-width:1500px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s1-t{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:40px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:66px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .stackwrap{align-self:center;margin-top:20px}
+      .stnote{font-size:40px;line-height:1.55;color:#9aa7b5;margin-top:28px;max-width:1600px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s2-lay2{animation:ds-breathe 6s ease-in-out infinite alternate}}
+    </style>
+  <script>document.head.appendChild(Object.assign(document.createElement("style"),{textContent:`.scene{filter:brightness(${1-Math.random()*0.004})}`}));</script>
+</head>
+  <body>
+    <script>window.__hfTimelinesBuilding = true;</script>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="7"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="s1"
+        class="scene clip"
+        data-composition-id="s1"
+        data-start="0"
+        data-duration="3"
+        data-label="Two renders, one hash"
+      >
+<div class="titleslide">
+  <div class="eyebrow" id="s1-e">Drift fixture</div>
+  <h1 class="bighead" id="s1-t">Two renders, one hash</h1>
+  <div class="sub" id="s1-s">Nothing here is allowed to be interesting</div>
+</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s1-e", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6 }, 0.2);
+            tl.fromTo("#s1-t", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.9 }, 0.4);
+            tl.fromTo("#s1-s", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 1);
+            window.__timelines["s1"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s2"
+        class="scene clip"
+        data-composition-id="s2"
+        data-start="3"
+        data-duration="4"
+        data-label="Flat fills, straight edges, static type"
+      >
+<div class="eyebrow" id="s2-e">Fixture</div>
+<h2 class="headline" id="s2-h">Flat fills, straight edges, static type</h2>
+<div class="stackwrap"><svg id="s2-stack" width="1700" height="583.76" viewBox="0 0 1700 583.76"><g id="s2-lay0" class="lay"><path d="M70,512.88 L70,530.88 L922.8,530.88 L922.8,512.88 Z" fill="#3d8bfd" fill-opacity="0.05" stroke="#2b333d" stroke-width="2" stroke-opacity="0.75" /><path d="M922.8,512.88 L922.8,530.88 L1136,430.88 L1136,412.88 Z" fill="#3d8bfd" fill-opacity="0.03" stroke="#2b333d" stroke-width="2" stroke-opacity="0.75" /><path d="M70,512.88 L922.8,512.88 L1136,412.88 L283.2,412.88 Z" fill="#3d8bfd" fill-opacity="0.09" stroke="#2b333d" stroke-width="2" /></g><g id="s2-cap0" class="cap"><text x="48" y="462.88" font-size="40" font-weight="600" fill="#74808e" text-anchor="end"><tspan x="48" dy="13.6">1</tspan></text><line x1="1037.4" y1="462.88" x2="1166" y2="462.88" stroke="#2b333d" stroke-width="2" /><circle cx="1037.4" cy="462.88" r="6" fill="#3d8bfd" /><text x="1180" y="436.68" font-size="46" font-weight="600" fill="#e8eaed"><tspan x="1180" dy="15.64">Plates</tspan></text><text x="1180" y="492.56" font-size="40" fill="#9aa7b5"><tspan x="1180" dy="13.6">rectangles, one fill each</tspan></text></g><g id="s2-lay1" class="lay"><path d="M70,332.88 L70,350.88 L922.8,350.88 L922.8,332.88 Z" fill="#3d8bfd" fill-opacity="0.08" stroke="#2b333d" stroke-width="2" stroke-opacity="0.75" /><path d="M922.8,332.88 L922.8,350.88 L1136,250.88 L1136,232.88 Z" fill="#3d8bfd" fill-opacity="0.05" stroke="#2b333d" stroke-width="2" stroke-opacity="0.75" /><path d="M70,332.88 L922.8,332.88 L1136,232.88 L283.2,232.88 Z" fill="#3d8bfd" fill-opacity="0.16" stroke="#2b333d" stroke-width="2" /></g><g id="s2-cap1" class="cap"><text x="48" y="282.88" font-size="40" font-weight="600" fill="#74808e" text-anchor="end"><tspan x="48" dy="13.6">2</tspan></text><line x1="1037.4" y1="282.88" x2="1166" y2="282.88" stroke="#2b333d" stroke-width="2" /><circle cx="1037.4" cy="282.88" r="6" fill="#3d8bfd" /><text x="1180" y="256.68" font-size="46" font-weight="600" fill="#e8eaed"><tspan x="1180" dy="15.64">Labels</tspan></text><text x="1180" y="312.56" font-size="40" fill="#9aa7b5"><tspan x="1180" dy="13.6">drawn once, never scaled</tspan></text></g><g id="s2-lay2" class="lay"><path d="M70,152.88 L70,170.88 L922.8,170.88 L922.8,152.88 Z" fill="#ffd166" fill-opacity="0.11" stroke="#ffd166" stroke-width="2" stroke-opacity="0.75" /><path d="M922.8,152.88 L922.8,170.88 L1136,70.88 L1136,52.88 Z" fill="#ffd166" fill-opacity="0.07" stroke="#ffd166" stroke-width="2" stroke-opacity="0.75" /><path d="M70,152.88 L922.8,152.88 L1136,52.88 L283.2,52.88 Z" fill="#ffd166" fill-opacity="0.22" stroke="#ffd166" stroke-width="2" /></g><g id="s2-cap2" class="cap"><text x="48" y="102.88" font-size="40" font-weight="600" fill="#74808e" text-anchor="end"><tspan x="48" dy="13.6">3</tspan></text><line x1="1037.4" y1="102.88" x2="1166" y2="102.88" stroke="#2b333d" stroke-width="2" /><circle cx="1037.4" cy="102.88" r="6" fill="#ffd166" /><text x="1180" y="76.68" font-size="46" font-weight="700" fill="#ffd166"><tspan x="1180" dy="15.64">Reveal</tspan></text><text x="1180" y="132.56" font-size="40" fill="#9aa7b5"><tspan x="1180" dy="13.6">opacity and offset only</tspan></text></g></svg></div>
+<div class="stnote" id="s2-note">Every element here is a shape or a run of text at its authored size.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s2-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s2-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s2-lay0", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" }, 0.9);
+            tl.fromTo("#s2-cap0", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.1);
+            tl.fromTo("#s2-lay1", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" }, 1.43);
+            tl.fromTo("#s2-cap1", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.63);
+            tl.fromTo("#s2-lay2", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" }, 1.97);
+            tl.fromTo("#s2-cap2", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 2.17);
+            tl.fromTo("#s2-note", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 2.5);
+            window.__timelines["s2"] = tl;
+          })();
+        </script>
+      </div>
+      <script>
+        (function () {
+          window.__timelines = window.__timelines || {};
+          var tl = gsap.timeline({ paused: true });
+          // Spans the deck. All real motion lives on the per-scene timelines.
+          tl.to({}, { duration: 7 });
+          window.__timelines["main"] = tl;
+        })();
+      </script>
+      <script>
+        Promise.all(
+          Array.prototype.map
+            .call(document.images, function (img) {
+              return img.decode ? img.decode().catch(function () {}) : Promise.resolve();
+            })
+            .concat([document.fonts ? document.fonts.ready : Promise.resolve()]),
+        ).then(function () {
+          window.__hfTimelinesBuilding = false;
+          window.dispatchEvent(new Event("hf-timelines-built"));
+        });
+      </script>
+    </div>
+    <script type="application/hyperframes-slideshow+json">
+{
+  "slides": [
+    {
+      "sceneId": "s1",
+      "startTime": 0,
+      "endTime": 3,
+      "notes": "Open on plain type so the opening frames are comparable byte for byte.",
+      "fragments": [
+        1.9
+      ]
+    },
+    {
+      "sceneId": "s2",
+      "startTime": 3,
+      "endTime": 7,
+      "notes": "Draw something with vector geometry and a staged reveal, still without a scaled glyph.",
+      "fragments": [
+        4.52,
+        5.05,
+        5.59,
+        6.2
+      ]
+    }
+  ],
+  "slideSequences": []
+}
+    </script>
+  </body>
+</html>

@@ -1,0 +1,2 @@
+import {WebGLRenderer,Scene,PerspectiveCamera,BoxGeometry,PlaneGeometry,SphereGeometry,MeshStandardMaterial,MeshBasicMaterial,Mesh,DirectionalLight,AmbientLight,Group,EdgesGeometry,LineSegments,LineBasicMaterial,Color,Vector3} from "three";
+    export const x=[WebGLRenderer,Scene,PerspectiveCamera,BoxGeometry,PlaneGeometry,SphereGeometry,MeshStandardMaterial,MeshBasicMaterial,Mesh,DirectionalLight,AmbientLight,Group,EdgesGeometry,LineSegments,LineBasicMaterial,Color,Vector3];

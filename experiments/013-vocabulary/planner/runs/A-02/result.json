@@ -1,0 +1,19 @@
+{
+  "arm": "A",
+  "i": 2,
+  "ms": 39146,
+  "exit": 0,
+  "promptChars": 15354,
+  "schemaChars": 18265,
+  "outChars": 3792,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 3765,
+  "refsResolve": true,
+  "shared": [
+    "beat[2] b03-params: narration 5 sentences, 6 reveals"
+  ],
+  "algebra": [],
+  "soft": [],
+  "coherent": false
+}

@@ -1,0 +1,35 @@
+spec: menu guidance 13122 B + schema 18265 B; vocab guidance 12603 B (0.96x) + schema 3588 B
+menu-1 valid 28s units=3 refs=true
+menu-5 valid 32s units=3 refs=true
+menu-2 valid 39s units=3 refs=true
+menu-4 valid 39s units=3 refs=true
+menu-3 valid 40s units=3 refs=true
+menu-6 valid 33s units=3 refs=true
+menu-9 valid 23s units=3 refs=true
+menu-7 valid 37s units=3 refs=true
+menu-8 valid 36s units=3 refs=true
+menu-10 valid 46s units=3 refs=true
+menu-11 valid 26s units=3 refs=true
+menu-12 valid 34s units=3 refs=true
+menu-13 valid 36s units=3 refs=true
+menu-14 valid 32s units=3 refs=true
+menu-15 valid 35s units=3 refs=true
+menu-16 valid 39s units=3 refs=true
+menu-17 valid 35s units=3 refs=true
+menu-19 valid 34s units=3 refs=true
+menu-18 valid 39s units=3 refs=true
+menu-21 valid 24s units=3 refs=true
+menu-20 valid 31s units=3 refs=true
+menu-22 valid 36s units=3 refs=true
+menu-23 valid 39s units=3 refs=true
+menu-24 valid 44s units=3 refs=true
+menu-25 valid 40s units=3 refs=true
+menu-27 valid 23s units=3 refs=true
+menu-26 valid 40s units=3 refs=true
+menu-28 valid 32s units=3 refs=true
+menu-29 valid 35s units=3 refs=true
+menu-30 valid 37s units=3 refs=true
+menu-31 valid 37s units=3 refs=true
+menu-32 valid 37s units=3 refs=true
+done menu: 32 run(s)
+MENU_EXIT=0

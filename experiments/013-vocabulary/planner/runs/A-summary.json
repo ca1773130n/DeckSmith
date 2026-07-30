@@ -1,0 +1,161 @@
+[
+  {
+    "arm": "A",
+    "i": 1,
+    "ms": 35560,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3820,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3779,
+    "refsResolve": true,
+    "shared": [
+      "beat[0] b01-method-flow: headline 73 chars > 60",
+      "beat[1] b02-carrier-equation: headline 66 chars > 60",
+      "beat[1] b02-carrier-equation: narration 4 sentences, 5 reveals",
+      "beat[2] b03-parameter-comparison: headline 65 chars > 60",
+      "beat[2] b03-parameter-comparison: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "A",
+    "i": 4,
+    "ms": 37014,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3697,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3668,
+    "refsResolve": true,
+    "shared": [
+      "beat[1] b02-carrier-equation: narration 3 sentences, 5 reveals",
+      "beat[2] b03-parameter-comparison: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "A",
+    "i": 3,
+    "ms": 37934,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3418,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3391,
+    "refsResolve": true,
+    "shared": [
+      "beat[0] b01-method-flow: headline 67 chars > 60",
+      "beat[1] b02-carrier-equation: headline 65 chars > 60",
+      "beat[2] b03-params: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "A",
+    "i": 2,
+    "ms": 39146,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3792,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3765,
+    "refsResolve": true,
+    "shared": [
+      "beat[2] b03-params: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "A",
+    "i": 6,
+    "ms": 32460,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3435,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3394,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [],
+    "soft": [],
+    "coherent": true
+  },
+  {
+    "arm": "A",
+    "i": 8,
+    "ms": 31010,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3585,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3558,
+    "refsResolve": true,
+    "shared": [
+      "beat[2] b03-parameter-comparison: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "A",
+    "i": 7,
+    "ms": 32284,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3669,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3628,
+    "refsResolve": true,
+    "shared": [
+      "beat[1] b02-carrier-equation: narration 4 sentences, 5 reveals",
+      "beat[2] b03-parameter-comparison: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "A",
+    "i": 5,
+    "ms": 35092,
+    "exit": 0,
+    "promptChars": 15354,
+    "schemaChars": 18265,
+    "outChars": 3640,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 3612,
+    "refsResolve": true,
+    "shared": [
+      "beat[1] b02-carrier-equation: narration 3 sentences, 5 reveals",
+      "beat[2] b03-params: narration 5 sentences, 6 reveals"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  }
+]

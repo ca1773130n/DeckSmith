@@ -1,0 +1,29 @@
+{
+  "arm": "B0",
+  "i": 1,
+  "ms": 360598,
+  "exit": 0,
+  "promptChars": 7983,
+  "schemaChars": 3324,
+  "outChars": 52923,
+  "stage": "valid",
+  "units": 11,
+  "jsonChars": 33011,
+  "refsResolve": true,
+  "shared": [
+    "scene[0] s01-mismatch: narration 2 sentences, 3 holds",
+    "scene[1] s02-carrier: narration 2 sentences, 3 holds",
+    "scene[2] s03-equation: narration 2 sentences, 3 holds",
+    "scene[3] s04-architecture: narration 2 sentences, 3 holds",
+    "scene[4] s05-comparison: narration 2 sentences, 3 holds",
+    "scene[5] s06-iteration: narration 2 sentences, 3 holds",
+    "scene[7] s08-cnn-results: narration 2 sentences, 3 holds",
+    "scene[8] s09-transformer-gap: narration 2 sentences, 3 holds",
+    "scene[9] s10-cost: narration 2 sentences, 3 holds",
+    "scene[10] s11-summary: narration 3 sentences, 5 holds"
+  ],
+  "algebra": [],
+  "soft": [],
+  "emitFail": [],
+  "coherent": false
+}

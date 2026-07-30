@@ -1,0 +1,151 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b01-method-flow",
+      "intent": "ThinkSR keeps dense image information in a carrier while a compact DQ-CTM process updates windowed tokens through shared recurrent ticks.",
+      "claim": "A persistent dense carrier, read and updated by a compact thought process.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        },
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        }
+      ],
+      "narration": "The method separates dense image storage from the compact process that reasons over it. The encoder makes the low-resolution input usable as a feature field. Windowing turns that field into token groups without dropping spatial coverage. The DQ-CTM step reads and updates those tokens repeatedly, with parameters shared across ticks. The decoder turns the updated dense representation back into a super-resolved image.",
+      "weight": 0.95,
+      "seconds": 10,
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Method flow",
+        "headline": "ThinkSR runs dense features through compact shared ticks",
+        "stages": [
+          {
+            "label": "Encode",
+            "note": "Low-resolution image to dense carrier",
+            "tone": "a"
+          },
+          {
+            "label": "Window",
+            "note": "Partition the carrier into tokens",
+            "tone": "b"
+          },
+          {
+            "label": "DQ-CTM thought",
+            "note": "Recurrent updates with shared parameters",
+            "tone": "c"
+          },
+          {
+            "label": "Decode",
+            "note": "Updated field to high-resolution output",
+            "tone": "d"
+          }
+        ],
+        "loop": {
+          "from": 2,
+          "to": 2,
+          "label": "shared ticks"
+        },
+        "note": "The recurrence stays inside the DQ-CTM thought stage."
+      }
+    },
+    {
+      "id": "b02-carrier-equation",
+      "intent": "The carrier equation says the encoder creates the dense feature field first, then window partitioning maps that field into tokens while keeping every token.",
+      "inside": {
+        "beat": "b01-method-flow",
+        "element": "stage1"
+      },
+      "claim": "A persistent dense carrier, read and updated by a compact thought process.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        },
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        }
+      ],
+      "narration": "The carrier starts as a dense feature field before the compact process touches it. The encoder maps the low-resolution image into that field. The window partition consumes the feature field and preserves the token set for the thought process.",
+      "weight": 0.88,
+      "seconds": 8,
+      "archetype": "equation-walk",
+      "params": {
+        "eyebrow": "Carrier equation",
+        "headline": "The dense carrier is encoded before it is windowed",
+        "equationId": "eq-carrier",
+        "terms": [
+          {
+            "tex": "\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})",
+            "label": "encoder applied to the low-resolution image",
+            "tone": "a"
+          },
+          {
+            "tex": "\\mathcal{W}(\\mathbf{F})",
+            "label": "window partition over the dense feature field",
+            "tone": "b"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b03-params",
+      "intent": "DQ-CTM-SR is not the smallest model in the comparison; at 1.129 million parameters it is second largest among the five listed methods.",
+      "claim": "Competitive with CNN baselines; behind recent lightweight transformers.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec3"
+        },
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "narration": "The parameter comparison does not support calling DQ-CTM-SR cheap. CATANet is the smallest model in the reported set. RFDN and IMDN remain below one million parameters. DQ-CTM-SR has 1.129 million parameters, making it the second largest of the five. CARN is the only listed method with a larger parameter count.",
+      "weight": 0.82,
+      "seconds": 9,
+      "archetype": "bar-compare",
+      "params": {
+        "eyebrow": "Parameter comparison",
+        "headline": "DQ-CTM-SR is the second largest model listed",
+        "unit": "M parameters",
+        "bars": [
+          {
+            "label": "CATANet",
+            "value": 0.535,
+            "tone": "a"
+          },
+          {
+            "label": "RFDN",
+            "value": 0.55,
+            "tone": "a"
+          },
+          {
+            "label": "IMDN",
+            "value": 0.715,
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM-SR",
+            "value": 1.129,
+            "tone": "c"
+          },
+          {
+            "label": "CARN",
+            "value": 1.592,
+            "tone": "a"
+          }
+        ],
+        "note": "Sorted smallest first from Table 1."
+      }
+    }
+  ]
+}

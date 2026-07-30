@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>gsap seek baseline</title>
+<style>
+  body { margin: 0; background: #0b0d10; }
+  #s { position: relative; width: 1920px; height: 1080px; }
+  .cell { position: absolute; width: 90px; height: 60px; background: #1b2028;
+          border-radius: 6px; color: #8a94a6; font: 24px Helvetica;
+          display: flex; align-items: center; justify-content: center; opacity: 0; }
+</style>
+<body>
+<div id="s"></div>
+<script src="/gsap.min.js"></script>
+<script>
+/*
+ * The same shape as the Motion Canvas `heavy` scene — 196 animated nodes over a
+ * ~21s paused timeline — expressed the way DeckSmith actually emits scenes, so
+ * that seek cost is compared like for like.
+ */
+const ROWS = 14, COLS = 14, N = ROWS * COLS;
+const stage = document.getElementById('s');
+for (let i = 0; i < N; i++) {
+  const r = Math.floor(i / COLS), c = i % COLS;
+  const d = document.createElement('div');
+  d.className = 'cell';
+  d.style.left = (960 + (c - COLS / 2) * 100 - 45) + 'px';
+  d.style.top  = (540 + (r - ROWS / 2) * 70 - 30) + 'px';
+  d.textContent = r + '·' + c;
+  stage.appendChild(d);
+}
+
+const cells = [...document.querySelectorAll('#s .cell')];
+const tl = gsap.timeline({ paused: true });
+
+cells.forEach((el, i) => {
+  tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.4 + (i % 17) * 0.05 }, 0);
+});
+for (let pass = 0; pass < 4; pass++) {
+  const t = 3 + pass * 3.5;
+  cells.forEach((el, i) => {
+    tl.fromTo(el,
+      { backgroundColor: '#1b2028' },
+      { backgroundColor: i % (pass + 2) === 0 ? '#4c8dff' : '#1b2028', duration: 1.2, ease: 'power2.inOut' },
+      t);
+    tl.fromTo(el, { scale: 1 }, { scale: 1 + Math.sin(pass) * 0.05, duration: 1.0 }, t + 1.2);
+  });
+}
+cells.forEach(el => tl.fromTo(el, { opacity: 1 }, { opacity: 0.4, duration: 2 }, 17));
+
+window.bench = {
+  info: () => ({ tweens: tl.getChildren().length, duration: tl.duration(), nodes: N }),
+  /** Random-access seek, cold order deliberately shuffled (fwd and back). */
+  seekSeries(times) {
+    const out = [];
+    for (const t of times) {
+      const t0 = performance.now();
+      tl.seek(t, false);
+      const ms = performance.now() - t0;
+      out.push({ time: t, ms });
+    }
+    return out;
+  },
+};
+</script>
+</body>

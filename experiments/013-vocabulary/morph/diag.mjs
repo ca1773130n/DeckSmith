@@ -1,0 +1,21 @@
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import puppeteer from "puppeteer-core";
+const HERE=dirname(fileURLToPath(import.meta.url));
+const MIME={".html":"text/html",".js":"text/javascript",".css":"text/css",".woff2":"font/woff2"};
+const server=createServer(async(q,s)=>{try{const p=join(HERE,decodeURIComponent(q.url.split("?")[0]));s.writeHead(200,{"content-type":MIME[extname(p)]??"application/octet-stream"});s.end(await readFile(p));}catch{s.writeHead(404).end();}});
+await new Promise(r=>server.listen(0,"127.0.0.1",r));
+const B=`http://127.0.0.1:${server.address().port}`;
+const br=await puppeteer.launch({executablePath:"/Users/neo/.cache/puppeteer/chrome-headless-shell/mac_arm-145.0.7632.46/chrome-headless-shell-mac-arm64/chrome-headless-shell",args:["--force-device-scale-factor=1"]});
+const FP=`[...document.querySelectorAll('.ds-morph-layer > *')].map((e,i)=>{const cs=getComputedStyle(e);const m=new DOMMatrixReadOnly(cs.transform==='none'?'':cs.transform);const r=n=>Math.round(n*1e4)/1e4;return i+':'+e.textContent.trim()+' s='+r(m.a)+' x='+r(m.e)+' y='+r(m.f)+' o='+r(parseFloat(cs.opacity));})`;
+async function pg(c){const p=await br.newPage();await p.setViewport({width:1920,height:1080,deviceScaleFactor:1});await p.goto(`${B}/page.html?case=${c}`,{waitUntil:"networkidle0"});await p.waitForFunction("window.__built===true");return p;}
+const c=process.argv[2]||"swap";
+const a=await pg(c); await a.evaluate(()=>window.__seek(0.5)); const fa=await a.evaluate(FP);
+const b=await pg(c); await b.evaluate(()=>{for(let u=4;u>0.5;u=Math.round((u-0.1)*1e6)/1e6)window.__seek(u);window.__seek(0.5);}); const fb=await b.evaluate(FP);
+console.log("case",c);
+for(let i=0;i<fa.length;i++) if(fa[i]!==fb[i]) console.log("  COLD ",fa[i],"\n  ABOVE",fb[i]);
+console.log("steps touching those:");
+console.log(JSON.stringify(await a.evaluate("window.__steps.filter(s=>s.dur<0.2)"),null,1).slice(0,900));
+await br.close();server.close();

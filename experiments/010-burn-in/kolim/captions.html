@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="file:///Users/neo/Developer/Projects/DeckSmith/experiments/010-burn-in/kodeck/assets/fonts/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #stage {
+    position: relative;
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+  }
+  .cue {
+    position: absolute;
+    left: 43px;
+    right: 43px;
+    bottom: 173px;
+    visibility: hidden;
+    text-align: center;
+    font-family: "Noto Sans KR", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 40px;
+    font-weight: 700;
+    line-height: var(--line, 64px);
+  }
+  .cue.on { visibility: visible; }
+  .cue span {
+    display: inline;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    /* 70% OPAQUE. Measured against both a dark and a light slide: 50% loses the
+       text over a light figure, 100% reads as a hole cut in the picture. */
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    padding: 8px 14px;
+    white-space: pre-wrap;
+  }
+</style>
+<div id="stage">
+<div class="cue" id="c0"><span>이 논문은 작게 유지되는 사고 과정을 아주 커다란 출력을
+만들어야 하는 과제와 정면으로 맞붙이는 연구입니다 그리고</span></div>
+<div class="cue" id="c1"><span>This paper puts a thought process that stays
+small up against a task whose output is</span></div>
+</div>

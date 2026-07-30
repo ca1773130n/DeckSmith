@@ -1,0 +1,212 @@
+[
+ {
+  "s": 1.95,
+  "e": 6.147,
+  "text": "This paper puts a thought process\\nthat stays small up against",
+  "lines": 2
+ },
+ {
+  "s": 6.147,
+  "e": 10.137,
+  "text": "a task whose output has to stay\\nlarge — every pixel of it.",
+  "lines": 2
+ },
+ {
+  "s": 11.817,
+  "e": 17.279,
+  "text": "The encoder does the heavy lifting\\nfirst, in the style SwinIR established.",
+  "lines": 2
+ },
+ {
+  "s": 18.783,
+  "e": 23.708,
+  "text": "Then the field is cut into windows, and\\nnothing is pooled away on the way through.",
+  "lines": 2
+ },
+ {
+  "s": 25.217,
+  "e": 29.454,
+  "text": "The thought machine sits here in the\\nmiddle, working on what the windows hold.",
+  "lines": 2
+ },
+ {
+  "s": 30.95,
+  "e": 35.6,
+  "text": "Only at the very end does the\\ndecoder upsample, four times over.",
+  "lines": 2
+ },
+ {
+  "s": 36.95,
+  "e": 39.612,
+  "text": "That loop is a single tick, and it runs in",
+  "lines": 1
+ },
+ {
+  "s": 39.612,
+  "e": 42.4,
+  "text": "place rather than around\\nthe whole pipeline.",
+  "lines": 2
+ },
+ {
+  "s": 43.283,
+  "e": 45.998,
+  "text": "Every tick reuses the same weights, so",
+  "lines": 1
+ },
+ {
+  "s": 45.998,
+  "e": 49.283,
+  "text": "thinking for longer costs\\ntime and not memory.",
+  "lines": 2
+ },
+ {
+  "s": 50.95,
+  "e": 54.313,
+  "text": "Look at the bottom row of the\\ncomparison figure — all three",
+  "lines": 2
+ },
+ {
+  "s": 54.313,
+  "e": 57.675,
+  "text": "approaches differ only in what\\nthey hand the thought block.",
+  "lines": 2
+ },
+ {
+  "s": 59.05,
+  "e": 61.787,
+  "text": "The windows come first: the field is",
+  "lines": 1
+ },
+ {
+  "s": 61.787,
+  "e": 65.437,
+  "text": "partitioned, and each one\\nis handled on its own.",
+  "lines": 2
+ },
+ {
+  "s": 66.483,
+  "e": 70.908,
+  "text": "The block in the middle is shared,\\nthe same weights for every window.",
+  "lines": 2
+ },
+ {
+  "s": 71.983,
+  "e": 76.82,
+  "text": "And what comes out is still a dense field,\\none query for every position in it.",
+  "lines": 2
+ },
+ {
+  "s": 78.517,
+  "e": 81.279,
+  "text": "Picture the feature map\\nas a grid of tokens.",
+  "lines": 2
+ },
+ {
+  "s": 82.45,
+  "e": 85.337,
+  "text": "Attention runs inside\\none window at a time.",
+  "lines": 2
+ },
+ {
+  "s": 86.65,
+  "e": 91.612,
+  "text": "The next window does the same, and\\nat this stage the two never mix.",
+  "lines": 2
+ },
+ {
+  "s": 92.717,
+  "e": 96.554,
+  "text": "Count the tokens before a tick and\\nafter it and you get the same number.",
+  "lines": 2
+ },
+ {
+  "s": 99.05,
+  "e": 103.375,
+  "text": "The encoder turns the low-resolution\\nimage into a dense feature field.",
+  "lines": 2
+ },
+ {
+  "s": 105.383,
+  "e": 110.033,
+  "text": "The partition then cuts that field into\\nwindows without throwing any of it away.",
+  "lines": 2
+ },
+ {
+  "s": 112.083,
+  "e": 117.008,
+  "text": "The window-wise version collapses each\\nwindow down to a single summary token.",
+  "lines": 2
+ },
+ {
+  "s": 118.017,
+  "e": 123.567,
+  "text": "This one asks a question at every position\\ninstead, and the token count survives it.",
+  "lines": 2
+ },
+ {
+  "s": 124.483,
+  "e": 126.483,
+  "text": "The partition is identical in both.",
+  "lines": 1
+ },
+ {
+  "s": 126.483,
+  "e": 130.158,
+  "text": "What differs is how much of it\\nthe thought state ever sees.",
+  "lines": 2
+ },
+ {
+  "s": 132.617,
+  "e": 136.629,
+  "text": "These are five-benchmark averages\\nat four times upscaling.",
+  "lines": 2
+ },
+ {
+  "s": 137.45,
+  "e": 141.6,
+  "text": "CATANet is the one to beat, at 29.48.",
+  "lines": 1
+ },
+ {
+  "s": 142.917,
+  "e": 146.46,
+  "text": "The method here comes\\nin at 28.98 — ahead of",
+  "lines": 2
+ },
+ {
+  "s": 146.46,
+  "e": 149.842,
+  "text": "two CNN baselines, behind the transformer.",
+  "lines": 1
+ },
+ {
+  "s": 151.25,
+  "e": 153.937,
+  "text": "Only that last row was\\ntrained for this paper.",
+  "lines": 2
+ },
+ {
+  "s": 153.937,
+  "e": 155.637,
+  "text": "Every other number is quoted.",
+  "lines": 1
+ },
+ {
+  "s": 158.717,
+  "e": 161.842,
+  "text": "The first tick is worth\\nalmost a full decibel.",
+  "lines": 2
+ },
+ {
+  "s": 162.75,
+  "e": 165.724,
+  "text": "The fourth is worth under\\na tenth, and training",
+  "lines": 2
+ },
+ {
+  "s": 165.724,
+  "e": 168.887,
+  "text": "stopped there, so nothing\\npast it is demonstrated.",
+  "lines": 2
+ }
+]

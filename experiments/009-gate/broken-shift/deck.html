@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Plain fixture</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      hyperframes-player { display: block; width: 100vw; height: 100vh; }
+    </style>
+    <script src="./hyperframes-player.global.js"></script>
+  </head>
+  <body>
+    <hyperframes-player
+      src="./index.html"
+      width="1920"
+      height="1080"
+    ></hyperframes-player>
+    <script type="application/hyperframes-slideshow+json">
+{
+  "slides": [
+    {
+      "sceneId": "s1",
+      "startTime": 0,
+      "endTime": 3,
+      "notes": "Open on plain type so the opening frames are comparable byte for byte.",
+      "fragments": [
+        1.9
+      ]
+    },
+    {
+      "sceneId": "s2",
+      "startTime": 3,
+      "endTime": 7,
+      "notes": "Draw something with vector geometry and a staged reveal, still without a scaled glyph.",
+      "fragments": [
+        4.52,
+        5.05,
+        5.59,
+        6.2
+      ]
+    }
+  ],
+  "slideSequences": []
+}
+    </script>
+    <script>
+"use strict";(()=>{var N='script[type="application/decksmith-narration+json"]';function k(e){return typeof e=="number"&&Number.isFinite(e)?e:void 0}function q(e){let n=e,t=k(n?.start),s=k(n?.end);return t===void 0||s===void 0||s<t?null:{start:t,end:s,text:typeof n?.text=="string"?n.text:""}}var O=84;function D(e,n=O){if(e.text.length<=n)return[e];let t=[],s="";for(let r of e.text.split(/\s+/).filter(Boolean))s===""?s=r:s.length+1+r.length<=n?s+=` ${r}`:(t.push(s),s=r);if(s!==""&&t.push(s),t.length<2)return[e];let o=t.reduce((r,d)=>r+d.length,0),c=e.end-e.start,u=e.start;return t.map((r,d)=>{let f=d===t.length-1?e.end:u+c*r.length/o,a={start:u,end:f,text:r};return u=f,a})}function $(e){let n=e,t=k(n?.stop);if(t===void 0||t<0||!n?.audio||typeof n.audio!="string")return null;let s=Array.isArray(n.cues)?n.cues.map(q).filter(o=>o!==null):[];return s.sort((o,c)=>o.start-c.start),{stop:t,audio:n.audio,cues:s.flatMap(o=>D(o))}}function C(e){if(!e)return null;let n;try{n=JSON.parse(e)}catch{return null}let t=n,s=t?.scenes;if(!s||typeof s!="object"||Array.isArray(s))return null;let o={};for(let[c,u]of Object.entries(s)){if(!Array.isArray(u))continue;let r=u.map($).filter(d=>d!==null);r.length>0&&(o[c]=r)}return Object.keys(o).length===0?null:{voice:typeof t?.voice=="string"?t.voice:"",dir:typeof t?.dir=="string"?t.dir:"",scenes:o}}function M(e,n){for(let t of e){if(n<t.start)return null;if(n<t.end)return t}return null}function A(e,n,t){return e?.scenes[n]?.find(s=>s.stop===t)??null}function I(e,n){let t=e.dir.replace(/\/+$/,"");return t===""||/^[a-z][a-z0-9+.-]*:|^\.{0,2}\//i.test(n.audio)?n.audio:`${t}/${n.audio}`}function L(...e){for(let n of e)if(typeof n=="number"&&Number.isFinite(n))return n}function _(e){let n=[];for(let t of e){let s=L(t.startTime);if(s===void 0)continue;let o=L(t.endTime)??Number.POSITIVE_INFINITY,c=n.length===0?0:n[n.length-1].slide+1,u=t.notes??"",r=[...new Set(t.fragments??[])].filter(h=>Number.isFinite(h)&&h>s&&h<=o).sort((h,g)=>h-g),[d,...f]=r,a=t.sceneId;n.push({t:d??s,slide:c,fragment:0,notes:u,sceneId:a});for(let[h,g]of f.entries())n.push({t:g,slide:c,fragment:h+1,notes:u,sceneId:a})}return n}var j=2.5;function X(e,n,t={}){let s=n-e;return t.reducedMotion===!0||s<=0||s>j?{animate:!1,durationMs:0}:{animate:!0,durationMs:s*1e3}}function z(e){return e.fragment>0?`#${e.slide+1}.${e.fragment}`:`#${e.slide+1}`}function P(e){let n=/^#?(\d+)(?:\.(\d+))?$/.exec(e.trim());if(!n)return null;let t=Number(n[1]);return t<1?null:{slide:t-1,fragment:n[2]===void 0?0:Number(n[2])}}function F(e,n){let t=e.findIndex(s=>s.slide===n.slide&&s.fragment===n.fragment);return t>=0?t:e.findIndex(s=>s.slide===n.slide)}var V='script[type="application/hyperframes-slideshow+json"]';function B(e){let n=e.shadowRoot?.querySelector("iframe")??e.querySelector("iframe")??null;try{let t=n?.contentDocument,s=n?.contentWindow;return t&&s?{doc:t,timelines:s.__timelines??{}}:null}catch{return null}}function R(e,n,t){for(let s of n){let o=s.startTime??0,c=s.endTime??Number.POSITIVE_INFINITY,u=t>=o&&t<c,r=e.doc.getElementById(s.sceneId);r?.style&&(r.style.display=u?"":"none"),u&&e.timelines[s.sceneId]?.seek(Math.max(0,t-o))}}function W(e){let n=e.querySelector(V);if(!n?.textContent)return[];try{let s=JSON.parse(n.textContent)?.slides;return Array.isArray(s)?s.filter(o=>typeof o?.sceneId=="string"):[]}catch{return[]}}function U(e){return e.ready===!0?Promise.resolve():new Promise(n=>{let t=()=>{clearTimeout(s),n()},s=setTimeout(()=>{e.removeEventListener("ready",t),n()},5e3);e.addEventListener("ready",t,{once:!0})})}var J=`
+.ds-chrome{position:fixed;inset:auto 0 0 0;z-index:2147483000;pointer-events:none;
+  font:500 13px/1.5 ui-sans-serif,system-ui,sans-serif;color:#fff}
+.ds-bar{height:3px;background:rgba(255,255,255,.14)}
+.ds-bar>i{display:block;height:100%;background:currentColor;transform-origin:0 50%;
+  transform:scaleX(0);transition:transform .18s ease-out}
+.ds-count{position:absolute;right:14px;bottom:10px;opacity:.45;font-variant-numeric:tabular-nums}
+.ds-notes{position:absolute;left:0;right:0;bottom:0;max-height:38vh;overflow:auto;
+  padding:20px 24px;background:rgba(10,10,10,.92);font-size:19px;line-height:1.6;
+  white-space:pre-wrap;pointer-events:auto}
+.ds-notes[hidden]{display:none}
+.ds-flags{position:absolute;left:14px;bottom:10px;opacity:.5;letter-spacing:.02em}
+
+/* The subtitle lives BELOW the slide, in a strip the player is shrunk to make
+   room for. Overlaying it was tried and does not work: the slide is 1920x1080
+   of composition the archetypes already fill, and a two-line band is ~160 of
+   those pixels. Overlaid, it ran through the bottom note of grid, stack,
+   split-compare and bar-compare. Reserving the space inside the composition
+   instead \u2014 growing the scene's bottom padding \u2014 moved the collision rather
+   than removing it: scene content is vertically CENTRED, so the six tallest
+   archetypes simply overflowed upward and pushed their eyebrows off the top of
+   the frame, by 79px on bar-compare. Both gates passed both times.
+
+   Out here there is nothing to collide with, no scrim is needed because the
+   strip is page background rather than slide, and no archetype has to know that
+   narration exists. The slide gets smaller; nothing gets covered.
+
+   The strip is reserved for the whole session, not per cue, so the slide does
+   not resize every time someone stops talking. Two lines is its budget, which
+   splitCue in ./subtitles.ts guarantees by capping cue length.
+
+   "pretty", never "balance": balance evens line lengths by SHRINKING the box,
+   which turned an 81-character cue into three short lines inside a box half the
+   width it was given. The band must fill the width it has before taking another
+   line, or the two-line budget is a fiction. */
+.ds-cap{--ds-cap-font:clamp(22px,2.2vw,38px)}
+.ds-cap hyperframes-player{height:calc(100vh - var(--ds-cap-h))}
+.ds-cap{--ds-cap-h:calc(var(--ds-cap-font) * 3.5)}
+.ds-subs{position:absolute;left:0;right:0;bottom:0;height:var(--ds-cap-h,0px);
+  display:flex;align-items:center;justify-content:center;padding:0 5vw;
+  text-align:center;color:#fff;font-weight:600;font-size:var(--ds-cap-font);
+  line-height:1.35;text-wrap:pretty}
+.ds-subs[hidden]{visibility:hidden}
+`;function Y(e){let n=e.createElement("style");n.textContent=J,e.head.append(n);let t=e.createElement("div");return t.className="ds-chrome",t.innerHTML='<div class="ds-bar"><i></i></div><div class="ds-count"></div><div class="ds-flags"></div><div class="ds-subs" hidden></div><div class="ds-notes" hidden></div>',e.body.append(t),{chrome:t,fill:t.querySelector("i"),count:t.querySelector(".ds-count"),notes:t.querySelector(".ds-notes"),flags:t.querySelector(".ds-flags"),subs:t.querySelector(".ds-subs")}}var G={at:()=>{},toggleMute:()=>{},toggleSubtitles:()=>{},unlock:()=>{}};function K(e,n,t){let s=e.createElement("audio");s.preload="auto",e.body.append(s);let o=!1,c=!0,u=()=>e.documentElement.classList.toggle("ds-cap",c);u();let r=!1,d=!1,f=[],a=0,h=null,g=null,S=0,p=()=>{let i=[];r&&d?i.push("press any key for sound"):o&&i.push("muted"),c||i.push("subtitles off"),t.flags.textContent=i.join("   \xB7   ")},y=()=>{let i=c?M(f,s.currentTime):null;i!==h&&(h=i,t.subs.textContent=i?.text??"",t.subs.hidden=i===null)},x=()=>{y(),a=s.ended||s.paused&&s.currentTime>0?0:requestAnimationFrame(x)},l=()=>{a&&cancelAnimationFrame(a),a=0,s.pause(),s.removeAttribute("src"),s.load(),f=[],y()},m=i=>{let v=++S;g=i,l();let b=A(n,i.sceneId,i.fragment);b&&(f=b.cues,s.muted=o,s.src=I(n,b),Promise.resolve(s.play()).then(()=>{v===S&&(r=!1,p())},()=>{v===S&&(r=!0,d=!0,a&&cancelAnimationFrame(a),a=0,f=[],y(),p())}),a===0&&(a=requestAnimationFrame(x)))};return{at:m,toggleMute:()=>{o=!o,s.muted=o,p()},toggleSubtitles:()=>{c=!c,u(),y(),p()},unlock:()=>{!r||!g||(r=!1,p(),m(g))}}}function Q(e){let n=e;return!!n&&(n.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName??""))}async function H(e){let n=W(e),t=e.querySelector("hyperframes-player");if(n.length===0||!t)return;let s=_(n);if(s.length===0)return;let o=Y(e),c=C(e.querySelector(N)?.textContent),u=c?K(e,c,o):G,r=0,d=null,f=0,a=0,h=-1,g=l=>{t.seek(l),d&&R(d,n,l),f=l},S=(l,m,i)=>{let v=f,b=0,w=T=>{b===0&&(b=T);let E=Math.min(1,(T-b)/i);if(E<1){f=v+(m-v)*E,R(l,n,f),a=requestAnimationFrame(w);return}a=0,g(m)};a=requestAnimationFrame(w)},p=(l,m=!1)=>{r=Math.max(0,Math.min(s.length-1,l));let i=s[r];a&&cancelAnimationFrame(a),a=0;let v=typeof matchMedia=="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches,b=X(f,i.t,{reducedMotion:v});b.animate&&!m&&d?S(d,i.t,b.durationMs):g(i.t),r!==h&&(h=r,u.at(i)),history.replaceState(null,"",z(i)),o.fill.style.transform=`scaleX(${(r+1)/s.length})`,o.count.textContent=`${i.slide+1} / ${s[s.length-1].slide+1}`,o.notes.textContent=i.notes};addEventListener("hashchange",()=>{let l=P(location.hash);if(!l)return;let m=F(s,l);m>=0&&m!==r&&p(m,!0)}),e.addEventListener("keydown",l=>{if(!(l.defaultPrevented||Q(l.target))){switch(l.key){case"ArrowRight":case"PageDown":case" ":p(r+1);break;case"ArrowLeft":case"PageUp":p(r-1);break;case"Home":p(0,!0);break;case"End":p(s.length-1,!0);break;case"n":o.notes.hidden=!o.notes.hidden;break;case"m":u.toggleMute();break;case"s":u.toggleSubtitles();break;case"f":{(e.fullscreenElement?e.exitFullscreen():e.documentElement.requestFullscreen()).catch(()=>{});break}default:return}l.preventDefault()}}),e.addEventListener("click",l=>{if(o.chrome.contains(l.target))return;let m=(e.documentElement.clientWidth||1)/3;l.clientX>m*2?p(r+1):l.clientX<m&&p(r-1)});let y=()=>u.unlock();if(e.addEventListener("keydown",y),e.addEventListener("click",y),await U(t),typeof t.seek!="function")return;t.pause?.(),d=B(t),d?.doc.documentElement.classList.add("ds-live"),d||console.warn("[decksmith] composition unreachable; serve the deck over http, not file://");let x=P(location.hash);p(x?Math.max(0,F(s,x)):0,!0)}typeof document<"u"&&(document.readyState==="loading"?document.addEventListener("DOMContentLoaded",()=>void H(document),{once:!0}):H(document));})();
+
+    </script>
+  </body>
+</html>

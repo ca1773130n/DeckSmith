@@ -1,0 +1,302 @@
+[
+ {
+  "sid": "s1",
+  "label": "Compact thought collides with dense output",
+  "bbox": {
+   "x": 110,
+   "y": 406,
+   "w": 1695,
+   "h": 260
+  },
+  "fill": 0.21220547993977865,
+  "inkFill": 0.14294386875482254,
+  "gap": {
+   "x": 0,
+   "y": 666,
+   "w": 1920,
+   "h": 414,
+   "frac": 0.38359375
+  },
+  "optical": {
+   "dx": -2,
+   "dy": -4
+  },
+  "minText": 40,
+  "leaves": 3
+ },
+ {
+  "sid": "s2",
+  "label": "One pass in, one pass out, and a loop in the middle",
+  "bbox": {
+   "x": 110,
+   "y": 235,
+   "w": 1698,
+   "h": 603
+  },
+  "fill": 0.49368647822627315,
+  "inkFill": 0.22218208148155683,
+  "gap": {
+   "x": 311,
+   "y": 0,
+   "w": 1609,
+   "h": 303,
+   "frac": 0.2351888762580024
+  },
+  "optical": {
+   "dx": -1,
+   "dy": -4
+  },
+  "minText": 40,
+  "leaves": 17
+ },
+ {
+  "sid": "s3",
+  "label": "Every window keeps its own position-wise query",
+  "bbox": {
+   "x": 110,
+   "y": 189,
+   "w": 1657,
+   "h": 642
+  },
+  "fill": 0.5128520150501051,
+  "inkFill": 0.30708417443826524,
+  "gap": {
+   "x": 0,
+   "y": 831,
+   "w": 1920,
+   "h": 249,
+   "frac": 0.2306712962962963
+  },
+  "optical": {
+   "dx": -22,
+   "dy": -30
+  },
+  "minText": 40,
+  "leaves": 20
+ },
+ {
+  "sid": "s4",
+  "label": "Attention is computed inside windows, and no token is pooled away",
+  "bbox": {
+   "x": 110,
+   "y": 89,
+   "w": 1568,
+   "h": 895
+  },
+  "fill": 0.6765688243913062,
+  "inkFill": 0.2697437888145012,
+  "gap": {
+   "x": 983,
+   "y": 235,
+   "w": 937,
+   "h": 845,
+   "frac": 0.38202036751641166
+  },
+  "optical": {
+   "dx": -66,
+   "dy": -4
+  },
+  "minText": 40,
+  "leaves": 104
+ },
+ {
+  "sid": "s5",
+  "label": "The encoder makes the field; the partition keeps it",
+  "bbox": {
+   "x": 110,
+   "y": 100,
+   "w": 1444,
+   "h": 665
+  },
+  "fill": 0.46287969765839754,
+  "inkFill": 0.14143782238901398,
+  "gap": {
+   "x": 0,
+   "y": 764,
+   "w": 1920,
+   "h": 316,
+   "frac": 0.2921875
+  },
+  "optical": {
+   "dx": -128,
+   "dy": -108
+  },
+  "minText": 40,
+  "leaves": 22
+ },
+ {
+  "sid": "s6",
+  "label": "The thought state is a stack the carrier is read through",
+  "bbox": {
+   "x": 110,
+   "y": 124,
+   "w": 1562,
+   "h": 775
+  },
+  "fill": 0.5842463962375014,
+  "inkFill": 0.3601735305423143,
+  "gap": {
+   "x": 0,
+   "y": 900,
+   "w": 1920,
+   "h": 180,
+   "frac": 0.1668588708948206
+  },
+  "optical": {
+   "dx": -69,
+   "dy": -28
+  },
+  "minText": 40,
+  "leaves": 30
+ },
+ {
+  "sid": "s7",
+  "label": "One summary token per window, or one query per pixel",
+  "bbox": {
+   "x": 110,
+   "y": 122,
+   "w": 1586,
+   "h": 828
+  },
+  "fill": 0.6331400953693155,
+  "inkFill": 0.16647876103719075,
+  "gap": {
+   "x": 1444,
+   "y": 268,
+   "w": 476,
+   "h": 812,
+   "frac": 0.18642255406320832
+  },
+  "optical": {
+   "dx": -57,
+   "dy": -4
+  },
+  "minText": 40,
+  "leaves": 17
+ },
+ {
+  "sid": "s8",
+  "label": "The method is mid-pack on parameters, not the smallest",
+  "bbox": {
+   "x": 110,
+   "y": 103,
+   "w": 1672,
+   "h": 869
+  },
+  "fill": 0.7004194723906708,
+  "inkFill": 0.3314080576267939,
+  "gap": {
+   "x": 238,
+   "y": 0,
+   "w": 1682,
+   "h": 171,
+   "frac": 0.13832362375141663
+  },
+  "optical": {
+   "dx": -14,
+   "dy": -3
+  },
+  "minText": 40,
+  "leaves": 24
+ },
+ {
+  "sid": "s9",
+  "label": "Competitive with CNN baselines, behind recent models",
+  "bbox": {
+   "x": 110,
+   "y": 192,
+   "w": 1686,
+   "h": 691
+  },
+  "fill": 0.5617484537760417,
+  "inkFill": 0.16751712751977238,
+  "gap": {
+   "x": 355,
+   "y": 338,
+   "w": 789,
+   "h": 498,
+   "frac": 0.1894499819955708
+  },
+  "optical": {
+   "dx": -7,
+   "dy": -3
+  },
+  "minText": 40,
+  "leaves": 21
+ },
+ {
+  "sid": "s10",
+  "label": "Each extra tick buys less than the one before it",
+  "bbox": {
+   "x": 110,
+   "y": 155,
+   "w": 1629,
+   "h": 762
+  },
+  "fill": 0.5984707167119155,
+  "inkFill": 0.2101331504466541,
+  "gap": {
+   "x": 0,
+   "y": 917,
+   "w": 1920,
+   "h": 163,
+   "frac": 0.1509837962962963
+  },
+  "optical": {
+   "dx": -36,
+   "dy": -4
+  },
+  "minText": 40,
+  "leaves": 30
+ },
+ {
+  "sid": "s11",
+  "label": "The trajectory is visible, not just measurable",
+  "bbox": {
+   "x": 110,
+   "y": 140,
+   "w": 1700,
+   "h": 795
+  },
+  "fill": 0.651624137972608,
+  "inkFill": 0.34482057924623843,
+  "gap": {
+   "x": 413,
+   "y": 0,
+   "w": 1507,
+   "h": 208,
+   "frac": 0.15124071615713613
+  },
+  "optical": {
+   "dx": 0,
+   "dy": -3
+  },
+  "minText": 40,
+  "leaves": 9
+ },
+ {
+  "sid": "s12",
+  "label": "The same experiment reports three different numbers",
+  "bbox": {
+   "x": 110,
+   "y": 273,
+   "w": 1700,
+   "h": 526
+  },
+  "fill": 0.43114104094328703,
+  "inkFill": 0.300169979142554,
+  "gap": {
+   "x": 0,
+   "y": 799,
+   "w": 1920,
+   "h": 281,
+   "frac": 0.26024305555555555
+  },
+  "optical": {
+   "dx": 0,
+   "dy": -4
+  },
+  "minText": 40,
+  "leaves": 11
+ }
+]

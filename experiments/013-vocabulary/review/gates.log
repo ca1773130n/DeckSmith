@@ -1,0 +1,22 @@
+# `decksmith build` on planner outputs — the check nobody ran.
+# node dist/cli.js build <sb> --source demo/source.json -o <dir>
+# DeckSmith @ a597b22 + working tree, chrome-headless-shell 145.0.7632.46
+
+demo/storyboard.json        (12 beats, shipped)              PASS  0 error(s)  1 warning(s)
+sb-demo3.json               (shipped beats 2/5/8, 3 beats)   PASS  0 error(s)  1 warning(s)
+sb-A-01.json                (arm A run 01 — scored DIRTY)    PASS  0 error(s)  1 warning(s)
+sb-A-04.json                (arm A run 04 — scored CLEAN)    FAIL 14 error(s)  1 warning(s)
+sb-A-07.json                (arm A run 07 — scored CLEAN)    PASS  0 error(s)  1 warning(s)
+sb-A-04-noinside.json       (A-04 with beats[1].inside removed)
+                                                             PASS  0 error(s)  1 warning(s)
+
+A-04's 14 errors are all `layout canvas_overflow` at t=11.2s plus one
+`escaped_container` on div.ds-zoom. Removing the single `inside:
+{beat:"b01-method-flow", element:"stage0"}` field — a schema-legal camera dive,
+accepted by coherence.mjs's own inside/element check — turns FAIL into PASS.
+The shipped demo storyboard never uses `inside`, so the dive path ships untested.
+
+The warning present in every run, including the shipped demo, is
+`connector_detached ... 380px from the nearest anchorable element` on the
+pipeline's feedback loop. See the review: that connector is drawing the wrong
+claim, and has been since the demo was written.

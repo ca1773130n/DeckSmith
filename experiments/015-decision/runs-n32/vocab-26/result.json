@@ -1,0 +1,15 @@
+{
+  "arm": "vocab",
+  "i": 26,
+  "model": "gpt-5.5",
+  "effort": "medium",
+  "ms": 157006,
+  "exit": 0,
+  "promptBytes": 15785,
+  "schemaBytes": 3588,
+  "outBytes": 21402,
+  "stage": "valid",
+  "units": 3,
+  "jsonBytes": 13868,
+  "refsResolve": true
+}

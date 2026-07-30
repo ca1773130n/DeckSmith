@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <title>008 pixi — text</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/deckpixi.iife.js"></script>
+    <link rel="stylesheet" href="assets/fonts/fonts.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0d10; }
+      body {
+        font-family: "Noto Sans KR", Inter, system-ui, sans-serif;
+        color: #e8eaed;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root { position: absolute; inset: 0; }
+      .band { position: absolute; left: 0; width: 1920px; height: 270px; }
+      .band#b0 { top: 0 } .band#b1 { top: 270px } .band#b2 { top: 540px } .band#b3 { top: 810px }
+      .band + .band { border-top: 1px solid #1b222b; }
+      .tag {
+        position: absolute; right: 24px; top: 10px; font-size: 22px; letter-spacing: .12em;
+        text-transform: uppercase; color: #4d5a68; font-family: Inter, system-ui, sans-serif;
+      }
+      /* rows share one grid across every band: y = 12 / 124 / 204, x = 40 */
+      .r { position: absolute; left: 40px; white-space: pre; }
+      .r0 { top: 12px;  font-size: 88px; font-weight: 700; line-height: 1; }
+      .r1 { top: 124px; font-size: 56px; font-weight: 700; line-height: 1; }
+      .r2 { top: 204px; font-size: 40px; font-weight: 400; line-height: 1; }
+      canvas { position: absolute; left: 0; top: 0; width: 1920px; height: 270px; }
+      svg { position: absolute; left: 0; top: 0; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="2"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="band" id="b0">
+        <span class="tag">DOM</span>
+        <div class="r r0">생성형 슬라이드</div>
+        <div class="r r1">카메라는 시간의 순수 함수</div>
+        <div class="r r2">Seeking, not playing — 40px 0123456789</div>
+      </div>
+
+      <div class="band" id="b1">
+        <span class="tag">SVG &lt;text&gt;</span>
+        <svg width="1920" height="270" xmlns="http://www.w3.org/2000/svg">
+          <text x="40" y="12" font-size="88" font-weight="700" fill="#e8eaed"
+                dominant-baseline="text-before-edge"
+                font-family="Noto Sans KR, Inter, system-ui, sans-serif">생성형 슬라이드</text>
+          <text x="40" y="124" font-size="56" font-weight="700" fill="#e8eaed"
+                dominant-baseline="text-before-edge"
+                font-family="Noto Sans KR, Inter, system-ui, sans-serif">카메라는 시간의 순수 함수</text>
+          <text x="40" y="204" font-size="40" font-weight="400" fill="#e8eaed"
+                dominant-baseline="text-before-edge"
+                font-family="Noto Sans KR, Inter, system-ui, sans-serif">Seeking, not playing — 40px 0123456789</text>
+        </svg>
+      </div>
+
+      <div class="band" id="b2">
+        <span class="tag">Pixi Text (WebGL)</span>
+        <canvas id="glText" width="1920" height="270"></canvas>
+      </div>
+
+      <div class="band" id="b3">
+        <span class="tag">Pixi BitmapText (WebGL)</span>
+        <canvas id="glBmp" width="1920" height="270"></canvas>
+      </div>
+
+      <script>
+        window.__renderReady = false;
+        (async function () {
+          window.__timelines = window.__timelines || {};
+          DP.instrumentRaf();
+          var tk = DP.killTickers();
+
+          // Pixi rasterises glyphs through canvas2d — the face must be resident
+          // BEFORE the Text is constructed or it silently falls back.
+          var probe = "생성형 슬라이드 카메라는 시간의 순수 함수 Seeking, not playing — 40px 0123456789";
+          await Promise.all([
+            document.fonts.load('700 88px "Noto Sans KR"', probe),
+            document.fonts.load('700 56px "Noto Sans KR"', probe),
+            document.fonts.load('400 40px "Noto Sans KR"', probe),
+          ]);
+          await document.fonts.ready;
+
+          // Match Pixi's backing store to the device pixel ratio the renderer
+          // is capturing at, the way a real integration would have to.
+          var forced = new URLSearchParams(location.search).get("res");
+          var dpr = forced ? Number(forced) : window.devicePixelRatio || 1;
+          var a = await DP.textScene(document.getElementById("glText"), 1920, 270, {
+            mode: "text", resolution: dpr,
+          });
+          var b = await DP.textScene(document.getElementById("glBmp"), 1920, 270, {
+            mode: "bitmap", resolution: dpr,
+          });
+          a.render();
+          b.render();
+          window.__scenes = { text: a, bitmap: b, dpr: dpr, ticker: tk };
+
+          var tl = gsap.timeline({ paused: true });
+          tl.to({}, { duration: 2 });
+          window.__timelines["main"] = tl;
+          window.__renderReady = true;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

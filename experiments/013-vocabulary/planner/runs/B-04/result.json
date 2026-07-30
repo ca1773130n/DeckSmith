@@ -1,0 +1,19 @@
+{
+  "arm": "B",
+  "i": 4,
+  "ms": 175175,
+  "exit": 0,
+  "promptChars": 8659,
+  "schemaChars": 3324,
+  "outChars": 24449,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 15505,
+  "refsResolve": true,
+  "shared": [
+    "scene[0] s01-flow: narration 4 sentences, 5 holds"
+  ],
+  "algebra": [],
+  "soft": [],
+  "coherent": false
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <title>008 pixi — 60k data swarm</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/deckpixi.iife.js"></script>
+    <link rel="stylesheet" href="assets/fonts/fonts.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0d10; }
+      body { font-family: "Noto Sans KR", Inter, system-ui, sans-serif; color: #e8eaed; }
+      #root { position: absolute; inset: 0; }
+      #gl { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; }
+      /* Typography stays in the DOM. The canvas carries only the 60,000 dots. */
+      .cap { position: absolute; left: 96px; top: 64px; }
+      .cap h1 { font-size: 64px; font-weight: 700; letter-spacing: -.02em; }
+      .cap p  { font-size: 40px; color: #9aa7b5; margin-top: 20px; }
+      .lg { position: absolute; right: 96px; top: 72px; font-size: 40px; color: #9aa7b5;
+            display: flex; flex-direction: column; gap: 14px; align-items: flex-end; }
+      .lg i { width: 22px; height: 22px; border-radius: 50%; display: inline-block;
+              margin-left: 16px; vertical-align: -2px; font-style: normal; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="8"
+      data-width="1920"
+      data-height="1080"
+    >
+      <canvas id="gl" width="1920" height="1080"></canvas>
+      <div class="cap">
+        <h1 id="h">60,000 samples</h1>
+        <p id="s">one GPU sprite per data point</p>
+      </div>
+      <div class="lg">
+        <span>bin 0 <i style="background:#3d8bfd"></i></span>
+        <span>bin 1 <i style="background:#2ec4a6"></i></span>
+        <span>bin 2 <i style="background:#f2b134"></i></span>
+        <span>bin 3 <i style="background:#e5566d"></i></span>
+        <span>bin 4 <i style="background:#9b8bfd"></i></span>
+      </div>
+      <script>
+        window.__renderReady = false;
+        (async function () {
+          window.__timelines = window.__timelines || {};
+          DP.instrumentRaf();
+          var tk = DP.killTickers();
+          var n = Number(new URLSearchParams(location.search).get("n") || 60000);
+          var scene = await DP.swarmScene(document.getElementById("gl"), 1920, 1080, n);
+          window.__scene = scene;
+          window.__DP = DP;
+
+          var p = { t: 0 };
+          var tl = gsap.timeline({ paused: true });
+          tl.to(p, {
+            t: 8, duration: 8, ease: "none", lazy: false,
+            onUpdate: function () { scene.render(p.t); },
+          });
+          // Caption changes are discrete stops, not a cut: DOM copy on the same
+          // clock as the swarm.
+          tl.fromTo("#s", { autoAlpha: 1 }, { autoAlpha: 1, duration: 1.6 }, 0);
+          window.__timelines["main"] = tl;
+
+          scene.render(0);
+          document.getElementById("h").textContent = n.toLocaleString("en-US") + " samples";
+          window.__tickerState = tk;
+          window.__renderReady = true;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

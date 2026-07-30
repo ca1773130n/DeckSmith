@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ThinkSR: compact thought, dense output</title>
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link rel="stylesheet" href="./katex/katex.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1080px; height: 1920px;
+        overflow: hidden; background: #0b0d10;
+      }
+      body { font-family: "Inter", system-ui, sans-serif; color: #e8eaed; font-weight: 400; }
+
+      /* Centred, not top-anchored. Top-anchoring left every archetype but the
+         title sitting in the upper 40% above a 500-600px dead band — it passes
+         every gate and reads as unfinished. Centring is safe here because the
+         gate still catches anything taller than the canvas; it just now
+         overflows symmetrically instead of only downwards. */
+      .scene { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+               padding: 84px 110px; display: flex; flex-direction: column;
+               justify-content: center; }
+
+      @keyframes ds-breathe { from { filter: brightness(1); } to { filter: brightness(1.12); } }
+      @keyframes ds-drift { from { transform: scale(1); } to { transform: scale(1.012); } }
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .titleslide{display:flex;flex-direction:column;justify-content:space-between;height:100%}
+      .bighead{line-height:1.06;font-weight:700;letter-spacing:-.025em;color:#e8eaed}
+      .sub{font-size:48px;line-height:1.5;color:#9aa7b5;margin-top:44px;padding-top:36px;max-width:1500px;border-top:3px solid #2b333d}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s1-t{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .pipewrap{margin-top:38px;display:flex;justify-content:center}
+      .pipenote{font-size:44px;line-height:1.45;color:#9aa7b5;margin-top:36px;max-width:1600px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s2-stage2{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .af-stage{position:relative;flex:none}
+      .af-plate{position:absolute;background:#fff;border:1px solid #2b333d;border-radius:12px;padding:14px}
+      .af-plate{overflow:hidden}
+      .af-plate img{display:block;width:100%;height:100%}
+      #s3-plate img{position:absolute;width:843.75px;height:425.25px;left:-1.87px;top:-206.13px;max-width:none}
+      .af-ov-g{filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}
+      .af-lab text{fill:#e8eaed}
+      .af-cap{font-size:40px;line-height:1.35;color:#74808e;margin-top:26px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+      #s3-stage{width:860px;height:434.62px;margin-top:30px}
+      #s3-plate{left:10px;top:0px;width:840px;height:225.62px}
+      #s3-ov{position:absolute;left:0;top:0;overflow:visible}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s3 .af-dot{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .gwrap{margin-top:52px}
+      .gcell{fill:#16191e;stroke:#2b333d;stroke-width:1}
+      .grgn{fill-opacity:0;stroke-linejoin:round}
+      .glead{stroke-width:3;stroke-linecap:round;opacity:.62}
+      .gdnote{font-size:44px;line-height:1.45;color:#9aa7b5;margin-top:34px;max-width:1600px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s4-rgn1{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .eqslide{display:flex;flex-direction:column;justify-content:space-evenly;gap:64px;flex:1;min-height:0}
+      .katex-display{margin:0 !important}
+      .eq{text-align:center;color:#e8eaed}
+      .eqstack{display:flex;flex-direction:column;gap:32px}
+      .term{display:inline-block}
+      .legend{display:flex;flex-direction:column;gap:30px;width:fit-content;margin-inline:auto}
+      .leg{display:flex;gap:26px;align-items:baseline;max-width:1400px;font-size:48px;color:#9aa7b5}
+      .chip{display:inline-block;min-width:72px;text-align:center;background:#16191e;border-radius:10px;padding:2px 20px;white-space:nowrap;font-weight:700}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s5-eq{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .sc-body{margin-top:34px;display:flex;justify-content:center}
+      .sc-note{font-size:44px;line-height:1.45;color:#9aa7b5;margin-top:34px;max-width:1600px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s6-lab1{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      table{border-collapse:collapse;width:100%;margin-top:34px;font-size:51px}
+      th,td{font-size:inherit;padding:67px 14px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+      th{color:#74808e;font-weight:500;letter-spacing:.04em;border-bottom:2px solid #2b333d}
+      td:first-child,th:first-child{text-align:left}
+      tbody tr{border-bottom:1px solid #2b333d}
+      tbody td{color:#9aa7b5}
+      .rownote{font-size:44px;line-height:1.45;color:#74808e;margin-top:26px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s7-r4 td{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .chartwrap{display:flex;gap:60px;align-items:center;margin-top:24px}
+      .chartstack{flex-direction:column;align-items:stretch}
+      .chartstack .readout{max-width:none}
+      .grid line{stroke:#2b333d;stroke-width:1}
+      .chartline{stroke-width:5;stroke-linejoin:round;stroke-linecap:round}
+      .axlab{font-size:40px;fill:#74808e}
+      .axname{font-size:40px;fill:#9aa7b5;font-weight:500}
+      .ptlab{font-size:40px;fill:#e8eaed;font-weight:600}
+      .delta{font-size:40px;fill:#ffd166;font-weight:600}
+      .readout{font-size:44px;line-height:1.35;color:#9aa7b5;max-width:460px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s8 .dot:last-of-type{animation:ds-breathe 6s ease-in-out infinite alternate}}
+    </style>
+  </head>
+  <body>
+    <script>window.__hfTimelinesBuilding = true;</script>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="168.956"
+      data-width="1080"
+      data-height="1920"
+    >
+      <div
+        id="s1"
+        class="scene clip"
+        data-composition-id="s1"
+        data-start="0"
+        data-duration="10.204"
+        data-label="Compact thought collides with dense output"
+      >
+<div class="titleslide">
+  <div class="eyebrow" id="s1-e">Paper analysis · dense prediction × continuous thought</div>
+  <h1 class="bighead" id="s1-t" style="font-size:101px">Compact thought collides with dense output</h1>
+  <div class="sub" id="s1-s">Dense-Query Continuous Thought Machine (DQ-CTM)</div>
+</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s1-e", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6 }, 0.2);
+            tl.fromTo("#s1-t", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.9 }, 0.4);
+            tl.fromTo("#s1-s", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 1);
+            window.__timelines["s1"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s2"
+        class="scene clip"
+        data-composition-id="s2"
+        data-start="10.204"
+        data-duration="39.142"
+        data-label="One pass in, one pass out, and a loop in the middle"
+      >
+<div class="eyebrow" id="s2-e">Method</div>
+<h2 class="headline" id="s2-h">One pass in, one pass out, and a loop in the middle</h2>
+<div class="pipewrap"><svg id="s2-pipe" width="860" height="1217" viewBox="0 0 860 1217"><defs><marker id="s2-ah-9aa7b5" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="26" markerHeight="26" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="#9aa7b5" /></marker><marker id="s2-ah-ffd166" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="26" markerHeight="26" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="#ffd166" /></marker></defs><defs><clipPath id="s2-loopclip"><rect x="0" y="417.63" width="860" height="381.75" id="s2-sweep" /></clipPath></defs><g clip-path="url(#s2-loopclip)"><path d="M509,769.38 L543,769.38 Q565,769.38 565,747.38 L565,469.63 Q565,447.63 543,447.63 L519,447.63" fill="none" stroke="#ffd166" stroke-width="4" stroke-linecap="round" stroke-dasharray="16 12" marker-end="url(#s2-ah-ffd166)" /><text x="583" y="608.5" font-size="40" font-weight="500" fill="#ffd166"><tspan x="583" dy="-12.4">one thought</tspan><tspan x="583" dy="52">tick</tspan></text></g><line x1="255.5" y1="249.75" x2="255.5" y2="315.75" id="s2-arrow0" fill="none" stroke="#9aa7b5" stroke-width="5" stroke-linecap="round" marker-end="url(#s2-ah-9aa7b5)" /><line x1="255.5" y1="571.5" x2="255.5" y2="637.5" id="s2-arrow1" fill="none" stroke="#9aa7b5" stroke-width="5" stroke-linecap="round" marker-end="url(#s2-ah-9aa7b5)" /><line x1="255.5" y1="893.25" x2="255.5" y2="959.25" id="s2-arrow2" fill="none" stroke="#9aa7b5" stroke-width="5" stroke-linecap="round" marker-end="url(#s2-ah-9aa7b5)" /><g id="s2-stage0"><rect x="2" y="2" width="507" height="247.75" rx="18" fill="#16191e" stroke="#2b333d" stroke-width="3" /><text x="255.5" y="91.88" font-size="52" font-weight="600" fill="#e8eaed" text-anchor="middle"><tspan x="255.5" dy="17.68">Encode</tspan></text><text x="255.5" y="165.08" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="255.5" dy="13.6">SwinIR-style</tspan></text></g><g id="s2-stage1"><rect x="2" y="323.75" width="507" height="247.75" rx="18" fill="#7cc4ff" fill-opacity="0.12" stroke="#7cc4ff" stroke-width="4" /><text x="255.5" y="413.63" font-size="52" font-weight="600" fill="#7cc4ff" text-anchor="middle"><tspan x="255.5" dy="17.68">Window</tspan></text><text x="255.5" y="486.83" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="255.5" dy="13.6">no pooling</tspan></text></g><g id="s2-stage2"><rect x="2" y="645.5" width="507" height="247.75" rx="18" fill="#ffd166" fill-opacity="0.12" stroke="#ffd166" stroke-width="4" /><text x="255.5" y="735.38" font-size="52" font-weight="600" fill="#ffd166" text-anchor="middle"><tspan x="255.5" dy="17.68">DQ-CTM</tspan></text><text x="255.5" y="808.58" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="255.5" dy="13.6">shared ticks</tspan></text></g><g id="s2-stage3"><rect x="2" y="967.25" width="507" height="247.75" rx="18" fill="#16191e" stroke="#2b333d" stroke-width="3" /><text x="255.5" y="1057.13" font-size="52" font-weight="600" fill="#e8eaed" text-anchor="middle"><tspan x="255.5" dy="17.68">Decode</tspan></text><text x="255.5" y="1130.33" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="255.5" dy="13.6">×4 upsample</tspan></text></g></svg></div>
+<div class="pipenote" id="s2-note">Parameters are shared across every tick.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s2-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s2-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s2-stage0", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 1);
+            tl.fromTo("#s2-arrow0", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.32, ease: "power2.out" }, 2.1);
+            tl.fromTo("#s2-stage1", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 2.4);
+            tl.fromTo("#s2-arrow1", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.32, ease: "power2.out" }, 3.5);
+            tl.fromTo("#s2-stage2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 3.8);
+            tl.fromTo("#s2-arrow2", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.32, ease: "power2.out" }, 4.9);
+            tl.fromTo("#s2-stage3", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 5.2);
+            tl.fromTo("#s2-sweep", { y: 381.75 }, { y: 0, duration: 0.9, ease: "power2.inOut" }, 6);
+            tl.fromTo("#s2-note", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5 }, 7.15);
+            window.__timelines["s2"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s3"
+        class="scene clip"
+        data-composition-id="s3"
+        data-start="49.346"
+        data-duration="27.524"
+        data-label="Every window keeps its own position-wise query"
+      >
+<div class="eyebrow" id="s3-e">Architecture</div>
+<h2 class="headline" id="s3-h">Every window keeps its own position-wise query</h2>
+<div class="af-stage" id="s3-stage">
+  <div class="af-plate" id="s3-plate"><img data-layout-allow-overflow src="assets/fig-compare.jpg" alt="Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared." /></div>
+  <svg id="s3-ov" width="860" height="434.62" viewBox="0 0 860 434.62"><g class="af-ov-g"><path d="M246.16,133.4 L0,261.12 L231.71,261.12" fill="none" id="s3-lead0" stroke="#7cc4ff" stroke-width="3" stroke-linejoin="round" /><g id="s3-dot0"><circle cx="261.25" cy="125.57" r="18" fill="#7cc4ff" opacity="0.22" class="af-halo" /><circle cx="261.25" cy="125.57" r="9" fill="#7cc4ff" class="af-dot" stroke="#0b0d10" stroke-width="4" /></g><g id="s3-lab0" class="af-lab"><text x="0" y="309.82" font-size="40" font-weight="600">window</text><text x="0" y="361.82" font-size="40" font-weight="600">partitioning</text><line x1="0" y1="261.12" x2="231.71" y2="261.12" stroke="#7cc4ff" stroke-width="3" /></g><path d="M434.23,136.93 L296,261.12 L508.58,261.12" fill="none" id="s3-lead1" stroke="#ffd166" stroke-width="3" stroke-linejoin="round" /><g id="s3-dot1"><circle cx="446.88" cy="125.57" r="18" fill="#ffd166" opacity="0.22" class="af-halo" /><circle cx="446.88" cy="125.57" r="9" fill="#ffd166" class="af-dot" stroke="#0b0d10" stroke-width="4" /></g><g id="s3-lab1" class="af-lab"><text x="296" y="309.82" font-size="40" font-weight="600">the shared</text><text x="296" y="361.82" font-size="40" font-weight="600">DQ-CTM</text><text x="296" y="413.82" font-size="40" font-weight="600">block</text><line x1="296" y1="261.12" x2="508.58" y2="261.12" stroke="#ffd166" stroke-width="3" /></g><path d="M721.46,137.32 L592,261.12 L818.3,261.12" fill="none" id="s3-lead2" stroke="#f78da7" stroke-width="3" stroke-linejoin="round" /><g id="s3-dot2"><circle cx="733.75" cy="125.57" r="18" fill="#f78da7" opacity="0.22" class="af-halo" /><circle cx="733.75" cy="125.57" r="9" fill="#f78da7" class="af-dot" stroke="#0b0d10" stroke-width="4" /></g><g id="s3-lab2" class="af-lab"><text x="592" y="309.82" font-size="40" font-weight="600">pixel-wise</text><text x="592" y="361.82" font-size="40" font-weight="600">dense field</text><line x1="592" y1="261.12" x2="818.3" y2="261.12" stroke="#f78da7" stroke-width="3" /></g></g></svg>
+</div>
+<div class="af-cap" id="s3-cap">Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s3-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s3-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s3-plate", { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, 0.7);
+            tl.fromTo("#s3-dot0", { opacity: 0, scale: 0, svgOrigin: "261.25 125.57" }, { opacity: 1, scale: 1, svgOrigin: "261.25 125.57", duration: 0.3, ease: "back.out(2)" }, 1.9);
+            tl.fromTo("#s3-lead0", { strokeDasharray: 511, strokeDashoffset: 511 }, { strokeDashoffset: 0, duration: 0.55, ease: "none" }, 2);
+            tl.fromTo("#s3-lab0", { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: 0.4 }, 2.35);
+            tl.fromTo("#s3-dot1", { opacity: 0, scale: 0, svgOrigin: "446.88 125.57" }, { opacity: 1, scale: 1, svgOrigin: "446.88 125.57", duration: 0.3, ease: "back.out(2)" }, 2.85);
+            tl.fromTo("#s3-lead1", { strokeDasharray: 400, strokeDashoffset: 400 }, { strokeDashoffset: 0, duration: 0.55, ease: "none" }, 2.95);
+            tl.fromTo("#s3-lab1", { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: 0.4 }, 3.3);
+            tl.fromTo("#s3-dot2", { opacity: 0, scale: 0, svgOrigin: "733.75 125.57" }, { opacity: 1, scale: 1, svgOrigin: "733.75 125.57", duration: 0.3, ease: "back.out(2)" }, 3.8);
+            tl.fromTo("#s3-lead2", { strokeDasharray: 407, strokeDashoffset: 407 }, { strokeDashoffset: 0, duration: 0.55, ease: "none" }, 3.9);
+            tl.fromTo("#s3-lab2", { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: 0.4 }, 4.25);
+            tl.fromTo("#s3-cap", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1);
+            window.__timelines["s3"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s4"
+        class="scene clip"
+        data-composition-id="s4"
+        data-start="76.87"
+        data-duration="19.73"
+        data-label="Attention is computed inside windows, and no token is pooled away"
+      >
+<div class="eyebrow" id="s4-e">Representation</div>
+<h2 class="headline" id="s4-h">Attention is computed inside windows, and no token is pooled away</h2>
+<div class="gwrap"><svg id="s4-field" width="860" height="574.41" viewBox="0 0 860 574.41"><g class="gcells"><rect x="6" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="6" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="77.4" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="148.79" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="220.19" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="291.59" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="362.99" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="434.38" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="6" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="77.4" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="148.79" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="220.19" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="291.59" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="362.99" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="434.38" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="505.78" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="577.18" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="648.58" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="719.97" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /><rect x="791.37" y="505.78" width="62.63" height="62.63" rx="7.52" class="gcell" /></g><g><rect x="3" y="3" width="282.82" height="282.82" rx="7.52" class="grgn" id="s4-rgn0" fill="#7cc4ff" stroke="#7cc4ff" stroke-width="6" /><rect x="431.38" y="217.19" width="282.82" height="282.82" rx="7.52" class="grgn" id="s4-rgn1" fill="#ffd166" stroke="#ffd166" stroke-width="6" /></g><text x="144.41" y="144.41" class="grlab" id="s4-lab0" font-size="42" font-weight="700" fill="#7cc4ff" text-anchor="middle"><tspan x="144.41" dy="-11.97">one</tspan><tspan x="144.41" dy="52.5">window</tspan></text><text x="572.79" y="358.6" class="grlab" id="s4-lab1" font-size="42" font-weight="700" fill="#ffd166" text-anchor="middle"><tspan x="572.79" dy="-11.97">the next</tspan><tspan x="572.79" dy="52.5">window</tspan></text></svg></div>
+<div class="gdnote" id="s4-note">Token count is identical before and after the update.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s4-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s4-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s4 .gcell", { opacity: 0, scale: 0.72, transformOrigin: "center" }, { opacity: 1, scale: 1, transformOrigin: "center", duration: 0.35, ease: "power2.out", stagger: { amount: 0.55, grid: [8, 12], from: "start" } }, 0.7);
+            tl.fromTo("#s4-rgn0", { strokeDasharray: 1120, strokeDashoffset: 1120 }, { strokeDashoffset: 0, duration: 0.6, ease: "power2.inOut" }, 1.75);
+            tl.fromTo("#s4-rgn0", { fillOpacity: 0 }, { fillOpacity: 0.18, duration: 0.45 }, 2.1);
+            tl.fromTo("#s4-lab0", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.45 }, 2.2);
+            tl.fromTo("#s4-rgn1", { strokeDasharray: 1120, strokeDashoffset: 1120 }, { strokeDashoffset: 0, duration: 0.6, ease: "power2.inOut" }, 2.95);
+            tl.fromTo("#s4-rgn1", { fillOpacity: 0 }, { fillOpacity: 0.18, duration: 0.45 }, 3.3);
+            tl.fromTo("#s4-lab1", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.45 }, 3.4);
+            tl.fromTo("#s4-note", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 4.15);
+            window.__timelines["s4"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s5"
+        class="scene clip"
+        data-composition-id="s5"
+        data-start="96.6"
+        data-duration="13.492"
+        data-label="The encoder makes the field; the partition keeps it"
+      >
+<div class="eyebrow" id="s5-e">1 · Persistent dense carrier</div>
+<h2 class="headline" id="s5-h">The encoder makes the field; the partition keeps it</h2>
+<div class="eqslide">
+  <div class="eq eqstack" id="s5-eq" style="font-size:106px"><div id="s5-eq0"></div>
+    <div id="s5-eq1"></div></div>
+  <div class="legend">
+    <div class="leg" id="s5-leg-a"><span class="chip" id="s5-chip-a" style="color:#7cc4ff"></span><span>SwinIR-style encoder — LR in, dense feature field out</span></div>
+    <div class="leg" id="s5-leg-b"><span class="chip" id="s5-chip-b" style="color:#ffd166"></span><span>window partition — every token survives it</span></div>
+  </div>
+</div>
+        <script>
+          (function () {
+            var OPTS = { displayMode: true, trust: true, strict: false, output: "html" };
+            katex.render('\\mathbf{F}=\\htmlClass{term t-a}{\\mathcal{E}}(\\mathbf{I}_{\\mathrm{LR}}),', document.getElementById("s5-eq0"), OPTS);
+            katex.render('\\mathbf{X}=\\htmlClass{term t-b}{\\mathcal{W}}(\\mathbf{F})', document.getElementById("s5-eq1"), OPTS);
+            katex.render('\\mathcal{E}', document.getElementById("s5-chip-a"), { displayMode: false, trust: true, strict: false, output: "html" });
+            katex.render('\\mathcal{W}', document.getElementById("s5-chip-b"), { displayMode: false, trust: true, strict: false, output: "html" });
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s5-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s5-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s5-eq", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 0.8);
+            tl.fromTo("#s5-leg-a", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.5 }, 1.8);
+            tl.fromTo("#s5 .t-a", { color: "#e8eaed", scale: 1 }, { color: "#7cc4ff", scale: 1.16, duration: 0.5 }, 1.8);
+            tl.fromTo("#s5-leg-b", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.5 }, 3.7);
+            tl.fromTo("#s5 .t-b", { color: "#e8eaed", scale: 1 }, { color: "#ffd166", scale: 1.16, duration: 0.5 }, 3.7);
+            tl.fromTo("#s5 .t-a", { scale: 1.16 }, { scale: 1, duration: 0.4 }, 3.7);
+            tl.fromTo("#s5 .t-b", { scale: 1.16 }, { scale: 1, duration: 0.4 }, 5.6);
+            window.__timelines["s5"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s6"
+        class="scene clip"
+        data-composition-id="s6"
+        data-start="110.092"
+        data-duration="20.138"
+        data-label="One summary token per window, or one query per pixel"
+      >
+<div class="eyebrow" id="s6-e">The difference</div>
+<h2 class="headline" id="s6-h">One summary token per window, or one query per pixel</h2>
+<div class="sc-body"><svg id="s6-sc" width="860" height="1223" viewBox="0 0 860 1223"><g id="s6-div"><line x1="0" y1="611.5" x2="860" y2="611.5" stroke="#2b333d" stroke-width="2" /><line x1="0" y1="611.5" x2="275.2" y2="611.5" stroke="#9aa7b5" stroke-width="3" /></g><g id="s6-side0"><text x="0" y="35" id="s6-lab0" font-size="56" font-weight="700" fill="#e8eaed"><tspan x="0" dy="19.04">Window-wise CTM</tspan></text><line x1="0" y1="90" x2="860" y2="90" id="s6-hair0" stroke="#7cc4ff" stroke-width="3" /><rect x="0" y="199.89" width="5" height="49.4" rx="2.5" fill="#7cc4ff" /><text x="40" y="220.95" font-size="52" fill="#e8eaed"><tspan x="40" dy="17.68">one summary token</tspan></text><rect x="0" y="324.69" width="5" height="49.4" rx="2.5" fill="#7cc4ff" /><text x="40" y="345.75" font-size="52" fill="#e8eaed"><tspan x="40" dy="17.68">window identity collapses</tspan></text><rect x="0" y="449.49" width="5" height="49.4" rx="2.5" fill="#7cc4ff" /><text x="40" y="470.55" font-size="52" fill="#e8eaed"><tspan x="40" dy="17.68">positions are lost</tspan></text></g><g id="s6-side1"><text x="0" y="692.5" id="s6-lab1" font-size="56" font-weight="700" fill="#e8eaed"><tspan x="0" dy="19.04">DQ-CTM (ours)</tspan></text><line x1="0" y1="747.5" x2="860" y2="747.5" id="s6-hair1" stroke="#ffd166" stroke-width="3" /><rect x="0" y="857.39" width="5" height="49.4" rx="2.5" fill="#ffd166" /><text x="40" y="878.45" font-size="52" fill="#e8eaed"><tspan x="40" dy="17.68">one query per position</tspan></text><rect x="0" y="982.19" width="5" height="49.4" rx="2.5" fill="#ffd166" /><text x="40" y="1003.25" font-size="52" fill="#e8eaed"><tspan x="40" dy="17.68">token count preserved</tspan></text><rect x="0" y="1106.99" width="5" height="49.4" rx="2.5" fill="#ffd166" /><text x="40" y="1128.05" font-size="52" fill="#e8eaed"><tspan x="40" dy="17.68">dense field survives</tspan></text></g></svg></div>
+<div class="sc-note" id="s6-note">Same window partition; different interface to the thought state.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s6-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s6-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s6-div", { opacity: 0, scaleX: 0, svgOrigin: "0 611.5" }, { opacity: 1, scaleX: 1, svgOrigin: "0 611.5", duration: 0.6, ease: "power2.out" }, 0.75);
+            tl.fromTo("#s6-side0", { opacity: 0, y: -26 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 1.15);
+            tl.fromTo("#s6-hair0", { strokeDasharray: 861, strokeDashoffset: 861 }, { strokeDashoffset: 0, duration: 0.7, ease: "power2.out" }, 1.15);
+            tl.fromTo("#s6-side1", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 2.05);
+            tl.fromTo("#s6-hair1", { strokeDasharray: 861, strokeDashoffset: 861 }, { strokeDashoffset: 0, duration: 0.7, ease: "power2.out" }, 2.05);
+            tl.fromTo("#s6-note", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 2.95);
+            window.__timelines["s6"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s7"
+        class="scene clip"
+        data-composition-id="s7"
+        data-start="130.23"
+        data-duration="25.446"
+        data-label="Competitive with CNN baselines, behind recent models"
+      >
+<div class="eyebrow" id="s7-e">Quantitative comparison · ×4</div>
+<h2 class="headline" id="s7-h">Competitive with CNN baselines, behind recent models</h2>
+<table>
+  <thead><tr id="s7-thead"><th>Method</th><th>Params</th><th>Average</th></tr></thead>
+  <tbody>
+      <tr class="trow" id="s7-r0"><td>CARN</td><td>1.592M</td><td>28.970</td></tr>
+      <tr class="trow" id="s7-r1"><td>IMDN</td><td>0.715M</td><td>28.968</td></tr>
+      <tr class="trow" id="s7-r2"><td>RFDN</td><td>0.550M</td><td>29.022</td></tr>
+      <tr class="trow" id="s7-r3"><td>CATANet</td><td>0.535M</td><td>29.482</td></tr>
+      <tr class="trow" id="s7-r4"><td>DQ-CTM-SR</td><td>1.129M</td><td>28.983</td></tr>
+  </tbody>
+</table>
+<div class="rownote" id="s7-note">Comparison figures are quoted from their papers; only DQ-CTM-SR was trained here.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s7-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s7-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s7-thead", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0.7);
+            tl.fromTo("#s7 .trow", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.45, stagger: 0.16 }, 0.9);
+            tl.fromTo("#s7-r3 td", { color: "#9aa7b5", fontWeight: 400 }, { color: "#7cc4ff", fontWeight: 600, duration: 0.5 }, 2.45);
+            tl.fromTo("#s7-r4 td", { color: "#9aa7b5", fontWeight: 400 }, { color: "#f78da7", fontWeight: 600, duration: 0.5 }, 3.65);
+            tl.fromTo("#s7-note", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.6 }, 4.85);
+            window.__timelines["s7"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s8"
+        class="scene clip"
+        data-composition-id="s8"
+        data-start="155.676"
+        data-duration="13.28"
+        data-label="Each extra tick buys less than the one before it"
+      >
+<div class="eyebrow" id="s8-e">Thought sweep · 100 validation images</div>
+<h2 class="headline" id="s8-h">Each extra tick buys less than the one before it</h2>
+<div class="chartwrap chartstack">
+  <svg id="s8-chart" width="860" height="989" viewBox="0 0 860 989">
+    <g class="grid"><line x1="150" y1="849" x2="786" y2="849" /><line x1="150" y1="598" x2="786" y2="598" /><line x1="150" y1="347" x2="786" y2="347" /><line x1="150" y1="96" x2="786" y2="96" /></g>
+    <g class="axlab" text-anchor="end"><text x="128" y="862">28</text><text x="128" y="611">29</text><text x="128" y="360">30</text><text x="128" y="109">31</text></g>
+    <g class="axlab" text-anchor="middle"><text x="150" y="905">T=0</text><text x="309" y="905">T=1</text><text x="468" y="905">T=2</text><text x="627" y="905">T=3</text><text x="786" y="905">T=4</text></g>
+    <!-- Baseline, not top edge: at 40px a y of 26 puts the cap height 13px above
+         the svg and the layout gate reports container_overflow. -->
+    <text class="axname" x="0" y="42">PSNR-Y (dB)</text>
+    <text class="axname" x="468" y="973" text-anchor="middle">thought ticks</text>
+    <path class="chartline" id="s8-line" d="M150,620.59 L309,377.12 L468,301.82 L627,251.62 L786,229.03" fill="none" stroke="#3d8bfd" />
+    <g><circle class="dot" cx="150" cy="620.59" r="9" fill="#3d8bfd" /><circle class="dot" cx="309" cy="377.12" r="9" fill="#3d8bfd" /><circle class="dot" cx="468" cy="301.82" r="9" fill="#3d8bfd" /><circle class="dot" cx="627" cy="251.62" r="9" fill="#3d8bfd" /><circle class="dot" cx="786" cy="229.03" r="11" fill="#ffd166" /></g>
+    <g class="ptlab" text-anchor="middle"><text class="pv" text-anchor="start" x="150" y="594.59">28.91</text><text class="pv" x="309" y="351.12">29.88</text><text class="pv" x="468" y="275.82">30.18</text><text class="pv" x="627" y="225.62">30.38</text><text class="pv" x="786" y="203.03">30.47</text></g>
+    <g class="delta" text-anchor="middle"><text class="dv" x="229.5" y="550.86">+0.97</text><text class="dv" x="388.5" y="391.47">+0.30</text><text class="dv" x="547.5" y="328.72">+0.20</text><text class="dv" x="706.5" y="292.33">+0.09</text></g>
+  </svg>
+  <div class="readout" id="s8-read">Trained to T=4. Nothing beyond it is demonstrated.</div>
+</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s8-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s8-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s8-line", { strokeDasharray: 796, strokeDashoffset: 796 }, { strokeDashoffset: 0, duration: 1.8, ease: "none" }, 0.8);
+            tl.fromTo("#s8 .dot", { opacity: 0, scale: 0, transformOrigin: "center" }, { opacity: 1, scale: 1, transformOrigin: "center", duration: 0.3, stagger: 0.36 }, 0.8);
+            tl.fromTo("#s8 .pv", { opacity: 0 }, { opacity: 1, duration: 0.3, stagger: 0.36 }, 1);
+            tl.fromTo("#s8 .dv", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.35, stagger: 0.36 }, 1.4);
+            tl.fromTo("#s8-read", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.7 }, 3);
+            window.__timelines["s8"] = tl;
+          })();
+        </script>
+      </div>
+      <script>
+        (function () {
+          window.__timelines = window.__timelines || {};
+          var tl = gsap.timeline({ paused: true });
+          // Spans the deck. All real motion lives on the per-scene timelines.
+          tl.to({}, { duration: 168.956 });
+          window.__timelines["main"] = tl;
+        })();
+      </script>
+      <script>
+        Promise.all(
+          Array.prototype.map
+            .call(document.images, function (img) {
+              return img.decode ? img.decode().catch(function () {}) : Promise.resolve();
+            })
+            .concat([document.fonts ? document.fonts.ready : Promise.resolve()]),
+        ).then(function () {
+          window.__hfTimelinesBuilding = false;
+          window.dispatchEvent(new Event("hf-timelines-built"));
+        });
+      </script>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>013 — depth without WebGL</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="../vendor/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0d10; }
+      body { font-family: system-ui, sans-serif; color: #e8eaed; }
+      #stage { position: absolute; inset: 0; perspective: 1600px; }
+      #world { position: absolute; inset: 0; transform-style: preserve-3d; }
+      .card { position: absolute; left: 660px; top: 340px; width: 600px; height: 400px;
+              border-radius: 24px; display: flex; align-items: center; justify-content: center;
+              font-size: 72px; font-weight: 700; transform-style: preserve-3d; }
+      #k1 { background: #1b3a4b; }
+      #k2 { background: #2d5f5d; }
+      #k3 { background: #6b3f4b; }
+      /* A flat 2D annotation living in the same world, so the question "same
+         verbs?" is asked of a 2D and a 3D thing at once. */
+      #ann { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+      #annpath { fill: none; stroke: #ffd166; stroke-width: 8; }
+    </style>
+  </head>
+  <body>
+    <script>window.__hfTimelinesBuilding = true;</script>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4"
+         data-width="1920" data-height="1080">
+      <div id="stage">
+        <div id="world">
+          <div class="card" id="k3">back</div>
+          <div class="card" id="k2">mid</div>
+          <div class="card" id="k1">front — 72px type</div>
+          <svg id="ann" viewBox="0 0 1920 1080">
+            <path id="annpath" d="M 200 900 C 500 700, 700 600, 940 540"/>
+          </svg>
+        </div>
+      </div>
+      <script>
+        (function () {
+          window.__timelines = window.__timelines || {};
+          var tl = gsap.timeline({ paused: true, defaults: { ease: "none", duration: 4 } });
+          /* One verb — a transform tween — applied to a 3D-placed thing and a
+             2D-placed thing, plus a draw-on in the same world. */
+          tl.fromTo("#world", { rotationY: 0, rotationX: 0 }, { rotationY: 46, rotationX: -12 }, 0);
+          tl.fromTo("#k1", { z: 0 }, { z: 320 }, 0);
+          tl.fromTo("#k2", { z: -140 }, { z: -60 }, 0);
+          tl.fromTo("#k3", { z: -280 }, { z: -420 }, 0);
+          tl.fromTo("#annpath", { strokeDasharray: 900, strokeDashoffset: 900 }, { strokeDashoffset: 0 }, 0);
+          window.__timelines["main"] = tl;
+        })();
+      </script>
+      <script>
+        window.__hfTimelinesBuilding = false;
+        window.dispatchEvent(new Event("hf-timelines-built"));
+      </script>
+    </div>
+  </body>
+</html>

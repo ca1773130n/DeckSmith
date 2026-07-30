@@ -1,0 +1,197 @@
+{
+  "gl": {
+    "vendor": "Google Inc. (Apple)",
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)"
+  },
+  "onUpdateProbe": {
+    "suppressed": {
+      "viaCallback": 2,
+      "viaSetter": 7
+    },
+    "unsuppressed": {
+      "viaCallback": 4,
+      "viaSetter": 4
+    }
+  },
+  "msPerRender": {
+    "s1": 0.543,
+    "s2": 0.052,
+    "s3": 0.73
+  },
+  "report": {
+    "s1": [
+      {
+        "t": 0,
+        "fwd": "d0cdcfabbba977d4",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 0.8,
+        "fwd": "3f505dd6bcd0eaf2",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 1.6,
+        "fwd": "f3a2a7ff6889a306",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 2.4,
+        "fwd": "2b3c4d9060cd2ca0",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 3.2,
+        "fwd": "188d71ac34225713",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 4,
+        "fwd": "0d4850338382137a",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 5.2,
+        "fwd": "cffdf87e9d96c0b8",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 6.4,
+        "fwd": "b548fec2ce094a8d",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      }
+    ],
+    "s2": [
+      {
+        "t": 0,
+        "fwd": "c558640a4546bd7c",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 1,
+        "fwd": "3b2f6eae7f0a4022",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 2,
+        "fwd": "fe035f489ad290c2",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 3,
+        "fwd": "f12727eeae6ce1c9",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 4,
+        "fwd": "af27297e72d6b17e",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 5,
+        "fwd": "bf0f7c9c68f12718",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 6,
+        "fwd": "e38c6cfb60b064b3",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      }
+    ],
+    "s3": [
+      {
+        "t": 0,
+        "fwd": "af16949418c6468a",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 1.5,
+        "fwd": "f0af819d1f469d15",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 3,
+        "fwd": "d2bc1cf3d59d5a0a",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 4.5,
+        "fwd": "1e0c196e661b668e",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 6,
+        "fwd": "d9a0c9b1f1955be8",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      },
+      {
+        "t": 7.5,
+        "fwd": "bb6c71f0f33f7205",
+        "backSame": true,
+        "randomSame": true,
+        "coldSame": true,
+        "eventsSame": true
+      }
+    ]
+  }
+}

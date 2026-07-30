@@ -1,0 +1,22 @@
+spec: menu guidance 13122 B + schema 18265 B; vocab guidance 12603 B (0.96x) + schema 3588 B
+vocab-1 valid 156s units=3 refs=true
+vocab-4 valid 165s units=3 refs=true
+vocab-3 valid 165s units=3 refs=true
+vocab-5 valid 173s units=3 refs=true
+vocab-2 valid 186s units=3 refs=true
+vocab-8 valid 150s units=3 refs=true
+vocab-6 valid 169s units=3 refs=true
+vocab-7 valid 161s units=3 refs=true
+vocab-10 valid 145s units=3 refs=true
+vocab-9 valid 175s units=3 refs=true
+vocab-11 valid 155s units=3 refs=true
+vocab-13 valid 149s units=3 refs=true
+vocab-12 valid 154s units=3 refs=true
+vocab-14 valid 155s units=3 refs=true
+vocab-15 valid 150s units=3 refs=true
+vocab-16 valid 146s units=3 refs=true
+vocab-17 valid 144s units=3 refs=true
+vocab-19 valid 157s units=3 refs=true
+vocab-18 valid 181s units=3 refs=true
+vocab-20 valid 173s units=3 refs=true
+done vocab: 20 run(s)

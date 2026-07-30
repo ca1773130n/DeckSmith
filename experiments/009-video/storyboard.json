@@ -1,0 +1,66 @@
+{
+  "sourceId": "thinksr",
+  "title": "Narrated render check",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b01",
+      "archetype": "title",
+      "params": {
+        "eyebrow": "Paper analysis · dense prediction × continuous thought",
+        "headline": "Compact thought collides with dense output",
+        "sub": "Dense-Query Continuous Thought Machine (DQ-CTM)"
+      },
+      "intent": "Name the tension the paper is about.",
+      "narration": "This paper puts a thought process that stays small up against a task whose output has to stay large — every pixel of it.",
+      "evidence": [],
+      "weight": 0.95,
+      "seconds": 6
+    },
+    {
+      "id": "b02",
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Method",
+        "headline": "One pass in, one pass out, and a loop in the middle",
+        "stages": [
+          {
+            "label": "Encode",
+            "note": "SwinIR-style"
+          },
+          {
+            "label": "Window",
+            "note": "no pooling",
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM",
+            "note": "shared ticks",
+            "tone": "b"
+          },
+          {
+            "label": "Decode",
+            "note": "×4 upsample"
+          }
+        ],
+        "loop": {
+          "from": 2,
+          "to": 2,
+          "label": "one thought tick"
+        },
+        "note": "Parameters are shared across every tick."
+      },
+      "intent": "The recurrence sits after the encoder, not around it.",
+      "narration": "The encoder does the heavy lifting first, in the style SwinIR established. Then the field is cut into windows, and nothing is pooled away on the way through. The thought machine sits here in the middle, working on what the windows hold. Only at the very end does the decoder upsample, four times over. That loop is a single tick, and it runs in place rather than around the whole pipeline. Every tick reuses the same weights, so thinking for longer costs time and not memory.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.95,
+      "seconds": 9
+    }
+  ]
+}

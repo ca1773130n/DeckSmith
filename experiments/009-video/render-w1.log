@@ -1,0 +1,9 @@
+render: capturing the composition — this is the long part
+render: 7395 frames, 1920×1080, 30.000 fps, 246.50s
+render: retimed 10/37 pieces
+render: retimed 20/37 pieces
+render: retimed 30/37 pieces
+render: retimed 37/37 pieces
+render: muxing 37 segment(s) → /Users/neo/Developer/Projects/DeckSmith/experiments/009-video/out/demo-w1.mp4
+render: 7394 frames, 246.48s, 37 narration segment(s) → /Users/neo/Developer/Projects/DeckSmith/experiments/009-video/out/demo-w1.mp4
+render: subtitles → /Users/neo/Developer/Projects/DeckSmith/experiments/009-video/out/demo-w1.srt

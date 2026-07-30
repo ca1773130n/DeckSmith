@@ -1,0 +1,22 @@
+{
+  "name": "ds-exp-r3f",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.3.0",
+    "@theatre/core": "^0.7.2",
+    "@theatre/studio": "^0.7.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/three": "^0.180.0",
+    "esbuild": "^0.25.12"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "arm": "B",
+  "i": 2,
+  "ms": 146038,
+  "exit": 0,
+  "promptChars": 8659,
+  "schemaChars": 3324,
+  "outChars": 19415,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 12433,
+  "refsResolve": true,
+  "shared": [],
+  "algebra": [],
+  "soft": [
+    "scene[2] s03-params: \"headline\" and \"value-carn\" overlap 73%"
+  ],
+  "coherent": true
+}

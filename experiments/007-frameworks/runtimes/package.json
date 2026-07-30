@@ -1,0 +1,1 @@
+{"name":"spike-runtimes","private":true,"type":"module","version":"0.0.0","dependencies":{"@rive-app/canvas":"^2.39.1","@stevysmith/rive-generator":"^0.1.1","gsap":"^3.14.2","lottie-web":"^5.13.0","opentype.js":"^2.0.0","puppeteer-core":"^25.3.0"}}

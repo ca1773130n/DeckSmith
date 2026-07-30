@@ -1,0 +1,50 @@
+{
+  "arm": "B0",
+  "i": 3,
+  "ms": 445721,
+  "exit": 0,
+  "promptChars": 7983,
+  "schemaChars": 3324,
+  "outChars": 65642,
+  "stage": "valid",
+  "units": 11,
+  "jsonChars": 42772,
+  "refsResolve": true,
+  "shared": [
+    "scene[0] s01-mismatch: narration 2 sentences, 3 holds",
+    "scene[1] s02-old-choices: narration 2 sentences, 3 holds",
+    "scene[2] s03-carrier: narration 3 sentences, 4 holds",
+    "scene[3] s04-architecture: narration 3 sentences, 4 holds",
+    "scene[4] s05-ticks: narration 3 sentences, 4 holds",
+    "scene[6] s07-table: narration 3 sentences, 5 holds",
+    "scene[8] s09-why: narration 3 sentences, 4 holds",
+    "scene[9] s10-tradeoff: narration 3 sentences, 4 holds",
+    "scene[10] s11-summary: narration 3 sentences, 5 holds"
+  ],
+  "algebra": [
+    "scene[3] s04-architecture obj s04-title: declared w 0.86 but the text renders 1.13 wide",
+    "scene[3] s04-architecture obj s04-title: box extends off stage",
+    "scene[5] s06-error obj s06-title: declared w 0.86 but the text renders 1.11 wide",
+    "scene[5] s06-error obj s06-title: box extends off stage",
+    "scene[7] s08-cost obj s08-title: declared w 0.86 but the text renders 1.11 wide",
+    "scene[7] s08-cost obj s08-title: box extends off stage",
+    "scene[10] s11-summary obj s11-title: box extends off stage"
+  ],
+  "soft": [
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-a\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-b\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-c\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-d\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-e\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-f\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-g\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-h\" overlap 100%",
+    "scene[0] s01-mismatch: \"s01-dense\" and \"s01-cell-i\" overlap 100%",
+    "scene[2] s03-carrier: \"s03-field\" and \"s03-window-one\" overlap 100%",
+    "scene[2] s03-carrier: \"s03-field\" and \"s03-window-two\" overlap 100%",
+    "scene[8] s09-why: \"s09-memory\" and \"s09-window-a\" overlap 100%",
+    "scene[8] s09-why: \"s09-memory\" and \"s09-window-b\" overlap 100%"
+  ],
+  "emitFail": [],
+  "coherent": false
+}

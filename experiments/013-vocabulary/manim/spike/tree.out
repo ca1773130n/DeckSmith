@@ -1,0 +1,147 @@
+==============================================================================
+MathTex(r"a^2 + b^2 = c^2")   [ONE argument]
+==============================================================================
+MathTex  n_sub=1  pts=0  w=2.569 h=0.479  tex='a^2 + b^2 = c^2'
+  MathTexPart  n_sub=8  pts=0  w=2.569 h=0.479  tex='a^2 + b^2 = c^2'
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.228 h=0.226
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+    VMobjectFromSVGPath  n_sub=0  pts=64  w=0.331 h=0.332
+    VMobjectFromSVGPath  n_sub=0  pts=84  w=0.183 h=0.351
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+    VMobjectFromSVGPath  n_sub=0  pts=48  w=0.331 h=0.117
+    VMobjectFromSVGPath  n_sub=0  pts=60  w=0.194 h=0.226
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+
+==============================================================================
+MathTex("a^2","+","b^2","=","c^2")   [FIVE arguments]
+==============================================================================
+MathTex  n_sub=5  pts=0  w=2.569 h=0.479  tex='a^2 + b^2 = c^2'
+  MathTexPart  n_sub=2  pts=0  w=0.419 h=0.443  tex='a^2'
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.228 h=0.226
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+  MathTexPart  n_sub=1  pts=0  w=0.331 h=0.332  tex='+'
+    VMobjectFromSVGPath  n_sub=0  pts=64  w=0.331 h=0.332
+  MathTexPart  n_sub=2  pts=0  w=0.366 h=0.443  tex='b^2'
+    VMobjectFromSVGPath  n_sub=0  pts=84  w=0.183 h=0.351
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+  MathTexPart  n_sub=1  pts=0  w=0.331 h=0.117  tex='='
+    VMobjectFromSVGPath  n_sub=0  pts=48  w=0.331 h=0.117
+  MathTexPart  n_sub=2  pts=0  w=0.371 h=0.443  tex='c^2'
+    VMobjectFromSVGPath  n_sub=0  pts=60  w=0.194 h=0.226
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+
+==============================================================================
+MathTex("{{a}}^2","+","{{b}}^2","=","{{c}}^2")
+==============================================================================
+MathTex  n_sub=8  pts=0  w=2.569 h=0.479  tex='a ^2 + b ^2 = c ^2'
+  MathTexPart  n_sub=1  pts=0  w=0.228 h=0.226  tex='a'
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.228 h=0.226
+  MathTexPart  n_sub=1  pts=0  w=0.154 h=0.232  tex='^2'
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+  MathTexPart  n_sub=1  pts=0  w=0.331 h=0.332  tex='+'
+    VMobjectFromSVGPath  n_sub=0  pts=64  w=0.331 h=0.332
+  MathTexPart  n_sub=1  pts=0  w=0.183 h=0.351  tex='b'
+    VMobjectFromSVGPath  n_sub=0  pts=84  w=0.183 h=0.351
+  MathTexPart  n_sub=1  pts=0  w=0.154 h=0.232  tex='^2'
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+  MathTexPart  n_sub=1  pts=0  w=0.331 h=0.117  tex='='
+    VMobjectFromSVGPath  n_sub=0  pts=48  w=0.331 h=0.117
+  MathTexPart  n_sub=1  pts=0  w=0.194 h=0.226  tex='c'
+    VMobjectFromSVGPath  n_sub=0  pts=60  w=0.194 h=0.226
+  MathTexPart  n_sub=1  pts=0  w=0.154 h=0.232  tex='^2'
+    VMobjectFromSVGPath  n_sub=0  pts=72  w=0.154 h=0.232
+
+tex_strings after {{}} preprocessing: ['a', '^2', '+', 'b', '^2', '=', 'c', '^2']
+
+==============================================================================
+scaled dot-product attention, author-split into 5
+==============================================================================
+MathTex  n_sub=5  pts=0  w=9.081 h=1.226  tex='\\mathrm{Attention}(Q,K,V) = \\mathrm{softmax} \\left(\\frac{QK^{T}}{\\sqrt{d_k}}\\right) V'
+  MathTexPart  n_sub=16  pts=0  w=4.080 h=0.498  tex='\\mathrm{Attention}(Q,K,V)'
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.341 h=0.357
+    VMobjectFromSVGPath  n_sub=0  pts=68  w=0.156 h=0.312
+    VMobjectFromSVGPath  n_sub=0  pts=68  w=0.156 h=0.312
+    VMobjectFromSVGPath  n_sub=0  pts=56  w=0.193 h=0.229
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.251 h=0.220
+    VMobjectFromSVGPath  n_sub=0  pts=68  w=0.156 h=0.312
+    VMobjectFromSVGPath  n_sub=0  pts=60  w=0.107 h=0.333
+    VMobjectFromSVGPath  n_sub=0  pts=48  w=0.221 h=0.229
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.251 h=0.220
+    VMobjectFromSVGPath  n_sub=0  pts=40  w=0.116 h=0.498
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.344 h=0.448
+    VMobjectFromSVGPath  n_sub=0  pts=40  w=0.058 h=0.149
+    VMobjectFromSVGPath  n_sub=0  pts=192  w=0.424 h=0.340
+    VMobjectFromSVGPath  n_sub=0  pts=40  w=0.058 h=0.149
+    VMobjectFromSVGPath  n_sub=0  pts=96  w=0.355 h=0.351
+    VMobjectFromSVGPath  n_sub=0  pts=40  w=0.116 h=0.498
+  MathTexPart  n_sub=1  pts=0  w=0.331 h=0.117  tex='='
+    VMobjectFromSVGPath  n_sub=0  pts=48  w=0.331 h=0.117
+  MathTexPart  n_sub=7  pts=0  w=1.696 h=0.357  tex='\\mathrm{softmax}'
+    VMobjectFromSVGPath  n_sub=0  pts=104  w=0.163 h=0.229
+    VMobjectFromSVGPath  n_sub=0  pts=48  w=0.221 h=0.229
+    VMobjectFromSVGPath  n_sub=0  pts=96  w=0.161 h=0.351
+    VMobjectFromSVGPath  n_sub=0  pts=68  w=0.156 h=0.312
+    VMobjectFromSVGPath  n_sub=0  pts=148  w=0.389 h=0.220
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.225 h=0.229
+    VMobjectFromSVGPath  n_sub=0  pts=140  w=0.251 h=0.215
+  MathTexPart  n_sub=10  pts=0  w=1.811 h=1.226  tex='\\left(\\frac{QK^{T}}{\\sqrt{d_k}}\\right)'
+    VMobjectFromSVGPath  n_sub=0  pts=52  w=0.245 h=1.195
+    VMobjectFromSVGPath  n_sub=0  pts=100  w=0.344 h=0.448
+    VMobjectFromSVGPath  n_sub=0  pts=192  w=0.424 h=0.340
+    VMobjectFromSVGPath  n_sub=0  pts=136  w=0.260 h=0.236
+    Rectangle  n_sub=0  pts=16  w=1.166 h=0.020
+    VMobjectFromSVGPath  n_sub=0  pts=64  w=0.389 h=0.498
+    Rectangle  n_sub=0  pts=16  w=0.504 h=0.020
+    VMobjectFromSVGPath  n_sub=0  pts=112  w=0.237 h=0.351
+    VMobjectFromSVGPath  n_sub=0  pts=136  w=0.172 h=0.245
+    VMobjectFromSVGPath  n_sub=0  pts=52  w=0.245 h=1.195
+  MathTexPart  n_sub=1  pts=0  w=0.355 h=0.351  tex='V'
+    VMobjectFromSVGPath  n_sub=0  pts=96  w=0.355 h=0.351
+
+SAME formula as ONE string: top-level children = 1  glyph leaves = 35
+its single child's tex_string = '\\mathrm{Attention}(Q,K,V)=\\mathrm{softmax}\\left(\\frac{QK^{T}}{\\sqrt{d_k}}\\right)V'
+
+==============================================================================
+TransformMatchingTex key extraction
+==============================================================================
+source keys: ['a', '^2', '+', 'b', '^2', '=', 'c', '^2']
+target keys: ['a', '^2', '=', 'c', '^2', '-', 'b', '^2']
+MATCHED (transformed): ['=', '^2', 'a', 'b', 'c']
+source-only (faded out): ['+']
+target-only (faded in):  ['-']
+
+UNSPLIT source keys: ['a^2 + b^2 = c^2']
+UNSPLIT target keys: ['a^2 = c^2 - b^2']
+UNSPLIT matched: []  <- nothing matches, whole thing crossfades
+
+==============================================================================
+TransformMatchingShapes key extraction (glyph-level)
+==============================================================================
+source has 8 leaf glyphs, 6 distinct shape hashes
+target has 8 leaf glyphs, 6 distinct shape hashes
+shape hashes in common: 5 of 6 source hashes
+NOTE duplicate-key collapse: source keys are unique?  False
+
+==============================================================================
+PURITY PROBE: Transform.interpolate(alpha)
+==============================================================================
+interpolate(0.3) forward == backward : True   maxdiff=0
+interpolate(0.0) forward == backward : True   maxdiff=0
+interpolate(0.7) forward == backward : True   maxdiff=0
+41 alphas visited in RANDOM order vs monotone reference: max deviation = 0
+
+==============================================================================
+PURITY PROBE: Succession.interpolate(alpha)
+==============================================================================
+after fwd 0.9 then seek back to 0.1 : [3. 0. 0.] [0. 0. 0.]
+cold evaluation at 0.1              : [0.1239 0.     0.    ] [0. 0. 0.]
+Succession backward-seek correct?   : False
+
+==============================================================================
+PURITY PROBE: AnimationGroup cold jump vs sweep
+==============================================================================
+cold jump to 0.5      : [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+monotone sweep to 0.5 : [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+1.0 then back to 0.5  : [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+cold == sweep : True
+cold == rewind: True

@@ -1,0 +1,135 @@
+  CLEAN  menu-1  0 err    
+  DIRTY  menu-3  1 err  gate_errors  layout/text_box_overflow
+  CLEAN  menu-4  0 err    
+  CLEAN  menu-2  0 err    
+  CLEAN  menu-6  0 err    
+  CLEAN  menu-7  0 err    
+  CLEAN  menu-8  0 err    
+  CLEAN  menu-5  0 err    
+  CLEAN  menu-9  0 err    
+  CLEAN  menu-11  0 err    
+  CLEAN  menu-12  0 err    
+  CLEAN  menu-10  0 err    
+  CLEAN  menu-13  0 err    
+  DIRTY  menu-14  1 err  gate_errors  layout/text_box_overflow
+  CLEAN  menu-15  0 err    
+  CLEAN  menu-16  0 err    
+  CLEAN  menu-17  0 err    
+  CLEAN  menu-18  0 err    
+  CLEAN  menu-20  0 err    
+  CLEAN  menu-19  0 err    
+  CLEAN  menu-21  0 err    
+  CLEAN  menu-22  0 err    
+  DIRTY  menu-23  1 err  gate_errors  layout/text_box_overflow
+  CLEAN  menu-24  0 err    
+  CLEAN  menu-25  0 err    
+  CLEAN  menu-26  0 err    
+  CLEAN  menu-27  0 err    
+  CLEAN  menu-28  0 err    
+  CLEAN  menu-29  0 err    
+  DIRTY  vocab-1  1 err  emit_refused  build/emit_refused
+  CLEAN  menu-30  0 err    
+  DIRTY  vocab-3  1 err  gate_errors  lint/gsap_exit_missing_hard_kill
+  DIRTY  vocab-4  1 err  emit_refused  build/emit_refused
+  DIRTY  vocab-5  1 err  emit_refused  build/emit_refused
+  DIRTY  menu-31  1 err  gate_errors  layout/text_box_overflow
+  CLEAN  vocab-2  0 err    
+  DIRTY  vocab-8  1 err  emit_refused  build/emit_refused
+  DIRTY  vocab-9  1 err  emit_refused  build/emit_refused
+  DIRTY  vocab-10  1 err  emit_refused  build/emit_refused
+  CLEAN  menu-32  0 err    
+  CLEAN  vocab-6  0 err    
+  CLEAN  vocab-7  0 err    
+  DIRTY  vocab-14  1 err  emit_refused  build/emit_refused
+  CLEAN  vocab-11  0 err    
+  CLEAN  vocab-12  0 err    
+  CLEAN  vocab-13  0 err    
+  DIRTY  vocab-18  1 err  emit_refused  build/emit_refused
+  CLEAN  vocab-15  0 err    
+  CLEAN  vocab-16  0 err    
+  CLEAN  vocab-17  0 err    
+  CLEAN  vocab-19  0 err    
+  CLEAN  vocab-21  0 err    
+  CLEAN  vocab-20  0 err    
+  DIRTY  vocab-25  1 err  emit_refused  build/emit_refused
+  CLEAN  vocab-22  0 err    
+  DIRTY  vocab-27  1 err  emit_refused  build/emit_refused
+  CLEAN  vocab-23  0 err    
+  CLEAN  vocab-26  0 err    
+  CLEAN  vocab-24  0 err    
+  CLEAN  vocab-28  0 err    
+  CLEAN  vocab-29  0 err    
+  CLEAN  vocab-31  0 err    
+  CLEAN  vocab-30  0 err    
+  CLEAN  vocab-32  0 err    
+menu-01    CLEAN    0 err   3u    28s  cam   
+menu-02    CLEAN    0 err   3u    39s  cam   
+menu-03    DIRTY    1 err   3u    40s  cam  gate_errors layout/text_box_overflow
+menu-04    CLEAN    0 err   3u    39s  cam   
+menu-05    CLEAN    0 err   3u    32s  cam   
+menu-06    CLEAN    0 err   3u    33s  cam   
+menu-07    CLEAN    0 err   3u    37s  cam   
+menu-08    CLEAN    0 err   3u    36s  cam   
+menu-09    CLEAN    0 err   3u    23s  cam   
+menu-10    CLEAN    0 err   3u    46s  cam   
+menu-11    CLEAN    0 err   3u    26s  cam   
+menu-12    CLEAN    0 err   3u    34s  cam   
+menu-13    CLEAN    0 err   3u    36s  cam   
+menu-14    DIRTY    1 err   3u    32s  cam  gate_errors layout/text_box_overflow
+menu-15    CLEAN    0 err   3u    35s  cam   
+menu-16    CLEAN    0 err   3u    39s  cam   
+menu-17    CLEAN    0 err   3u    35s  cam   
+menu-18    CLEAN    0 err   3u    39s  cam   
+menu-19    CLEAN    0 err   3u    34s  cam   
+menu-20    CLEAN    0 err   3u    31s  cam   
+menu-21    CLEAN    0 err   3u    24s  cam   
+menu-22    CLEAN    0 err   3u    36s  cam   
+menu-23    DIRTY    1 err   3u    39s  cam  gate_errors layout/text_box_overflow
+menu-24    CLEAN    0 err   3u    44s  cam   
+menu-25    CLEAN    0 err   3u    40s  cam   
+menu-26    CLEAN    0 err   3u    40s  cam   
+menu-27    CLEAN    0 err   3u    23s  cam   
+menu-28    CLEAN    0 err   3u    32s  cam   
+menu-29    CLEAN    0 err   3u    35s  cam   
+menu-30    CLEAN    0 err   3u    37s  cam   
+menu-31    DIRTY    1 err   3u    37s  cam  gate_errors layout/text_box_overflow
+menu-32    CLEAN    0 err   3u    37s  cam   
+vocab-01   DIRTY    1 err   3u   159s  cam  emit_refused build/emit_refused
+vocab-02   CLEAN    0 err   3u   155s  cam   
+vocab-03   DIRTY    1 err   3u   157s  cam  gate_errors lint/gsap_exit_missing_hard_kill
+vocab-04   DIRTY    1 err   3u   184s  cam  emit_refused build/emit_refused
+vocab-05   DIRTY    1 err   3u   143s  cam  emit_refused build/emit_refused
+vocab-06   CLEAN    0 err   3u   151s  cam   
+vocab-07   CLEAN    0 err   3u   164s  cam   
+vocab-08   DIRTY    1 err   3u   151s  cam  emit_refused build/emit_refused
+vocab-09   DIRTY    1 err   3u   164s  cam  emit_refused build/emit_refused
+vocab-10   DIRTY    1 err   3u   154s  cam  emit_refused build/emit_refused
+vocab-11   CLEAN    0 err   3u   156s  cam   
+vocab-12   CLEAN    0 err   3u   177s  cam   
+vocab-13   CLEAN    0 err   3u   161s  cam   
+vocab-14   DIRTY    1 err   3u   153s  cam  emit_refused build/emit_refused
+vocab-15   CLEAN    0 err   3u   165s  cam   
+vocab-16   CLEAN    0 err   3u   150s  cam   
+vocab-17   CLEAN    0 err   3u   141s  cam   
+vocab-18   DIRTY    1 err   3u   177s  cam  emit_refused build/emit_refused
+vocab-19   CLEAN    0 err   3u   161s  cam   
+vocab-20   CLEAN    0 err   3u   153s  cam   
+vocab-21   CLEAN    0 err   3u   163s  cam   
+vocab-22   CLEAN    0 err   3u   155s  cam   
+vocab-23   CLEAN    0 err   3u   162s  cam   
+vocab-24   CLEAN    0 err   3u   153s  cam   
+vocab-25   DIRTY    1 err   3u   158s  cam  emit_refused build/emit_refused
+vocab-26   CLEAN    0 err   3u   157s  cam   
+vocab-27   DIRTY    1 err   3u   173s  cam  emit_refused build/emit_refused
+vocab-28   CLEAN    0 err   3u   168s  cam   
+vocab-29   CLEAN    0 err   3u   154s  cam   
+vocab-30   CLEAN    0 err   3u   163s  cam   
+vocab-31   CLEAN    0 err   3u   157s  cam   
+vocab-32   CLEAN    0 err   3u   178s  cam   
+
+PRIMARY — gate-clean rate
+  arm MENU   28/32  87.5%   (0 infra loss)
+  arm VOCAB  21/32  65.6%   (0 infra loss)
+  delta -0.2187   Fisher two-tailed p = 0.07457
+  R3: DO NOT EXPOSE IT YET — direction against, underpowered
+JUDGE_EXIT=0

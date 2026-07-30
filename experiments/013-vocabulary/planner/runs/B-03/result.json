@@ -1,0 +1,19 @@
+{
+  "arm": "B",
+  "i": 3,
+  "ms": 168360,
+  "exit": 0,
+  "promptChars": 8659,
+  "schemaChars": 3324,
+  "outChars": 22868,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 14497,
+  "refsResolve": true,
+  "shared": [],
+  "algebra": [
+    "scene[2] s03-params anim highlight->s03_dq_bar: highlight on a rect"
+  ],
+  "soft": [],
+  "coherent": false
+}

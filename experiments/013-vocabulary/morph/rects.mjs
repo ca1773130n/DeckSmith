@@ -1,0 +1,23 @@
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import puppeteer from "puppeteer-core";
+const HERE=dirname(fileURLToPath(import.meta.url));
+const MIME={".html":"text/html",".js":"text/javascript",".css":"text/css",".woff2":"font/woff2"};
+const server=createServer(async(q,s)=>{try{const p=join(HERE,decodeURIComponent(q.url.split("?")[0]));s.writeHead(200,{"content-type":MIME[extname(p)]??"application/octet-stream"});s.end(await readFile(p));}catch{s.writeHead(404).end();}});
+await new Promise(r=>server.listen(0,"127.0.0.1",r));
+const B=`http://127.0.0.1:${server.address().port}`;
+const br=await puppeteer.launch({executablePath:"/Users/neo/.cache/puppeteer/chrome-headless-shell/mac_arm-145.0.7632.46/chrome-headless-shell-mac-arm64/chrome-headless-shell",args:["--force-device-scale-factor=1"]});
+const p=await br.newPage();await p.setViewport({width:1920,height:1080,deviceScaleFactor:1});
+await p.goto(`${B}/page.html?case=${process.argv[2]||"sum"}`,{waitUntil:"networkidle0"});
+await p.waitForFunction("window.__built===true");
+console.log(await p.evaluate(()=>{
+  const host=document.getElementById("m");const H=host.getBoundingClientRect();
+  const orig=[...document.querySelectorAll('[data-morph="a"] *')].filter(e=>!e.childElementCount&&e.textContent.trim());
+  const cl=[...document.querySelectorAll('.ds-morph-layer > *')].slice(0,orig.length);
+  const r=n=>Math.round(n*100)/100;
+  return orig.map((o,i)=>{const a=o.getBoundingClientRect(),b=cl[i].getBoundingClientRect();
+    return `${o.textContent.trim().padEnd(3)} dL=${r(b.left-a.left)} dT=${r(b.top-a.top)} dW=${r(b.width-a.width)} dH=${r(b.height-a.height)} fs=${getComputedStyle(o).fontSize}/${getComputedStyle(cl[i]).fontSize}`;}).join("\n");
+}));
+await br.close();server.close();

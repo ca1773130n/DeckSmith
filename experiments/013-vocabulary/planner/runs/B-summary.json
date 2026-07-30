@@ -1,0 +1,156 @@
+[
+  {
+    "arm": "B",
+    "i": 2,
+    "ms": 146038,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 19415,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 12433,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [],
+    "soft": [
+      "scene[2] s03-params: \"headline\" and \"value-carn\" overlap 73%"
+    ],
+    "coherent": true
+  },
+  {
+    "arm": "B",
+    "i": 3,
+    "ms": 168360,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 22868,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 14497,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [
+      "scene[2] s03-params anim highlight->s03_dq_bar: highlight on a rect"
+    ],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "B",
+    "i": 1,
+    "ms": 172367,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 23683,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 14907,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [],
+    "soft": [],
+    "coherent": true
+  },
+  {
+    "arm": "B",
+    "i": 4,
+    "ms": 175175,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 24449,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 15505,
+    "refsResolve": true,
+    "shared": [
+      "scene[0] s01-flow: narration 4 sentences, 5 holds"
+    ],
+    "algebra": [],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "B",
+    "i": 6,
+    "ms": 147532,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 20844,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 13111,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [
+      "scene[0] s01-flow obj headline: box extends off stage",
+      "scene[1] s02-carrier obj headline: box extends off stage"
+    ],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "B",
+    "i": 8,
+    "ms": 152253,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 21420,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 13425,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [
+      "scene[0] s01-flow obj h1: box extends off stage"
+    ],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "B",
+    "i": 7,
+    "ms": 158792,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 21770,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 14335,
+    "refsResolve": true,
+    "shared": [
+      "scene[0] s01-flow: narration 3 sentences, 4 holds"
+    ],
+    "algebra": [
+      "scene[0] s01-flow obj s01-title: declared w 0.86 but the text renders 1.11 wide",
+      "scene[0] s01-flow obj s01-title: box extends off stage"
+    ],
+    "soft": [],
+    "coherent": false
+  },
+  {
+    "arm": "B",
+    "i": 5,
+    "ms": 189087,
+    "exit": 0,
+    "promptChars": 8659,
+    "schemaChars": 3324,
+    "outChars": 26227,
+    "stage": "valid",
+    "units": 3,
+    "jsonChars": 16422,
+    "refsResolve": true,
+    "shared": [],
+    "algebra": [
+      "scene[0] s01-flow obj s01-head: box extends off stage"
+    ],
+    "soft": [],
+    "coherent": false
+  }
+]

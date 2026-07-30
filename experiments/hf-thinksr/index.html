@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="ko" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <!-- Self-hosted Korean subset. HyperFrames only auto-resolves fonts on a fixed
+         allowlist (Inter yes, Noto Sans KR no), so CJK decks must ship @font-face
+         themselves. Subsetted to this deck's glyphs via Google's &text= — 39KB. -->
+    <link rel="stylesheet" href="assets/fonts/fonts.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1920px; height: 1080px;
+        overflow: hidden; background: #0b0d10;
+      }
+      body {
+        font-family: "Noto Sans KR", "Inter", system-ui, sans-serif;
+        color: #e8eaed; font-weight: 400;
+      }
+
+      .scene { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+               padding: 84px 110px; }
+      .eyebrow {
+        font-size: 23px; letter-spacing: .2em; text-transform: uppercase;
+        color: #7f8b9a; margin-bottom: 24px; font-weight: 500;
+      }
+      h1 { font-size: 88px; line-height: 1.12; font-weight: 700; letter-spacing: -.02em; }
+      h2 { font-size: 56px; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; }
+      .sub { font-size: 30px; color: #9aa7b5; margin-top: 30px; line-height: 1.6; }
+
+      .claim {
+        font-size: 29px; color: #c2ccd8; line-height: 1.65;
+        border-left: 4px solid #3d8bfd; padding-left: 26px;
+      }
+      .caption { font-size: 20px; color: #74808e; line-height: 1.5; margin-top: 16px; }
+
+      .figwrap {
+        background: #fff; border: 1px solid #232a32; border-radius: 12px;
+        padding: 16px; display: flex; align-items: center; justify-content: center;
+      }
+      .figwrap img { width: 100%; height: auto; display: block; }
+
+      .katex-display { margin: 0 !important; }
+      .eq { font-size: 62px; text-align: center; color: #e8eaed; }
+      .eq.small { font-size: 46px; }
+      .mathslide {
+        display: flex; flex-direction: column; justify-content: center;
+        gap: 60px; height: 100%; padding-bottom: 30px;
+      }
+      .legend { display: flex; flex-direction: column; gap: 24px; align-items: center; }
+      .leg {
+        font-size: 30px; color: #9aa7b5; display: flex; gap: 20px;
+        align-items: baseline; max-width: 1240px;
+      }
+      .chip {
+        font-weight: 700; font-size: 30px; padding: 3px 18px; border-radius: 9px;
+        background: #1d2530; white-space: nowrap;
+      }
+      .c-E { color: #7cc4ff; }
+      .c-W { color: #ffd166; }
+      .c-T { color: #f78da7; }
+      .c-U { color: #6ee7a8; }
+      .term { display: inline-block; }
+
+      table { border-collapse: collapse; width: 100%; margin-top: 30px; }
+      th, td {
+        padding: 11px 10px; font-size: 23px; text-align: right;
+        font-variant-numeric: tabular-nums; white-space: nowrap;
+      }
+      th {
+        color: #7f8b9a; font-weight: 500; font-size: 21px;
+        border-bottom: 1px solid #2b333d; letter-spacing: .04em;
+      }
+      td:first-child, th:first-child { text-align: left; }
+      tbody tr { border-bottom: 1px solid #171c22; }
+      tbody td { color: #b8c4d2; }
+      .rownote { font-size: 21px; color: #74808e; margin-top: 22px; line-height: 1.5; }
+
+      .chartwrap { display: flex; gap: 70px; align-items: center; margin-top: 30px; }
+      .delta { font-size: 25px; fill: #ffd166; font-weight: 600; }
+      .axlab { font-size: 22px; fill: #74808e; }
+      .ptlab { font-size: 23px; fill: #e8eaed; font-weight: 600; }
+      .readout { font-size: 29px; color: #9aa7b5; line-height: 1.75; max-width: 500px; }
+      .readout b { color: #e8eaed; font-weight: 600; }
+
+      .warn {
+        font-size: 27px; color: #c2ccd8; line-height: 1.7;
+        background: #16191e; border: 1px solid #2b333d; border-left: 4px solid #f78da7;
+        border-radius: 10px; padding: 26px 30px;
+      }
+      .warn .k { color: #f78da7; font-weight: 600; }
+      .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 34px; }
+    </style>
+  </head>
+  <body>
+    <!-- Deck structure follows registry/examples/slideshow-demo exactly:
+         · scenes are `.scene.clip` divs with data-composition-id/start/duration/label
+           and NO data-track-index and NO per-scene data-width/height
+         · each scene registers its OWN paused timeline under its composition id,
+           with times RELATIVE to that scene's start
+         · the root registers `main` with a dummy spanning tween
+         · every tween is fromTo — `from()` is not safe under arbitrary seeking,
+           which is exactly what deck navigation does -->
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="63"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- ── 1 · title ─────────────────────────────────── -->
+      <div
+        id="s1"
+        class="scene clip"
+        data-composition-id="s1"
+        data-start="0"
+        data-duration="6"
+        data-label="타이틀"
+        style="display:flex;flex-direction:column;justify-content:center"
+      >
+        <div class="eyebrow" id="s1-e">Paper analysis · Dense prediction × Continuous Thought</div>
+        <h1 id="s1-t">ThinkSR: 압축된 사고로<br />조밀한 복원을 조종하기</h1>
+        <div class="sub" id="s1-s">
+          Dense-Query Continuous Thought Machine (DQ-CTM)<br />
+          <span style="color:#74808e">sparse-thought ↔ dense-output mismatch를 정의하고 해소한다</span>
+        </div>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s1-e", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .6 }, .2)
+              .fromTo("#s1-t", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: .9 }, .4)
+              .fromTo("#s1-s", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: .7 }, 1.0);
+            window.__timelines["s1"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 2 · problem ───────────────────────────────── -->
+      <div
+        id="s2"
+        class="scene clip"
+        data-composition-id="s2"
+        data-start="6"
+        data-duration="8"
+        data-label="문제 정의"
+      >
+        <div class="eyebrow">문제 정의</div>
+        <h2 id="s2-h">생각은 압축적인데, 출력은 조밀해야 한다</h2>
+        <!-- figure_000 is aspect 1.98; full-bleed it overflowed the canvas by 200px
+             (the layout gate caught this). Side-by-side keeps it ~500px tall. -->
+        <div style="display:grid;grid-template-columns:600px 1fr;gap:56px;
+                    align-items:center;margin-top:44px;height:760px">
+          <div class="claim" id="s2-c">
+            CTM의 thought representation은 compact하지만, SR의 출력은 모든 위치가 살아 있는
+            dense spatial field여야 한다. 전역 pooling은 인터페이스를 얻는 대신
+            위치별 정체성을 잃는다.
+          </div>
+          <div>
+            <div class="figwrap" id="s2-f">
+              <img src="assets/figure_000_000.jpg" alt="CTM에서 window-aligned dense query로" />
+            </div>
+            <div class="caption" id="s2-cap">
+              Figure 1 — 원래 CTM은 시각 정보를 하나의 compact token으로 압축한다.
+              window 단위 적용은 window 내부의 공간 정체성을 무너뜨린다.
+              DQ-CTM은 위치별 dense query token을 만든다.
+            </div>
+          </div>
+        </div>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s2-h", { opacity: 0, x: -26 }, { opacity: 1, x: 0, duration: .6 }, .2)
+              .fromTo("#s2-c", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: .6 }, .5)
+              .fromTo("#s2-f", { opacity: 0, scale: .97 }, { opacity: 1, scale: 1, duration: .8 }, .9)
+              .fromTo("#s2-cap", { opacity: 0 }, { opacity: 1, duration: .6 }, 1.6);
+            window.__timelines["s2"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 3 · persistent dense carrier ──────────────── -->
+      <div
+        id="s3"
+        class="scene clip"
+        data-composition-id="s3"
+        data-start="14"
+        data-duration="7"
+        data-label="Persistent dense carrier"
+      >
+        <div class="eyebrow">1 · Persistent dense visual carrier</div>
+        <h2>토큰을 줄이지 않는다</h2>
+        <div class="mathslide">
+          <div class="eq" id="eq-enc"></div>
+          <div class="legend">
+            <div class="leg" id="leg-E">
+              <span class="chip c-E">E</span>
+              <span>SwinIR-style encoder — LR 입력을 dense feature field로</span>
+            </div>
+            <div class="leg" id="leg-W">
+              <span class="chip c-W">W</span>
+              <span>window partition — pooling 없이 모든 token을 유지한다</span>
+            </div>
+          </div>
+        </div>
+        <script>
+          (function () {
+            // output:"html" suppresses KaTeX's hidden MathML mirror; otherwise the
+            // layout inspector reads the a11y mirror as overlapping text.
+            var OPTS = { displayMode: true, trust: true, strict: false, output: "html" };
+            katex.render(
+              String.raw`\mathbf{F}=\htmlClass{term t-E}{\mathcal{E}}(\mathbf{I}_{\mathrm{LR}}),\qquad \mathbf{X}=\htmlClass{term t-W}{\mathcal{W}}(\mathbf{F})`,
+              document.getElementById("eq-enc"), OPTS);
+
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#eq-enc", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: .7 }, .3)
+              .fromTo("#leg-E", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: .5 }, 1.5)
+              .fromTo("#s3 .t-E", { color: "#e8eaed", scale: 1 },
+                              { color: "#7cc4ff", scale: 1.16, duration: .5 }, 1.5)
+              .fromTo("#leg-W", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: .5 }, 3.4)
+              .fromTo("#s3 .t-E", { scale: 1.16 }, { scale: 1, duration: .4 }, 3.4)
+              .fromTo("#s3 .t-W", { color: "#e8eaed", scale: 1 },
+                              { color: "#ffd166", scale: 1.16, duration: .5 }, 3.4)
+              .fromTo("#s3 .t-W", { scale: 1.16 }, { scale: 1, duration: .4 }, 5.2);
+            window.__timelines["s3"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 4 · thought ↔ carrier ─────────────────────── -->
+      <div
+        id="s4"
+        class="scene clip"
+        data-composition-id="s4"
+        data-start="21"
+        data-duration="8"
+        data-label="Thought ↔ carrier"
+      >
+        <div class="eyebrow">2 · Compact thought ↔ dense carrier</div>
+        <h2>읽고, 갱신하되, 개수는 보존한다</h2>
+        <div class="mathslide" style="gap:44px">
+          <div class="eq small" id="eq-think"></div>
+          <div class="eq small" id="eq-upd"></div>
+          <div class="legend">
+            <div class="leg" id="leg-T">
+              <span class="chip c-T">T</span>
+              <span>compact thought transition — dense carrier에서 읽어 다음 상태를 만든다</span>
+            </div>
+            <div class="leg" id="leg-U">
+              <span class="chip c-U">U</span>
+              <span>token-count-preserving update — 갱신 전후 token 수가 같다</span>
+            </div>
+          </div>
+        </div>
+        <script>
+          (function () {
+            var OPTS = { displayMode: true, trust: true, strict: false, output: "html" };
+            katex.render(
+              String.raw`\mathbf{h}^{(t+1)}=\htmlClass{term t-T}{\mathcal{T}_{\theta}}\!\left(\mathbf{h}^{(t)},\operatorname{Read}(\mathbf{X}^{(t)},\mathbf{s}^{(t)})\right)`,
+              document.getElementById("eq-think"), OPTS);
+            katex.render(
+              String.raw`\mathbf{X}^{(t+1)}=\htmlClass{term t-U}{\mathcal{U}_{\theta}}\!\left(\mathbf{X}^{(t)},\mathbf{s}^{(t)}\right)`,
+              document.getElementById("eq-upd"), OPTS);
+
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#eq-think", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: .6 }, .3)
+              .fromTo("#s4 .t-T", { color: "#e8eaed", scale: 1 },
+                              { color: "#f78da7", scale: 1.14, duration: .5 }, 1.3)
+              .fromTo("#leg-T", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: .5 }, 1.3)
+              .fromTo("#eq-upd", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: .6 }, 3.2)
+              .fromTo("#s4 .t-T", { scale: 1.14 }, { scale: 1, duration: .4 }, 3.2)
+              .fromTo("#s4 .t-U", { color: "#e8eaed", scale: 1 },
+                              { color: "#6ee7a8", scale: 1.14, duration: .5 }, 4.2)
+              .fromTo("#leg-U", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: .5 }, 4.2)
+              .fromTo("#s4 .t-U", { scale: 1.14 }, { scale: 1, duration: .4 }, 6.0);
+            window.__timelines["s4"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 5 · architecture ──────────────────────────── -->
+      <div
+        id="s5"
+        class="scene clip"
+        data-composition-id="s5"
+        data-start="29"
+        data-duration="7"
+        data-label="전체 구조"
+      >
+        <div class="eyebrow">전체 구조</div>
+        <h2 id="s5-h">encoder → window → 공유 DQ-CTM tick → decoder</h2>
+        <div class="figwrap" id="s5-f" style="margin-top:40px">
+          <img src="assets/figure_002_002.jpg" alt="ThinkSR 전체 아키텍처" />
+        </div>
+        <div class="caption" id="s5-cap">
+          Figure 2 — 갱신된 window token을 원래 공간 배열로 복원해 HR로 디코딩한다.
+          parameter는 thought tick 간 공유되고, 각 tick의 출력이 progressive trajectory를 이룬다.
+        </div>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s5-h", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .6 }, .2)
+              .fromTo("#s5-f", { opacity: 0, scale: .97 }, { opacity: 1, scale: 1, duration: .8 }, .5)
+              .fromTo("#s5-cap", { opacity: 0 }, { opacity: 1, duration: .6 }, 1.3);
+            window.__timelines["s5"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 6 · benchmark table ───────────────────────── -->
+      <div
+        id="s6"
+        class="scene clip"
+        data-composition-id="s6"
+        data-start="36"
+        data-duration="10"
+        data-label="정량 비교"
+      >
+        <div class="eyebrow">정량 비교 · ×4 lightweight SR</div>
+        <h2 id="s6-h">CNN baseline과는 대등, 최신 모델에는 뒤처진다</h2>
+        <table>
+          <thead>
+            <tr id="thead-row">
+              <th>Method</th><th>Params</th><th>Set5</th><th>Set14</th>
+              <th>BSD100</th><th>Urban100</th><th>Manga109</th><th>Average</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="trow"><td>CARN</td><td>1.592M</td><td>32.13/0.8937</td><td>28.60/0.7806</td><td>27.58/0.7349</td><td>26.07/0.7837</td><td>30.47/0.9084</td><td>28.970/0.8203</td></tr>
+            <tr class="trow"><td>IMDN</td><td>0.715M</td><td>32.21/0.8948</td><td>28.58/0.7811</td><td>27.56/0.7353</td><td>26.04/0.7838</td><td>30.45/0.9075</td><td>28.968/0.8205</td></tr>
+            <tr class="trow"><td>RFDN</td><td>0.550M</td><td>32.24/0.8952</td><td>28.61/0.7819</td><td>27.57/0.7360</td><td>26.11/0.7858</td><td>30.58/0.9089</td><td>29.022/0.8216</td></tr>
+            <tr class="trow"><td>SwinIR-light</td><td>0.930M</td><td>32.44/0.8976</td><td>28.77/0.7858</td><td>27.69/0.7406</td><td>26.47/0.7980</td><td>30.92/0.9151</td><td>29.258/0.8274</td></tr>
+            <tr class="trow"><td>SRFormer-light</td><td>0.873M</td><td>32.51/0.8988</td><td>28.82/0.7872</td><td>27.73/0.7422</td><td>26.67/0.8032</td><td>31.17/0.9165</td><td>29.380/0.8296</td></tr>
+            <tr class="trow"><td>MambaIRv2-light</td><td>0.790M</td><td>32.51/0.8992</td><td>28.84/0.7878</td><td>27.75/0.7426</td><td>26.82/0.8079</td><td>31.24/0.9182</td><td>29.432/0.8311</td></tr>
+            <tr class="trow" id="row-best"><td>CATANet</td><td>0.535M</td><td>32.58/0.8998</td><td>28.90/0.7880</td><td>27.75/0.7427</td><td>26.87/0.8081</td><td>31.31/0.9183</td><td>29.482/0.8314</td></tr>
+            <tr class="trow" id="row-ours"><td>DQ-CTM-SR (V1, T=4)</td><td>1.129M</td><td>32.164/0.8954</td><td>28.622/0.7826</td><td>27.630/0.7377</td><td>26.103/0.7859</td><td>30.395/0.9085</td><td>28.983/0.8220</td></tr>
+          </tbody>
+        </table>
+        <div class="rownote" id="s6-note">
+          평균 기준 CARN·IMDN보다 근소하게 높고 RFDN과는 PSNR 0.039 dB 뒤진다.
+          CATANet과의 격차는 평균 PSNR 0.499 dB · SSIM 0.0094, Urban100에서 가장 크다.
+          비교군 수치는 원 논문 인용이고 DQ-CTM-SR만 직접 학습·평가한 값이라 통제 실험은 아니다.
+        </div>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s6-h", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .6 }, .2)
+              .fromTo("#thead-row", { opacity: 0 }, { opacity: 1, duration: .4 }, .5)
+              .fromTo("#s6 .trow", { opacity: 0, y: 14 },
+                               { opacity: 1, y: 0, duration: .45, stagger: .16 }, .8)
+              .fromTo("#row-best td", { color: "#b8c4d2", fontWeight: 400 },
+                                      { color: "#6ee7a8", fontWeight: 600, duration: .5 }, 3.4)
+              .fromTo("#row-ours td", { color: "#b8c4d2", fontWeight: 400 },
+                                      { color: "#ffd166", fontWeight: 600, duration: .5 }, 4.6)
+              .fromTo("#s6-note", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: .6 }, 5.6);
+            window.__timelines["s6"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 7 · thought sweep (generated chart) ───────── -->
+      <div
+        id="s7"
+        class="scene clip"
+        data-composition-id="s7"
+        data-start="46"
+        data-duration="10"
+        data-label="Thought sweep"
+      >
+        <div class="eyebrow">Thought sweep · DIV2K validation 100장</div>
+        <h2 id="s7-h">tick을 더 돌수록 좋아지지만, 이득은 빠르게 줄어든다</h2>
+        <div class="chartwrap">
+          <svg id="chart" width="1160" height="470" viewBox="0 0 1160 470">
+            <g stroke="#1e242c" stroke-width="1">
+              <line x1="80" y1="400" x2="1120" y2="400" />
+              <line x1="80" y1="300" x2="1120" y2="300" />
+              <line x1="80" y1="200" x2="1120" y2="200" />
+              <line x1="80" y1="100" x2="1120" y2="100" />
+            </g>
+            <g class="axlab" text-anchor="end">
+              <text x="66" y="406">29.0</text>
+              <text x="66" y="306">29.5</text>
+              <text x="66" y="206">30.0</text>
+              <text x="66" y="106">30.5</text>
+            </g>
+            <g class="axlab" text-anchor="middle">
+              <text x="80" y="440">T=0</text>
+              <text x="340" y="440">T=1</text>
+              <text x="600" y="440">T=2</text>
+              <text x="860" y="440">T=3</text>
+              <text x="1120" y="440">T=4</text>
+            </g>
+            <path id="line" fill="none" stroke="#7cc4ff" stroke-width="4"
+              stroke-linejoin="round" stroke-linecap="round"
+              d="M80,418 L340,224 L600,164 L860,124 L1120,106" />
+            <g id="dots">
+              <circle cx="80"   cy="418" r="8" fill="#7cc4ff" />
+              <circle cx="340"  cy="224" r="8" fill="#7cc4ff" />
+              <circle cx="600"  cy="164" r="8" fill="#7cc4ff" />
+              <circle cx="860"  cy="124" r="8" fill="#7cc4ff" />
+              <circle cx="1120" cy="106" r="10" fill="#ffd166" />
+            </g>
+            <g class="ptlab" text-anchor="middle">
+              <text class="pv" x="80"   y="452">28.91</text>
+              <text class="pv" x="340"  y="200">29.88</text>
+              <text class="pv" x="600"  y="140">30.18</text>
+              <text class="pv" x="860"  y="100">30.38</text>
+              <text class="pv" x="1112" y="82">30.47</text>
+            </g>
+            <g class="delta" text-anchor="middle">
+              <text class="dv" x="210" y="330">+0.97</text>
+              <text class="dv" x="470" y="212">+0.30</text>
+              <text class="dv" x="730" y="162">+0.20</text>
+              <text class="dv" x="990" y="128">+0.09</text>
+            </g>
+          </svg>
+          <div class="readout" id="s7-read">
+            <b>PSNR<sub>Y</sub></b> 28.91 → 30.47 dB<br />
+            <b>L1</b> 0.0386 → 0.0229<br /><br />
+            tick당 이득은 <b>0.97 → 0.30 → 0.20 → 0.09 dB</b>로 줄어든다.
+            학습은 <b>T=4</b>까지만 했고, 그 너머는 검증되지 않았다.
+          </div>
+        </div>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            var line = document.getElementById("line");
+            var L = line.getTotalLength();
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s7-h", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .6 }, .2)
+              .fromTo(line, { strokeDasharray: L, strokeDashoffset: L },
+                            { strokeDashoffset: 0, duration: 2.0, ease: "none" }, .6)
+              .fromTo("#s7 #dots circle", { opacity: 0, scale: 0 },
+                      { opacity: 1, scale: 1, transformOrigin: "center",
+                        duration: .3, stagger: .5 }, .6)
+              .fromTo("#s7 .pv", { opacity: 0 }, { opacity: 1, duration: .3, stagger: .5 }, .8)
+              .fromTo("#s7 .dv", { opacity: 0, y: -10 },
+                             { opacity: 1, y: 0, duration: .35, stagger: .5 }, 1.3)
+              .fromTo("#s7-read", { opacity: 0, x: 24 },
+                                  { opacity: 1, x: 0, duration: .7 }, 3.6);
+            window.__timelines["s7"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── 8 · numeric inconsistency ─────────────────── -->
+      <div
+        id="s8"
+        class="scene clip"
+        data-composition-id="s8"
+        data-start="56"
+        data-duration="7"
+        data-label="수치 불일치"
+      >
+        <div class="eyebrow">읽을 때 주의할 점</div>
+        <h2 id="s8-h">같은 실험의 숫자가 세 곳에서 다르다</h2>
+        <div class="cols2">
+          <div class="warn" id="w1">
+            <span class="k">abstract</span><br />
+            PSNR-Y 28.1045 → 30.2817<br />
+            PSNR-RGB 26.6271 → 28.7781<br />
+            L1 0.034602 → 0.023545
+          </div>
+          <div class="warn" id="w2">
+            <span class="k">thought-sweep 표</span><br />
+            PSNR-Y 28.91 → 30.47<br />
+            PSNR-RGB 25.45 → 28.98<br />
+            L1 0.0386 → 0.0229
+          </div>
+        </div>
+        <div class="claim" id="s8-c" style="margin-top:36px;max-width:1560px">
+          본문은 T=1→4 PSNR-Y 증가를 1.4611 dB로 서술하지만 표 기준으로는 0.59 dB다.
+          서로 다른 checkpoint나 평가 설정을 섞었을 가능성이 있고, source에는 설명이 없다.
+        </div>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s8-h", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .6 }, .2)
+              .fromTo("#w1", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .55 }, .6)
+              .fromTo("#w2", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .55 }, 1.0)
+              .fromTo("#s8-c", { opacity: 0 }, { opacity: 1, duration: .6 }, 1.8);
+            window.__timelines["s8"] = tl;
+          })();
+        </script>
+      </div>
+
+      <!-- ── root timeline ─────────────────────────────── -->
+      <script>
+        (function () {
+          window.__timelines = window.__timelines || {};
+          var tl = gsap.timeline({ paused: true });
+          // Spans the full 63s; scene timelines are registered under their own ids.
+          tl.to({}, { duration: 63 });
+          window.__timelines["main"] = tl;
+        })();
+      </script>
+    </div>
+
+    <!-- ── slideshow JSON island ─────────────────────────
+         Fragment times are ABSOLUTE composition-timeline positions and must fall
+         inside each slide's [start, end] window. They are hold points placed just
+         after the corresponding reveal completes. -->
+    <script type="application/hyperframes-slideshow+json">
+      {
+        "slides": [
+          {
+            "sceneId": "s1",
+            "notes": "제목만 읽고 넘어간다. 논문 이름과 약어를 한 번씩."
+          },
+          {
+            "sceneId": "s2",
+            "notes": "핵심 대립을 먼저 말한다 — 생각은 압축, 출력은 조밀.",
+            "fragments": [7.5, 9.0]
+          },
+          {
+            "sceneId": "s3",
+            "notes": "pooling을 안 한다는 점이 전부다. E 다음 W 순서로.",
+            "fragments": [16.5, 18.5]
+          },
+          {
+            "sceneId": "s4",
+            "notes": "읽기(T)와 갱신(U)을 분리해서 설명. token 수 보존이 요점.",
+            "fragments": [23.0, 25.5, 27.5]
+          },
+          {
+            "sceneId": "s5",
+            "notes": "tick 간 parameter 공유를 강조."
+          },
+          {
+            "sceneId": "s6",
+            "notes": "여기서 과장하지 말 것. CNN과 대등, 최신 모델에는 뒤진다.",
+            "fragments": [40.0, 41.5, 42.5]
+          },
+          {
+            "sceneId": "s7",
+            "notes": "diminishing return이 핵심. T>4는 검증 안 됨.",
+            "fragments": [49.0, 50.5]
+          },
+          {
+            "sceneId": "s8",
+            "notes": "논문을 읽을 사람에게 반드시 알려야 할 부분.",
+            "fragments": [58.5]
+          }
+        ],
+        "slideSequences": []
+      }
+    </script>
+  </body>
+</html>

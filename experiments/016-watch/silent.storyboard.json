@@ -1,0 +1,110 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b01",
+      "archetype": "title",
+      "params": {
+        "eyebrow": "Paper analysis · dense prediction × continuous thought",
+        "headline": "Compact thought collides with dense output",
+        "sub": "Dense-Query Continuous Thought Machine (DQ-CTM)"
+      },
+      "intent": "Name the tension the paper is about.",
+      "narration": "This paper puts a thought process that stays small up against a task whose output has to stay large — every pixel of it.",
+      "evidence": [],
+      "weight": 0.95,
+      "seconds": 6
+    },
+    {
+      "id": "b02",
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Method",
+        "headline": "One pass in, one pass out, and a loop in the middle",
+        "stages": [
+          {
+            "label": "Encode",
+            "note": "SwinIR-style"
+          },
+          {
+            "label": "Window",
+            "note": "no pooling",
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM",
+            "note": "shared ticks",
+            "tone": "b"
+          },
+          {
+            "label": "Decode",
+            "note": "×4 upsample"
+          }
+        ],
+        "loop": {
+          "from": 2,
+          "to": 2,
+          "label": "one thought tick"
+        },
+        "note": "Parameters are shared across every tick."
+      },
+      "intent": "The recurrence sits after the encoder, not around it.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.95,
+      "seconds": 9
+    },
+    {
+      "id": "b03",
+      "archetype": "annotated-figure",
+      "params": {
+        "eyebrow": "Architecture",
+        "headline": "Every window keeps its own position-wise query",
+        "figureId": "fig-compare",
+        "crop": {
+          "x": 0.02,
+          "y": 0.52,
+          "w": 0.96,
+          "h": 0.46
+        },
+        "notes": [
+          {
+            "x": 0.3,
+            "y": 0.78,
+            "text": "window partitioning",
+            "tone": "a"
+          },
+          {
+            "x": 0.52,
+            "y": 0.78,
+            "text": "the shared DQ-CTM block",
+            "tone": "b"
+          },
+          {
+            "x": 0.86,
+            "y": 0.78,
+            "text": "pixel-wise dense field",
+            "tone": "c"
+          }
+        ]
+      },
+      "intent": "DQ-CTM produces one query per position, not one per window.",
+      "narration": "The three approaches sit side by side here, and they differ only in what they hand the thought block. The windows come first: the field is partitioned, and each one is handled on its own. The block in the middle is shared, the same weights for every window. And what comes out is still a dense field, one query for every position in it.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-compare"
+        }
+      ],
+      "weight": 0.9,
+      "seconds": 9
+    }
+  ]
+}

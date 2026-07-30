@@ -1,0 +1,2 @@
+import {WebGLRenderer,Scene,PerspectiveCamera,BufferGeometry,BufferAttribute,Points,PointsMaterial,Color,Vector3} from "three";
+    export const x=[WebGLRenderer,Scene,PerspectiveCamera,BufferGeometry,BufferAttribute,Points,PointsMaterial,Color,Vector3];

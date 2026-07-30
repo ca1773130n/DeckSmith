@@ -1,0 +1,40 @@
+{
+  "arm": "B0",
+  "i": 4,
+  "ms": 485653,
+  "exit": 0,
+  "promptChars": 7983,
+  "schemaChars": 3324,
+  "outChars": 72125,
+  "stage": "valid",
+  "units": 12,
+  "jsonChars": 45155,
+  "refsResolve": true,
+  "shared": [
+    "scene[0] s01-mismatch: narration 2 sentences, 3 holds",
+    "scene[1] s02-carrier: narration 2 sentences, 4 holds",
+    "scene[2] s03-encoding: narration 2 sentences, 5 holds",
+    "scene[3] s04-pipeline: narration 2 sentences, 4 holds",
+    "scene[4] s05-adaptation: narration 2 sentences, 5 holds",
+    "scene[5] s06-ticks: narration 2 sentences, 5 holds",
+    "scene[6] s07-reconstruction: narration 2 sentences, 7 holds",
+    "scene[6] s07-reconstruction: headline 64 chars > 60",
+    "scene[7] s08-errors: narration 2 sentences, 3 holds",
+    "scene[8] s09-cnn-results: narration 2 sentences, 4 holds",
+    "scene[9] s10-transformer-gap: narration 2 sentences, 3 holds",
+    "scene[10] s11-parameter-cost: narration 2 sentences, 4 holds",
+    "scene[11] s12-takeaway: narration 3 sentences, 5 holds"
+  ],
+  "algebra": [
+    "scene[0] s01-mismatch obj headline: box extends off stage",
+    "scene[1] s02-carrier obj headline: box extends off stage",
+    "scene[2] s03-encoding obj headline: box extends off stage",
+    "scene[3] s04-pipeline obj headline: box extends off stage",
+    "scene[6] s07-reconstruction obj headline: box extends off stage",
+    "scene[7] s08-errors obj headline: box extends off stage",
+    "scene[11] s12-takeaway obj headline: box extends off stage"
+  ],
+  "soft": [],
+  "emitFail": [],
+  "coherent": false
+}

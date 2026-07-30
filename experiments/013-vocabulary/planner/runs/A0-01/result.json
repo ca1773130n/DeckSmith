@@ -1,0 +1,21 @@
+{
+  "arm": "A0",
+  "i": 1,
+  "ms": 69285,
+  "exit": 0,
+  "promptChars": 14506,
+  "schemaChars": 18265,
+  "outChars": 10576,
+  "stage": "valid",
+  "units": 11,
+  "jsonChars": 10363,
+  "refsResolve": true,
+  "shared": [
+    "beat[7] b08-results: narration 4 sentences, 5 reveals",
+    "beat[8] b09-params: narration 5 sentences, 6 reveals",
+    "beat[9] b10-scores: narration 5 sentences, 6 reveals"
+  ],
+  "algebra": [],
+  "soft": [],
+  "coherent": false
+}

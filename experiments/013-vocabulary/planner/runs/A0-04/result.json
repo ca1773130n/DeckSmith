@@ -1,0 +1,26 @@
+{
+  "arm": "A0",
+  "i": 4,
+  "ms": 70105,
+  "exit": 0,
+  "promptChars": 14506,
+  "schemaChars": 18265,
+  "outChars": 10863,
+  "stage": "valid",
+  "units": 11,
+  "jsonChars": 10642,
+  "refsResolve": true,
+  "shared": [
+    "beat[1] b02-mismatch: narration 2 sentences, 3 reveals",
+    "beat[3] b04-carrier-equation: narration 4 sentences, 5 reveals",
+    "beat[4] b05-architecture-notes: narration 3 sentences, 5 reveals",
+    "beat[5] b06-progress: narration 3 sentences, 5 reveals",
+    "beat[6] b07-error-maps: narration 3 sentences, 4 reveals",
+    "beat[7] b08-average-score: narration 3 sentences, 6 reveals",
+    "beat[8] b09-parameter-cost: narration 3 sentences, 6 reveals",
+    "beat[10] b11-close: narration 2 sentences, 3 reveals"
+  ],
+  "algebra": [],
+  "soft": [],
+  "coherent": false
+}

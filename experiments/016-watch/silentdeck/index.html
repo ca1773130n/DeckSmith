@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ThinkSR: compact thought, dense output</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="./vendor/gsap.min.js"></script>
+    <link rel="stylesheet" href="./katex/katex.min.css" />
+    <script src="./vendor/katex.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px;
+        overflow: hidden; background: #0b0d10;
+      }
+      body { font-family: "Inter", system-ui, sans-serif; color: #e8eaed; font-weight: 400; }
+
+      /* Centred, not top-anchored. Top-anchoring left every archetype but the
+         title sitting in the upper 40% above a 500-600px dead band — it passes
+         every gate and reads as unfinished. Centring is safe here because the
+         gate still catches anything taller than the canvas; it just now
+         overflows symmetrically instead of only downwards. */
+      .scene { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+               padding: 84px 110px; display: flex; flex-direction: column;
+               justify-content: center; }
+
+      @keyframes ds-breathe { from { filter: brightness(1); } to { filter: brightness(1.12); } }
+      @keyframes ds-drift { from { transform: scale(1); } to { transform: scale(1.012); } }
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .titleslide{display:flex;flex-direction:column;justify-content:space-between;height:100%}
+      .bighead{line-height:1.06;font-weight:700;letter-spacing:-.025em;color:#e8eaed}
+      .sub{font-size:48px;line-height:1.5;color:#9aa7b5;margin-top:44px;padding-top:36px;max-width:1500px;border-top:3px solid #2b333d}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s1-t{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .pipewrap{margin-top:38px;display:flex;justify-content:center}
+      .pipenote{font-size:44px;line-height:1.45;color:#9aa7b5;margin-top:36px;max-width:1600px}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s2-stage2{animation:ds-breathe 6s ease-in-out infinite alternate}}
+      .eyebrow{font-size:42px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:#9aa7b5;font-weight:500;margin-bottom:22px}
+      .headline{font-size:76px;line-height:1.15;font-weight:700;letter-spacing:-.015em;color:#e8eaed}
+      .af-stage{position:relative;flex:none}
+      .af-plate{position:absolute;background:#fff;border:1px solid #2b333d;border-radius:12px;padding:14px}
+      .af-plate{overflow:hidden}
+      .af-plate img{display:block;width:100%;height:100%}
+      #s3-plate img{position:absolute;width:1014.58px;height:511.36px;left:-5.29px;top:-250.91px;max-width:none}
+      .af-ov-g{filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}
+      .af-lab text{fill:#e8eaed}
+      .af-cap{font-size:40px;line-height:1.35;color:#74808e;margin-top:26px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+      #s3-stage{width:1700px;height:350.25px;margin-top:30px}
+      #s3-plate{left:348px;top:-15px;width:1004px;height:265.22px}
+      #s3-ov{position:absolute;left:0;top:0;overflow:visible}
+      @media (prefers-reduced-motion: no-preference){.ds-live #s3 .af-dot{animation:ds-breathe 6s ease-in-out infinite alternate}}
+    </style>
+  </head>
+  <body>
+    <script>window.__hfTimelinesBuilding = true;</script>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="24"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="s1"
+        class="scene clip"
+        data-composition-id="s1"
+        data-start="0"
+        data-duration="6.4"
+        data-label="Compact thought collides with dense output"
+      >
+<div class="titleslide">
+  <div class="eyebrow" id="s1-e">Paper analysis · dense prediction × continuous thought</div>
+  <h1 class="bighead" id="s1-t" style="font-size:156px">Compact thought collides with dense output</h1>
+  <div class="sub" id="s1-s">Dense-Query Continuous Thought Machine (DQ-CTM)</div>
+</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s1-e", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6 }, 0.2);
+            tl.fromTo("#s1-t", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.9 }, 0.4);
+            tl.fromTo("#s1-s", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 1);
+            tl.fromTo("#s1", { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "power2.in", immediateRender: false }, 6);
+            window.__timelines["s1"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s2"
+        class="scene clip"
+        data-composition-id="s2"
+        data-start="6"
+        data-duration="9.4"
+        data-label="One pass in, one pass out, and a loop in the middle"
+      >
+<div class="eyebrow" id="s2-e">Method</div>
+<h2 class="headline" id="s2-h">One pass in, one pass out, and a loop in the middle</h2>
+<div class="pipewrap"><svg id="s2-pipe" width="1700" height="478" viewBox="0 0 1700 478"><defs><marker id="s2-ah-9aa7b5" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="26" markerHeight="26" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="#9aa7b5" /></marker><marker id="s2-ah-ffd166" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="26" markerHeight="26" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L12,6 L0,12 Z" fill="#ffd166" /></marker></defs><defs><clipPath id="s2-loopclip"><rect x="906.42" y="0" width="320.8" height="478" id="s2-sweep" /></clipPath></defs><g clip-path="url(#s2-loopclip)"><path d="M1156.82,342 L1156.82,376 Q1156.82,398 1134.82,398 L998.82,398 Q976.82,398 976.82,376 L976.82,352" fill="none" stroke="#ffd166" stroke-width="4" stroke-linecap="round" stroke-dasharray="16 12" marker-end="url(#s2-ah-ffd166)" /><text x="1066.82" y="442" font-size="40" font-weight="500" fill="#ffd166" text-anchor="middle"><tspan x="1066.82" dy="13.6">one thought tick</tspan></text></g><line x1="397.08" y1="172" x2="427.64" y2="172" id="s2-arrow0" fill="none" stroke="#9aa7b5" stroke-width="5" stroke-linecap="round" marker-end="url(#s2-ah-9aa7b5)" /><line x1="830.72" y1="172" x2="861.28" y2="172" id="s2-arrow1" fill="none" stroke="#9aa7b5" stroke-width="5" stroke-linecap="round" marker-end="url(#s2-ah-9aa7b5)" /><line x1="1264.36" y1="172" x2="1294.92" y2="172" id="s2-arrow2" fill="none" stroke="#9aa7b5" stroke-width="5" stroke-linecap="round" marker-end="url(#s2-ah-9aa7b5)" /><g id="s2-stage0"><rect x="2" y="2" width="395.08" height="340" rx="18" fill="#16191e" stroke="#2b333d" stroke-width="3" /><text x="199.54" y="138" font-size="52" font-weight="600" fill="#e8eaed" text-anchor="middle"><tspan x="199.54" dy="17.68">Encode</tspan></text><text x="199.54" y="211.2" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="199.54" dy="13.6">SwinIR-style</tspan></text></g><g id="s2-stage1"><rect x="435.64" y="2" width="395.08" height="340" rx="18" fill="#7cc4ff" fill-opacity="0.12" stroke="#7cc4ff" stroke-width="4" /><text x="633.18" y="138" font-size="52" font-weight="600" fill="#7cc4ff" text-anchor="middle"><tspan x="633.18" dy="17.68">Window</tspan></text><text x="633.18" y="211.2" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="633.18" dy="13.6">no pooling</tspan></text></g><g id="s2-stage2"><rect x="869.28" y="2" width="395.08" height="340" rx="18" fill="#ffd166" fill-opacity="0.12" stroke="#ffd166" stroke-width="4" /><text x="1066.82" y="138" font-size="52" font-weight="600" fill="#ffd166" text-anchor="middle"><tspan x="1066.82" dy="17.68">DQ-CTM</tspan></text><text x="1066.82" y="211.2" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="1066.82" dy="13.6">shared ticks</tspan></text></g><g id="s2-stage3"><rect x="1302.92" y="2" width="395.08" height="340" rx="18" fill="#16191e" stroke="#2b333d" stroke-width="3" /><text x="1500.46" y="138" font-size="52" font-weight="600" fill="#e8eaed" text-anchor="middle"><tspan x="1500.46" dy="17.68">Decode</tspan></text><text x="1500.46" y="211.2" font-size="40" fill="#9aa7b5" text-anchor="middle"><tspan x="1500.46" dy="13.6">×4 upsample</tspan></text></g></svg></div>
+<div class="pipenote" id="s2-note">Parameters are shared across every tick.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s2-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s2-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s2-stage0", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 1);
+            tl.fromTo("#s2-arrow0", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.32, ease: "power2.out" }, 2.1);
+            tl.fromTo("#s2-stage1", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 2.4);
+            tl.fromTo("#s2-arrow1", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.32, ease: "power2.out" }, 3.5);
+            tl.fromTo("#s2-stage2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 3.8);
+            tl.fromTo("#s2-arrow2", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.32, ease: "power2.out" }, 4.9);
+            tl.fromTo("#s2-stage3", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 5.2);
+            tl.fromTo("#s2-sweep", { x: 320.8 }, { x: 0, duration: 0.9, ease: "power2.inOut" }, 6);
+            tl.fromTo("#s2-note", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5 }, 7.15);
+            tl.fromTo("#s2", { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "power2.in", immediateRender: false }, 9);
+            window.__timelines["s2"] = tl;
+          })();
+        </script>
+      </div>
+      <div
+        id="s3"
+        class="scene clip"
+        data-composition-id="s3"
+        data-start="15"
+        data-duration="9"
+        data-label="Every window keeps its own position-wise query"
+      >
+<div class="eyebrow" id="s3-e">Architecture</div>
+<h2 class="headline" id="s3-h">Every window keeps its own position-wise query</h2>
+<div class="af-stage" id="s3-stage">
+  <div class="af-plate" id="s3-plate"><img data-layout-allow-overflow src="assets/fig-compare.jpg" alt="Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared." /></div>
+  <svg id="s3-ov" width="1700" height="350.25" viewBox="0 0 1700 350.25"><g class="af-ov-g"><path d="M630.29,135.58 L330,182.55 L98.29,182.55" fill="none" id="s3-lead0" stroke="#7cc4ff" stroke-width="3" stroke-linejoin="round" /><g id="s3-dot0"><circle cx="647.08" cy="132.95" r="18" fill="#7cc4ff" opacity="0.22" class="af-halo" /><circle cx="647.08" cy="132.95" r="9" fill="#7cc4ff" class="af-dot" stroke="#0b0d10" stroke-width="4" /></g><g id="s3-lab0" class="af-lab"><text x="330" y="113.05" font-size="40" font-weight="600" text-anchor="end">window</text><text x="330" y="165.05" font-size="40" font-weight="600" text-anchor="end">partitioning</text><line x1="330" y1="182.55" x2="98.29" y2="182.55" stroke="#7cc4ff" stroke-width="3" /></g><path d="M887.21,134.63 L1370,182.55 L1672.02,182.55" fill="none" id="s3-lead1" stroke="#ffd166" stroke-width="3" stroke-linejoin="round" /><g id="s3-dot1"><circle cx="870.29" cy="132.95" r="18" fill="#ffd166" opacity="0.22" class="af-halo" /><circle cx="870.29" cy="132.95" r="9" fill="#ffd166" class="af-dot" stroke="#0b0d10" stroke-width="4" /></g><g id="s3-lab1" class="af-lab"><text x="1370" y="113.05" font-size="40" font-weight="600">the shared</text><text x="1370" y="165.05" font-size="40" font-weight="600">DQ-CTM block</text><line x1="1370" y1="182.55" x2="1672.02" y2="182.55" stroke="#ffd166" stroke-width="3" /></g><path d="M1225.16,146.77 L1370,348.75 L1596.3,348.75" fill="none" id="s3-lead2" stroke="#f78da7" stroke-width="3" stroke-linejoin="round" /><g id="s3-dot2"><circle cx="1215.25" cy="132.95" r="18" fill="#f78da7" opacity="0.22" class="af-halo" /><circle cx="1215.25" cy="132.95" r="9" fill="#f78da7" class="af-dot" stroke="#0b0d10" stroke-width="4" /></g><g id="s3-lab2" class="af-lab"><text x="1370" y="279.25" font-size="40" font-weight="600">pixel-wise</text><text x="1370" y="331.25" font-size="40" font-weight="600">dense field</text><line x1="1370" y1="348.75" x2="1596.3" y2="348.75" stroke="#f78da7" stroke-width="3" /></g></g></svg>
+</div>
+<div class="af-cap" id="s3-cap">Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.</div>
+        <script>
+          (function () {
+            
+            window.__timelines = window.__timelines || {};
+            // Each scene owns a paused timeline under its own composition id, with
+            // times relative to its start — one absolute root timeline yields a
+            // deck the slideshow controller cannot bind to.
+            var tl = gsap.timeline({ paused: true });
+            tl.fromTo("#s3-e", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 0.15);
+            tl.fromTo("#s3-h", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6 }, 0.3);
+            tl.fromTo("#s3-plate", { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, 0.7);
+            tl.fromTo("#s3-dot0", { opacity: 0, scale: 0, svgOrigin: "647.08 132.95" }, { opacity: 1, scale: 1, svgOrigin: "647.08 132.95", duration: 0.3, ease: "back.out(2)" }, 1.9);
+            tl.fromTo("#s3-lead0", { strokeDasharray: 537, strokeDashoffset: 537 }, { strokeDashoffset: 0, duration: 0.55, ease: "none" }, 2);
+            tl.fromTo("#s3-lab0", { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.4 }, 2.35);
+            tl.fromTo("#s3-dot1", { opacity: 0, scale: 0, svgOrigin: "870.29 132.95" }, { opacity: 1, scale: 1, svgOrigin: "870.29 132.95", duration: 0.3, ease: "back.out(2)" }, 2.85);
+            tl.fromTo("#s3-lead1", { strokeDasharray: 789, strokeDashoffset: 789 }, { strokeDashoffset: 0, duration: 0.55, ease: "none" }, 2.95);
+            tl.fromTo("#s3-lab1", { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: 0.4 }, 3.3);
+            tl.fromTo("#s3-dot2", { opacity: 0, scale: 0, svgOrigin: "1215.25 132.95" }, { opacity: 1, scale: 1, svgOrigin: "1215.25 132.95", duration: 0.3, ease: "back.out(2)" }, 3.8);
+            tl.fromTo("#s3-lead2", { strokeDasharray: 476, strokeDashoffset: 476 }, { strokeDashoffset: 0, duration: 0.55, ease: "none" }, 3.9);
+            tl.fromTo("#s3-lab2", { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: 0.4 }, 4.25);
+            tl.fromTo("#s3-cap", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1);
+            window.__timelines["s3"] = tl;
+          })();
+        </script>
+      </div>
+      <script>
+        (function () {
+          window.__timelines = window.__timelines || {};
+          var tl = gsap.timeline({ paused: true });
+          // Spans the deck. All real motion lives on the per-scene timelines.
+          tl.to({}, { duration: 24 });
+          window.__timelines["main"] = tl;
+        })();
+      </script>
+      <script>
+        Promise.all(
+          Array.prototype.map
+            .call(document.images, function (img) {
+              return img.decode ? img.decode().catch(function () {}) : Promise.resolve();
+            })
+            .concat([document.fonts ? document.fonts.ready : Promise.resolve()]),
+        ).then(function () {
+          window.__hfTimelinesBuilding = false;
+          window.dispatchEvent(new Event("hf-timelines-built"));
+        });
+      </script>
+    </div>
+    <script type="application/hyperframes-slideshow+json">
+{
+  "slides": [
+    {
+      "sceneId": "s1",
+      "startTime": 0,
+      "endTime": 6,
+      "notes": "This paper puts a thought process that stays small up against a task whose output has to stay large — every pixel of it.",
+      "fragments": [
+        1.9
+      ]
+    },
+    {
+      "sceneId": "s2",
+      "startTime": 6,
+      "endTime": 15,
+      "notes": "The recurrence sits after the encoder, not around it.",
+      "fragments": [
+        7.55,
+        8.95,
+        10.35,
+        11.75,
+        13,
+        13.75
+      ]
+    },
+    {
+      "sceneId": "s3",
+      "startTime": 15,
+      "endTime": 24,
+      "notes": "The three approaches sit side by side here, and they differ only in what they hand the thought block. The windows come first: the field is partitioned, and each one is handled on its own. The block in the middle is shared, the same weights for every window. And what comes out is still a dense field, one query for every position in it.",
+      "fragments": [
+        16.55,
+        17.8,
+        18.75,
+        19.7
+      ]
+    }
+  ],
+  "slideSequences": []
+}
+    </script>
+  </body>
+</html>

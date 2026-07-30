@@ -1,0 +1,1000 @@
+{
+  "_comment": "THE REFUTATION CONTROL (PREREGISTERED §2.3). Hand-written by the experimenter, covering the same three-beat task and the camera, in the same vocabulary and through the same emit.mjs. If this is not gate-clean, the emitter is broken and no arm-VOCAB number may be reported. It is also the existence proof that the vocabulary CAN express demo/storyboard.json's b02, b05 and b08 without an archetype.",
+  "sourceId": "thinksr",
+  "title": "DQ-CTM-SR, hand-composed",
+  "lang": "en",
+  "scenes": [
+    {
+      "id": "s01-flow",
+      "intent": "The four stages, and the recurrence that returns to the third",
+      "claim": "Thought happens inside one stage, not around the whole flow",
+      "narration": "An image enters, is encoded into a dense feature field, and is cut into windows. The third stage runs the thought process, and the recurrence returns to that stage itself. Every tick reuses the same parameters, so depth costs time rather than weights. Decoding turns the finished tokens back into pixels.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.9,
+      "seconds": 8.05,
+      "holds": [
+        1.8,
+        3.4,
+        5.0,
+        6.2
+      ],
+      "camera": {
+        "on": "st3",
+        "k": 2,
+        "t0": 6.5,
+        "dur": 1.2
+      },
+      "objects": [
+        {
+          "id": "head",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.13
+          },
+          "size": {
+            "w": 0.84,
+            "h": 0.1
+          },
+          "text": "The recurrence returns to the thought stage itself",
+          "fontPx": 72,
+          "opacity": 0
+        },
+        {
+          "id": "st1",
+          "kind": "rect",
+          "at": {
+            "x": 0.155,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.17,
+            "h": 0.13
+          },
+          "fill": "surface",
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "st2",
+          "kind": "rect",
+          "at": {
+            "x": 0.385,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.17,
+            "h": 0.13
+          },
+          "fill": "surface",
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "st3",
+          "kind": "rect",
+          "at": {
+            "x": 0.615,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.17,
+            "h": 0.13
+          },
+          "fill": "surface",
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "st4",
+          "kind": "rect",
+          "at": {
+            "x": 0.845,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.17,
+            "h": 0.13
+          },
+          "fill": "surface",
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "l1",
+          "kind": "text",
+          "at": {
+            "x": 0.155,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.15,
+            "h": 0.09
+          },
+          "text": "Encode",
+          "fontPx": 48,
+          "opacity": 0
+        },
+        {
+          "id": "l2",
+          "kind": "text",
+          "at": {
+            "x": 0.385,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.15,
+            "h": 0.09
+          },
+          "text": "Window",
+          "fontPx": 48,
+          "opacity": 0
+        },
+        {
+          "id": "l3",
+          "kind": "text",
+          "at": {
+            "x": 0.615,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.15,
+            "h": 0.09
+          },
+          "text": "DQ-CTM",
+          "fontPx": 48,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "l4",
+          "kind": "text",
+          "at": {
+            "x": 0.845,
+            "y": 0.5
+          },
+          "size": {
+            "w": 0.15,
+            "h": 0.09
+          },
+          "text": "Decode",
+          "fontPx": 48,
+          "opacity": 0
+        },
+        {
+          "id": "a1",
+          "kind": "arrow",
+          "at": {
+            "x": 0.27,
+            "y": 0.5
+          },
+          "points": [
+            {
+              "x": 0.247,
+              "y": 0.5
+            },
+            {
+              "x": 0.293,
+              "y": 0.5
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "a2",
+          "kind": "arrow",
+          "at": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "points": [
+            {
+              "x": 0.477,
+              "y": 0.5
+            },
+            {
+              "x": 0.523,
+              "y": 0.5
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "a3",
+          "kind": "arrow",
+          "at": {
+            "x": 0.73,
+            "y": 0.5
+          },
+          "points": [
+            {
+              "x": 0.707,
+              "y": 0.5
+            },
+            {
+              "x": 0.753,
+              "y": 0.5
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "loop",
+          "kind": "arrow",
+          "at": {
+            "x": 0.615,
+            "y": 0.37
+          },
+          "points": [
+            {
+              "x": 0.578,
+              "y": 0.435
+            },
+            {
+              "x": 0.578,
+              "y": 0.36
+            },
+            {
+              "x": 0.652,
+              "y": 0.36
+            },
+            {
+              "x": 0.652,
+              "y": 0.428
+            }
+          ],
+          "tone": "c",
+          "opacity": 0
+        },
+        {
+          "id": "tick",
+          "kind": "text",
+          "at": {
+            "x": 0.615,
+            "y": 0.26
+          },
+          "size": {
+            "w": 0.34,
+            "h": 0.08
+          },
+          "text": "one thought tick — same parameters",
+          "fontPx": 44,
+          "tone": "c",
+          "opacity": 0
+        },
+        {
+          "id": "note",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.78
+          },
+          "size": {
+            "w": 0.72,
+            "h": 0.08
+          },
+          "text": "Parameters are shared across ticks.",
+          "fontPx": 46,
+          "tone": "muted",
+          "opacity": 0
+        }
+      ],
+      "anims": [
+        {
+          "target": "head",
+          "op": "fadeIn",
+          "start": 0.2,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "st1",
+          "op": "fadeIn",
+          "start": 0.9,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "l1",
+          "op": "fadeIn",
+          "start": 1.0,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "a1",
+          "op": "fadeIn",
+          "start": 1.2,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "a1",
+          "op": "draw",
+          "start": 1.2,
+          "dur": 0.4,
+          "ease": "linear"
+        },
+        {
+          "target": "st2",
+          "op": "fadeIn",
+          "start": 1.5,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "l2",
+          "op": "fadeIn",
+          "start": 1.6,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "a2",
+          "op": "fadeIn",
+          "start": 2.4,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "a2",
+          "op": "draw",
+          "start": 2.4,
+          "dur": 0.4,
+          "ease": "linear"
+        },
+        {
+          "target": "st3",
+          "op": "fadeIn",
+          "start": 2.7,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "l3",
+          "op": "fadeIn",
+          "start": 2.8,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "loop",
+          "op": "fadeIn",
+          "start": 3.8,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "loop",
+          "op": "draw",
+          "start": 3.8,
+          "dur": 0.8,
+          "ease": "linear"
+        },
+        {
+          "target": "tick",
+          "op": "fadeIn",
+          "start": 4.3,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "note",
+          "op": "fadeIn",
+          "start": 4.5,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "a3",
+          "op": "fadeIn",
+          "start": 5.4,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "a3",
+          "op": "draw",
+          "start": 5.4,
+          "dur": 0.4,
+          "ease": "linear"
+        },
+        {
+          "target": "st4",
+          "op": "fadeIn",
+          "start": 5.6,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "l4",
+          "op": "fadeIn",
+          "start": 5.7,
+          "dur": 0.4,
+          "ease": "out"
+        }
+      ]
+    },
+    {
+      "id": "s02-carrier",
+      "intent": "The carrier equation, one symbol at a time",
+      "claim": "The encoder makes a dense field and the window partition keeps every token",
+      "narration": "The encoder turns the low-resolution image into a dense feature field. The window partition then cuts that field into tokens without discarding any of them.",
+      "evidence": [
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        }
+      ],
+      "weight": 0.8,
+      "seconds": 7.5,
+      "holds": [
+        2.2,
+        4.8
+      ],
+      "objects": [
+        {
+          "id": "head",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.15
+          },
+          "size": {
+            "w": 0.8,
+            "h": 0.1
+          },
+          "text": "Encode, then partition without loss",
+          "fontPx": 72,
+          "opacity": 0
+        },
+        {
+          "id": "eq",
+          "kind": "tex",
+          "at": {
+            "x": 0.5,
+            "y": 0.45
+          },
+          "tex": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+          "fontPx": 76,
+          "opacity": 0
+        },
+        {
+          "id": "n1",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.66
+          },
+          "size": {
+            "w": 0.76,
+            "h": 0.08
+          },
+          "text": "The encoder makes a dense feature field.",
+          "fontPx": 48,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "n2",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.78
+          },
+          "size": {
+            "w": 0.76,
+            "h": 0.08
+          },
+          "text": "The window partition keeps every token.",
+          "fontPx": 48,
+          "tone": "b",
+          "opacity": 0
+        }
+      ],
+      "anims": [
+        {
+          "target": "head",
+          "op": "fadeIn",
+          "start": 0.2,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "eq",
+          "op": "fadeIn",
+          "start": 0.9,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "eq",
+          "op": "highlight",
+          "part": "\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})",
+          "start": 1.6,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "n1",
+          "op": "fadeIn",
+          "start": 1.7,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "eq",
+          "op": "highlight",
+          "part": "\\mathcal{W}(\\mathbf{F})",
+          "start": 3.6,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "n2",
+          "op": "fadeIn",
+          "start": 3.8,
+          "dur": 0.4,
+          "ease": "out"
+        }
+      ]
+    },
+    {
+      "id": "s03-params",
+      "intent": "Parameter count across the five methods",
+      "claim": "DQ-CTM-SR is the second largest of the five, not the cheapest",
+      "narration": "Ordered by parameter count, CATANet and RFDN are the smallest of the five at about half a million. IMDN sits above them at seven hundred and fifteen thousand. DQ-CTM-SR needs one point one two nine million, the second largest count in the table. Only CARN is larger, so this method is not the cheap one.",
+      "evidence": [
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "weight": 0.85,
+      "seconds": 9,
+      "holds": [
+        1.9,
+        3.2,
+        4.5,
+        6.4
+      ],
+      "objects": [
+        {
+          "id": "head",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.12
+          },
+          "size": {
+            "w": 0.84,
+            "h": 0.1
+          },
+          "text": "DQ-CTM-SR is the second largest of the five",
+          "fontPx": 68,
+          "opacity": 0
+        },
+        {
+          "id": "b1",
+          "kind": "rect",
+          "at": {
+            "x": 0.14,
+            "y": 0.7128
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.1344
+          },
+          "fill": "tone",
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "b2",
+          "kind": "rect",
+          "at": {
+            "x": 0.32,
+            "y": 0.7109
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.1382
+          },
+          "fill": "tone",
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "b3",
+          "kind": "rect",
+          "at": {
+            "x": 0.5,
+            "y": 0.6902
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.1796
+          },
+          "fill": "tone",
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "b4",
+          "kind": "rect",
+          "at": {
+            "x": 0.68,
+            "y": 0.6381
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.2837
+          },
+          "fill": "tone",
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "b5",
+          "kind": "rect",
+          "at": {
+            "x": 0.86,
+            "y": 0.58
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.4
+          },
+          "fill": "tone",
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "v1",
+          "kind": "text",
+          "at": {
+            "x": 0.14,
+            "y": 0.6086
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.06
+          },
+          "text": "0.535M",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "v2",
+          "kind": "text",
+          "at": {
+            "x": 0.32,
+            "y": 0.6048
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.06
+          },
+          "text": "0.550M",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "v3",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.5634
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.06
+          },
+          "text": "0.715M",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "v4",
+          "kind": "text",
+          "at": {
+            "x": 0.68,
+            "y": 0.4593
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.06
+          },
+          "text": "1.129M",
+          "fontPx": 44,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "v5",
+          "kind": "text",
+          "at": {
+            "x": 0.86,
+            "y": 0.343
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.06
+          },
+          "text": "1.592M",
+          "fontPx": 44,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "m1",
+          "kind": "text",
+          "at": {
+            "x": 0.14,
+            "y": 0.85
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.06
+          },
+          "text": "CATANet",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "m2",
+          "kind": "text",
+          "at": {
+            "x": 0.32,
+            "y": 0.85
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.06
+          },
+          "text": "RFDN",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "m3",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.85
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.06
+          },
+          "text": "IMDN",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "m4",
+          "kind": "text",
+          "at": {
+            "x": 0.68,
+            "y": 0.85
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.06
+          },
+          "text": "DQ-CTM-SR",
+          "fontPx": 44,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "m5",
+          "kind": "text",
+          "at": {
+            "x": 0.86,
+            "y": 0.85
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.06
+          },
+          "text": "CARN",
+          "fontPx": 44,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "note",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.93
+          },
+          "size": {
+            "w": 0.8,
+            "h": 0.07
+          },
+          "text": "Only CARN carries more parameters.",
+          "fontPx": 46,
+          "tone": "muted",
+          "opacity": 0
+        }
+      ],
+      "anims": [
+        {
+          "target": "head",
+          "op": "fadeIn",
+          "start": 0.2,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "b1",
+          "op": "fadeIn",
+          "start": 0.8,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "b1",
+          "op": "growFrom",
+          "anchor": "bottom",
+          "start": 0.8,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "m1",
+          "op": "fadeIn",
+          "start": 0.9,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "v1",
+          "op": "fadeIn",
+          "start": 1.3,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "b2",
+          "op": "fadeIn",
+          "start": 1.0,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "b2",
+          "op": "growFrom",
+          "anchor": "bottom",
+          "start": 1.0,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "m2",
+          "op": "fadeIn",
+          "start": 1.1,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "v2",
+          "op": "fadeIn",
+          "start": 1.5,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "b3",
+          "op": "fadeIn",
+          "start": 2.3,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "b3",
+          "op": "growFrom",
+          "anchor": "bottom",
+          "start": 2.3,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "m3",
+          "op": "fadeIn",
+          "start": 2.4,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "v3",
+          "op": "fadeIn",
+          "start": 2.7,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "b4",
+          "op": "fadeIn",
+          "start": 3.6,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "b4",
+          "op": "growFrom",
+          "anchor": "bottom",
+          "start": 3.6,
+          "dur": 0.7,
+          "ease": "out"
+        },
+        {
+          "target": "m4",
+          "op": "fadeIn",
+          "start": 3.7,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "v4",
+          "op": "fadeIn",
+          "start": 4.1,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "b5",
+          "op": "fadeIn",
+          "start": 5.0,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "b5",
+          "op": "growFrom",
+          "anchor": "bottom",
+          "start": 5.0,
+          "dur": 0.7,
+          "ease": "out"
+        },
+        {
+          "target": "m5",
+          "op": "fadeIn",
+          "start": 5.1,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "v5",
+          "op": "fadeIn",
+          "start": 5.5,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "note",
+          "op": "fadeIn",
+          "start": 5.8,
+          "dur": 0.4,
+          "ease": "out"
+        }
+      ]
+    }
+  ]
+}

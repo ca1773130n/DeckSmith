@@ -1,0 +1,7 @@
+node_modules/
+out/
+renders/
+snapshots/
+*.png
+*.jpeg
+*.mp4

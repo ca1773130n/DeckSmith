@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <title>008 pixi — seek</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/deckpixi.iife.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0d10; }
+      body { font-family: Inter, system-ui, sans-serif; color: #e8eaed; }
+      #root { position: absolute; inset: 0; }
+      #gl { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; }
+      .hud {
+        position: absolute; left: 48px; top: 40px; font-size: 40px; line-height: 1.5;
+        font-variant-numeric: tabular-nums; color: #9aa7b5;
+      }
+      .hud b { color: #e8eaed; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="6"
+      data-width="1920"
+      data-height="1080"
+    >
+      <canvas id="gl" width="1920" height="1080"></canvas>
+      <div class="hud" id="hud">booting…</div>
+      <script>
+        window.__renderReady = false;
+        (async function () {
+          window.__timelines = window.__timelines || {};
+          DP.instrumentRaf();
+          var tk = DP.killTickers();
+          var scene = await DP.seekScene(document.getElementById("gl"), 1920, 1080);
+          window.__scene = scene;
+          window.__DP = DP;
+
+          var p = { t: 0 };
+          var tl = gsap.timeline({ paused: true });
+          tl.to(p, {
+            t: 6,
+            duration: 6,
+            ease: "none",
+            lazy: false,
+            onUpdate: function () {
+              scene.render(p.t);
+            },
+          });
+          window.__timelines["main"] = tl;
+
+          scene.render(0);
+
+          // Static, computed once at setup — safe to paint into the frame.
+          var gl = document.getElementById("gl").getContext("webgl2") ? "webgl2" : "?";
+          document.getElementById("hud").innerHTML =
+            "backend <b>" + (scene.renderer.type === 1 ? "WebGL" : scene.renderer.type) + "</b> · " +
+            "Ticker.shared.started <b>" + tk.sharedStarted + "</b> · " +
+            "Ticker.system.started <b>" + tk.systemStarted + "</b><br>" +
+            "driven by a paused GSAP timeline — every pixel is f(t)";
+          window.__tickerState = tk;
+          window.__renderReady = true;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "arm": "B",
+  "i": 1,
+  "ms": 145223,
+  "exit": 0,
+  "promptChars": 8659,
+  "schemaChars": 3324,
+  "outChars": 20569,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 13512,
+  "refsResolve": true,
+  "shared": [],
+  "algebra": [],
+  "soft": [],
+  "coherent": true
+}

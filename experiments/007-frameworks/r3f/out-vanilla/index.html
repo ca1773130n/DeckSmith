@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ViT-B/16 encoder stack</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <style>
+      html, body { margin: 0; padding: 0; background: #0a0c11; }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+      .scene { position: absolute; inset: 0; }
+      .gl { position: absolute; inset: 0; }
+      .gl canvas { display: block; width: 1920px !important; height: 1080px !important; }
+      .hud {
+        position: absolute; left: 96px; top: 84px;
+        font: 700 64px/1.1 "Helvetica Neue", Arial, sans-serif;
+        color: #f2f4f8; letter-spacing: -0.01em;
+      }
+      .hud small { display: block; margin-top: 18px; font: 400 42px/1.3 Arial, sans-serif; color: #aab3c4; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="12"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="s1"
+        class="scene clip"
+        data-composition-id="s1"
+        data-start="0"
+        data-duration="12"
+        data-label="ViT-B/16 encoder stack"
+      >
+        <div class="gl" id="s1-gl"></div>
+        <div class="hud" id="s1-hud">
+          ViT-B/16
+          <small>an image is 196 patch tokens, and every block sees all of them</small>
+        </div>
+        <script src="./scene.js" data-sid="s1"></script>
+      </div>
+      <script>
+        (function () {
+          window.__timelines = window.__timelines || {};
+          var tl = gsap.timeline({ paused: true });
+          tl.to({}, { duration: 12 });
+          window.__timelines["main"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>

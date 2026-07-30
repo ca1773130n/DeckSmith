@@ -1,0 +1,72 @@
+name: upstream-drift
+
+# hyperframes ships multiple releases a day and we pin one exact version, because
+# every renderer invariant in .planning/EXPERIMENT-00*.md was verified against that
+# version. Drifting silently for months is the real maintenance risk here, so make
+# it visible weekly instead of discovering it during an upgrade.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compare the pin against the registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          pinned=$(jq -r .dependencies.hyperframes package.json)
+          latest=$(npm view hyperframes version)
+          echo "pinned=$pinned latest=$latest"
+
+          if [ "$pinned" = "$latest" ]; then
+            echo "In sync; nothing to file."
+            exit 0
+          fi
+
+          # The title is stable so the weekly run can find its own issue. Versions
+          # go in the body, which gets rewritten each run.
+          title="Upstream drift: hyperframes pin is behind"
+
+          body=$(cat <<EOF
+          \`package.json\` pins **hyperframes $pinned**. The registry is now on **$latest**.
+
+          Before moving the pin, re-run the deck gates rather than CI alone. CI does not
+          render, and every structural failure so far has been invisible to \`lint\`
+          (see \`.planning/EXPERIMENT-003-deck-mode.md\`). At minimum: build one deck,
+          confirm \`hyperframes check\` is clean, confirm two renders are byte-identical,
+          and confirm \`player.seek()\` still behaves — the step layer in \`src/deck/\`
+          rests on it.
+
+          Filed automatically by \`.github/workflows/upstream-drift.yml\`; this issue is
+          reused, not reopened.
+          EOF
+          )
+
+          # Match on title rather than the search API: the search index lags by
+          # minutes, and a miss here means a duplicate issue every Monday.
+          existing=$(gh issue list --state open --limit 200 --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body"
+            echo "Updated #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

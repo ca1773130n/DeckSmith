@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "width": 1920,
+  "height": 1080,
+  "duration": 24,
+  "lang": "en",
+  "audioDir": "",
+  "voice": "",
+  "scenes": [
+    {
+      "id": "s1",
+      "start": 0,
+      "duration": 6,
+      "holds": [
+        1.9
+      ]
+    },
+    {
+      "id": "s2",
+      "start": 6,
+      "duration": 9,
+      "holds": [
+        1.55,
+        2.95,
+        4.35,
+        5.75,
+        7,
+        7.75
+      ]
+    },
+    {
+      "id": "s3",
+      "start": 15,
+      "duration": 9,
+      "holds": [
+        1.55,
+        2.8,
+        3.75,
+        4.7
+      ]
+    }
+  ],
+  "segments": []
+}

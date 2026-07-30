@@ -1,0 +1,15 @@
+{
+  "arm": "menu",
+  "i": 3,
+  "model": "gpt-5.5",
+  "effort": "medium",
+  "ms": 33995,
+  "exit": 0,
+  "promptBytes": 15657,
+  "schemaBytes": 18265,
+  "outBytes": 3688,
+  "stage": "valid",
+  "units": 3,
+  "jsonBytes": 3661,
+  "refsResolve": true
+}
