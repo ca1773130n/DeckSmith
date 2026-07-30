@@ -543,10 +543,92 @@ wrong — 60 seconds over twelve slides IS 5 seconds a slide, and at 150 wpm one
 sentence already fills 3.9 of them. The beat count is the binding constraint, not
 the budget, and only the author can decide whether to spend slides or seconds.
 
-**Still open after this.** Nothing here makes a sentence EXPLAIN more inside the
-same seconds; that is a real question and it is upstream, in how many beats a
-60-second target should have at all. A Shorts creator answers it with five or six
-beats, not twelve.
+**That advisory was the wrong build, and the owner said so.** "I told you to
+speed up the narration speaking to put more sentences in case of duration is
+short like one minute." He is right, and §1 of this document already said it:
+narration speed is in the DERIVED column, next to word count. It was never
+derived. `durationPlan` returned an animation speed and a character budget and
+left `narration.rate` at whatever the preference said, so the only lever the
+feature ever pulled for a short target was *saying less*. Recommending nine
+slides to someone whose stated case is "keep all twelve" is answering a question
+nobody asked.
+
+### Speaking rate, derived
+
+The seconds a beat can spend on speech are fixed by the target. How many WORDS
+fit in them is not. So the rate is raised first and only what speed cannot buy is
+charged to the word count.
+
+`RATE_STEPS` is a MEASURED table, not a formula, and both of its irregularities
+matter. edge-tts's nominal percentage overshoots — the first `+10%` buys 19% —
+so a linear model under-speaks every deck. And the curve is not monotonic:
+`+50%` came back *slower* than `+40%`. Interpolating between these points would
+be inventing data.
+
+```
+  rate    seconds   chars/sec   speedup   p95 cue cps
+  +0%       4.416       16.30     1.000          16.7
+  +10%      3.720       19.35     1.187          19.9
+  +20%      3.528       20.41     1.252          21.0
+  +30%      3.168       22.73     1.394          23.6
+  +40%      2.880       25.00     1.533          26.0
+  +50%      2.904       24.79     1.521          25.7   <- slower than +40%
+  +60%      2.640       27.27     1.673          28.5
+```
+
+It stops at `+40%` because of the SUBTITLE, not the ear: 26 cps is already half
+again over `COMFORTABLE_CPS`. The step chosen is the SLOWEST that clears the bar,
+so 90s and 120s targets stay at `+0%` and their decks do not move a byte.
+
+One bug found while building it: `EXPLAINING_CHARS` is measured on English, and
+a Hangul character carries several times a Latin one. Holding a Korean deck to
+sixty *characters* would have sped up every Korean deck to chase a bar 2.3× too
+high. The bar is really ~4.2 seconds of speech and now converts through the same
+cps the budget uses.
+
+### The prompt was a ceiling with no floor, and it had gone false
+
+"Keep each sentence to about N characters — ... there is no way to say it
+faster." The last clause stopped being true the moment the rate was derived. And
+the whole framing was about not going OVER, so the planner sat well under:
+**61% of a 47-character budget, 77% of a 66-character one.** A range with a floor,
+and "write to the TOP of that range", fixes it.
+
+### Measured, over three plans rather than one
+
+Because §9's lesson was that a prompt steer cannot be judged at n=1.
+
+| | beats | mean chars | median | % of budget |
+|---|---|---|---|---|
+| original, 47-char budget | 12 | 40.1 | 40 | 61% |
+| rate knob only, 66-char budget | 10 | 51.1 | 49 | 77% |
+| rate + prompt floor | 9 / 10 / 8 | 60.6 / 60.3 / 59.4 | 61 / 59 / 60 | 90–92% |
+
+**50% more words per slide, stable across three independent runs.** Against the
+demo's own 72.1 mean this is 83%, up from 55%. Speech density on the rendered
+deck goes 13.9 to 18.75 characters a second. The cost lands exactly where the
+warning says it does: subtitle p95 16.3 → 21.3 cps, over the 17 cps practice.
+`renders/fast-60char-54s.mp4` is the artifact.
+
+### STILL OPEN, and it is the next real problem
+
+**Longer sentences are costing beats.** Twelve requested; 12 → 10 → 9/10/8 as the
+budget and then the floor went up. Four runs, all under target, so unlike §9's
+n=1 observation this is now attributable: asked for more to say per slide, the
+planner consolidates slides.
+
+Two consequences, neither fixed here. The owner asked for twelve slides AND
+fuller sentences, and is getting fuller sentences and eight to ten slides. And
+`beatSeconds` is derived from `prefs.slides`, so a plan that returns ten beats
+against a twelve-beat budget undershoots its target — this deck came out 54.2s
+against 60. `playbackFactor` will not stretch a short video, correctly, so the
+gap simply stands.
+
+The honest read is that beat count and sentence length are one budget, not two,
+and the prompt currently states them as independent targets. Whoever takes this
+next should decide whether `--slides` is a target or a floor, and whether
+`durationPlan` should re-derive `beatSeconds` from the beats actually returned
+rather than the ones requested.
 
 ### RULE 9 now has a detector
 

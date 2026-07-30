@@ -17,7 +17,7 @@ import type { z } from "zod";
 import { emitScene } from "../emit/archetypes/index.js";
 import type { EmitContext } from "../emit/kit.js";
 import { ink } from "../emit/theme.js";
-import { SPEAKING_STOPS } from "../plan/duration.js";
+import { durationPlan } from "../plan/duration.js";
 import type { Source, Storyboard } from "../types.js";
 import { type Beat, FORMATS, type Format, type prefsSchema, type segmentSchema } from "../types.js";
 import { type Runner, synthesize } from "./tts.js";
@@ -123,7 +123,13 @@ export async function narrate(
 ): Promise<Narration> {
   const voice = pickVoice(prefs);
   const format = opts.format ?? (FORMATS["deck-16x9"] as Format);
-  const { rate, pitch } = prefs.narration;
+  // ONE SOURCE FOR THE DERIVED KNOBS. `rate` and the speaking-stop cap are both
+  // functions of the duration target, and reading one from `durationPlan` while
+  // looking the other up directly is how they drift apart. Without a target this
+  // returns the preferences untouched, so an untargeted deck is unchanged.
+  const paced = durationPlan(prefs);
+  const { pitch } = prefs.narration;
+  const rate = paced.rate;
   const beats: Record<string, Segment[]> = {};
 
   for (const [i, beat] of storyboard.beats.entries()) {
@@ -137,10 +143,7 @@ export async function narrate(
     // words spoken — `planSegments` joins the surplus onto the last speaking stop
     // — so the deck can come out long, but never comes out having silently
     // deleted what the author wrote.
-    const stops = Math.min(
-      stopsFor(beat, source, format, `s${i + 1}`),
-      SPEAKING_STOPS[prefs.narration.density],
-    );
+    const stops = Math.min(stopsFor(beat, source, format, `s${i + 1}`), paced.speakingStops);
     const plan = planSegments(text, stops);
     for (const [stop, line] of plan.entries()) {
       if (!line) continue; // a silent stop holds on the animation alone

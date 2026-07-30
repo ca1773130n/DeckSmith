@@ -25,6 +25,7 @@ import {
   p95CueRate,
   playbackFactor,
   playbackWarning,
+  RATE_STEPS,
   SPEAKING_STOPS,
   SPEECH_CPS,
   tempoChain,
@@ -81,39 +82,88 @@ describe("durationPlan", () => {
   });
 
   /**
-   * THE CONFIGURATION THAT SHIPPED THE COMPLAINT. This assertion used to read
-   * `expect(low.warnings).toEqual([])` — 60s over twelve slides at low density
-   * was the one case the file declared clean, and it is the exact deck the owner
-   * then watched and described as "too short sentences with lack of
-   * explanation". 47 characters clears `MIN_SENTENCE_CHARS` by seventeen, so
-   * nothing fired; the arithmetic was right and the deck was thin, and the tool
-   * said nothing at all about it.
+   * THE CONFIGURATION THAT SHIPPED THE COMPLAINT, and the knob that answers it.
    *
-   * The number is not a judgement invented here — it is the shipped demo's own
-   * first quartile. See `EXPLAINING_CHARS`.
+   * 60s over twelve slides at low density was the one case this file declared
+   * clean — `expect(low.warnings).toEqual([])` — and it is the exact deck the
+   * owner watched and called "too short sentences with lack of explanation".
+   * 47 characters clears `MIN_SENTENCE_CHARS` by seventeen, so nothing fired.
+   *
+   * The first answer written here was an advisory saying "use 9 slides", which
+   * is the wrong answer to a request that begins "keep all twelve". The right
+   * one was in §1 of the handoff all along, in the DERIVED column: "the number
+   * of words and narration speed is automatically decided by the logic". The
+   * seconds a beat can spend on speech are fixed by the target; how many words
+   * fit in them is not.
    */
-  it("says so when a slide count is buildable but too thin to explain anything", () => {
-    const thin = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
-    expect(thin.chars).toBeGreaterThan(MIN_SENTENCE_CHARS);
-    expect(thin.chars).toBeLessThan(EXPLAINING_CHARS);
+  it("speaks faster to buy words, rather than asking for fewer slides", () => {
+    const short = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
+
+    // All twelve slides, still 60 seconds, and a sentence that explains.
+    expect(short.rate).not.toBe("+0%");
+    expect(short.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
+
+    // The words are bought by SPEED, not by stealing from the animation or by
+    // lengthening the deck: the seconds of speech per beat are what they were.
+    const slow = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "high" } }));
+    expect(short.speechSeconds).toBe(slow.speechSeconds);
+
+    // And the cost is stated in the units it lands in — the subtitle.
+    expect(short.warnings.join(" ")).toContain("characters per second");
+  });
+
+  it("uses the SLOWEST rate that clears the bar, and none at all when it can", () => {
+    // Never faster than the shortfall needs. A target that already affords a
+    // real sentence is spoken normally, so its deck does not move a byte.
+    for (const duration of [90, 120, 180]) {
+      const roomy = durationPlan(prefs({ duration, slides: 12, narration: { density: "low" } }));
+      expect(roomy.rate, `${duration}s`).toBe("+0%");
+      expect(roomy.chars, `${duration}s`).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
+      expect(roomy.warnings, `${duration}s`).toEqual([]);
+    }
+
+    // Monotone in the direction that matters: a tighter target never speaks
+    // slower than a looser one.
+    const rateOf = (d: number) =>
+      RATE_STEPS.findIndex(
+        ([r]) =>
+          r ===
+          durationPlan(prefs({ duration: d, slides: 12, narration: { density: "low" } })).rate,
+      );
+    expect(rateOf(60)).toBeGreaterThan(rateOf(90));
+  });
+
+  it("still says so when even the fastest rate cannot buy a real sentence", () => {
+    // Speed has a ceiling — `RATE_STEPS` stops where the captions do. Past it
+    // the advisory is the honest answer, and it names a slide count rather than
+    // saying "use fewer".
+    const thin = durationPlan(
+      prefs({ duration: 60, slides: 12, narration: { density: "medium" } }),
+    );
+    expect(thin.rate).toBe(RATE_STEPS[RATE_STEPS.length - 1]?.[0]);
 
     const said = thin.warnings.join(" ");
     expect(said).toContain("caption rather than explain");
-    // NAMES THE ALTERNATIVE. "Use fewer slides" changes no plan; a slide count
-    // does. Whatever it names must actually clear the bar it is recommending.
     const named = said.match(/(\d+) slides at the same target/);
     expect(named, `no slide count named in: ${said}`).toBeTruthy();
+    // Whatever it names must actually clear the bar it is recommending.
     const roomier = durationPlan(
-      prefs({ duration: 60, slides: Number(named?.[1]), narration: { density: "low" } }),
+      prefs({ duration: 60, slides: Number(named?.[1]), narration: { density: "medium" } }),
     );
     expect(roomier.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
     expect(roomier.warnings.join(" ")).not.toContain("caption rather than explain");
   });
 
-  it("stays quiet when the budget already buys a demo-length sentence", () => {
-    const roomy = durationPlan(prefs({ duration: 120, slides: 12, narration: { density: "low" } }));
-    expect(roomy.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
-    expect(roomy.warnings).toEqual([]);
+  it("leaves a deck with no duration target speaking at its own rate", () => {
+    expect(durationPlan(prefs()).rate).toBe("+0%");
+    expect(durationPlan(prefs({ narration: { rate: "-10%" } })).rate).toBe("-10%");
+    // With a target, the target owns it — same rule as `animationSpeed`, and
+    // said out loud rather than silently.
+    const overridden = durationPlan(
+      prefs({ duration: 60, slides: 12, narration: { density: "low", rate: "-10%" } }),
+    );
+    expect(overridden.rate).not.toBe("-10%");
+    expect(overridden.warnings.join(" ")).toContain("narration rate was ignored");
   });
 
   it("reads CJK far slower than Latin, so a Korean deck gets a shorter sentence", () => {
@@ -131,16 +181,34 @@ describe("durationPlan", () => {
    * demo's own holds and check the deck lands where it was asked to — inside the
    * 1.25× playback ceiling, which is what §6's acceptance criterion reduces to
    * once the planner is taken out of the loop.
+   *
+   * `spokenSeconds` DIVIDES BY THE RATE, and that is the whole point of the
+   * knob rather than an adjustment to make a test pass: 66 characters spoken at
+   * `+30%` takes 3.29s, where 47 at `+0%` took 3.26s. The extra words are free
+   * in seconds, which is why the deck still lands at 60 with all twelve slides.
+   * Divide by the base cps here and this test measures a deck nobody renders.
    */
+  const spokenSeconds = (plan: { chars?: number; rate: string }, cps = SPEECH_CPS.latin) => {
+    const step = RATE_STEPS.find(([rate]) => rate === plan.rate);
+    return (plan.chars as number) / (cps * (step?.[1] ?? 1));
+  };
+
   it("produces a 12-slide 60s target the playback ceiling can close", () => {
     const plan = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
-    const spoken = (plan.chars as number) / SPEECH_CPS.latin;
-    const seconds = deckSeconds(plan.speed, spoken);
+    const seconds = deckSeconds(plan.speed, spokenSeconds(plan));
 
     // Not 60 on its own — the per-archetype hold spread guarantees an overshoot,
     // which is exactly what the retime is for. What must hold is that the gap is
     // inside 1.25×, because past that the captions stop being readable.
     expect(playbackFactor(seconds, 60)).toBeLessThanOrEqual(1.25);
+  });
+
+  it("buys the extra words in seconds it already had", () => {
+    // The guarantee the rate knob rests on. Speaking faster must not lengthen
+    // the deck — if it did, the retime would have to claw it back and the
+    // captions would pay twice.
+    const plan = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
+    expect(spokenSeconds(plan)).toBeCloseTo(plan.speechSeconds as number, 1);
   });
 
   it("holds at 120s and 180s too, at the density each target can afford", () => {
@@ -150,7 +218,7 @@ describe("durationPlan", () => {
       [240, "high"],
     ] as const) {
       const plan = durationPlan(prefs({ duration, slides: 12, narration: { density } }));
-      const perStop = (plan.chars as number) / SPEECH_CPS.latin;
+      const perStop = spokenSeconds(plan);
       const stops = Math.min(SPEAKING_STOPS[density], 3.1);
       const seconds = deckSeconds(plan.speed, perStop * stops);
       expect(playbackFactor(seconds, duration), `${duration}s at ${density}`).toBeLessThanOrEqual(
