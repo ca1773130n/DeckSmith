@@ -337,12 +337,28 @@ ${REVEAL_COUNTS}`;
   // A character count, not a word count, because the budget is seconds of speech
   // and characters per second is the thing that was measured. Both are given: the
   // seconds are the reason, and a reason is what the model holds onto.
+  //
+  // A RANGE, NOT A CEILING. "Keep each sentence to about N characters" was read
+  // as a limit to stay safely under: against a 47-character budget a real run
+  // wrote 40.1 on average, and against 66 it wrote 51.1 — 77% of what it was
+  // given, both times. The seconds are reserved whether or not they are used, so
+  // an under-length sentence buys the deck nothing and spends the difference on
+  // silence. The floor is what makes that cost legible.
+  //
+  // It also used to end "there is no way to say it faster", which stopped being
+  // true when `durationPlan` started deriving the speaking rate. The budget below
+  // is already the fast-speech budget; saying otherwise told the model to solve a
+  // constraint that had been solved for it.
+  const floor = plan.chars === undefined ? 0 : Math.round(plan.chars * 0.85);
   const length =
     plan.chars === undefined
       ? "  - Keep each sentence to about 25 words. It has to be said in one breath."
-      : `  - Keep each sentence to about ${plan.chars} characters — it has to be spoken in
-    ${plan.speechSeconds}s, and the deck's total length is the sum of those. Going over is
-    what makes a deck miss its duration; there is no way to say it faster.`;
+      : `  - Each sentence runs ${floor}-${plan.chars} characters, and you should write to the TOP
+    of that range. It is spoken in ${plan.speechSeconds}s${plan.rate === "+0%" ? "" : ` at a ${plan.rate} speaking rate`}, and those seconds are
+    reserved whether you use them or not — a sentence that comes in short does not
+    make the deck shorter, it makes the slide sit in silence. Under ${floor} the slide
+    captions instead of explaining, which is the most common way this goes wrong.
+    Over ${plan.chars} is what makes a deck miss its duration.`;
 
   return { sentences, length };
 }

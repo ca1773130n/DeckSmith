@@ -111,11 +111,57 @@ export const SPEAKING_STOPS: Record<Prefs["narration"]["density"], number> = {
   low: 1,
 };
 
+/**
+ * What edge-tts's `--rate` actually buys, MEASURED — not what it says it buys.
+ *
+ * Synthesised on `en-US-AndrewMultilingualNeural` over a 72-character demo
+ * sentence, which speaks in 4.416s at `+0%` (16.30 cps, within 1% of the
+ * `SPEECH_CPS.latin` measured across the whole narrated demo):
+ *
+ * ```
+ *   rate    seconds   chars/sec   speedup   p95 cue cps
+ *   +0%       4.416       16.30     1.000          16.7
+ *   +10%      3.720       19.35     1.187          19.9
+ *   +20%      3.528       20.41     1.252          21.0
+ *   +30%      3.168       22.73     1.394          23.6
+ *   +40%      2.880       25.00     1.533          26.0
+ *   +50%      2.904       24.79     1.521          25.7   <- SLOWER than +40%
+ *   +60%      2.640       27.27     1.673          28.5
+ * ```
+ *
+ * TWO THINGS THIS TABLE EXISTS TO SAY. The nominal percentage overshoots — the
+ * first 10% buys 19% — so a linear model would under-speak every deck. And the
+ * curve is not monotonic: `+50%` came back slower than `+40%`, so the prosody
+ * rate is not a clean multiplier and interpolating between these points would be
+ * inventing data. A table of what was observed is the honest shape.
+ *
+ * WHY IT STOPS AT +40%. The subtitle, not the ear. At `+40%` the p95 cue rate is
+ * 26.0 cps, already half again over the `COMFORTABLE_CPS` broadcast practice; at
+ * `+60%` it is 28.5 and the caption is gone before it is read. `+50%` is
+ * excluded for measuring slower than the step below it.
+ *
+ * Latin-measured. A CJK deck gets the same steps, which is a guess of the same
+ * kind `SPEECH_CPS.cjk` already is — replace it the first time one is narrated.
+ */
+export const RATE_STEPS: readonly (readonly [rate: string, speedup: number])[] = [
+  ["+0%", 1.0],
+  ["+10%", 1.187],
+  ["+20%", 1.252],
+  ["+30%", 1.394],
+  ["+40%", 1.533],
+];
+
 export interface DurationPlan {
   /** Effective `animationSpeed`. Derived when `duration` is set, else the pref. */
   speed: number;
   /** Stops per beat allowed to speak. `Infinity` means every one. */
   speakingStops: number;
+  /**
+   * edge-tts `--rate` for the narration. Derived when `duration` is set — a
+   * short target buys its words by speaking faster before it buys them by
+   * saying less. `"+0%"` whenever the budget already affords a real sentence.
+   */
+  rate: string;
   /** Characters per narration sentence. Absent when no duration was asked for. */
   chars?: number;
   /** Seconds of speech one beat can afford. Absent without a target. */
@@ -140,7 +186,12 @@ export interface DurationPlan {
 export function durationPlan(prefs: Prefs): DurationPlan {
   const speakingStops = SPEAKING_STOPS[prefs.narration.density];
   if (prefs.duration === undefined) {
-    return { speed: prefs.animationSpeed, speakingStops, warnings: [] };
+    return {
+      speed: prefs.animationSpeed,
+      speakingStops,
+      rate: prefs.narration.rate,
+      warnings: [],
+    };
   }
 
   const warnings: string[] = [];
@@ -154,36 +205,57 @@ export function durationPlan(prefs: Prefs): DurationPlan {
   // number, which is the point.
   const stops = Math.min(speakingStops, STOPS_PER_BEAT);
   const cps = charsPerSecond(prefs.lang);
-  const { beatSeconds, speed, speechSeconds, chars } = budget(
-    prefs.duration,
-    prefs.slides,
-    stops,
-    cps,
-  );
+  const slow = budget(prefs.duration, prefs.slides, stops, cps);
+  const { beatSeconds, speed, speechSeconds } = slow;
+
+  // SPEAK FASTER BEFORE SAYING LESS. The seconds a beat can spend on speech are
+  // fixed by the target; how many WORDS fit in them is not. So the smallest rate
+  // step that lifts the sentence to something that explains is taken first, and
+  // only what speed cannot buy is charged to the word count. Smallest, not
+  // fastest — a deck whose budget already affords a real sentence is spoken at
+  // `+0%` and comes out byte-for-byte as before.
+  const [rate, speedup] = fastEnough(slow.chars, cps);
+  const chars = Math.round(slow.chars * speedup);
+
+  if (prefs.narration.rate !== "+0%" && rate !== prefs.narration.rate) {
+    // Same treatment, and for the same reason, as `animationSpeed` above: the
+    // target is the number the user stated, so it owns the pace. Said, not
+    // silent.
+    warnings.push(
+      `duration ${prefs.duration}s sets the speaking rate, so the requested ${prefs.narration.rate} narration rate was ignored`,
+    );
+  }
+  if (speedup > 1) {
+    warnings.push(
+      `narration speaks at ${rate} to fit ${chars} characters a slide into ${speechSeconds.toFixed(1)}s — ${slow.chars} at normal speed. Subtitles run near ${(cps * speedup).toFixed(0)} characters per second against the ${COMFORTABLE_CPS} cps broadcast practice, which is the cost of the extra words.`,
+    );
+  }
 
   if (chars < MIN_SENTENCE_CHARS) {
     warnings.push(
       `${prefs.duration}s over ${prefs.slides} slides at ${prefs.narration.density} narration density leaves ${chars} characters per sentence, which is a fragment, not narration. Lower the density, cut the slide count, or raise the target.`,
     );
-  } else if (chars < EXPLAINING_CHARS) {
+  } else if (chars < explainingChars(cps)) {
     // NAME THE SLIDE COUNT, not "use fewer slides". The whole value of this
     // finding is the number the author would otherwise have to derive, and the
     // same lesson `INSTEAD` in src/verify/index.ts records: a specific
     // alternative changes a plan, a nudge does not. Searched rather than solved
     // because `speed` clamps at both ends and a closed form would be wrong
-    // exactly where the clamp bites.
+    // exactly where the clamp bites. Only reached once the rate is already at
+    // its ceiling, so it is what SPEED COULD NOT BUY, not the first resort.
     let roomier = 0;
     for (let n = prefs.slides - 1; n >= 3; n--) {
-      if (budget(prefs.duration, n, stops, cps).chars >= EXPLAINING_CHARS) {
+      const [, faster] = fastEnough(budget(prefs.duration, n, stops, cps).chars, cps);
+      if (budget(prefs.duration, n, stops, cps).chars * faster >= EXPLAINING_CHARS) {
         roomier = n;
         break;
       }
     }
     const advice = roomier
-      ? `${roomier} slides at the same target would buy ${budget(prefs.duration, roomier, stops, cps).chars}, or keep the twelve and raise the target to ${Math.ceil((prefs.slides * EXPLAINING_CHARS) / (chars / beatSeconds) / 10) * 10}s.`
+      ? `${roomier} slides at the same target would buy ${Math.round(budget(prefs.duration, roomier, stops, cps).chars * fastEnough(budget(prefs.duration, roomier, stops, cps).chars, cps)[1])}, or keep all ${prefs.slides} and raise the target to ${Math.ceil((prefs.slides * EXPLAINING_CHARS) / (chars / beatSeconds) / 10) * 10}s.`
       : `no slide count at this target reaches ${EXPLAINING_CHARS} — raise the duration.`;
     warnings.push(
-      `${prefs.duration}s over ${prefs.slides} slides leaves ${chars} characters a slide, about ${Math.round(chars / 5.5)} words. The shipped demo averages 72. Each slide will caption rather than explain: ${advice}`,
+      `even at ${rate}, ${prefs.duration}s over ${prefs.slides} slides leaves ${chars} characters a slide, about ${Math.round(chars / 5.5)} words. The shipped demo averages 72. Each slide will caption rather than explain: ${advice}`,
     );
   }
   if (speed === 0.25) {
@@ -195,11 +267,45 @@ export function durationPlan(prefs: Prefs): DurationPlan {
   return {
     speed,
     speakingStops,
+    rate,
     chars: Math.max(MIN_SENTENCE_CHARS, chars),
     speechSeconds: round3(speechSeconds),
     beatSeconds: round3(beatSeconds),
     warnings,
   };
+}
+
+/**
+ * The slowest rate that lifts `chars` to a sentence which explains something.
+ *
+ * SLOWEST, not fastest: speech is sped up only as far as the shortfall needs, so
+ * a target that already affords a real sentence is spoken at `+0%` and its deck
+ * does not move a byte. Falls back to the last step when even that cannot reach
+ * the bar — the extra words are still worth having, and the caller then says
+ * what speed could not buy.
+ */
+export function fastEnough(
+  chars: number,
+  cps: number = SPEECH_CPS.latin,
+): readonly [rate: string, speedup: number] {
+  const bar = explainingChars(cps);
+  const enough = RATE_STEPS.find(([, speedup]) => chars * speedup >= bar);
+  return enough ?? (RATE_STEPS[RATE_STEPS.length - 1] as readonly [string, number]);
+}
+
+/**
+ * `EXPLAINING_CHARS` in the script the deck is written in.
+ *
+ * The constant is measured on the demo's ENGLISH sentences, and a Hangul or
+ * kana character carries several times what a Latin one does — which is the
+ * whole reason `SPEECH_CPS.cjk` exists. Holding a Korean deck to sixty
+ * CHARACTERS would demand a sentence two and a half times as long as the bar it
+ * is meant to encode, and every Korean deck would be sped up to chase it. The
+ * bar is really a length of SPEECH — about 4.2 seconds of it — so it converts
+ * through the same cps the budget already uses.
+ */
+function explainingChars(cps: number): number {
+  return (EXPLAINING_CHARS * cps) / SPEECH_CPS.latin;
 }
 
 /**
