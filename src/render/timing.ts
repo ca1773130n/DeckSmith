@@ -550,28 +550,35 @@ export function framePlan(timing: Timing, fps: number): FramePlan {
       );
     }
 
-    // The frame the beat's last reveal settles on. `scene.holds` are SCENE-
-    // RELATIVE, so this is made absolute here. Clamped to `last` so a hold
-    // outside its own window can never make the plan run long.
-    const lastHold = scene.holds.length ? Math.max(...scene.holds) : 0;
-    const settled = Math.min(f(scene.start + lastHold), last);
+    // THE SCENE PLAYS STRAIGHT THROUGH, and the audio is dropped onto it where
+    // `place` said. Nothing is frozen and nothing is dropped.
+    //
+    // It used to freeze the picture at each hold for the length of that stop's
+    // audio, because speech and motion were CONSECUTIVE and the picture had to
+    // wait. They overlap now — `beatSeconds` is `max(authored, lastHold + SETTLE,
+    // speechEnd + SETTLE)`, so every scene is already long enough for all of its
+    // motion AND all of its speech — which makes every freeze unnecessary, and an
+    // unnecessary freeze is not free: per scene the output owes `last - first`
+    // frames and `out = shown + freeze`, so `dropped == freeze`, always. Freezing
+    // for four seconds threw away four seconds of this beat's own picture.
+    //
+    // THE BUG THIS FIXES, which is the one that matters. `place` computes where
+    // each sentence starts on the speech clock, and this function then IGNORED
+    // that and re-derived the position by playing the video to `segment.hold`.
+    // The two disagreed on every scene of the shipped deck — the manifest said
+    // the voice started at 0.375s and it actually started at 0.64-1.53s, for
+    // 6.03s of silence the overlap work was supposed to have removed and had
+    // not. It is also why the model predicted 16% silence and `silencedetect`
+    // measured 30%. `place` is the one that decides; there is no second opinion.
+    //
+    // One consequence worth knowing: `retime` in src/render/render.ts skips the
+    // whole re-encode when every piece has `freeze: 0`, so a narrated video is
+    // now the capture itself with audio muxed onto it — no generation loss, and
+    // the render is seconds rather than a minute.
+    pieces.push({ from: first, motion: last - first, freeze: 0 });
 
-    let source = first; // next unread source frame
-    let out = first; // output frame cursor
-
-    for (const [k, segment] of segments.entries()) {
-      const hold = f(segment.hold);
-      const motion = Math.max(hold - source, 0);
-
-      // A stop with no motion before it — two segments clamped onto the same
-      // hold — extends the previous freeze instead of asking ffmpeg to trim
-      // zero frames, which yields an empty stream the concat cannot use.
-      const play = motion === 0 && pieces.length > 0 && out > first ? 0 : Math.max(motion, 1);
-      if (play > 0) pieces.push({ from: source, motion: play, freeze: 0 });
-      source += play;
-      out += play;
-
-      const at = out;
+    for (const segment of segments) {
+      const at = f(segment.start);
       audio.push({
         id: segment.id,
         audio: segment.audio,
@@ -583,55 +590,7 @@ export function framePlan(timing: Timing, fps: number): FramePlan {
         const end = at / fps + cue.end;
         if (end > start) cues.push({ start, end, text: cue.text });
       }
-
-      const next = segments[k + 1];
-
-      // AFTER THE LAST STOP THERE IS NOTHING TO DELAY, and that is what made
-      // this beat's own reveals invisible. Per scene the output is `last -
-      // first` frames and `out = (source frames shown) + freeze`, so
-      // `dropped == freeze` — ALWAYS, wherever the tail is anchored. An
-      // intermediate freeze earns its dropped frames: it exists to keep the NEXT
-      // reveal from running under this sentence. The last freeze has no next, so
-      // it stood in front of the whole remaining build and the frames it cost
-      // were the beat's own stages. Measured on a six-stage pipeline at speed
-      // 0.417 with one sentence at stop 0: 98 of 195 source frames unplayed and
-      // all six holds inside the gap, so the video showed stage one, froze, then
-      // JUMPED to the assembled diagram — every gate green, because both renders
-      // are identically wrong and `drift` compares them to each other.
-      //
-      // Playing the build first pays the freeze out of the interchangeable
-      // stills after the last hold instead. Same frame count, same audio delays
-      // to the millisecond, same cues; the sentence now runs OVER the reveals it
-      // describes and the frozen frame is the settled diagram rather than the
-      // landing frame.
-      if (!next) {
-        const build = Math.max(settled - source, 0);
-        if (build > 0) {
-          pieces.push({ from: source, motion: build, freeze: 0 });
-          source += build;
-          out += build;
-        }
-      }
-
-      // Hold the frame until the next sentence's reveal has to start rolling,
-      // or — for the last one — until the scene has finished speaking.
-      const until = next ? f(next.start) - Math.max(f(next.hold) - source, 0) : silent;
-      const freeze = Math.max(until - out, 0);
-      (pieces[pieces.length - 1] as Piece).freeze += freeze;
-      out += freeze;
     }
-
-    // The tail plays the scene's LAST frames, not the frames that happen to
-    // follow the last hold. On a scene whose tail is genuinely dead these are
-    // the same picture, so this looks like a distinction without a difference —
-    // until a camera move lives there. `assertStopsOutsideMove` GUARANTEES the
-    // dive falls after every hold, so `from: source` rendered the still at the
-    // last hold for exactly the dive's length: the right number of frames, the
-    // wrong ones, and a camera move that is silently absent from the video with
-    // every gate green. Anchoring to `last` renders whatever the scene actually
-    // ends on.
-    const rest = last - out;
-    if (rest > 0) pieces.push({ from: last - rest, motion: rest, freeze: 0 });
   }
 
   const frames = pieces.reduce((n, p) => n + p.motion + p.freeze, 0);

@@ -565,32 +565,44 @@ describe("framePlan", () => {
     expect(plan.frames).toBe(30 * 30);
   });
 
-  it("plays the motion up to each stop and then clones the frame", () => {
-    // s1: 60 frames of motion to the 2s hold, 120 frozen; then 120 of tail,
-    // because the scene is 10s and only 2 + 4 = 6s of it is used. The tail is
-    // taken from the END of the scene (180..300 = the last 4s), not from where
-    // the source cursor happened to stop — see the tail test below.
-    expect(plan.pieces[0]).toEqual({ from: 0, motion: 60, freeze: 120 });
-    expect(plan.pieces[1]).toEqual({ from: 180, motion: 120, freeze: 0 });
+  /**
+   * WAS two tests pinning the freeze model — motion to each hold, then a clone
+   * of that frame for the length of the sentence, then a tail taken from the
+   * END of the scene rather than from the source cursor.
+   *
+   * All of that existed because speech and motion were CONSECUTIVE: the picture
+   * had to wait for the voice, and waiting costs frames, because per scene the
+   * output owes `last - first` and `out = shown + freeze`, so `dropped ==
+   * freeze` always. They overlap now, `beatSeconds` sizes every scene to hold
+   * both, and a freeze that is not needed is a stretch of this beat's own
+   * picture thrown away for nothing.
+   *
+   * The tail's anchoring — the assertion that mattered here, because reading the
+   * source cursor instead of the scene's end silently deleted a camera dive and
+   * shipped it — is now true by construction rather than by arithmetic: one
+   * piece spans the whole scene, so every source frame plays, in order, dive
+   * included. That is checked below on a real dive.
+   */
+  it("plays every scene straight through, freezing nothing", () => {
+    expect(plan.pieces).toEqual([
+      { from: 0, motion: 300, freeze: 0 },
+      { from: 300, motion: 600, freeze: 0 },
+    ]);
+    // `retime` skips the re-encode entirely when nothing freezes, so this is
+    // also what makes a narrated render the capture itself with audio muxed on.
+    expect(plan.pieces.every((p) => p.freeze === 0)).toBe(true);
   });
 
-  it("takes the tail from the end of the scene, not from the last hold", () => {
-    // s2 is 20s = lastHold 8 + spoken 11, plus 1s of slack. Motion 120 + 120,
-    // freezes 150 + 180, tail 30.
-    //
-    // The tail's `from` is the assertion that matters, and it used to be wrong.
-    // It read `source` — the last hold, frame 540 — so the output ended a scene
-    // by REPLAYING a stretch the viewer had already watched, for exactly the
-    // right number of frames. On an ordinarily dead tail that is invisible,
-    // which is why it survived. On a scene with a camera move it is fatal:
-    // `assertStopsOutsideMove` guarantees the dive falls after every hold, so
-    // the dive was never in the frames the tail selected and the move rendered
-    // as a still, silently, with every gate green. Anchor to `last`: 900 - 30.
-    expect(plan.pieces.slice(2)).toEqual([
-      { from: 300, motion: 120, freeze: 150 },
-      { from: 420, motion: 120, freeze: 180 },
-      { from: 870, motion: 30, freeze: 0 },
-    ]);
+  it("puts the audio where `place` said, not where the reveal is", () => {
+    // THE BUG THIS REPLACED. framePlan ignored `segment.start` and re-derived
+    // the audio position by playing the video to `segment.hold`. On the shipped
+    // 60-second deck the manifest said the voice began at 0.375s and it actually
+    // began at 0.64-1.53s — 6.03s of silence the overlap work was supposed to
+    // have removed, and the reason the model said 16% while the audio measured
+    // 30%. `place` owns the speech clock; there is no second opinion.
+    expect(plan.audio.map((a) => a.startFrame)).toEqual(
+      timing.segments.map((s) => Math.round(s.start * 30)),
+    );
   });
 
   it("renders every frame of a camera dive parked in a scene's tail", () => {
@@ -671,10 +683,13 @@ describe("framePlan", () => {
     expect(() => framePlan(tight, 30)).toThrow(/does not fit/);
   });
 
-  it("folds a second sentence on the same reveal into one freeze", () => {
-    // Two segments clamped onto the same hold would otherwise ask ffmpeg to
-    // trim zero frames, and a zero-frame piece is an empty stream the concat
-    // cannot join.
+  it("keeps two sentences clamped onto one reveal in sequence", () => {
+    // Two segments on the same hold used to need special handling: each one
+    // asked for the motion up to its hold, and the second one's was zero, which
+    // is an empty stream the concat cannot join. Nothing freezes now, so the
+    // case is ordinary — what still has to hold is that the two sentences do not
+    // overlap in the output, because `audioGraph` mixes rather than trims and
+    // two voices at once is audible on the first play.
     const doubled: Timing = {
       version: 1,
       width: 1920,
@@ -708,11 +723,12 @@ describe("framePlan", () => {
       ],
     };
     const folded = framePlan(doubled, 30);
-    expect(folded.pieces).toEqual([
-      { from: 0, motion: 60, freeze: 210 },
-      { from: 270, motion: 30, freeze: 0 },
-    ]);
+    expect(folded.pieces).toEqual([{ from: 0, motion: 300, freeze: 0 }]);
     expect(folded.audio.map((a) => a.startFrame)).toEqual([60, 150]);
+    // The second starts exactly where the first ends: 60 + 3s×30 = 150.
+    expect(folded.audio[1]?.startFrame).toBe(
+      (folded.audio[0]?.startFrame ?? 0) + (doubled.segments[0]?.duration ?? 0) * 30,
+    );
     expect(folded.frames).toBe(300);
   });
 
