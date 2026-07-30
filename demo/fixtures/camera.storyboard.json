@@ -1,0 +1,43 @@
+{
+  "sourceId": "plain",
+  "title": "Camera fixture",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "c01",
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Fixture",
+        "headline": "One pass in, one pass out, and a loop in the middle",
+        "stages": [
+          { "label": "Encode", "note": "wide" },
+          { "label": "Window", "note": "no pooling", "tone": "a" },
+          { "label": "Decode", "note": "upsample" }
+        ],
+        "note": "The camera leaves from this beat and lands on the middle stage."
+      },
+      "intent": "Draw the container the next beat happens inside of.",
+      "evidence": [{ "kind": "section", "id": "sec1" }],
+      "weight": 0.95,
+      "seconds": 9
+    },
+    {
+      "id": "c02",
+      "archetype": "grid",
+      "params": {
+        "eyebrow": "Fixture",
+        "headline": "Attention is computed inside windows",
+        "cols": 12,
+        "rows": 8,
+        "regions": [{ "x": 0, "y": 0, "w": 4, "h": 4, "label": "one window", "tone": "a" }],
+        "note": "This beat is what happens inside the stage the camera landed on."
+      },
+      "intent": "Be the beat that the `inside` relation points at.",
+      "inside": { "beat": "c01", "element": "stage1" },
+      "evidence": [{ "kind": "section", "id": "sec1" }],
+      "weight": 0.9,
+      "seconds": 9
+    }
+  ]
+}

@@ -1,0 +1,1405 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "scenes": [
+    {
+      "id": "s01-flow",
+      "intent": "The recurrence returns to the DQ-CTM thought stage, while the dense carrier continues forward through the pipeline.",
+      "claim": "ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "narration": "The image first becomes a dense carrier, because super-resolution needs spatial detail. Windowing organizes that carrier without making the thought state dense. The DQ-CTM stage repeats its ticks with shared parameters. The loop returns only to the thought stage, then decoding turns the updated carrier into output.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        },
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.9,
+      "seconds": 9.8,
+      "objects": [
+        {
+          "id": "headline",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.11
+          },
+          "size": {
+            "w": 0.86,
+            "h": 0.08
+          },
+          "text": "ThinkSR loops inside the thought stage, not around the whole flow.",
+          "fontPx": 68,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "enc-g",
+          "kind": "group",
+          "at": {
+            "x": 0.2,
+            "y": 0.47
+          },
+          "opacity": 0
+        },
+        {
+          "id": "enc-box",
+          "kind": "rect",
+          "parent": "enc-g",
+          "at": {
+            "x": 0.2,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.19,
+            "h": 0.16
+          },
+          "tone": "b",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "enc-label",
+          "kind": "text",
+          "parent": "enc-g",
+          "at": {
+            "x": 0.2,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.07
+          },
+          "text": "Encode",
+          "fontPx": 48,
+          "tone": "b",
+          "opacity": 1
+        },
+        {
+          "id": "win-g",
+          "kind": "group",
+          "at": {
+            "x": 0.4,
+            "y": 0.47
+          },
+          "opacity": 0
+        },
+        {
+          "id": "win-box",
+          "kind": "rect",
+          "parent": "win-g",
+          "at": {
+            "x": 0.4,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.19,
+            "h": 0.16
+          },
+          "tone": "c",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "win-label",
+          "kind": "text",
+          "parent": "win-g",
+          "at": {
+            "x": 0.4,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.07
+          },
+          "text": "Window",
+          "fontPx": 48,
+          "tone": "c",
+          "opacity": 1
+        },
+        {
+          "id": "think-g",
+          "kind": "group",
+          "at": {
+            "x": 0.62,
+            "y": 0.47
+          },
+          "opacity": 0
+        },
+        {
+          "id": "think-box",
+          "kind": "rect",
+          "parent": "think-g",
+          "at": {
+            "x": 0.62,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.22,
+            "h": 0.18
+          },
+          "tone": "a",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "think-label",
+          "kind": "text",
+          "parent": "think-g",
+          "at": {
+            "x": 0.62,
+            "y": 0.44
+          },
+          "size": {
+            "w": 0.18,
+            "h": 0.06
+          },
+          "text": "DQ-CTM",
+          "fontPx": 50,
+          "tone": "a",
+          "opacity": 1
+        },
+        {
+          "id": "tick-label",
+          "kind": "text",
+          "parent": "think-g",
+          "at": {
+            "x": 0.62,
+            "y": 0.52
+          },
+          "size": {
+            "w": 0.18,
+            "h": 0.06
+          },
+          "text": "shared ticks",
+          "fontPx": 42,
+          "tone": "muted",
+          "opacity": 1
+        },
+        {
+          "id": "dec-g",
+          "kind": "group",
+          "at": {
+            "x": 0.83,
+            "y": 0.47
+          },
+          "opacity": 0
+        },
+        {
+          "id": "dec-box",
+          "kind": "rect",
+          "parent": "dec-g",
+          "at": {
+            "x": 0.83,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.19,
+            "h": 0.16
+          },
+          "tone": "d",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "dec-label",
+          "kind": "text",
+          "parent": "dec-g",
+          "at": {
+            "x": 0.83,
+            "y": 0.47
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.07
+          },
+          "text": "Decode",
+          "fontPx": 48,
+          "tone": "d",
+          "opacity": 1
+        },
+        {
+          "id": "a1",
+          "kind": "arrow",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.3,
+              "y": 0.47
+            },
+            {
+              "x": 0.305,
+              "y": 0.47
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "a2",
+          "kind": "arrow",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.5,
+              "y": 0.47
+            },
+            {
+              "x": 0.51,
+              "y": 0.47
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "a3",
+          "kind": "arrow",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.73,
+              "y": 0.47
+            },
+            {
+              "x": 0.735,
+              "y": 0.47
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "loop",
+          "kind": "arrow",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.68,
+              "y": 0.37
+            },
+            {
+              "x": 0.68,
+              "y": 0.28
+            },
+            {
+              "x": 0.56,
+              "y": 0.28
+            },
+            {
+              "x": 0.56,
+              "y": 0.37
+            }
+          ],
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "param-note",
+          "kind": "text",
+          "at": {
+            "x": 0.62,
+            "y": 0.71
+          },
+          "size": {
+            "w": 0.38,
+            "h": 0.07
+          },
+          "text": "Parameters are shared across ticks.",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        }
+      ],
+      "anims": [
+        {
+          "target": "headline",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "enc-g",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0.4,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "win-g",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1.7,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "a1",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1.6,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "a1",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 1.6,
+          "dur": 0.4,
+          "ease": "linear"
+        },
+        {
+          "target": "think-g",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 3,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "a2",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 2.9,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "a2",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 2.9,
+          "dur": 0.4,
+          "ease": "linear"
+        },
+        {
+          "target": "loop",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 4.6,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "loop",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 4.6,
+          "dur": 0.7,
+          "ease": "linear"
+        },
+        {
+          "target": "param-note",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 5.5,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "dec-g",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 7,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "a3",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 6.9,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "a3",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 6.9,
+          "dur": 0.4,
+          "ease": "linear"
+        }
+      ],
+      "holds": [
+        1.1,
+        2.4,
+        6.2,
+        7.8
+      ],
+      "camera": {
+        "on": "think-box",
+        "k": 2.3,
+        "t0": 8.2,
+        "dur": 1.4
+      }
+    },
+    {
+      "id": "s02-carrier",
+      "intent": "The carrier equation first builds a dense feature field from the low-resolution image, then partitions that field into tokens without dropping them.",
+      "claim": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+      "narration": "The encoder maps the low-resolution image into the dense feature field. That field is the carrier that super-resolution needs. The window operator partitions the carrier into tokens while keeping every token in the expression.",
+      "evidence": [
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        },
+        {
+          "kind": "section",
+          "id": "sec1"
+        },
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.85,
+      "seconds": 7.2,
+      "objects": [
+        {
+          "id": "headline",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.11
+          },
+          "size": {
+            "w": 0.86,
+            "h": 0.08
+          },
+          "text": "The equation keeps dense features as the carrier.",
+          "fontPx": 68,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "eq",
+          "kind": "tex",
+          "at": {
+            "x": 0.5,
+            "y": 0.35
+          },
+          "size": {
+            "w": 0.78,
+            "h": 0.12
+          },
+          "tex": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+          "fontPx": 76,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "lr-box",
+          "kind": "rect",
+          "at": {
+            "x": 0.23,
+            "y": 0.62
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.13
+          },
+          "tone": "b",
+          "fill": "surface",
+          "opacity": 0
+        },
+        {
+          "id": "lr-label",
+          "kind": "text",
+          "at": {
+            "x": 0.23,
+            "y": 0.62
+          },
+          "size": {
+            "w": 0.13,
+            "h": 0.06
+          },
+          "text": "Low-res image",
+          "fontPx": 42,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "field",
+          "kind": "rect",
+          "at": {
+            "x": 0.5,
+            "y": 0.62
+          },
+          "size": {
+            "w": 0.24,
+            "h": 0.16
+          },
+          "tone": "a",
+          "fill": "surface",
+          "opacity": 0
+        },
+        {
+          "id": "field-label",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.62
+          },
+          "size": {
+            "w": 0.2,
+            "h": 0.07
+          },
+          "text": "Dense feature field",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "tokens",
+          "kind": "group",
+          "at": {
+            "x": 0.78,
+            "y": 0.62
+          },
+          "opacity": 0
+        },
+        {
+          "id": "tok1",
+          "kind": "rect",
+          "parent": "tokens",
+          "at": {
+            "x": 0.73,
+            "y": 0.58
+          },
+          "size": {
+            "w": 0.08,
+            "h": 0.07
+          },
+          "tone": "c",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "tok2",
+          "kind": "rect",
+          "parent": "tokens",
+          "at": {
+            "x": 0.83,
+            "y": 0.58
+          },
+          "size": {
+            "w": 0.08,
+            "h": 0.07
+          },
+          "tone": "c",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "tok3",
+          "kind": "rect",
+          "parent": "tokens",
+          "at": {
+            "x": 0.73,
+            "y": 0.67
+          },
+          "size": {
+            "w": 0.08,
+            "h": 0.07
+          },
+          "tone": "c",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "tok4",
+          "kind": "rect",
+          "parent": "tokens",
+          "at": {
+            "x": 0.83,
+            "y": 0.67
+          },
+          "size": {
+            "w": 0.08,
+            "h": 0.07
+          },
+          "tone": "c",
+          "fill": "surface",
+          "opacity": 1
+        },
+        {
+          "id": "tokens-label",
+          "kind": "text",
+          "parent": "tokens",
+          "at": {
+            "x": 0.78,
+            "y": 0.76
+          },
+          "size": {
+            "w": 0.23,
+            "h": 0.06
+          },
+          "text": "Window tokens",
+          "fontPx": 44,
+          "tone": "c",
+          "opacity": 1
+        },
+        {
+          "id": "arr1",
+          "kind": "arrow",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.32,
+              "y": 0.62
+            },
+            {
+              "x": 0.38,
+              "y": 0.62
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "arr2",
+          "kind": "arrow",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.62,
+              "y": 0.62
+            },
+            {
+              "x": 0.68,
+              "y": 0.62
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        }
+      ],
+      "anims": [
+        {
+          "target": "headline",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "eq",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0.4,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "eq",
+          "op": "highlight",
+          "from": 0,
+          "to": 1,
+          "toTone": "b",
+          "part": "\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})",
+          "start": 0.9,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "lr-box",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "lr-label",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "field",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 2.2,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "field",
+          "op": "growFrom",
+          "from": 0,
+          "to": 1,
+          "anchor": "left",
+          "start": 2.2,
+          "dur": 0.6,
+          "ease": "out"
+        },
+        {
+          "target": "field-label",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 2.8,
+          "dur": 0.3,
+          "ease": "out"
+        },
+        {
+          "target": "arr1",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 2.1,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "arr1",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 2.1,
+          "dur": 0.5,
+          "ease": "linear"
+        },
+        {
+          "target": "eq",
+          "op": "highlight",
+          "from": 0,
+          "to": 1,
+          "toTone": "a",
+          "part": "\\mathbf{F}",
+          "start": 2.9,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "eq",
+          "op": "highlight",
+          "from": 0,
+          "to": 1,
+          "toTone": "c",
+          "part": "\\mathcal{W}(\\mathbf{F})",
+          "start": 4.4,
+          "dur": 0.5,
+          "ease": "out"
+        },
+        {
+          "target": "tokens",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 4.8,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "arr2",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 4.7,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "arr2",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 4.7,
+          "dur": 0.5,
+          "ease": "linear"
+        }
+      ],
+      "holds": [
+        1.5,
+        3.4,
+        5.7
+      ]
+    },
+    {
+      "id": "s03-params",
+      "intent": "DQ-CTM-SR is not the smallest model in the comparison; its parameter count is the second largest among the five listed methods.",
+      "claim": "Table 1 reports Params for CARN, IMDN, RFDN, CATANet, and DQ-CTM-SR.",
+      "narration": "The table puts CATANet and RFDN just above half a million parameters. IMDN is larger, but still below one million parameters. DQ-CTM-SR has one point one two nine million parameters, making it the second largest here. CARN remains the largest of the five methods.",
+      "evidence": [
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        },
+        {
+          "kind": "section",
+          "id": "sec3"
+        }
+      ],
+      "weight": 0.8,
+      "seconds": 9,
+      "objects": [
+        {
+          "id": "headline",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.11
+          },
+          "size": {
+            "w": 0.86,
+            "h": 0.08
+          },
+          "text": "DQ-CTM-SR is second largest by parameter count.",
+          "fontPx": 68,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "base",
+          "kind": "polyline",
+          "at": {
+            "x": 0,
+            "y": 0
+          },
+          "points": [
+            {
+              "x": 0.08,
+              "y": 0.78
+            },
+            {
+              "x": 0.92,
+              "y": 0.78
+            }
+          ],
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "bar-catanet",
+          "kind": "rect",
+          "at": {
+            "x": 0.14,
+            "y": 0.716
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.128
+          },
+          "tone": "b",
+          "fill": "tone",
+          "opacity": 0
+        },
+        {
+          "id": "val-catanet",
+          "kind": "text",
+          "at": {
+            "x": 0.14,
+            "y": 0.607
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "0.535M",
+          "fontPx": 42,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "lab-catanet",
+          "kind": "text",
+          "at": {
+            "x": 0.14,
+            "y": 0.86
+          },
+          "size": {
+            "w": 0.16,
+            "h": 0.05
+          },
+          "text": "CATANet",
+          "fontPx": 40,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "bar-rfdn",
+          "kind": "rect",
+          "at": {
+            "x": 0.32,
+            "y": 0.714
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.131
+          },
+          "tone": "b",
+          "fill": "tone",
+          "opacity": 0
+        },
+        {
+          "id": "val-rfdn",
+          "kind": "text",
+          "at": {
+            "x": 0.32,
+            "y": 0.604
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "0.550M",
+          "fontPx": 42,
+          "tone": "b",
+          "opacity": 0
+        },
+        {
+          "id": "lab-rfdn",
+          "kind": "text",
+          "at": {
+            "x": 0.32,
+            "y": 0.86
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "RFDN",
+          "fontPx": 40,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "bar-imdn",
+          "kind": "rect",
+          "at": {
+            "x": 0.5,
+            "y": 0.695
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.171
+          },
+          "tone": "c",
+          "fill": "tone",
+          "opacity": 0
+        },
+        {
+          "id": "val-imdn",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.564
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "0.715M",
+          "fontPx": 42,
+          "tone": "c",
+          "opacity": 0
+        },
+        {
+          "id": "lab-imdn",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.86
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "IMDN",
+          "fontPx": 40,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "bar-dq",
+          "kind": "rect",
+          "at": {
+            "x": 0.68,
+            "y": 0.645
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.269
+          },
+          "tone": "a",
+          "fill": "tone",
+          "opacity": 0
+        },
+        {
+          "id": "val-dq",
+          "kind": "text",
+          "at": {
+            "x": 0.68,
+            "y": 0.466
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "1.129M",
+          "fontPx": 42,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "lab-dq",
+          "kind": "text",
+          "at": {
+            "x": 0.68,
+            "y": 0.86
+          },
+          "size": {
+            "w": 0.18,
+            "h": 0.05
+          },
+          "text": "DQ-CTM-SR",
+          "fontPx": 40,
+          "tone": "a",
+          "opacity": 0
+        },
+        {
+          "id": "bar-carn",
+          "kind": "rect",
+          "at": {
+            "x": 0.86,
+            "y": 0.59
+          },
+          "size": {
+            "w": 0.1,
+            "h": 0.38
+          },
+          "tone": "d",
+          "fill": "tone",
+          "opacity": 0
+        },
+        {
+          "id": "val-carn",
+          "kind": "text",
+          "at": {
+            "x": 0.86,
+            "y": 0.355
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "1.592M",
+          "fontPx": 42,
+          "tone": "d",
+          "opacity": 0
+        },
+        {
+          "id": "lab-carn",
+          "kind": "text",
+          "at": {
+            "x": 0.86,
+            "y": 0.86
+          },
+          "size": {
+            "w": 0.14,
+            "h": 0.05
+          },
+          "text": "CARN",
+          "fontPx": 40,
+          "tone": "muted",
+          "opacity": 0
+        },
+        {
+          "id": "note",
+          "kind": "text",
+          "at": {
+            "x": 0.5,
+            "y": 0.91
+          },
+          "size": {
+            "w": 0.82,
+            "h": 0.06
+          },
+          "text": "DQ-CTM-SR is second largest, not the cheapest method.",
+          "fontPx": 44,
+          "tone": "a",
+          "opacity": 0
+        }
+      ],
+      "anims": [
+        {
+          "target": "headline",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "base",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0.3,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "base",
+          "op": "draw",
+          "from": 0,
+          "to": 1,
+          "start": 0.3,
+          "dur": 0.5,
+          "ease": "linear"
+        },
+        {
+          "target": "bar-catanet",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 0.8,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-catanet",
+          "op": "growFrom",
+          "from": 0,
+          "to": 1,
+          "anchor": "bottom",
+          "start": 0.8,
+          "dur": 0.7,
+          "ease": "out"
+        },
+        {
+          "target": "val-catanet",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1.5,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "lab-catanet",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1.5,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-rfdn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-rfdn",
+          "op": "growFrom",
+          "from": 0,
+          "to": 1,
+          "anchor": "bottom",
+          "start": 1,
+          "dur": 0.7,
+          "ease": "out"
+        },
+        {
+          "target": "val-rfdn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1.7,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "lab-rfdn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 1.7,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-imdn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 2.6,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-imdn",
+          "op": "growFrom",
+          "from": 0,
+          "to": 1,
+          "anchor": "bottom",
+          "start": 2.6,
+          "dur": 0.7,
+          "ease": "out"
+        },
+        {
+          "target": "val-imdn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 3.3,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "lab-imdn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 3.3,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-dq",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 4.3,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-dq",
+          "op": "growFrom",
+          "from": 0,
+          "to": 1,
+          "anchor": "bottom",
+          "start": 4.3,
+          "dur": 0.8,
+          "ease": "out"
+        },
+        {
+          "target": "val-dq",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 5.1,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "lab-dq",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 5.1,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "note",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 5.4,
+          "dur": 0.4,
+          "ease": "out"
+        },
+        {
+          "target": "bar-carn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 6.6,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "bar-carn",
+          "op": "growFrom",
+          "from": 0,
+          "to": 1,
+          "anchor": "bottom",
+          "start": 6.6,
+          "dur": 0.8,
+          "ease": "out"
+        },
+        {
+          "target": "val-carn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 7.4,
+          "dur": 0.2,
+          "ease": "out"
+        },
+        {
+          "target": "lab-carn",
+          "op": "fadeIn",
+          "from": 0,
+          "to": 1,
+          "start": 7.4,
+          "dur": 0.2,
+          "ease": "out"
+        }
+      ],
+      "holds": [
+        2,
+        3.8,
+        6.1,
+        8
+      ]
+    }
+  ]
+}

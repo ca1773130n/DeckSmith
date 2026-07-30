@@ -1,0 +1,53 @@
+arm A  n=8
+  schema-valid   8/8
+  refs resolve   8/8
+  fully coherent 0/8
+  shared defects  total 27  median/plan 3
+  algebra defects total 0  median/plan 0
+  soft overlaps   total 0
+  emitter refuses  0/8 plans, 0 beats
+  wall clock s   median 36  min 31  max 39
+  tokens used    median 25512
+  json chars     median 3628  per unit 1209
+  units          median 3
+
+arm A0  n=6
+  schema-valid   6/6
+  refs resolve   6/6
+  fully coherent 0/6
+  shared defects  total 44  median/plan 8
+  algebra defects total 0  median/plan 0
+  soft overlaps   total 0
+  emitter refuses  0/6 plans, 0 beats
+  wall clock s   median 70  min 58  max 108
+  tokens used    median 27150
+  json chars     median 10642  per unit 951
+  units          median 11
+
+arm B  n=8
+  schema-valid   8/8
+  refs resolve   n/a (checked inside coherence)
+  fully coherent 2/8
+  shared defects  total 2  median/plan 0
+  algebra defects total 7  median/plan 1
+  soft overlaps   total 1
+  emitter refuses  0/8 plans, 0 beats
+  wall clock s   median 168  min 146  max 189
+  tokens used    median 28335
+  json chars     median 14497  per unit 4832
+  units          median 3
+  objects/anims  median 49 / 65
+
+arm B0  n=4
+  schema-valid   4/4
+  refs resolve   n/a (checked inside coherence)
+  fully coherent 0/4
+  shared defects  total 45  median/plan 13
+  algebra defects total 21  median/plan 7
+  soft overlaps   total 13
+  emitter refuses  0/4 plans, 0 beats
+  wall clock s   median 446  min 307  max 486
+  tokens used    median 39165
+  json chars     median 42772  per unit 3763
+  units          median 11
+  objects/anims  median 142 / 175

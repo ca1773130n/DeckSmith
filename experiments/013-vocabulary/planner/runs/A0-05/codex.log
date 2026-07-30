@@ -1,0 +1,273 @@
+{"sourceId":"thinksr","title":"ThinkSR: compact thought, dense output","lang":"en","theme":null,"beats":[{"id":"b01-mismatch","intent":"The core problem is that compact thought state does not directly match the dense spatial field super-resolution needs.","inside":null,"claim":"CTM's thought representation is compact; super-resolution needs a dense spatial field.","evidence":[{"kind":"section","id":"sec1"}],"narration":"The method begins with a representation mismatch: a compact thinking process has to produce spatial detail at every output location.","weight":0.95,"seconds":7,"archetype":"title","params":{"eyebrow":"The mismatch","headline":"Compact thought must produce dense image detail","sub":"ThinkSR adapts CTM for lightweight super-resolution."}},{"id":"b02-comparison","intent":"The method is positioned between a plain CTM, a window-wise adaptation, and DQ-CTM.","inside":null,"claim":"CTM, a window-wise adaptation, and DQ-CTM compared.","evidence":[{"kind":"figure","id":"fig-compare"}],"narration":"The comparison separates the original compact formulation from a window-wise variant and the DQ-CTM design used for dense reconstruction. The CTM reference establishes the compact thought side of the mismatch. The window-wise adaptation connects that process to local image regions. DQ-CTM is the version presented as the super-resolution path.","weight":0.78,"seconds":9,"archetype":"annotated-figure","params":{"eyebrow":"Figure 1","headline":"DQ-CTM is framed against two CTM variants","figureId":"fig-compare","crop":null,"notes":[{"x":0.2,"y":0.5,"text":"CTM reference","tone":"a"},{"x":0.5,"y":0.5,"text":"Window-wise adaptation","tone":"b"},{"x":0.8,"y":0.5,"text":"DQ-CTM for dense output","tone":"c"}]}},{"id":"b03-carrier-equation","intent":"The low-resolution image is encoded into a dense feature carrier, then partitioned into windows.","inside":null,"claim":"\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})","evidence":[{"kind":"equation","id":"eq-carrier"},{"kind":"section","id":"sec2"}],"narration":"The carrier starts as features encoded from the low-resolution input. The dense feature field is the persistent state that can be read and updated. Windowing turns that field into the units processed by the compact thought mechanism. The equation names the path from image to carrier to windows.","weight":0.9,"seconds":10,"archetype":"equation-walk","params":{"eyebrow":"Carrier setup","headline":"The dense carrier is built before thought updates it","equationId":"eq-carrier","terms":[{"tex":"\\mathbf{I}_{\\mathrm{LR}}","label":"low-resolution input image","tone":"a"},{"tex":"\\mathbf{F}","label":"dense feature carrier","tone":"b"},{"tex":"\\mathcal{W}","label":"window partitioning","tone":"c"},{"tex":"\\mathbf{X}","label":"windowed features","tone":"d"}]}},{"id":"b04-end-to-end","intent":"ThinkSR runs encoder, windowing, shared DQ-CTM ticks, and decoder as one end-to-end path.","inside":null,"claim":"ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.","evidence":[{"kind":"figure","id":"fig-arch"},{"kind":"section","id":"sec2"}],"narration":"The end-to-end path keeps the dense carrier present while compact thought operates over windows. The encoder creates the feature field from the input image. The window stage exposes local spatial chunks to the thought process. Shared DQ-CTM ticks apply the same compact update process repeatedly. The decoder turns the updated carrier back into the super-resolved image.","weight":0.94,"seconds":11,"archetype":"pipeline","params":{"eyebrow":"Figure 2","headline":"ThinkSR updates a dense carrier through shared ticks","stages":[{"label":"Encoder","note":"low-resolution image to features","tone":"a"},{"label":"Windows","note":"features partitioned for processing","tone":"b"},{"label":"Shared DQ-CTM ticks","note":"compact thought reads and updates","tone":"c"},{"label":"Decoder","note":"updated carrier to output image","tone":"d"}],"loop":{"from":2,"to":2,"label":"shared ticks"},"note":"The method keeps a persistent dense carrier."}},{"id":"b05-tick-progress","intent":"Reconstruction is shown evolving from T=0 through T=4 against bicubic and ground truth.","inside":{"beat":"b04-end-to-end","element":"stage2"},"claim":"Reconstruction at T=0 through T=4 against bicubic and ground truth.","evidence":[{"kind":"figure","id":"fig-progress"}],"narration":"The ticks are presented as a visible reconstruction sequence rather than only as an internal computation. The first reconstruction anchors the starting point of the iterative process. Later ticks show the same output after repeated DQ-CTM updates. Bicubic and ground truth provide the visual references for the sequence.","weight":0.86,"seconds":10,"archetype":"annotated-figure","params":{"eyebrow":"Figure 4","headline":"The reconstruction is tracked across DQ-CTM ticks","figureId":"fig-progress","crop":null,"notes":[{"x":0.18,"y":0.5,"text":"T=0 reconstruction","tone":"a"},{"x":0.42,"y":0.5,"text":"intermediate ticks","tone":"b"},{"x":0.66,"y":0.5,"text":"T=4 reconstruction","tone":"c"},{"x":0.86,"y":0.5,"text":"bicubic and ground truth references","tone":"d"}]}},{"id":"b06-error-maps","intent":"Absolute-error maps compare the same crops on one shared colour scale.","inside":null,"claim":"Absolute-error maps on the same crops, one shared colour scale.","evidence":[{"kind":"figure","id":"fig-error"}],"narration":"The error view changes the comparison from image appearance to per-crop residuals. The same crops keep the visual comparison controlled. A shared colour scale makes the error maps directly comparable. The figure therefore tests reconstruction quality without changing the crop or scale.","weight":0.72,"seconds":9,"archetype":"annotated-figure","params":{"eyebrow":"Figure 5","headline":"Error maps use the same crops and colour scale","figureId":"fig-error","crop":null,"notes":[{"x":0.24,"y":0.28,"text":"same crop set","tone":"a"},{"x":0.5,"y":0.52,"text":"absolute-error maps","tone":"b"},{"x":0.78,"y":0.82,"text":"one shared colour scale","tone":"c"}]}},{"id":"b07-cnn-results","intent":"DQ-CTM-SR is competitive with the listed CNN baselines on average benchmark score.","inside":null,"claim":"Competitive with CNN baselines; behind recent lightweight transformers.","evidence":[{"kind":"section","id":"sec3"},{"kind":"table","id":"tbl-bench"}],"narration":"The average scores put DQ-CTM-SR in the same narrow band as the CNN baselines. CARN reports an average of 28.970. IMDN reports 28.968. RFDN reports 29.022. DQ-CTM-SR reports 28.983, which is close to those CNN results.","weight":0.82,"seconds":10,"archetype":"bar-compare","params":{"eyebrow":"Table 1","headline":"DQ-CTM-SR is close to the CNN baselines","unit":"Average over five benchmarks","bars":[{"label":"IMDN","value":28.968,"tone":"a"},{"label":"CARN","value":28.97,"tone":"a"},{"label":"DQ-CTM-SR","value":28.983,"tone":"c"},{"label":"RFDN","value":29.022,"tone":"a"}],"note":"Average is reported for x4 lightweight super-resolution."}},{"id":"b08-transformer-gap","intent":"The reported average leaves DQ-CTM-SR behind the recent lightweight transformer baseline CATANet.","inside":null,"claim":"Competitive with CNN baselines; behind recent lightweight transformers.","evidence":[{"kind":"section","id":"sec3"},{"kind":"table","id":"tbl-bench"}],"narration":"The same benchmark table also shows the main reported gap. DQ-CTM-SR reports an average of 28.983. CATANet reports 29.482. That makes CATANet the stronger result among the listed methods.","weight":0.84,"seconds":8,"archetype":"bar-compare","params":{"eyebrow":"Table 1","headline":"DQ-CTM-SR trails CATANet on average score","unit":"Average over five benchmarks","bars":[{"label":"DQ-CTM-SR","value":28.983,"tone":"c"},{"label":"CATANet","value":29.482,"tone":"d"}],"note":"CATANet is the recent lightweight transformer baseline in the table."}},{"id":"b09-parameter-cost","intent":"DQ-CTM-SR is not the smallest model among the reported lightweight methods.","inside":null,"claim":"Table 1 — x4 lightweight super-resolution, average over five benchmarks.","evidence":[{"kind":"table","id":"tbl-bench"}],"narration":"The parameter counts show that compact thought does not make this version the smallest model in the table. CATANet reports 0.535 million parameters. RFDN reports 0.550 million parameters. DQ-CTM-SR reports 1.129 million parameters. CARN remains the largest listed model at 1.592 million parameters.","weight":0.62,"seconds":10,"archetype":"bar-compare","params":{"eyebrow":"Table 1","headline":"DQ-CTM-SR is mid-sized among the listed models","unit":"million parameters","bars":[{"label":"CATANet","value":0.535,"tone":"d"},{"label":"RFDN","value":0.55,"tone":"a"},{"label":"IMDN","value":0.715,"tone":"a"},{"label":"DQ-CTM-SR","value":1.129,"tone":"c"},{"label":"CARN","value":1.592,"tone":"a"}],"note":"Params are reported in millions."}},{"id":"b10-takeaway","intent":"ThinkSR's contribution is the persistent dense carrier updated by compact thought, with results close to CNNs but below CATANet.","inside":null,"claim":"A persistent dense carrier, read and updated by a compact thought process.","evidence":[{"kind":"section","id":"sec2"},{"kind":"section","id":"sec3"}],"narration":"The source's central idea is not that compact thought replaces spatial structure. It is that a dense carrier stays present while compact thought reads and updates it. The reported outcome is competitive with CNN baselines. The stated limitation is that recent lightweight transformers remain ahead.","weight":0.9,"seconds":9,"archetype":"callout","params":{"eyebrow":"Takeaway","headline":"ThinkSR keeps density outside the compact thought state","panels":[{"label":"Method","lines":["persistent dense carrier","compact read-update process"]},{"label":"Reported result","lines":["competitive with CNN baselines","behind recent lightweight transformers"]}],"note":null}}]}
+
+---STDERR---
+OpenAI Codex v0.145.0
+--------
+workdir: /Users/neo/Developer/Projects/DeckSmith
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019fae22-3b9b-7dc0-b915-33bef627c04a
+--------
+user
+You are DeckSmith's planner. You read one source document and return a
+storyboard: the ordered beats of an animated explanation of it.
+
+A beat is one idea, one visual, one hold. It carries:
+  intent     what the viewer understands after this beat. Write the understanding
+             ("attention cost grows with the square of sequence length"), not the
+             topic ("attention costs").
+  claim      the sentence from the source the beat is accountable to. Quote it or
+             tighten it; do not extend it.
+  evidence   refs into the source that back the claim. Anywhere you assert
+             something, cite what says so.
+  narration  what the presenter says aloud over this beat. See NARRATION below;
+             it is required on every beat.
+  weight     0-1 salience.
+  seconds    hold time in a linear render, typically 5-12.
+  archetype  the visual, plus its params.
+  inside     OPTIONAL and rare: this beat happens inside a named part of the
+             beat immediately before it. See RULE 11. Leave it off unless the
+             source itself puts one inside the other.
+
+THE TWELVE ARCHETYPES
+
+Eight of them DRAW: they build a vector graphic out of the source's own content
+and reveal it stage by stage, so the viewer watches the idea assemble. Four only
+describe. The drawing ones are the default. The describing ones are what you
+fall back to when a point genuinely has no shape.
+
+DRAWING ARCHETYPES — reach here first
+
+  pipeline       Two to six labelled stages left to right, arrowed, revealed one
+                 at a time, with an optional labelled feedback arrow back to an
+                 earlier stage. The tell: a method, a procedure, a training loop,
+                 an inference path — any sentence with "then", "next", or "feeds
+                 into" in it. Each stage's note carries the concrete thing that
+                 happens there: a shape, a count, a rate.
+
+  annotated-figure
+                 A figure from the source with leader lines drawn onto it and
+                 revealed in turn; notes[].x/y are fractions of the figure's own
+                 box. The tell: a figure worth more than one sentence. If you can
+                 say WHERE in the figure the claim lives — and you usually can —
+                 this beats claim-figure, which just parks the image beside a
+                 sentence. Up to five notes, each pointing at one thing.
+
+  grid           A cols×rows lattice with up to four regions lit in turn. The
+                 tell: anything about regions of a field — patches, windows,
+                 tokens, tiles, receptive fields, masks, strides, a neighbourhood,
+                 a block-sparse pattern. Regions are cell coordinates, so the
+                 lattice IS the argument.
+
+  bar-compare    Two to eight bars grown from zero in order. The tell: a
+                 magnitude comparison — speedups, parameter counts, scores,
+                 latencies, costs. Whenever the numbers share a unit, use this
+                 rather than data-table: a length the eye compares lands faster
+                 than a figure it has to read.
+
+  stack          Two to seven layers drawn bottom-up as offset planes. The tell:
+                 something built ON something — a layered architecture, a protocol,
+                 a hierarchy of representations, a system diagram whose point is
+                 what sits above what.
+
+  split-compare  Two labelled halves, each a figure or a few short lines. The
+                 tell: before/after, baseline/ours, with/without, naive/proposed.
+                 The contrast is the point, so give both halves the same shape.
+
+  equation-walk  An equation, then its symbols lit one at a time. Use when the
+                 point IS the equation — a definition, a loss, a bound. Each
+                 terms[].tex must appear verbatim inside that equation's TeX, and
+                 each label says what the symbol means, not what it is called.
+                 Four terms maximum; if the equation needs more, it needs two beats.
+
+  line-chart     A trend the source states numerically but does not plot. Points
+                 come from the source's numbers; deltas, if given, are the steps
+                 between consecutive points, so there is always one fewer.
+
+DESCRIBING ARCHETYPES — the fallbacks
+
+  title          One headline, optional eyebrow and subtitle. The opening frame,
+                 and the divider before a genuine change of subject. Not a
+                 chapter marker for every heading in the source.
+
+  claim-figure   A claim beside a figure that demonstrates it. Use only when the
+                 figure argues on its own and there is nothing to point at inside
+                 it; otherwise annotated-figure says strictly more. params.figureId
+                 must name a figure in the inventory.
+
+  data-table     A table with up to four rows revealed and toned. Use when the
+                 cells themselves matter — mixed units, text values, a matrix the
+                 reader must scan. If it is one column of numbers in one unit,
+                 that is bar-compare. params.tableId must name a table, and each
+                 highlight[].row must match one of that table's first-column
+                 values exactly.
+
+  callout        One to three short panels. The last resort, for structure that
+                 has no shape at all: a definition, the limitations the source
+                 admits to. Lines are phrases, not sentences. It is not a place to
+                 dump bullets you could not find a visual for — a contrast is
+                 split-compare, a sequence is pipeline, layers are stack.
+
+RULES
+
+1. Ask what the beat DRAWS before you ask what it says. Read the point, find its
+   shape — a sequence, a field, a magnitude, a stack, a contrast, a figure worth
+   pointing into — and pick the archetype that draws that shape. Only when a point
+   honestly has no shape does it become a title, a claim-figure, a data-table or a
+   callout. A deck of headlines and bullet panels is a failure even if every
+   sentence in it is true; it is what every other slide generator already makes.
+   Most beats in a good deck draw something.
+
+2. Every id you write — in params and in evidence — must appear in the inventory
+   below. A dangling id fails the build. If no figure fits the point, choose a
+   different archetype; never guess an id or invent one that "should" exist.
+
+3. Be faithful. Never invent a number, an axis, a baseline, or a result. Report
+   what the source says, including the limitations and caveats it states — an
+   honest weakness is a better beat than an invented strength. If the source
+   hedges, the beat hedges. Drawing a mechanism is not licence to add a stage,
+   a layer or a bar the source does not describe.
+
+4. Weight honestly. Short formats keep only the highest-weighted beats, so a 0.9
+   on a detail costs the deck its spine. Reserve 0.8 and above for beats the
+   explanation is broken without; give supporting detail 0.3-0.5.
+
+5. The deck is read at 1920x1080 from across a room. Headlines under 60
+   characters, claims under 140, callout lines and stage/layer labels under 48.
+   No paragraphs.
+
+6. Order it for someone who has not read the source: what problem, what idea, why
+   it works, what it costs. Length is set under PREFERENCES.
+
+7. Beat ids are short, stable, lowercase slugs: "b01-title", "b02-cost".
+
+8. A headline is a complete-sentence claim in sentence case, not a label and not
+   Title Case. "CATANet wins on both size and score", never "Three Methods, Two
+   Reported Measures". If the sentence would not stand alone with the visual
+   hidden, it is a label — rewrite it.
+
+9. One object, one beat. If two points come from the same table, equation or
+   figure, they are two holds inside one beat, not two beats. Repeating a visual
+   to say one more small thing is padding, and reads as padding.
+
+10. Never make a beat about the source, the plan, or your own constraints. The
+    deck explains the subject; the audience does not know a planner exists. "What
+    the source supports", "no figure was available", and anything naming an
+    archetype are all disqualifying. A thin source yields a short deck, not a beat
+    apologising for it.
+
+11. Assert `inside` only where the SOURCE nests one thing in the other, never to
+    make the deck feel fancy. `inside: { beat, element }` says this beat is what
+    happens inside one named part of the beat before it — "attention is computed
+    within each window", where the beat before drew the stage that does the
+    windowing. The deck then flies the camera into that part instead of cutting
+    to a new slide. It renders a relation; it cannot create one. A bar chart of
+    parameter counts has no position inside a method diagram, so flying to it is
+    a decorated cut, which is worse than a plain cut and reads as motion
+    sickness over a long deck.
+
+    Three hard constraints. `beat` must be the id of the beat IMMEDIATELY
+    BEFORE this one — the planner is rejected outright otherwise, because no
+    other beat is still on screen to move through. `element` must name a part
+    the previous beat actually draws, and only three archetypes have interiors
+    worth entering: a pipeline's `stage0`, `stage1`, ... (0-based, in the
+    order you listed `stages`), a grid's `rgn0`, `rgn1`, ... and a stack's
+    `lay0`, `lay1`, ... A bar chart, a line chart and a table have no
+    interior and cannot be entered. And the containing part must be big enough
+    to be a place rather than a dot.
+
+    Expect at most one transition in five to qualify, and none at all in a deck
+    whose beats are a list of separate findings. Leaving it off is always a
+    correct answer.
+
+NARRATION
+
+Every beat carries `narration`: what the presenter SAYS while the beat is on
+screen. It is speech, not a caption. A voice reads it aloud, so write what a
+person standing beside the slide would say, and nothing a person would not.
+
+  - Full sentences in spoken register. No fragments, no bullet grammar, and
+    nothing the voice cannot pronounce — say "the loss averaged over the batch",
+    not "L_batch"; say "order n squared", not "O(n^2)".
+  - ONE SENTENCE PER REVEAL, in reveal order, separated by a single space. A beat
+    lands and then reveals its stages, terms, notes, bars or layers one at a time,
+    and the audio is cut sentence by sentence across those stops — so the first
+    sentence covers the beat arriving and each later sentence belongs to the thing
+    that appears next. A pipeline of four stages wants five sentences; a title
+    wants one. Get the count wrong and the voice runs ahead of the animation.
+  - Keep each sentence to about 25 words. It has to be said in one breath.
+  - Never read the headline back. The audience has already read it. Say the thing
+    the slide does not show: why it works, what it costs, what to notice.
+  - Claim what the DATA says, never where a thing sits on the picture. You are
+    writing over a diagram you cannot see: the archetype decides the order the
+    bars, rows, stages and layers are drawn in, a short format drops the beats it
+    does not keep, and none of that is visible from here. So "the second largest"
+    — which is checkable against your own params — and never "second from the
+    top", which is a guess about a rendering. The same goes for "above", "below",
+    "on the left", "the third one along" and "the rightmost bar". A viewer who
+    hears a position looks at the wrong thing, and the deck contradicts itself in
+    the one place nothing verifies: out loud.
+  - No "as you can see", "in this slide", "here we have", "let us take a look",
+    "moving on". The deck does not narrate itself; it explains a subject.
+
+PREFERENCES — chosen by the person who asked for this deck.
+
+LENGTH     Aim for about 12 beats. That is a target to come close to, not a
+           quota to fill. Padding to reach it — a beat restating an earlier one, a
+           divider nobody needed, a visual repeated to say one more small thing —
+           costs the deck more than being short does. A thin source yields a short
+           deck, and that is the right answer rather than a failure.
+LANGUAGE   Write every word the audience sees or hears in English (en):
+           headlines, eyebrows, claims, labels, notes, and every narration
+           sentence. Write it in that language rather than translating an English
+           draft, using the terms a specialist writing in it would use, and leave
+           proper nouns and established technical terms in their usual form.
+TONE       plain — headlines state the claim in ordinary words, and narrate in short declarative sentences with no flourish and no metaphor the source did not use.
+DENSITY    normal — a headline, the visual, and the few labels the visual needs to be readable. Notes are phrases, not sentences.
+
+Set sourceId and title from the source header, and lang to the language above.
+Omit theme — the renderer chooses it. Return the storyboard only.
+
+Do not search the web and do not read files. Everything you need is below.
+Return the storyboard as your final message, conforming to the supplied schema.
+
+SOURCE thinksr
+TITLE ThinkSR: compact thought, dense output
+LANG en
+
+== DOCUMENT ==
+
+# The mismatch    [section sec1]
+CTM's thought representation is compact; super-resolution needs a dense spatial field.
+
+## Method    [section sec2]
+A persistent dense carrier, read and updated by a compact thought process.
+
+## Results    [section sec3]
+Competitive with CNN baselines; behind recent lightweight transformers.
+
+== FIGURES ==
+[figure fig-compare] 1373x692 — Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.
+[figure fig-arch] 1373x381 — Figure 2 — ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.
+[figure fig-progress] 1298x578 — Figure 4 — Reconstruction at T=0 through T=4 against bicubic and ground truth.
+[figure fig-error] 1298x915 — Figure 5 — Absolute-error maps on the same crops, one shared colour scale.
+
+== EQUATIONS ==
+[equation eq-carrier] display — \mathbf{F}=\mathcal{E}(\mathbf{I}_{\mathrm{LR}}),\qquad \mathbf{X}=\mathcal{W}(\mathbf{F})
+
+== TABLES ==
+[table tbl-bench] Table 1 — ×4 lightweight super-resolution, average over five benchmarks.
+  columns: Method | Params | Average
+  row: CARN | 1.592M | 28.970
+  row: IMDN | 0.715M | 28.968
+  row: RFDN | 0.550M | 29.022
+  row: CATANet | 0.535M | 29.482
+  row: DQ-CTM-SR | 1.129M | 28.983
+codex
+{"sourceId":"thinksr","title":"ThinkSR: compact thought, dense output","lang":"en","theme":null,"beats":[{"id":"b01-mismatch","intent":"The core problem is that compact thought state does not directly match the dense spatial field super-resolution needs.","inside":null,"claim":"CTM's thought representation is compact; super-resolution needs a dense spatial field.","evidence":[{"kind":"section","id":"sec1"}],"narration":"The method begins with a representation mismatch: a compact thinking process has to produce spatial detail at every output location.","weight":0.95,"seconds":7,"archetype":"title","params":{"eyebrow":"The mismatch","headline":"Compact thought must produce dense image detail","sub":"ThinkSR adapts CTM for lightweight super-resolution."}},{"id":"b02-comparison","intent":"The method is positioned between a plain CTM, a window-wise adaptation, and DQ-CTM.","inside":null,"claim":"CTM, a window-wise adaptation, and DQ-CTM compared.","evidence":[{"kind":"figure","id":"fig-compare"}],"narration":"The comparison separates the original compact formulation from a window-wise variant and the DQ-CTM design used for dense reconstruction. The CTM reference establishes the compact thought side of the mismatch. The window-wise adaptation connects that process to local image regions. DQ-CTM is the version presented as the super-resolution path.","weight":0.78,"seconds":9,"archetype":"annotated-figure","params":{"eyebrow":"Figure 1","headline":"DQ-CTM is framed against two CTM variants","figureId":"fig-compare","crop":null,"notes":[{"x":0.2,"y":0.5,"text":"CTM reference","tone":"a"},{"x":0.5,"y":0.5,"text":"Window-wise adaptation","tone":"b"},{"x":0.8,"y":0.5,"text":"DQ-CTM for dense output","tone":"c"}]}},{"id":"b03-carrier-equation","intent":"The low-resolution image is encoded into a dense feature carrier, then partitioned into windows.","inside":null,"claim":"\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})","evidence":[{"kind":"equation","id":"eq-carrier"},{"kind":"section","id":"sec2"}],"narration":"The carrier starts as features encoded from the low-resolution input. The dense feature field is the persistent state that can be read and updated. Windowing turns that field into the units processed by the compact thought mechanism. The equation names the path from image to carrier to windows.","weight":0.9,"seconds":10,"archetype":"equation-walk","params":{"eyebrow":"Carrier setup","headline":"The dense carrier is built before thought updates it","equationId":"eq-carrier","terms":[{"tex":"\\mathbf{I}_{\\mathrm{LR}}","label":"low-resolution input image","tone":"a"},{"tex":"\\mathbf{F}","label":"dense feature carrier","tone":"b"},{"tex":"\\mathcal{W}","label":"window partitioning","tone":"c"},{"tex":"\\mathbf{X}","label":"windowed features","tone":"d"}]}},{"id":"b04-end-to-end","intent":"ThinkSR runs encoder, windowing, shared DQ-CTM ticks, and decoder as one end-to-end path.","inside":null,"claim":"ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.","evidence":[{"kind":"figure","id":"fig-arch"},{"kind":"section","id":"sec2"}],"narration":"The end-to-end path keeps the dense carrier present while compact thought operates over windows. The encoder creates the feature field from the input image. The window stage exposes local spatial chunks to the thought process. Shared DQ-CTM ticks apply the same compact update process repeatedly. The decoder turns the updated carrier back into the super-resolved image.","weight":0.94,"seconds":11,"archetype":"pipeline","params":{"eyebrow":"Figure 2","headline":"ThinkSR updates a dense carrier through shared ticks","stages":[{"label":"Encoder","note":"low-resolution image to features","tone":"a"},{"label":"Windows","note":"features partitioned for processing","tone":"b"},{"label":"Shared DQ-CTM ticks","note":"compact thought reads and updates","tone":"c"},{"label":"Decoder","note":"updated carrier to output image","tone":"d"}],"loop":{"from":2,"to":2,"label":"shared ticks"},"note":"The method keeps a persistent dense carrier."}},{"id":"b05-tick-progress","intent":"Reconstruction is shown evolving from T=0 through T=4 against bicubic and ground truth.","inside":{"beat":"b04-end-to-end","element":"stage2"},"claim":"Reconstruction at T=0 through T=4 against bicubic and ground truth.","evidence":[{"kind":"figure","id":"fig-progress"}],"narration":"The ticks are presented as a visible reconstruction sequence rather than only as an internal computation. The first reconstruction anchors the starting point of the iterative process. Later ticks show the same output after repeated DQ-CTM updates. Bicubic and ground truth provide the visual references for the sequence.","weight":0.86,"seconds":10,"archetype":"annotated-figure","params":{"eyebrow":"Figure 4","headline":"The reconstruction is tracked across DQ-CTM ticks","figureId":"fig-progress","crop":null,"notes":[{"x":0.18,"y":0.5,"text":"T=0 reconstruction","tone":"a"},{"x":0.42,"y":0.5,"text":"intermediate ticks","tone":"b"},{"x":0.66,"y":0.5,"text":"T=4 reconstruction","tone":"c"},{"x":0.86,"y":0.5,"text":"bicubic and ground truth references","tone":"d"}]}},{"id":"b06-error-maps","intent":"Absolute-error maps compare the same crops on one shared colour scale.","inside":null,"claim":"Absolute-error maps on the same crops, one shared colour scale.","evidence":[{"kind":"figure","id":"fig-error"}],"narration":"The error view changes the comparison from image appearance to per-crop residuals. The same crops keep the visual comparison controlled. A shared colour scale makes the error maps directly comparable. The figure therefore tests reconstruction quality without changing the crop or scale.","weight":0.72,"seconds":9,"archetype":"annotated-figure","params":{"eyebrow":"Figure 5","headline":"Error maps use the same crops and colour scale","figureId":"fig-error","crop":null,"notes":[{"x":0.24,"y":0.28,"text":"same crop set","tone":"a"},{"x":0.5,"y":0.52,"text":"absolute-error maps","tone":"b"},{"x":0.78,"y":0.82,"text":"one shared colour scale","tone":"c"}]}},{"id":"b07-cnn-results","intent":"DQ-CTM-SR is competitive with the listed CNN baselines on average benchmark score.","inside":null,"claim":"Competitive with CNN baselines; behind recent lightweight transformers.","evidence":[{"kind":"section","id":"sec3"},{"kind":"table","id":"tbl-bench"}],"narration":"The average scores put DQ-CTM-SR in the same narrow band as the CNN baselines. CARN reports an average of 28.970. IMDN reports 28.968. RFDN reports 29.022. DQ-CTM-SR reports 28.983, which is close to those CNN results.","weight":0.82,"seconds":10,"archetype":"bar-compare","params":{"eyebrow":"Table 1","headline":"DQ-CTM-SR is close to the CNN baselines","unit":"Average over five benchmarks","bars":[{"label":"IMDN","value":28.968,"tone":"a"},{"label":"CARN","value":28.97,"tone":"a"},{"label":"DQ-CTM-SR","value":28.983,"tone":"c"},{"label":"RFDN","value":29.022,"tone":"a"}],"note":"Average is reported for x4 lightweight super-resolution."}},{"id":"b08-transformer-gap","intent":"The reported average leaves DQ-CTM-SR behind the recent lightweight transformer baseline CATANet.","inside":null,"claim":"Competitive with CNN baselines; behind recent lightweight transformers.","evidence":[{"kind":"section","id":"sec3"},{"kind":"table","id":"tbl-bench"}],"narration":"The same benchmark table also shows the main reported gap. DQ-CTM-SR reports an average of 28.983. CATANet reports 29.482. That makes CATANet the stronger result among the listed methods.","weight":0.84,"seconds":8,"archetype":"bar-compare","params":{"eyebrow":"Table 1","headline":"DQ-CTM-SR trails CATANet on average score","unit":"Average over five benchmarks","bars":[{"label":"DQ-CTM-SR","value":28.983,"tone":"c"},{"label":"CATANet","value":29.482,"tone":"d"}],"note":"CATANet is the recent lightweight transformer baseline in the table."}},{"id":"b09-parameter-cost","intent":"DQ-CTM-SR is not the smallest model among the reported lightweight methods.","inside":null,"claim":"Table 1 — x4 lightweight super-resolution, average over five benchmarks.","evidence":[{"kind":"table","id":"tbl-bench"}],"narration":"The parameter counts show that compact thought does not make this version the smallest model in the table. CATANet reports 0.535 million parameters. RFDN reports 0.550 million parameters. DQ-CTM-SR reports 1.129 million parameters. CARN remains the largest listed model at 1.592 million parameters.","weight":0.62,"seconds":10,"archetype":"bar-compare","params":{"eyebrow":"Table 1","headline":"DQ-CTM-SR is mid-sized among the listed models","unit":"million parameters","bars":[{"label":"CATANet","value":0.535,"tone":"d"},{"label":"RFDN","value":0.55,"tone":"a"},{"label":"IMDN","value":0.715,"tone":"a"},{"label":"DQ-CTM-SR","value":1.129,"tone":"c"},{"label":"CARN","value":1.592,"tone":"a"}],"note":"Params are reported in millions."}},{"id":"b10-takeaway","intent":"ThinkSR's contribution is the persistent dense carrier updated by compact thought, with results close to CNNs but below CATANet.","inside":null,"claim":"A persistent dense carrier, read and updated by a compact thought process.","evidence":[{"kind":"section","id":"sec2"},{"kind":"section","id":"sec3"}],"narration":"The source's central idea is not that compact thought replaces spatial structure. It is that a dense carrier stays present while compact thought reads and updates it. The reported outcome is competitive with CNN baselines. The stated limitation is that recent lightweight transformers remain ahead.","weight":0.9,"seconds":9,"archetype":"callout","params":{"eyebrow":"Takeaway","headline":"ThinkSR keeps density outside the compact thought state","panels":[{"label":"Method","lines":["persistent dense carrier","compact read-update process"]},{"label":"Reported result","lines":["competitive with CNN baselines","behind recent lightweight transformers"]}],"note":null}}]}
+tokens used
+3,430

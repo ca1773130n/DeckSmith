@@ -1,0 +1,19 @@
+{
+  "arm": "B",
+  "i": 8,
+  "ms": 152253,
+  "exit": 0,
+  "promptChars": 8659,
+  "schemaChars": 3324,
+  "outChars": 21420,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 13425,
+  "refsResolve": true,
+  "shared": [],
+  "algebra": [
+    "scene[0] s01-flow obj h1: box extends off stage"
+  ],
+  "soft": [],
+  "coherent": false
+}

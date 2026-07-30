@@ -1,0 +1,17 @@
+compiled 5 plays, total 6.00s
+  play 0  [0.00, 1.00]  Write
+  play 1  [1.00, 2.00]  FadeIn
+  play 2  [2.00, 3.50]  TransformMatchingTex
+  play 3  [3.50, 4.50]  Create
+  play 4  [4.50, 6.00]  _MethodAnimation
+
+200 absolute times, SHUFFLED, evaluated from records only
+  shape mismatches : 0
+  max deviation    : 0
+  VERDICT          : SEEK-EQUIVALENT
+
+payload cost of shape-level morphing (what would have to reach the browser)
+  a^2+b^2=c^2     8 glyph leaves,  572 bezier anchor/handle points,   1716 floats (x,y,z)
+                 one Transform = 3432 floats -> 23.5 KB as JSON at 3dp
+  attention      35 glyph leaves, 2940 bezier anchor/handle points,   8820 floats (x,y,z)
+                 one Transform = 17640 floats -> 120.6 KB as JSON at 3dp

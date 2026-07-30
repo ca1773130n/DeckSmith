@@ -1,0 +1,86 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b02",
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Method",
+        "headline": "One pass in, one pass out, and a loop in the middle",
+        "stages": [
+          {
+            "label": "Encode",
+            "note": "SwinIR-style"
+          },
+          {
+            "label": "Window",
+            "note": "no pooling",
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM",
+            "note": "shared ticks",
+            "tone": "b"
+          },
+          {
+            "label": "Decode",
+            "note": "×4 upsample"
+          }
+        ],
+        "loop": {
+          "from": 2,
+          "to": 2,
+          "label": "one thought tick"
+        },
+        "note": "Parameters are shared across every tick."
+      },
+      "intent": "The recurrence sits after the encoder, not around it.",
+      "narration": "The encoder does the heavy lifting first, in the style SwinIR established. Then the field is cut into windows, and nothing is pooled away on the way through. The thought machine sits here in the middle, working on what the windows hold. Only at the very end does the decoder upsample, four times over. That loop is a single tick, and it runs in place rather than around the whole pipeline. Every tick reuses the same weights, so thinking for longer costs time and not memory.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.95,
+      "seconds": 9
+    },
+    {
+      "id": "b04",
+      "archetype": "grid",
+      "params": {
+        "eyebrow": "Representation",
+        "headline": "Attention is computed inside windows, and no token is pooled away",
+        "cols": 12,
+        "rows": 8,
+        "regions": [
+          {
+            "x": 0,
+            "y": 0,
+            "w": 4,
+            "h": 4,
+            "label": "one window",
+            "tone": "a"
+          },
+          {
+            "x": 6,
+            "y": 3,
+            "w": 4,
+            "h": 4,
+            "label": "the next window",
+            "tone": "b"
+          }
+        ],
+        "note": "Token count is identical before and after the update."
+      },
+      "intent": "The carrier keeps every position across ticks.",
+      "narration": "Picture the feature map as a grid of tokens. Attention runs inside one window at a time. The next window does the same, and at this stage the two never mix. Count the tokens before a tick and after it and you get the same number.",
+      "evidence": [],
+      "weight": 0.85,
+      "seconds": 9
+    }
+  ]
+}

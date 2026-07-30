@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>equation morph spike</title>
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="./vendor/gsap.min.js"></script>
+    <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
+    <script src="./vendor/katex/katex.min.js"></script>
+    <script src="./morph.js"></script>
+    <style>
+      html, body { margin: 0; padding: 0; background: #0d1014; }
+      #root { width: 1920px; height: 1080px; position: relative; overflow: hidden; }
+      .scene { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+      .morph { position: relative; width: 1700px; height: 400px; color: #eef2f6; }
+      .side { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; }
+      .ds-morph-layer { position: absolute; inset: 0; }
+      .katex-display { margin: 0 !important; }
+      .caption { position: absolute; left: 40px; top: 30px; font: 24px ui-monospace, monospace; color: #6b7785; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="scene">
+        <div class="morph" id="m" style="font-size: 96px">
+          <div class="side" data-morph="a" id="ma"></div>
+          <div class="side" data-morph="b" id="mb"></div>
+        </div>
+      </div>
+      <div class="caption" id="cap"></div>
+    </div>
+    <script>
+      const CASES = {
+        swap: {
+          a: "a^2 + b^2 = c^2",
+          b: "c^2 - b^2 = a^2",
+        },
+        swapKeyed: {
+          a: "\\htmlClass{ds-k-a}{a^2} + \\htmlClass{ds-k-b}{b^2} = \\htmlClass{ds-k-c}{c^2}",
+          b: "\\htmlClass{ds-k-c}{c^2} - \\htmlClass{ds-k-b}{b^2} = \\htmlClass{ds-k-a}{a^2}",
+        },
+        fraction: {
+          a: "E = mc^2",
+          b: "m = \\dfrac{E}{c^2}",
+        },
+        fractionKeyed: {
+          a: "\\htmlClass{ds-k-E}{E} = \\htmlClass{ds-k-m}{m}\\htmlClass{ds-k-c}{c^2}",
+          b: "\\htmlClass{ds-k-m}{m} = \\dfrac{\\htmlClass{ds-k-E}{E}}{\\htmlClass{ds-k-c}{c^2}}",
+        },
+        sum: {
+          a: "\\sum_{n=1}^{\\infty} \\dfrac{1}{n^2} = \\dfrac{\\pi^2}{6}",
+          b: "\\dfrac{\\pi^2}{6} = \\sum_{n=1}^{\\infty} \\dfrac{1}{n^2}",
+        },
+        sumKeyed: {
+          a: "\\htmlClass{ds-k-S}{\\sum_{n=1}^{\\infty} \\dfrac{1}{n^2}} = \\htmlClass{ds-k-P}{\\dfrac{\\pi^2}{6}}",
+          b: "\\htmlClass{ds-k-P}{\\dfrac{\\pi^2}{6}} = \\htmlClass{ds-k-S}{\\sum_{n=1}^{\\infty} \\dfrac{1}{n^2}}",
+        },
+        derivative: {
+          a: "\\htmlClass{ds-k-op}{\\dfrac{d}{dx}}\\htmlClass{ds-k-arg}{\\left( x^2 \\right)} = \\htmlClass{ds-k-res}{2x}",
+          b: "\\htmlClass{ds-k-op}{\\dfrac{d}{dx}}\\htmlClass{ds-k-arg}{\\left( x^3 \\right)} = \\htmlClass{ds-k-res}{3x^2}",
+        },
+      };
+
+      const q = new URLSearchParams(location.search);
+      const name = q.get("case") || "swap";
+      const gate = q.get("gate") || "fonts";
+      const DUR = Number(q.get("dur") || 1.4);
+      const AT = Number(q.get("at") || 1.0);
+      const TOTAL = Number(q.get("total") || 4);
+      const c = CASES[name];
+      document.getElementById("cap").textContent = name + "  gate=" + gate;
+
+      const OPTS = { displayMode: true, trust: true, strict: false, output: "html" };
+      katex.render(c.a, document.getElementById("ma"), OPTS);
+      katex.render(c.b, document.getElementById("mb"), OPTS);
+
+      window.__built = false;
+      function buildAll() {
+        const host = document.getElementById("m");
+        const r = DSMorph.build(host, DUR, { arc: q.get("arc") !== "0" });
+        window.__stats = r.stats;
+        window.__steps = r.steps.map((s) => ({
+          from: s.from, to: s.to, at: s.at, dur: s.dur, ease: s.ease,
+        }));
+        const tl = gsap.timeline({ paused: true });
+        tl.to({}, { duration: TOTAL });
+        DSMorph.apply(tl, r.steps, AT);
+        window.__timelines = { m: tl };
+        window.__built = true;
+      }
+
+      // A plain KaTeX render of one side, with no lift and no timeline. The
+      // control the morph's resting frames are diffed against: if the overlay is
+      // faithful, rest-A is byte-identical to control=a.
+      const control = q.get("control");
+      if (control) {
+        document.getElementById(control === "a" ? "mb" : "ma").style.display = "none";
+        document.getElementById("cap").textContent = name + "  control=" + control;
+        document.fonts.ready.then(() => {
+          requestAnimationFrame(() => requestAnimationFrame(() => { window.__built = true; }));
+        });
+        window.__seek = () => {};
+      } else if (gate === "parse") {
+        buildAll();
+      } else {
+        document.fonts.ready.then(() => {
+          // One frame so the reflow from the real metrics has landed.
+          requestAnimationFrame(() => requestAnimationFrame(buildAll));
+        });
+      }
+
+      /** Exactly what hyperframes' gsap adapter does. */
+      window.__seek = function (t) {
+        const tl = window.__timelines.m;
+        tl.pause();
+        tl.totalTime(t + 0.001, true);
+        tl.totalTime(t, true);
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,100 @@
+{
+  "id": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "sections": [
+    {
+      "id": "sec1",
+      "depth": 1,
+      "heading": "The mismatch",
+      "text": "CTM's thought representation is compact; super-resolution needs a dense spatial field."
+    },
+    {
+      "id": "sec2",
+      "depth": 2,
+      "heading": "Method",
+      "text": "A persistent dense carrier, read and updated by a compact thought process."
+    },
+    {
+      "id": "sec3",
+      "depth": 2,
+      "heading": "Results",
+      "text": "Competitive with CNN baselines; behind recent lightweight transformers."
+    }
+  ],
+  "figures": [
+    {
+      "id": "fig-compare",
+      "src": "fig-compare.jpg",
+      "caption": "Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.",
+      "width": 1373,
+      "height": 692
+    },
+    {
+      "id": "fig-arch",
+      "src": "fig-arch.jpg",
+      "caption": "Figure 2 — ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "width": 1373,
+      "height": 381
+    },
+    {
+      "id": "fig-progress",
+      "src": "fig-progress.jpg",
+      "caption": "Figure 4 — Reconstruction at T=0 through T=4 against bicubic and ground truth.",
+      "width": 1298,
+      "height": 578
+    },
+    {
+      "id": "fig-error",
+      "src": "fig-error.jpg",
+      "caption": "Figure 5 — Absolute-error maps on the same crops, one shared colour scale.",
+      "width": 1298,
+      "height": 915
+    }
+  ],
+  "equations": [
+    {
+      "id": "eq-carrier",
+      "tex": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+      "display": true
+    }
+  ],
+  "tables": [
+    {
+      "id": "tbl-bench",
+      "caption": "Table 1 — ×4 lightweight super-resolution, average over five benchmarks.",
+      "columns": [
+        "Method",
+        "Params",
+        "Average"
+      ],
+      "rows": [
+        [
+          "CARN",
+          "1.592M",
+          "28.970"
+        ],
+        [
+          "IMDN",
+          "0.715M",
+          "28.968"
+        ],
+        [
+          "RFDN",
+          "0.550M",
+          "29.022"
+        ],
+        [
+          "CATANet",
+          "0.535M",
+          "29.482"
+        ],
+        [
+          "DQ-CTM-SR",
+          "1.129M",
+          "28.983"
+        ]
+      ]
+    }
+  ]
+}

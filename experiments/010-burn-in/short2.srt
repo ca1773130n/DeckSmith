@@ -1,0 +1,167 @@
+1
+00:00:01,950 --> 00:00:06,147
+This paper puts a thought process
+that stays small up against
+
+2
+00:00:06,147 --> 00:00:10,137
+a task whose output has to stay
+large — every pixel of it.
+
+3
+00:00:11,817 --> 00:00:17,279
+The encoder does the heavy lifting
+first, in the style SwinIR established.
+
+4
+00:00:18,783 --> 00:00:23,708
+Then the field is cut into windows, and
+nothing is pooled away on the way through.
+
+5
+00:00:25,217 --> 00:00:29,454
+The thought machine sits here in the
+middle, working on what the windows hold.
+
+6
+00:00:30,950 --> 00:00:35,600
+Only at the very end does the
+decoder upsample, four times over.
+
+7
+00:00:36,950 --> 00:00:39,612
+That loop is a single tick, and it runs in
+
+8
+00:00:39,612 --> 00:00:42,400
+place rather than around
+the whole pipeline.
+
+9
+00:00:43,283 --> 00:00:45,998
+Every tick reuses the same weights, so
+
+10
+00:00:45,998 --> 00:00:49,283
+thinking for longer costs
+time and not memory.
+
+11
+00:00:50,950 --> 00:00:54,313
+Look at the bottom row of the
+comparison figure — all three
+
+12
+00:00:54,313 --> 00:00:57,675
+approaches differ only in what
+they hand the thought block.
+
+13
+00:00:59,050 --> 00:01:01,787
+The windows come first: the field is
+
+14
+00:01:01,787 --> 00:01:05,437
+partitioned, and each one
+is handled on its own.
+
+15
+00:01:06,483 --> 00:01:10,908
+The block in the middle is shared,
+the same weights for every window.
+
+16
+00:01:11,983 --> 00:01:16,820
+And what comes out is still a dense field,
+one query for every position in it.
+
+17
+00:01:18,517 --> 00:01:21,279
+Picture the feature map
+as a grid of tokens.
+
+18
+00:01:22,450 --> 00:01:25,337
+Attention runs inside
+one window at a time.
+
+19
+00:01:26,650 --> 00:01:31,612
+The next window does the same, and
+at this stage the two never mix.
+
+20
+00:01:32,717 --> 00:01:36,554
+Count the tokens before a tick and
+after it and you get the same number.
+
+21
+00:01:39,050 --> 00:01:43,375
+The encoder turns the low-resolution
+image into a dense feature field.
+
+22
+00:01:45,383 --> 00:01:50,033
+The partition then cuts that field into
+windows without throwing any of it away.
+
+23
+00:01:52,083 --> 00:01:57,008
+The window-wise version collapses each
+window down to a single summary token.
+
+24
+00:01:58,017 --> 00:02:03,567
+This one asks a question at every position
+instead, and the token count survives it.
+
+25
+00:02:04,483 --> 00:02:06,483
+The partition is identical in both.
+
+26
+00:02:06,483 --> 00:02:10,158
+What differs is how much of it
+the thought state ever sees.
+
+27
+00:02:12,617 --> 00:02:16,629
+These are five-benchmark averages
+at four times upscaling.
+
+28
+00:02:17,450 --> 00:02:21,600
+CATANet is the one to beat, at 29.48.
+
+29
+00:02:22,917 --> 00:02:26,460
+The method here comes
+in at 28.98 — ahead of
+
+30
+00:02:26,460 --> 00:02:29,842
+two CNN baselines, behind the transformer.
+
+31
+00:02:31,250 --> 00:02:33,937
+Only that last row was
+trained for this paper.
+
+32
+00:02:33,937 --> 00:02:35,637
+Every other number is quoted.
+
+33
+00:02:38,717 --> 00:02:41,842
+The first tick is worth
+almost a full decibel.
+
+34
+00:02:42,750 --> 00:02:45,724
+The fourth is worth under
+a tenth, and training
+
+35
+00:02:45,724 --> 00:02:48,887
+stopped there, so nothing
+past it is demonstrated.

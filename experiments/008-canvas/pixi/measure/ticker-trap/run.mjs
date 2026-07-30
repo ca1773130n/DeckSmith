@@ -1,0 +1,16 @@
+import puppeteer from "/Users/neo/Developer/Projects/DeckSmith/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+const b = await puppeteer.launch({ executablePath: "/Users/neo/.cache/puppeteer/chrome-headless-shell/mac_arm-145.0.7632.46/chrome-headless-shell-mac-arm64/chrome-headless-shell", headless: true, args: ["--allow-file-access-from-files","--use-gl=angle","--use-angle=metal"] });
+const p = await b.newPage();
+await p.goto(`file://${new URL(".", import.meta.url).pathname}t.html`, { waitUntil: "load" });
+await p.waitForFunction("window.ready === true");
+const s0 = await p.evaluate(() => ({ raf: window.raf, started: window.app.ticker.started, count: window.app.ticker.count, autoStart: window.Ticker.shared.autoStart, elapsed: window.app.ticker.lastTime }));
+await new Promise(r => setTimeout(r, 1500));
+const s1 = await p.evaluate(() => ({ raf: window.raf, lastTime: window.app.ticker.lastTime, deltaMS: window.app.ticker.deltaMS }));
+await p.evaluate(() => window.app.ticker.stop());
+const s2a = await p.evaluate(() => window.raf);
+await new Promise(r => setTimeout(r, 1500));
+const s2b = await p.evaluate(() => ({ raf: window.raf, started: window.app.ticker.started }));
+console.log("new Application() default:  ticker.started =", s0.started, " Ticker.shared.autoStart =", s0.autoStart);
+console.log("  rAF callbacks in 1.5s idle:", s1.raf - s0.raf, " ticker.lastTime advanced by", (s1.lastTime - s0.elapsed).toFixed(0), "ms  deltaMS", s1.deltaMS.toFixed(2));
+console.log("after app.ticker.stop():     ticker.started =", s2b.started, " rAF callbacks in 1.5s idle:", s2b.raf - s2a);
+await b.close();

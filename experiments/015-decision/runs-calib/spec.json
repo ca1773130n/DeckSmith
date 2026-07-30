@@ -1,0 +1,22 @@
+{
+  "menu": {
+    "guidance": 13122,
+    "schema": 18265,
+    "prompt": 15657
+  },
+  "vocab": {
+    "guidance": 12603,
+    "schema": 3588,
+    "prompt": 15785
+  },
+  "shared": {
+    "task": 1069,
+    "source": 1306
+  },
+  "band": [
+    11810,
+    14434
+  ],
+  "inBand": true,
+  "ratio": 0.96
+}

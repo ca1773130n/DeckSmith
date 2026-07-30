@@ -1,0 +1,93 @@
+{
+  "_note": "Raw DOM measurements taken with Playwright against a live public Gamma deck. Not from marketing copy.",
+  "date": "2026-07-27",
+  "target": "https://gamma.app/embed/Resume-Creation-fpe9g3pkww8z473",
+  "note_on_access": "gamma.app/docs/<slug> serves an empty SPA shell to an automated browser (403 on every _next chunk, 50 console errors, 3 DIVs, no __NEXT_DATA__). The /embed/<slug> route renders fully. Use /embed for any future inspection.",
+
+  "stack": {
+    "framework": "Next.js (_next/static/chunks) + React",
+    "css": "Emotion (data-emotion, css-<hash>) + Chakra UI (chakra-button, chakra-stack)",
+    "document_model": "ProseMirror / TipTap. Evidence: data-node-view-wrapper x99, data-node-view-content x73, class 'react-renderer' x92, node-<type> class per PM node.",
+    "icons": "Font Awesome (svg-inline--fa x55 of 63 total SVGs)",
+    "rendering": "DOM + SVG only. canvas=0. WebGL=false."
+  },
+
+  "prosemirror_node_types_observed": [
+    "node-document", "node-card", "node-cardLayoutItem", "node-cardAccentLayoutItem",
+    "node-smartLayout", "node-smartLayoutCell", "node-gridLayout", "node-gridCell",
+    "node-table", "node-tableRow", "node-tableCell", "node-image",
+    "node-contributors", "node-hardBreak"
+  ],
+  "block_types_observed": [
+    "block-title", "block-heading", "block-paragraph", "block-image",
+    "block-table", "block-gridLayout", "block-smartLayout", "block-card", "block-contributors"
+  ],
+  "inline_vocabulary": ["gml-title", "gml-heading", "gml-paragraph", "gml-callout", "gml-display"],
+  "absent_from_vocabulary": [
+    "no chart node", "no diagram node", "no equation/math node", "no annotation/leader-line node",
+    "no timeline node", "no shape/vector-drawing node", "no video/timeline node"
+  ],
+
+  "card_layout_axis": {
+    "data-card-layout values observed": ["left", "right", "top", "behind"],
+    "meaning": "Where the media sits relative to the text. This is the entire per-card design decision surface."
+  },
+
+  "deck_composition": {
+    "cards": 18,
+    "per_card_block_type": [
+      "0 contributors(title card)", "1 smartLayout", "2 smartLayout", "3 gridLayout",
+      "4 smartLayout", "5 smartLayout", "6 table", "7 smartLayout", "8 smartLayout",
+      "9 (text only)", "10 image", "11 image", "12 image", "13 image", "14 image", "15 image",
+      "16 (text only)", "17 (text only)"
+    ],
+    "smartLayout_cell_counts": [3, 6, 3, 3, 3, 3],
+    "observation": "Each card holds exactly ONE block type. 8/18 cards are smartLayout; 6/18 are a bare image. Text is poured into 3-cell smart layouts."
+  },
+
+  "animation": {
+    "mechanism": "One-shot CSS transition on block entrance.",
+    "measured_computed_style": {
+      "selector": ".animatable-on-load (first title block)",
+      "animationName": "none",
+      "transition": "opacity 1s cubic-bezier(0.22, 1, 0.36, 1), transform 1s cubic-bezier(0.22, 1, 0.36, 1)"
+    },
+    "stagger_classes": ["animatable-on-load", "animatable-on-load-content-parent", "animatable-on-load-content-child", "animatable-on-load-atom", "animate-has-animated"],
+    "elements_with_a_running_CSS_animation": 0,
+    "keyframes_defined_on_page": "All are third-party: fa-* (Font Awesome), loading/spinner, ProseMirror-cursor-blink, intercom-*. None belong to deck content.",
+    "conclusion": "No timeline. No scrub. No seek. No camera. Blocks fade+rise once when their card is entered."
+  },
+
+  "present_mode": {
+    "url": "?mode=present, deep-linked as #card-<id>",
+    "card_size_forced_to": [1920, 1080],
+    "mounted_cards": "current + next only; all other cards measure height 0",
+    "state_classes": ["is-present-mode", "card-presenting", "card-present-mode--presentCurrent", "card-present-mode--presentNext", "card-expanded"],
+    "transition_between_cards": "transition: opacity 0.2s  <-- a 200ms crossfade. That is the entire slide-to-slide transition.",
+    "scroll_snap_type_anywhere_on_page": "none (no scroll-snap used)",
+    "motion-present-mode-bg": {
+      "backgroundImage": "none",
+      "backgroundColor": "rgb(170, 188, 182)",
+      "animationName": "none",
+      "childElements": 0,
+      "verdict": "A solid-colour letterbox div. Despite the class name there is NO moving background."
+    }
+  },
+
+  "doc_mode": {
+    "card_heights_px": [496, 643, 722, 584, 879, 805, 557, 654, 655, 340, 496, 496, 496, 496, 496, 496, 496, 1399],
+    "verdict": "In doc mode cards are content-sized and stack vertically in a normal scroller (.doc-root, overflow-y auto). Same card list, different view. Continuous scroll is a VIEW MODE over a card array, not a canvas."
+  },
+
+  "public_api_generation_surface": {
+    "source": "https://developers.gamma.app/generations/create-generation.md (OpenAPI)",
+    "format": ["presentation", "document", "social", "webpage"],
+    "textMode": ["generate", "condense", "preserve"],
+    "cardSplit": ["inputTextBreaks", "auto"],
+    "numCards": "target slide count",
+    "exportAs": ["pptx", "pdf", "png"],
+    "image_models_offered": ["gemini-3-pro-image", "gemini-3-pro-image-hd", "gemini-3.1-flash-image(-mini/-hd)", "flux-2", "luma-ray-2", "leonardo-motion-2", "leonardo-motion-2-fast", "..."],
+    "NO_VIDEO_EXPORT": "exportAs has no mp4/video enum. Confirmed independently: Gamma has an open feature request to preserve animations in exports at all.",
+    "NO_STRUCTURE_CONTROL": "There is no parameter anywhere in the generation API for diagram type, chart type, layout archetype, reveal steps, or animation. The whole surface is: how much text, which image style, which theme, how many cards."
+  }
+}

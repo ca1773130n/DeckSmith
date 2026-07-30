@@ -1,0 +1,21 @@
+{
+  "arm": "A",
+  "i": 3,
+  "ms": 37934,
+  "exit": 0,
+  "promptChars": 15354,
+  "schemaChars": 18265,
+  "outChars": 3418,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 3391,
+  "refsResolve": true,
+  "shared": [
+    "beat[0] b01-method-flow: headline 67 chars > 60",
+    "beat[1] b02-carrier-equation: headline 65 chars > 60",
+    "beat[2] b03-params: narration 5 sentences, 6 reveals"
+  ],
+  "algebra": [],
+  "soft": [],
+  "coherent": false
+}

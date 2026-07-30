@@ -1,0 +1,20 @@
+{
+  "name": "layout",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@lume/kiwi": "^0.4.4",
+    "@viz-js/viz": "^3.28.0",
+    "dagre": "^0.8.5",
+    "elkjs": "^0.12.0"
+  }
+}

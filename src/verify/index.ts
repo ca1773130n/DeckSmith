@@ -1,0 +1,488 @@
+/**
+ * T0 + T1 for a built deck: our determinism contract, then the HyperFrames gates.
+ *
+ * The determinism scan is here because nothing upstream runs it. `hyperframes
+ * check` will happily pass a composition that calls `Math.random()` — it looks
+ * fine in the one frame the inspector sampled, and then two renders of the same
+ * deck differ byte for byte and every downstream diff becomes noise.
+ */
+import { readdir, readFile } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
+import { DECK_PAGE } from "../emit/composition.js";
+import { type Beat, DIAGRAMMATIC, type Finding, type Storyboard, type Verdict } from "../types.js";
+import { scanBudget } from "./budget.js";
+import { type CheckOptions, check } from "./check.js";
+import { fidelity } from "./fidelity.js";
+import { scanTypeFloor } from "./typefloor.js";
+
+/**
+ * The duration budget reads the built composition, so it needs no argument the
+ * `verify <dir>` entry point does not already have. Exported for the same reason
+ * the other scans are: it is testable without a browser.
+ */
+export { type Canvas, profilesFor, readCanvas, scanBudget } from "./budget.js";
+
+/**
+ * The drift gate is deliberately not part of `verify()`. Everything above reads
+ * one built artifact and costs seconds; drift renders the deck twice and costs
+ * minutes, so folding it in would make every build pay for it. It is its own
+ * entry point, called on demand.
+ */
+export {
+  type DriftMode,
+  type DriftOptions,
+  type DriftReport,
+  drift,
+  FLOOR_DB,
+  type Motion,
+  type SceneWindow,
+} from "./drift.js";
+/**
+ * The fidelity gate. Unlike `drift` it IS part of `verify()`: it costs one
+ * browser and one screenshot per declared stop — 4.3s for the twelve-beat demo's
+ * 37 stops against `check`'s ~60s — so folding it in is a 7% tax, and it is the
+ * only gate here that can see a slide that draws nothing.
+ */
+export {
+  type FidelityOptions,
+  type FidelityReport,
+  type Frame,
+  fidelity,
+  gradeFidelity,
+  INK_FLOOR,
+  inkBelow,
+  type Measured,
+  readStops,
+  type Stop,
+} from "./fidelity.js";
+/**
+ * Invariant 5. Emit enforces the floor while laying a beat out, and this checks
+ * that the artifact came out the way emit believed — the two are not the same
+ * claim while any of that enforcement is a character count rather than a width.
+ */
+export { scanTypeFloor, TYPE_FLOOR_PX } from "./typefloor.js";
+
+/**
+ * Sources of per-render variance. Only render-time calls matter, so a CDN
+ * `<script src>` is fine and `fetch()` is not — the former is fetched once by the
+ * compiler, the latter resolves differently on every frame.
+ */
+const NONDETERMINISM: ReadonlyArray<[RegExp, string]> = [
+  [/\bMath\.random\s*\(/, "math_random"],
+  [/\bDate\.now\s*\(/, "date_now"],
+  [/\bnew\s+Date\s*\(\s*\)/, "date_now"],
+  [/\bperformance\.now\s*\(/, "performance_now"],
+  [/\bfetch\s*\(/, "runtime_fetch"],
+  [/\bXMLHttpRequest\b/, "runtime_fetch"],
+];
+
+/**
+ * What `verify` runs on top of the HyperFrames gates.
+ *
+ * `fidelity` is opt-OUT rather than opt-in: it is the only gate that can see a
+ * slide the audience gets nothing from, and a gate that has to be asked for is a
+ * gate that is not on when it matters. The switch exists for the one honest
+ * case — a machine with no browser, where it would only emit its own warning.
+ */
+export interface VerifyOptions extends CheckOptions {
+  /** Default true. `false` skips the frame measurement entirely. */
+  fidelity?: boolean;
+}
+
+/**
+ * Run every gate DeckSmith owns over a built project directory.
+ *
+ * The storyboard is optional because `decksmith verify <dir>` is handed a built
+ * directory and nothing else; pass it from `build`, where one is in hand, to get
+ * the beat-level gates as well. `kept` — the cut `build` emitted — is optional
+ * for the same reason, and for a second one: without it the budget gate falls
+ * back to the flat threshold, which is the right list only while the budget has
+ * cut nothing.
+ */
+export async function verify(
+  dir: string,
+  opts: VerifyOptions = {},
+  storyboard?: Storyboard,
+  kept?: readonly Beat[],
+): Promise<Verdict> {
+  const html = await readCompositions(dir);
+  const determinism = html.flatMap(([file, text]) => scanDeterminism(text, file));
+  const narration = scanNarration(
+    await readFile(join(dir, DECK_PAGE), "utf8").catch(() => ""),
+    await listFiles(dir),
+  );
+  const budget = html.flatMap(([, text]) => scanBudget(text, storyboard, kept));
+  const type = html.flatMap(([file, text]) => scanTypeFloor(text, file));
+  const ours = [...determinism, ...narration, ...budget, ...type];
+  // Both boot a Chrome, and they boot different ones, so they overlap almost
+  // perfectly rather than contending: `check` is a child process pinning ~40% of
+  // one core (scripts/score.mjs measured that), this one is in-process.
+  const [verdict, frames] = await Promise.all([
+    check(dir, opts),
+    opts.fidelity === false ? null : fidelity(dir),
+  ]);
+  const seen = [...ours, ...(frames?.findings ?? [])];
+  return {
+    passed: verdict.passed && seen.every((f) => f.severity !== "error"),
+    findings: [
+      ...seen,
+      ...(storyboard
+        ? [
+            ...scanDiagrammatic(storyboard),
+            ...scanHeadlines(storyboard),
+            ...scanRepeatedObject(storyboard),
+          ]
+        : []),
+      ...verdict.findings,
+    ],
+  };
+}
+
+/** Only one island, and only in the presented page — so a regex is honest here. */
+const NARRATION_ISLAND =
+  /<script type="application\/decksmith-narration\+json">([\s\S]*?)<\/script>/;
+
+/**
+ * Every mp3 the narration island promises is actually in the deck.
+ *
+ * Nothing else notices this. `hyperframes check` never opens `deck.html`, and
+ * the runtime treats a missing file exactly like a browser that refused to
+ * autoplay — it clears the subtitles and moves on. So a deck that lost its audio
+ * on the way to a web host presents in silence and says nothing about why, which
+ * is the failure mode a gate exists for.
+ */
+export function scanNarration(page: string, files: ReadonlySet<string>): Finding[] {
+  const island = NARRATION_ISLAND.exec(page)?.[1];
+  if (!island) return [];
+  let parsed: { dir?: unknown; scenes?: unknown };
+  try {
+    // The emitter escapes every `<` as \u003c, so the only literal `</script>`
+    // in the page is the tag that closes the island. JSON.parse reads them back.
+    parsed = JSON.parse(island) as { dir?: unknown; scenes?: unknown };
+  } catch {
+    return [
+      {
+        severity: "error",
+        gate: "narration",
+        rule: "island_unparseable",
+        message: `${DECK_PAGE} carries a narration island that is not valid JSON, so the deck will present in silence.`,
+      },
+    ];
+  }
+  const dir = typeof parsed.dir === "string" && parsed.dir ? `${parsed.dir}/` : "";
+  const scenes = (parsed.scenes ?? {}) as Record<string, Array<{ audio?: unknown }>>;
+
+  const missing = new Set<string>();
+  for (const segments of Object.values(scenes)) {
+    for (const s of segments ?? []) {
+      // A URL is somebody else's to serve; only the paths we shipped are ours.
+      if (typeof s?.audio !== "string" || /^[a-z][a-z0-9+.-]*:|^\//i.test(s.audio)) continue;
+      if (!files.has(`${dir}${s.audio}`)) missing.add(s.audio);
+    }
+  }
+  if (missing.size === 0) return [];
+  return [
+    {
+      severity: "error",
+      gate: "narration",
+      rule: "audio_missing",
+      message: `${missing.size} narration file(s) named by ${DECK_PAGE} are not in the deck: ${[...missing].sort().slice(0, 5).join(", ")}. Re-run \`decksmith build\` with --narration.`,
+    },
+  ];
+}
+
+/** Deck-relative paths of everything that shipped, for the narration gate. */
+async function listFiles(dir: string): Promise<Set<string>> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
+  return new Set(
+    entries
+      .filter((e) => e.isFile())
+      .map((e) => relative(dir, join(e.parentPath, e.name)).split(sep).join("/")),
+  );
+}
+
+/**
+ * What a beat that draws nothing could have drawn instead. Naming the specific
+ * alternative is the whole value of the finding: "be more visual" changes no
+ * plan, "these three numbers share a unit, so they are bars" does.
+ */
+const INSTEAD: Record<string, string> = {
+  title: "past the opening frame a divider draws nothing — cut it, or draw what it announces",
+  "claim-figure": "annotated-figure — same figure, but pointing at where in it the claim lives",
+  "data-table": "bar-compare, if the numbers share a unit",
+  callout:
+    "pipeline if it names steps, stack if it names layers, split-compare if it contrasts two things, grid if it is about regions of a field",
+};
+
+/**
+ * Warn when a deck mostly talks. A deck of headlines and bullet panels is what
+ * every other slide generator already makes, and passes every other gate here
+ * with room to spare — nothing else in the pipeline notices it at all.
+ *
+ * A warning rather than an error: a genuinely shapeless source can honestly
+ * yield such a deck, and this is a judgement about explanation, not a broken
+ * build.
+ */
+export function scanDiagrammatic(storyboard: Storyboard): Finding[] {
+  const flat = storyboard.beats.filter((b) => !DIAGRAMMATIC.has(b.archetype));
+  const drawn = storyboard.beats.length - flat.length;
+  if (drawn * 2 >= storyboard.beats.length) return [];
+
+  const named = flat
+    .map((b) => `${b.id} (${b.archetype}: ${INSTEAD[b.archetype] ?? "something that draws"})`)
+    .join("; ");
+  return [
+    {
+      severity: "warning",
+      gate: "storyboard",
+      rule: "text_heavy_deck",
+      message: `Only ${drawn} of ${storyboard.beats.length} beats draw anything; the rest are text. Text-only beats, and what each might have drawn instead: ${named}.`,
+    },
+  ];
+}
+
+/**
+ * Warn when a headline reads the visual's own labels back as a list.
+ *
+ * FOUND BY WATCHING A RENDER, not by a gate. "ThinkSR links encoding, windows,
+ * thought ticks, and decoding" sat over a pipeline whose four stages are Encoder,
+ * Windows, Shared DQ-CTM ticks and Decoder. Cover the four names and the sentence
+ * asserts nothing the arrows had not already drawn — it is RULE 8's label with
+ * commas where the Title Case used to be. It passes RULE 8 as written, because it
+ * IS a complete sentence in sentence case with a verb in it.
+ *
+ * WHY THIS IS A DETECTOR AND NOT A PROMPT RULE. It was tried as a prompt rule
+ * first — an example-led sharpening of RULE 8 carrying that exact bad headline and
+ * its good twin — and a real Codex run answered "ThinkSR runs through encoder,
+ * windows, ticks, and decoder". Same beat, same four labels, verb swapped. Whether
+ * a sentence "asserts nothing" is a judgement the writer makes about their own
+ * output, so it can always be met cosmetically. The label strings are not a
+ * judgement, so a check on them has teeth the instruction did not.
+ *
+ * TWO CONDITIONS, and it needs both. Naming your own parts is not the defect —
+ * "A dense carrier is read and updated by compact thought" names all three of its
+ * stages and is the good headline on the same archetype, because the names sit in
+ * different grammatical positions with a relation asserted between them. And
+ * coordination is not the defect either: "One pass in, one pass out, and a loop in
+ * the middle" is three coordinated fragments and the sharpest line in the shipped
+ * demo, because it names no stage at all — it says what the shape DOES. The defect
+ * is the two together, which is why this counts labels landing in SEPARATE
+ * coordinated fragments rather than counting either alone.
+ *
+ * A warning, never an error. Incidence is about one beat in twelve, the judgement
+ * is editorial, and `plan` already tells the author to read the storyboard before
+ * building — which is the moment this is for.
+ */
+export function scanHeadlines(storyboard: Storyboard): Finding[] {
+  const findings: Finding[] = [];
+  for (const beat of storyboard.beats) {
+    const headline = (beat.params as { headline?: unknown }).headline;
+    if (typeof headline !== "string" || !headline) continue;
+
+    const labels = partLabels(beat.params);
+    if (labels.length < 3) continue; // fewer than three parts cannot make a list
+
+    // Coordination is the comma-and-conjunction structure, so split on exactly
+    // that. A label counts once, for the first fragment it lands in: "updated by
+    // compact thought" matches both `Compact thought` and `Updated carrier`, and
+    // letting one fragment score twice would turn the good headline into a hit.
+    const fragments = headline.split(/,|\band\b|\bor\b/i).filter((f) => f.trim());
+    if (fragments.length < 3) continue;
+
+    const hit = new Set<string>();
+    const spent = new Set<number>();
+    for (const label of labels) {
+      const at = fragments.findIndex((f, i) => !spent.has(i) && mentions(f, label));
+      if (at >= 0) {
+        spent.add(at);
+        hit.add(label);
+      }
+    }
+    if (hit.size < 3) continue;
+
+    findings.push({
+      severity: "warning",
+      gate: "storyboard",
+      rule: "headline_recites_labels",
+      message: `${beat.id}: the headline "${headline}" lists ${hit.size} of this beat's own labels (${[...hit].join(", ")}) in separate clauses. Cover them and check what the sentence still asserts; if the answer is nothing the visual did not already draw, it is a label with commas in it (RULE 8).`,
+    });
+  }
+  return findings;
+}
+
+/**
+ * Warn when two beats draw the SAME PICTURE from the same object (RULE 9).
+ *
+ * FOUND IN A REAL PLAN, not by a gate. `b10-params` and `b11-average` both cite
+ * `tbl-bench` and both emit a bar-compare over the same five methods — one
+ * picture, drawn twice, with a different number on the bars. RULE 9 already
+ * forbids it in prose ("One object, one beat... Repeating a visual to say one
+ * more small thing is padding, and reads as padding") and the planner did it
+ * anyway, which is the same shape of failure `scanHeadlines` documents: a rule
+ * about whether something is padding is a judgement the writer makes about their
+ * own output, so it can always be met cosmetically.
+ *
+ * THREE CONDITIONS, and it needs all of them, because the loose version condemns
+ * the shipped demo. Measured over the 134 plans in `experiments/` and `demo/`:
+ *
+ *   same evidence id alone                  fires on 10 plans, INCLUDING demo/storyboard.json
+ *   + same archetype + identical labels     fires on 4, demo clear, every hit the same five bars
+ *
+ * What the two extra conditions buy is the difference between padding and
+ * progressive disclosure. `demo/storyboard.json` cites `tbl-bench` from a
+ * bar-compare and then a data-table — the shape, then the numbers — and that is a
+ * deck teaching, not repeating. So is a pipeline followed by the paper's own
+ * annotated figure. Two bar-compares over the identical five bars is neither;
+ * there is no reading of it in which the second picture shows something the first
+ * did not. A0-05 draws three bar-compares off one table with DIFFERENT bars in
+ * each and is deliberately left alone — different bars are a different picture,
+ * and whether three of them is too many is editorial.
+ *
+ * A camera dive is exempt: `inside` says this beat is what happens within a part
+ * of the one before it, so sharing the object is the entire point of the relation
+ * (RULE 11) rather than a repeat of it.
+ *
+ * A warning, never an error — same reason as `scanHeadlines`. Merging two beats
+ * into two holds of one beat is a rewrite only the author can perform.
+ */
+export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
+  const byObject = new Map<string, Beat[]>();
+  for (const beat of storyboard.beats) {
+    for (const ref of beat.evidence ?? []) {
+      // A section is a place in the source, not a picture; two beats reading the
+      // same section is ordinary, and RULE 9 names only tables, equations and
+      // figures.
+      if (ref.kind === "section") continue;
+      const seen = byObject.get(ref.id) ?? [];
+      if (!seen.includes(beat)) seen.push(beat);
+      byObject.set(ref.id, seen);
+    }
+  }
+
+  const findings: Finding[] = [];
+  for (const [id, beats] of byObject) {
+    for (let i = 0; i < beats.length; i++) {
+      for (let j = i + 1; j < beats.length; j++) {
+        const a = beats[i] as Beat;
+        const b = beats[j] as Beat;
+        if (a.archetype !== b.archetype) continue;
+        if (b.inside?.beat === a.id) continue;
+        const left = partLabels(a.params as Record<string, unknown>).map((s) => s.toLowerCase());
+        const right = partLabels(b.params as Record<string, unknown>).map((s) => s.toLowerCase());
+        // No labels at all means nothing was compared, so nothing is proven the
+        // same. Silence beats a finding built on two empty lists.
+        if (!left.length || left.length !== right.length) continue;
+        if (left.join("|") !== right.join("|")) continue;
+        findings.push({
+          severity: "warning",
+          gate: "storyboard",
+          rule: "object_drawn_twice",
+          message: `${a.id} and ${b.id} both cite "${id}" and both draw a ${a.archetype} over the same parts (${left.join(", ")}). That is one picture twice; make them two holds inside one beat (RULE 9), or give the second one something else to draw.`,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * The text of every part an archetype reveals one at a time.
+ *
+ * `left`/`right` are split-compare's two sides, which are the same thing under
+ * different keys. `highlight[].row` is deliberately absent: a data-table's
+ * highlighted rows are the source's own row names, so a headline quoting them is
+ * citing the table rather than reciting a label the emitter drew.
+ */
+function partLabels(params: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const key of ["stages", "layers", "panels", "regions", "bars", "terms", "notes"]) {
+    const list = params[key];
+    if (!Array.isArray(list)) continue;
+    for (const part of list) {
+      const text =
+        (part as { label?: unknown; text?: unknown }).label ?? (part as { text?: unknown }).text;
+      if (typeof text === "string" && text.trim()) out.push(text.trim());
+    }
+  }
+  for (const key of ["left", "right"]) {
+    const side = params[key] as { label?: unknown } | undefined;
+    if (side && typeof side.label === "string" && side.label.trim()) out.push(side.label.trim());
+  }
+  return out;
+}
+
+/**
+ * Does this fragment name that part?
+ *
+ * Prefix matching on five characters, because the planner inflects: the headline
+ * said "encoding" and "decoding" where the stages are `Encoder` and `Decoder`, and
+ * a substring test scored 1 of 4 on the very headline this exists to catch. Five
+ * is long enough that "the" and "with" cannot collide and short enough to hold
+ * "windo|ws" against "windo|wing".
+ */
+function mentions(fragment: string, label: string): boolean {
+  const words = (s: string) => s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const have = words(fragment);
+  const want = words(label).filter((w) => w.length >= 3 && !STOP.has(w));
+  if (!want.length) return false;
+  return want.some((w) =>
+    have.some(
+      (h) =>
+        (h.length >= 5 && w.startsWith(h.slice(0, 5))) ||
+        (w.length >= 5 && h.startsWith(w.slice(0, 5))) ||
+        h === w,
+    ),
+  );
+}
+
+/** Words that would match everything. `shared` is here for `Shared DQ-CTM ticks`. */
+const STOP = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "per",
+  "one",
+  "its",
+  "shared",
+  "same",
+]);
+
+/** Flag render-time nondeterminism in one composition file (invariant 7). */
+export function scanDeterminism(html: string, file: string): Finding[] {
+  const findings: Finding[] = [];
+  const lines = html.split("\n");
+  for (const [pattern, rule] of NONDETERMINISM) {
+    const i = lines.findIndex((line) => pattern.test(line));
+    if (i < 0) continue;
+    findings.push({
+      severity: "error",
+      gate: "determinism",
+      rule,
+      message: `${file}:${i + 1} calls \`${lines[i]?.match(pattern)?.[0]}\` at render time, so two renders of this deck will not be identical.`,
+    });
+  }
+  return findings;
+}
+
+async function readCompositions(dir: string): Promise<Array<[string, string]>> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
+  const files = entries
+    // The wrapper is a presented page, not a rendered one: it hosts the
+    // composition and runs our step layer, whose rAF loop legitimately reads a
+    // clock. Scanning it for render-time determinism fails the build for code
+    // that is never rendered.
+    .filter(
+      (e) =>
+        e.isFile() &&
+        e.name.endsWith(".html") &&
+        e.name !== DECK_PAGE &&
+        !e.parentPath.includes("node_modules"),
+    )
+    .map((e) => join(e.parentPath, e.name));
+  return Promise.all(
+    files.map(async (f) => [relative(dir, f), await readFile(f, "utf8")] as [string, string]),
+  );
+}

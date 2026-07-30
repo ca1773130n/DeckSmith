@@ -1,0 +1,39 @@
+{
+  "sourceId": "plain",
+  "title": "Plain fixture",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "f01",
+      "archetype": "title",
+      "params": {
+        "eyebrow": "Drift fixture",
+        "headline": "Two renders, one hash",
+        "sub": "Nothing here is allowed to be interesting"
+      },
+      "intent": "Open on plain type so the opening frames are comparable byte for byte.",
+      "evidence": [{ "kind": "section", "id": "sec1" }],
+      "weight": 0.9,
+      "seconds": 3
+    },
+    {
+      "id": "f02",
+      "archetype": "stack",
+      "params": {
+        "eyebrow": "Fixture",
+        "headline": "Flat fills, straight edges, static type",
+        "layers": [
+          { "label": "Plates", "note": "rectangles, one fill each" },
+          { "label": "Labels", "note": "drawn once, never scaled" },
+          { "label": "Reveal", "note": "opacity and offset only" }
+        ],
+        "note": "Every element here is a shape or a run of text at its authored size."
+      },
+      "intent": "Draw something with vector geometry and a staged reveal, still without a scaled glyph.",
+      "evidence": [{ "kind": "section", "id": "sec1" }],
+      "weight": 0.8,
+      "seconds": 4
+    }
+  ]
+}

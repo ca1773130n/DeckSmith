@@ -1,0 +1,18 @@
+[
+  {
+    "file": "fig1",
+    "caption": "Figure 1 . Our method achieves real-time rendering of radiance fields with quality that equals the previous method with the best quality (Barron et al . , 2022 ) , while only requiring optimization times competitive with the fastest previous methods (Fridovich-Keil and Yu et al . , 2022 ; Müller et al . , 2022 ) . Key to this performance is a novel 3D Gaussian scene representation coupled with a real-time differentiable renderer, which offers significant speedup to both scene optimization and novel view synthesis. Note that for comparable training times to InstantNGP (Müller et al . , 2022 ) , we achieve similar quality to theirs; while this is the maximum quality they reach, by training for 51min we achieve state-of-the-art quality, even slightly better than Mip-NeRF360 (Barron et al . , 2022 ) ."
+  },
+  {
+    "file": "fig2",
+    "caption": "Figure 2 . Optimization starts with the sparse SfM point cloud and creates a set of 3D Gaussians. We then optimize and adaptively control the density of this set of Gaussians. During optimization we use our fast tile-based renderer, allowing competitive training times compared to SOTA fast radiance field methods. Once trained, our renderer allows real-time navigation for a wide variety of scenes."
+  },
+  {
+    "file": "fig3",
+    "caption": "Figure 4 . Our adaptive Gaussian densification scheme. Top row (under-reconstruction) : When small-scale geometry (black outline) is insufficiently covered, we clone the respective Gaussian. Bottom row (over-reconstruction) : If small-scale geometry is represented by one large splat, we split it in two."
+  },
+  {
+    "file": "fig4",
+    "caption": "Figure 5 . We show comparisons of ours to previous methods and the corresponding ground truth images from held-out test views. The scenes are, from the top down: Bicycle , Garden , Stump , Counter and Room from the Mip-NeRF360 dataset; Playroom , DrJohnson from the Deep Blending dataset (Hedman et al . , 2018 ) and Truck and Train from Tanks&amp;Temples. Non-obvious differences in quality highlighted by arrows/insets."
+  }
+]

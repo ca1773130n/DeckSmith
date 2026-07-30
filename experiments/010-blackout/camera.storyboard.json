@@ -1,0 +1,8 @@
+{"sourceId":"src-1","title":"A method with a window in it","beats":[
+ {"id":"b01","archetype":"pipeline","intent":"The method is three stages with a loop.","seconds":9,
+  "params":{"headline":"One pass in, one pass out, and a loop in the middle",
+            "stages":[{"label":"Encode"},{"label":"Window","tone":"a"},{"label":"Decode"}]}},
+ {"id":"b02","archetype":"grid","intent":"Attention runs inside one window at a time.","seconds":9,
+  "inside":{"beat":"b01","element":"stage1"},
+  "params":{"headline":"Attention is computed inside windows","cols":12,"rows":8,
+            "regions":[{"x":0,"y":0,"w":4,"h":4,"label":"one window","tone":"a"}]}}]}

@@ -1,0 +1,60 @@
+node_modules/
+dist/
+out/
+*.tsbuildinfo
+
+# experiment scratch — the writeups in .planning/ are the durable record
+experiments/**/node_modules/
+experiments/**/renders/
+experiments/**/snapshots/
+experiments/**/.playwright-mcp/
+.playwright-mcp/
+*.jpeg
+
+# RENDERED OUTPUT, at any depth. `experiments/*/renders/` missed
+# `experiments/007-frameworks/three-vanilla/renders/` by one path segment, and
+# the untracked tree held 284 MB of video and synthesised speech under paths
+# like that. Every one of them is regenerable by a command in the sibling
+# README, and where a render is EVIDENCE the writeup cites it by path and says
+# how to remake it — which is the durable record, not the bytes. Anything that
+# genuinely must ship is force-added.
+*.mp4
+*.mov
+*.webm
+*.mp3
+*.wav
+.*.mp4.parts/
+experiments/**/audio/
+experiments/**/deck/
+experiments/**/deck-*/
+experiments/**/out/
+
+# built demo output — regenerate with `npm run demo`
+demo/deck/
+
+# synthesised speech — regenerate with `decksmith narrate`. Content-addressed,
+# so re-running it after an edit re-speaks only the sentences that moved.
+demo/audio/
+*.deck
+
+# Test scratch that lands HERE rather than in /tmp. `mkdtemp(join(tmpdir(), …))`
+# resolves against TMPDIR, and some sandboxes point TMPDIR at the working
+# directory — which put 335 of these in the tree before anyone noticed. Ignored
+# rather than fixed in the tests: on a machine with a normal TMPDIR they are
+# already in /var/folders and the OS reaps them.
+decksmith-narrate-*/
+decksmith-server-*/
+ds-prov-*/
+node-compile-cache/
+tsx-*/
+.scratch/
+
+# One-off probe output from investigations whose durable record is .planning/.
+# Kept on disk, out of the history.
+.DS_Store
+gsap-truth.json
+walk-trace.json
+grid-16x9.png
+grid-full.png
+studio.png
+pilotB01.png

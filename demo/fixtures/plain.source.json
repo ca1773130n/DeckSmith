@@ -1,0 +1,16 @@
+{
+  "id": "plain",
+  "title": "Plain fixture",
+  "lang": "en",
+  "sections": [
+    {
+      "id": "sec1",
+      "depth": 1,
+      "heading": "Plain fixture",
+      "text": "A deliberately boring source. It exists so the drift gate has something whose two renders are byte-identical: no figures, no equations, no tables, and nothing downstream that scales a glyph."
+    }
+  ],
+  "figures": [],
+  "equations": [],
+  "tables": []
+}

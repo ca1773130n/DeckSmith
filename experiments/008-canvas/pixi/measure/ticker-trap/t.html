@@ -1,0 +1,7 @@
+<!doctype html><html><body><canvas id="c"></canvas>
+<script src="e.js.bundle.js"></script>
+<script>
+window.raf=0; const o=requestAnimationFrame.bind(window);
+window.requestAnimationFrame=cb=>{window.raf++;return o(cb);};
+window.ready=false; mk(document.getElementById('c')).then(()=>{window.ready=true;});
+</script></body></html>

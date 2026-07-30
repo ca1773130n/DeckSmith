@@ -1,0 +1,305 @@
+{"sourceId":"thinksr","title":"ThinkSR: compact thought, dense output","lang":"en","scenes":[{"id":"s01-flow","intent":"The recurrence returns to the DQ-CTM thought stage, while the dense carrier stays in the image pipeline.","claim":"ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.","narration":"The image first becomes features, then those features are partitioned into windows without leaving the dense carrier behind. The compact thought process reads and updates those windows through repeated ticks. The loop returns only to the thought stage, so the encoder and decoder are not rerun each tick. The same DQ-CTM parameters are reused across ticks. The close view isolates the repeated thought stage because that is where recurrence lives.","evidence":[{"kind":"figure","id":"fig-arch"},{"kind":"section","id":"sec2"}],"weight":0.9,"seconds":10,"objects":[{"id":"headline","kind":"text","parent":null,"at":{"x":0.5,"y":0.11},"size":{"w":0.86,"h":0.08},"text":"ThinkSR loops inside the thought stage, not around the whole flow.","tex":null,"figureId":null,"points":null,"fontPx":68,"tone":"a","fill":null,"opacity":0},{"id":"g-encode","kind":"group","parent":null,"at":{"x":0.16,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-encode","kind":"rect","parent":"g-encode","at":{"x":0.16,"y":0.46},"size":{"w":0.16,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"a","fill":"surface","opacity":1},{"id":"txt-encode","kind":"text","parent":"g-encode","at":{"x":0.16,"y":0.46},"size":{"w":0.14,"h":0.07},"text":"Encode","tex":null,"figureId":null,"points":null,"fontPx":48,"tone":"a","fill":null,"opacity":1},{"id":"g-window","kind":"group","parent":null,"at":{"x":0.38,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-window","kind":"rect","parent":"g-window","at":{"x":0.38,"y":0.46},"size":{"w":0.16,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"b","fill":"surface","opacity":1},{"id":"txt-window","kind":"text","parent":"g-window","at":{"x":0.38,"y":0.46},"size":{"w":0.14,"h":0.07},"text":"Window","tex":null,"figureId":null,"points":null,"fontPx":48,"tone":"b","fill":null,"opacity":1},{"id":"g-thought","kind":"group","parent":null,"at":{"x":0.62,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-thought","kind":"rect","parent":"g-thought","at":{"x":0.62,"y":0.46},"size":{"w":0.20,"h":0.20},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"c","fill":"surface","opacity":1},{"id":"txt-thought","kind":"text","parent":"g-thought","at":{"x":0.62,"y":0.44},"size":{"w":0.17,"h":0.09},"text":"DQ-CTM thought","tex":null,"figureId":null,"points":null,"fontPx":46,"tone":"c","fill":null,"opacity":1},{"id":"txt-shared","kind":"text","parent":"g-thought","at":{"x":0.62,"y":0.54},"size":{"w":0.18,"h":0.06},"text":"shared parameters","tex":null,"figureId":null,"points":null,"fontPx":40,"tone":"muted","fill":null,"opacity":1},{"id":"g-decode","kind":"group","parent":null,"at":{"x":0.84,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-decode","kind":"rect","parent":"g-decode","at":{"x":0.84,"y":0.46},"size":{"w":0.16,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"d","fill":"surface","opacity":1},{"id":"txt-decode","kind":"text","parent":"g-decode","at":{"x":0.84,"y":0.46},"size":{"w":0.14,"h":0.07},"text":"Decode","tex":null,"figureId":null,"points":null,"fontPx":48,"tone":"d","fill":null,"opacity":1},{"id":"arr1","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.24,"y":0.46},{"x":0.30,"y":0.46}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"arr2","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.46,"y":0.46},{"x":0.52,"y":0.46}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"arr3","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.72,"y":0.46},{"x":0.76,"y":0.46}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"loop","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.68,"y":0.36},{"x":0.72,"y":0.30},{"x":0.62,"y":0.24},{"x":0.52,"y":0.30},{"x":0.56,"y":0.36}],"fontPx":null,"tone":"c","fill":null,"opacity":0},{"id":"tick-label","kind":"text","parent":null,"at":{"x":0.62,"y":0.21},"size":{"w":0.22,"h":0.06},"text":"ticks return here","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0}],"anims":[{"target":"headline","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0,"dur":0.6,"ease":"out"},{"target":"g-encode","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.2,"dur":0.6,"ease":"out"},{"target":"g-window","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.5,"ease":"out"},{"target":"arr1","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.3,"ease":"out"},{"target":"arr1","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.5,"ease":"linear"},{"target":"g-thought","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.6,"dur":0.6,"ease":"out"},{"target":"arr2","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.6,"dur":0.3,"ease":"out"},{"target":"arr2","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.6,"dur":0.5,"ease":"linear"},{"target":"loop","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4,"dur":0.3,"ease":"out"},{"target":"loop","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4,"dur":0.8,"ease":"linear"},{"target":"tick-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.4,"dur":0.4,"ease":"out"},{"target":"txt-shared","op":"highlight","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.8,"dur":0.6,"ease":"out"},{"target":"g-decode","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.7,"dur":0.5,"ease":"out"},{"target":"arr3","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.7,"dur":0.3,"ease":"out"},{"target":"arr3","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.7,"dur":0.5,"ease":"linear"}],"holds":[1.0,2.0,4.9,6.6,8.0],"camera":{"on":"box-thought","k":2.4,"t0":8.2,"dur":1.3}},{"id":"s02-carrier","intent":"The carrier equation first makes a dense feature field, then partitions that field into tokens without dropping the field.","claim":"\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})","narration":"The encoder maps the low-resolution image into a dense feature field. The field is the carrier that stays spatial rather than becoming only a compact thought. The window operator partitions that field into tokens while keeping every token in the carrier equation.","evidence":[{"kind":"equation","id":"eq-carrier"},{"kind":"section","id":"sec2"}],"weight":0.8,"seconds":8,"objects":[{"id":"headline","kind":"text","parent":null,"at":{"x":0.5,"y":0.11},"size":{"w":0.86,"h":0.08},"text":"The carrier starts dense, then the window step keeps every token.","tex":null,"figureId":null,"points":null,"fontPx":66,"tone":"a","fill":null,"opacity":0},{"id":"eq","kind":"tex","parent":null,"at":{"x":0.5,"y":0.30},"size":{"w":0.82,"h":0.12},"text":null,"tex":"\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})","figureId":null,"points":null,"fontPx":72,"tone":"muted","fill":null,"opacity":0},{"id":"lr","kind":"rect","parent":null,"at":{"x":0.19,"y":0.63},"size":{"w":0.18,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"a","fill":"surface","opacity":0},{"id":"lr-label","kind":"text","parent":null,"at":{"x":0.19,"y":0.63},"size":{"w":0.15,"h":0.08},"text":"low-resolution image","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"a","fill":null,"opacity":0},{"id":"field","kind":"rect","parent":null,"at":{"x":0.50,"y":0.63},"size":{"w":0.22,"h":0.18},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"b","fill":"surface","opacity":0},{"id":"field-grid1","kind":"polyline","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.445,"y":0.54},{"x":0.445,"y":0.72},{"x":0.555,"y":0.72},{"x":0.555,"y":0.54}],"fontPx":null,"tone":"b","fill":null,"opacity":0},{"id":"field-label","kind":"text","parent":null,"at":{"x":0.50,"y":0.63},"size":{"w":0.18,"h":0.07},"text":"dense feature field","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"b","fill":null,"opacity":0},{"id":"tokens","kind":"rect","parent":null,"at":{"x":0.81,"y":0.63},"size":{"w":0.18,"h":0.18},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"c","fill":"surface","opacity":0},{"id":"tokens-label","kind":"text","parent":null,"at":{"x":0.81,"y":0.63},"size":{"w":0.14,"h":0.08},"text":"window tokens","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0},{"id":"a1","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.28,"y":0.63},{"x":0.39,"y":0.63}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"a2","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.61,"y":0.63},{"x":0.72,"y":0.63}],"fontPx":null,"tone":"muted","fill":null,"opacity":0}],"anims":[{"target":"headline","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0,"dur":0.5,"ease":"out"},{"target":"eq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.3,"dur":0.6,"ease":"out"},{"target":"lr","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1,"dur":0.4,"ease":"out"},{"target":"lr-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.1,"dur":0.4,"ease":"out"},{"target":"eq","op":"highlight","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":"\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})","start":1.2,"dur":0.7,"ease":"out"},{"target":"field","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.4,"ease":"out"},{"target":"field-grid1","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.4,"ease":"out"},{"target":"field-grid1","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.6,"ease":"linear"},{"target":"field-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.7,"dur":0.4,"ease":"out"},{"target":"a1","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.3,"ease":"out"},{"target":"a1","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.5,"ease":"linear"},{"target":"eq","op":"highlight","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":"\\mathcal{W}(\\mathbf{F})","start":4.9,"dur":0.7,"ease":"out"},{"target":"tokens","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.2,"dur":0.4,"ease":"out"},{"target":"tokens-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.3,"dur":0.4,"ease":"out"},{"target":"a2","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.2,"dur":0.3,"ease":"out"},{"target":"a2","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.2,"dur":0.5,"ease":"linear"}],"holds":[2.1,3.4,6.1],"camera":null},{"id":"s03-params","intent":"DQ-CTM-SR is not the smallest model in the comparison; by parameters it is second largest among the five listed methods.","claim":"Table 1 reports Params: CATANet 0.535M, RFDN 0.550M, IMDN 0.715M, DQ-CTM-SR 1.129M, CARN 1.592M.","narration":"The parameter comparison runs from the smallest model to the largest model in the table. DQ-CTM-SR has one point one two nine million parameters, which makes it second largest among these five. The result is compact in method design, but this table does not support calling it cheap by parameter count.","evidence":[{"kind":"table","id":"tbl-bench"},{"kind":"section","id":"sec3"}],"weight":0.85,"seconds":9,"objects":[{"id":"headline","kind":"text","parent":null,"at":{"x":0.5,"y":0.11},"size":{"w":0.86,"h":0.08},"text":"DQ-CTM-SR is second largest by parameter count here.","tex":null,"figureId":null,"points":null,"fontPx":68,"tone":"a","fill":null,"opacity":0},{"id":"base","kind":"polyline","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.08,"y":0.78},{"x":0.92,"y":0.78}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"bar-catanet","kind":"rect","parent":null,"at":{"x":0.14,"y":0.713},"size":{"w":0.10,"h":0.134},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-catanet","kind":"text","parent":null,"at":{"x":0.14,"y":0.606},"size":{"w":0.13,"h":0.05},"text":"0.535M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-catanet","kind":"text","parent":null,"at":{"x":0.14,"y":0.86},"size":{"w":0.15,"h":0.05},"text":"CATANet","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"bar-rfdn","kind":"rect","parent":null,"at":{"x":0.32,"y":0.711},"size":{"w":0.10,"h":0.138},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-rfdn","kind":"text","parent":null,"at":{"x":0.32,"y":0.602},"size":{"w":0.13,"h":0.05},"text":"0.550M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-rfdn","kind":"text","parent":null,"at":{"x":0.32,"y":0.86},"size":{"w":0.14,"h":0.05},"text":"RFDN","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"bar-imdn","kind":"rect","parent":null,"at":{"x":0.50,"y":0.690},"size":{"w":0.10,"h":0.180},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-imdn","kind":"text","parent":null,"at":{"x":0.50,"y":0.560},"size":{"w":0.13,"h":0.05},"text":"0.715M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-imdn","kind":"text","parent":null,"at":{"x":0.50,"y":0.86},"size":{"w":0.14,"h":0.05},"text":"IMDN","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"bar-dq","kind":"rect","parent":null,"at":{"x":0.68,"y":0.638},"size":{"w":0.10,"h":0.284},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"c","fill":"tone","opacity":0},{"id":"val-dq","kind":"text","parent":null,"at":{"x":0.68,"y":0.456},"size":{"w":0.13,"h":0.05},"text":"1.129M","tex":null,"figureId":null,"points":null,"fontPx":44,"tone":"c","fill":null,"opacity":0},{"id":"lab-dq","kind":"text","parent":null,"at":{"x":0.68,"y":0.86},"size":{"w":0.16,"h":0.06},"text":"DQ-CTM-SR","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0},{"id":"bar-carn","kind":"rect","parent":null,"at":{"x":0.86,"y":0.580},"size":{"w":0.10,"h":0.400},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-carn","kind":"text","parent":null,"at":{"x":0.86,"y":0.340},"size":{"w":0.13,"h":0.05},"text":"1.592M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-carn","kind":"text","parent":null,"at":{"x":0.86,"y":0.86},"size":{"w":0.14,"h":0.05},"text":"CARN","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"note","kind":"text","parent":null,"at":{"x":0.5,"y":0.93},"size":{"w":0.78,"h":0.05},"text":"Parameter count does not make DQ-CTM-SR the cheap model in this set.","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0}],"anims":[{"target":"headline","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0,"dur":0.5,"ease":"out"},{"target":"base","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.3,"dur":0.3,"ease":"out"},{"target":"base","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.3,"dur":0.6,"ease":"linear"},{"target":"bar-catanet","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.8,"dur":0.2,"ease":"out"},{"target":"bar-catanet","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":0.8,"dur":0.5,"ease":"out"},{"target":"val-catanet","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.3,"ease":"out"},{"target":"lab-catanet","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.3,"ease":"out"},{"target":"bar-rfdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.3,"dur":0.2,"ease":"out"},{"target":"bar-rfdn","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":1.3,"dur":0.5,"ease":"out"},{"target":"val-rfdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.7,"dur":0.3,"ease":"out"},{"target":"lab-rfdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.7,"dur":0.3,"ease":"out"},{"target":"bar-imdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.8,"dur":0.2,"ease":"out"},{"target":"bar-imdn","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":1.8,"dur":0.5,"ease":"out"},{"target":"val-imdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.2,"dur":0.3,"ease":"out"},{"target":"lab-imdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.2,"dur":0.3,"ease":"out"},{"target":"bar-dq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":3.6,"dur":0.2,"ease":"out"},{"target":"bar-dq","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":3.6,"dur":0.6,"ease":"out"},{"target":"val-dq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.1,"dur":0.3,"ease":"out"},{"target":"lab-dq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.1,"dur":0.3,"ease":"out"},{"target":"bar-carn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.4,"dur":0.2,"ease":"out"},{"target":"bar-carn","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":4.4,"dur":0.6,"ease":"out"},{"target":"val-carn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.9,"dur":0.3,"ease":"out"},{"target":"lab-carn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.9,"dur":0.3,"ease":"out"},{"target":"note","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.4,"dur":0.4,"ease":"out"}],"holds":[2.8,5.5,7.1],"camera":null}]}
+
+---STDERR---
+OpenAI Codex v0.145.0
+--------
+workdir: /Users/neo/Developer/Projects/DeckSmith
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 019fb0f0-2e04-70f1-8e88-8f7403144f74
+--------
+user
+You are DeckSmith's planner. You read one source document and return a
+COMPOSITION: the ordered scenes of an animated explanation of it. There are no
+slide templates and no menu of visuals. You place every shape yourself and you
+animate every shape yourself. That is more work and it is also the whole point —
+the picture is whatever the idea needs rather than the nearest preset.
+
+A scene is one idea, one picture, one set of holds. It carries:
+  intent     what the viewer understands after this scene. Write the
+             understanding ("the recurrence returns to one stage, not the whole
+             flow"), not the topic ("the recurrence").
+  claim      the sentence from the source the scene is accountable to. Quote it
+             or tighten it; do not extend it.
+  evidence   refs into the source that back the claim. Anywhere you assert
+             something, cite what says so.
+  narration  what the presenter says aloud over this scene. See NARRATION below;
+             it is required on every scene.
+  weight     0-1 salience.
+  seconds    the scene's whole length, typically 6-12.
+  objects    the things on screen.
+  anims      the tweens that reveal and move them.
+  holds      the seconds at which the render freezes so the voice can speak.
+  camera     OPTIONAL and rare. See THE CAMERA.
+
+THE STAGE
+
+1920 x 1080, and you never write a pixel of it except font sizes. Every position
+and size is a FRACTION: x and y run 0 to 1, and `at` is the CENTRE of the
+object, never its corner. `size` is {w, h}, also fractions of the stage — so
+{w: 0.25} is 480px wide. `fontPx` is literal pixels at 1920x1080.
+
+Keep every part of every object inside x 0.04-0.96 and y 0.06-0.94. Because
+`at` is a centre, an object of width w must satisfy 0.04 + w/2 <= x <=
+0.96 - w/2, and the same in y with h. THIS IS THE SINGLE COMMONEST WAY A
+COMPOSITION FAILS: a headline centred at x 0.5 with size.w 0.9 is fine, and the
+same headline given size.w 1.1 hangs off both edges. Do the subtraction.
+
+A workable frame: the headline centred at x 0.5, y 0.10-0.14, size.w 0.84-0.88;
+the drawing between y 0.26 and y 0.80; one closing note at y 0.88-0.92.
+
+THE OBJECTS
+
+  text      A run of type. `text` carries it, `fontPx` sizes it. GIVE IT A
+            `size` — with a size.w it wraps inside that width and is centred;
+            without one it is a single unbreakable line, which is how a long
+            label ends up off the stage. Reckon roughly 0.5 * fontPx pixels per
+            character to decide whether your width is enough for two lines
+            instead of four.
+  tex       A LaTeX expression, rendered by KaTeX. `tex` carries it. Do not put
+            prose in it. An expression at fontPx 76 is about 0.55 em per symbol
+            wide, so a long equation wants 68-80 and not 120.
+  rect      A box. Needs `size`. `fill` is "none" (outline only), "tone" (solid
+            in its own tone) or "surface" (the theme's panel colour, which is what
+            a labelled stage box wants).
+  ellipse   As rect, but round.
+  arrow     A stroked path with a solid head on its last point. Needs `points`,
+            at least two, in stage fractions, in draw order. `at` is IGNORED for
+            an arrow: the points are already absolute.
+  polyline  As arrow, without the head. Use it for a path whose direction is not
+            the point.
+  image     A source figure. Needs `figureId` from the inventory and `size`.
+            Set size.h to size.w * (figure height / figure width) * (1920/1080)
+            or the picture is stretched.
+  group     Draws nothing itself. Other objects name it as `parent`, and one
+            tween on the group moves, fades or scales all of them together. Use
+            it when a label belongs to a box: give both the same parent and the
+            pair travels as one thing.
+
+Every object may carry `tone`: "a", "b", "c", "d" are the theme's four accent
+colours at roughly one value — none of them means "the important one" — and
+"muted" is the low-emphasis grey. Distinguish one item of a set by giving it a
+different tone from its siblings.
+
+`opacity` is the object's state at t = 0, BEFORE any tween runs. An object that
+should fade in must be authored at opacity 0. An object left at the default 1
+with a fadeIn on it flashes on at the start of the scene and then fades in again.
+
+THE TRANSFORMS
+
+Each entry in `anims` is one tween on one object over the window
+[start, start + dur). It is a fromTo: the property sits at its start value for
+every t at or before `start`, at its end value for every t at or after
+`start + dur`, and is interpolated between.
+
+  fadeIn      opacity 0 -> 1. The workhorse. Author the object at opacity 0.
+  fadeOut     opacity 1 -> 0.
+  draw        The stroke drawn from its first point to its last. arrow, polyline,
+              rect and ellipse only — there is no stroke to draw on text or an
+              image. Pair it with a fadeIn at the same start, or the object is
+              invisible while it draws.
+  growFrom    Scale one axis from 0 to full. `anchor` names the edge it grows out
+              of, so a bar rising from a baseline is anchor "bottom" and a rule
+              extending rightwards is anchor "left". rect and ellipse only.
+  moveTo      `toPos` is the new CENTRE, in stage fractions.
+  scaleTo     `to` is the new scale factor; 1 is unchanged.
+  recolor     `toTone` is the new tone.
+  highlight   Emphasise one part of a `tex` object. `part` must be a substring
+              of that object's own `tex`, CHARACTER FOR CHARACTER — copy it out
+              of the tex you wrote, including every backslash and brace, and cut
+              it at a whole term. "\\mathcal{E}(\\mathbf{I})" is a term;
+              "\\mathcal{E}(\\mathbf" is half a brace and fails the build.
+  countTo     Roll a number on a `text` object from `from` to `to`.
+  morphInto   `toObject` names another object in the same scene; this one carries
+              onto it and hands over. Both must exist.
+
+CRITICAL — THE RENDER SEEKS, IT DOES NOT PLAY. A frame is produced by setting an
+absolute time and reading the scene. There is no clock, no per-frame callback and
+no event, so every visible change must be a tween in `anims` with a real start
+and a real duration. A property nothing tweens keeps its authored value for the
+whole scene.
+
+TIMING AND HOLDS
+
+Every tween must satisfy start + dur <= seconds. `holds` are the absolute
+seconds inside the scene at which the render freezes for the voice: one hold per
+thing the audience is meant to take in, each placed AFTER the tween that reveals
+it has finished, each inside [0, seconds], in increasing order. The first hold is
+the scene landing; every later one is the next thing appearing. A hold 0.2s
+before its own reveal finishes freezes a half-built picture.
+
+THE CAMERA
+
+`camera: { on, k, t0, dur }` flies the frame into one object and ends the scene
+there. `on` is the id of an object in this scene, `k` is the zoom factor (2 to
+3 is a place; 6 is a blur), `t0` is when the move starts and `dur` how long it
+takes, both in this scene's own seconds. The scene fades out on landing, so
+nothing after t0 + dur is ever seen and NO HOLD MAY LIE BETWEEN t0 AND t0 + dur —
+the build is rejected if one does. Give the move somewhere to go: fly into a box
+or a region big enough to be a place, never into a word.
+
+Assert it only where the SOURCE nests one thing inside the other, and at most
+once in a deck. It renders a relation; it cannot create one. Flying into a bar of
+a bar chart is a decorated cut, which is worse than a plain cut.
+
+WHAT MAKES A COMPOSITION WRONG
+
+A schema cannot catch any of these and they are the failures that actually
+happen. Check every one before you answer.
+
+  - A tween whose `target` is not an object id in the same scene, or a `parent`,
+    `toObject` or `camera.on` that names no object.
+  - A tween that runs past `seconds`, or a hold outside [0, seconds].
+  - Anything whose box leaves the stage once you add half its width to its centre.
+  - Two objects on top of each other. Lay the scene out on a grid and give every
+    label its own space. Overlapping boxes are the commonest way this goes wrong
+    after the edges, and a label sitting on a solid bar is unreadable even when
+    both are inside the stage.
+  - An object authored at opacity 0 that nothing ever fades in. It is invisible
+    for the whole scene and nothing will tell you.
+  - Two tweens changing the same property of the same object over overlapping
+    windows.
+  - `draw` on text, `growFrom` on text, `highlight` on anything that is not tex.
+  - AUDIENCE TEXT BELOW 40px. That is a hard floor and it applies to every label,
+    note, value and axis tick, not only the headline. Headlines 68-92, labels and
+    values 44-56, and nothing at 36 because it "only" says a number.
+
+A WORKED LAYOUT — five bars, because a magnitude comparison is the case where the
+arithmetic is easiest to get wrong
+
+  Choose a baseline, say y = 0.78, and a tallest bar, say h = 0.40. Then a bar
+  for value v out of the largest value V has h_v = 0.40 * v / V. A rect is
+  centred, so its `at.y` is baseline - h_v / 2, and its own `size.h` is h_v.
+  Space five bars at x = 0.14, 0.32, 0.50, 0.68, 0.86 and give each size.w 0.10,
+  which leaves a real gap between them. The value label goes ABOVE the bar, at
+  y = baseline - h_v - 0.04, so it never lands on the fill; the method label goes
+  BELOW the baseline at y = 0.85; a closing note at y = 0.93. Every one of those
+  numbers is derived from the two you chose, and if you write `at.y` = baseline
+  for every bar instead, all five sit half-buried in the floor.
+
+The same discipline applies everywhere. Write down the frame, derive the
+positions, and check the edges by subtraction.
+
+CONTENT RULES
+
+1. Ask what the scene DRAWS before you ask what it says. Find the shape of the
+   point — a sequence, a field, a magnitude, a stack, a contrast — and build that
+   shape out of boxes, arrows and type. A deck of headlines and note lines is a
+   failure even if every sentence in it is true; it is what every other slide
+   generator already makes.
+2. Every id you write — figureId, and every evidence id — must appear in the
+   inventory below. A dangling id fails the build. Never guess an id or invent one
+   that "should" exist.
+3. Be faithful. Never invent a number, a stage, a bar, an axis or a baseline the
+   source does not state. If the source hedges, the scene hedges. Drawing a
+   mechanism is not licence to add a stage the source does not describe.
+4. The deck is read at 1920x1080 from across a room. Headlines under 60
+   characters, claims under 140, labels under 48. No paragraphs.
+5. Scene ids are short, stable, lowercase slugs: "s01-flow". Object ids likewise:
+   "stage3", "bar-carn", "eq".
+6. A headline is a complete-sentence claim in sentence case, not a label and not
+   Title Case. If the sentence would not stand alone with the picture hidden, it
+   is a label — rewrite it.
+7. Weight honestly. Reserve 0.8 and above for scenes the explanation is broken
+   without; give supporting detail 0.3-0.5.
+8. Never make a scene about the source, the plan, or your own constraints. The
+   deck explains the subject; the audience does not know a planner exists.
+
+NARRATION
+
+Every scene carries `narration`: what the presenter SAYS while it is on screen.
+It is speech, not a caption. A voice reads it aloud, so write what a person
+standing beside the slide would say, and nothing a person would not.
+
+  - Full sentences in spoken register. No fragments, no bullet grammar, and
+    nothing the voice cannot pronounce — say "the loss averaged over the batch",
+    not "L_batch"; say "order n squared", not "O(n^2)".
+  - ONE SENTENCE PER HOLD, in order, separated by a single space. A scene with
+    five holds wants five sentences. Get the count wrong and the voice runs ahead
+    of the animation.
+  - Keep each sentence to about 25 words. It has to be said in one breath.
+  - Never read the headline back. The audience has already read it. Say the thing
+    the picture does not show: why it works, what it costs, what to notice.
+  - Claim what the DATA says, never where a thing sits on the picture. So "the
+    second largest" — which is checkable against your own numbers — and never
+    "second from the top", "above", "on the left" or "the rightmost bar". A viewer
+    who hears a position looks at the wrong thing.
+  - No "as you can see", "in this slide", "here we have", "let us take a look",
+    "moving on". The deck does not narrate itself; it explains a subject.
+
+THIS RUN
+
+Produce exactly THREE beats, in this order, and nothing else:
+
+  1. THE METHOD FLOW. The four stages ThinkSR runs an image through — encode,
+     window, the DQ-CTM thought process, decode — with the recurrence shown as a
+     loop that returns to the thought stage itself, not around the whole flow.
+     Note that parameters are shared across ticks.
+  2. THE CARRIER EQUATION. Equation eq-carrier, walked one symbol at a time:
+     the encoder that turns the low-resolution image into a dense feature field,
+     and the window partition that keeps every token.
+  3. THE PARAMETER COMPARISON. The five methods in tbl-bench compared on
+     parameter count in millions, smallest first, with DQ-CTM-SR distinguished.
+     Its 1.129M is the second largest of the five, and the deck must say so
+     rather than claim the method is cheap.
+
+CAMERA. Somewhere in this deck, close in on one part of a picture already on
+screen so the audience sees it filling the frame, then leave it. Use the camera
+your vocabulary gives you for exactly this and nowhere else.
+
+PREFERENCES — chosen by the person who asked for this deck.
+
+LENGTH     Aim for about 3 scenes. That is a target to come close to, not a
+           quota to fill.
+LANGUAGE   Write every word the audience sees or hears in English.
+TONE       plain — headlines state the claim in ordinary words, and narration is
+           short declarative sentences with no flourish and no metaphor the
+           source did not use.
+DENSITY    normal — a headline, the visual, and the few labels the visual needs
+           to be readable. Notes are phrases, not sentences.
+
+Set sourceId and title from the source header, and lang to the language above.
+
+Do not search the web and do not read files. Everything you need is below.
+Return the composition as your final message, conforming to the supplied schema.
+
+SOURCE thinksr
+TITLE ThinkSR: compact thought, dense output
+LANG en
+
+== DOCUMENT ==
+
+# The mismatch    [section sec1]
+CTM's thought representation is compact; super-resolution needs a dense spatial field.
+
+## Method    [section sec2]
+A persistent dense carrier, read and updated by a compact thought process.
+
+## Results    [section sec3]
+Competitive with CNN baselines; behind recent lightweight transformers.
+
+== FIGURES ==
+[figure fig-compare] 1373x692 — Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.
+[figure fig-arch] 1373x381 — Figure 2 — ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.
+[figure fig-progress] 1298x578 — Figure 4 — Reconstruction at T=0 through T=4 against bicubic and ground truth.
+[figure fig-error] 1298x915 — Figure 5 — Absolute-error maps on the same crops, one shared colour scale.
+
+== EQUATIONS ==
+[equation eq-carrier] display — \mathbf{F}=\mathcal{E}(\mathbf{I}_{\mathrm{LR}}),\qquad \mathbf{X}=\mathcal{W}(\mathbf{F})
+
+== TABLES ==
+[table tbl-bench] Table 1 — ×4 lightweight super-resolution, average over five benchmarks.
+  columns: Method | Params | Average
+  row: CARN | 1.592M | 28.970
+  row: IMDN | 0.715M | 28.968
+  row: RFDN | 0.550M | 29.022
+  row: CATANet | 0.535M | 29.482
+  row: DQ-CTM-SR | 1.129M | 28.983
+codex
+{"sourceId":"thinksr","title":"ThinkSR: compact thought, dense output","lang":"en","scenes":[{"id":"s01-flow","intent":"The recurrence returns to the DQ-CTM thought stage, while the dense carrier stays in the image pipeline.","claim":"ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.","narration":"The image first becomes features, then those features are partitioned into windows without leaving the dense carrier behind. The compact thought process reads and updates those windows through repeated ticks. The loop returns only to the thought stage, so the encoder and decoder are not rerun each tick. The same DQ-CTM parameters are reused across ticks. The close view isolates the repeated thought stage because that is where recurrence lives.","evidence":[{"kind":"figure","id":"fig-arch"},{"kind":"section","id":"sec2"}],"weight":0.9,"seconds":10,"objects":[{"id":"headline","kind":"text","parent":null,"at":{"x":0.5,"y":0.11},"size":{"w":0.86,"h":0.08},"text":"ThinkSR loops inside the thought stage, not around the whole flow.","tex":null,"figureId":null,"points":null,"fontPx":68,"tone":"a","fill":null,"opacity":0},{"id":"g-encode","kind":"group","parent":null,"at":{"x":0.16,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-encode","kind":"rect","parent":"g-encode","at":{"x":0.16,"y":0.46},"size":{"w":0.16,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"a","fill":"surface","opacity":1},{"id":"txt-encode","kind":"text","parent":"g-encode","at":{"x":0.16,"y":0.46},"size":{"w":0.14,"h":0.07},"text":"Encode","tex":null,"figureId":null,"points":null,"fontPx":48,"tone":"a","fill":null,"opacity":1},{"id":"g-window","kind":"group","parent":null,"at":{"x":0.38,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-window","kind":"rect","parent":"g-window","at":{"x":0.38,"y":0.46},"size":{"w":0.16,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"b","fill":"surface","opacity":1},{"id":"txt-window","kind":"text","parent":"g-window","at":{"x":0.38,"y":0.46},"size":{"w":0.14,"h":0.07},"text":"Window","tex":null,"figureId":null,"points":null,"fontPx":48,"tone":"b","fill":null,"opacity":1},{"id":"g-thought","kind":"group","parent":null,"at":{"x":0.62,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-thought","kind":"rect","parent":"g-thought","at":{"x":0.62,"y":0.46},"size":{"w":0.20,"h":0.20},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"c","fill":"surface","opacity":1},{"id":"txt-thought","kind":"text","parent":"g-thought","at":{"x":0.62,"y":0.44},"size":{"w":0.17,"h":0.09},"text":"DQ-CTM thought","tex":null,"figureId":null,"points":null,"fontPx":46,"tone":"c","fill":null,"opacity":1},{"id":"txt-shared","kind":"text","parent":"g-thought","at":{"x":0.62,"y":0.54},"size":{"w":0.18,"h":0.06},"text":"shared parameters","tex":null,"figureId":null,"points":null,"fontPx":40,"tone":"muted","fill":null,"opacity":1},{"id":"g-decode","kind":"group","parent":null,"at":{"x":0.84,"y":0.46},"size":null,"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":null,"fill":null,"opacity":0},{"id":"box-decode","kind":"rect","parent":"g-decode","at":{"x":0.84,"y":0.46},"size":{"w":0.16,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"d","fill":"surface","opacity":1},{"id":"txt-decode","kind":"text","parent":"g-decode","at":{"x":0.84,"y":0.46},"size":{"w":0.14,"h":0.07},"text":"Decode","tex":null,"figureId":null,"points":null,"fontPx":48,"tone":"d","fill":null,"opacity":1},{"id":"arr1","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.24,"y":0.46},{"x":0.30,"y":0.46}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"arr2","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.46,"y":0.46},{"x":0.52,"y":0.46}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"arr3","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.72,"y":0.46},{"x":0.76,"y":0.46}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"loop","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.68,"y":0.36},{"x":0.72,"y":0.30},{"x":0.62,"y":0.24},{"x":0.52,"y":0.30},{"x":0.56,"y":0.36}],"fontPx":null,"tone":"c","fill":null,"opacity":0},{"id":"tick-label","kind":"text","parent":null,"at":{"x":0.62,"y":0.21},"size":{"w":0.22,"h":0.06},"text":"ticks return here","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0}],"anims":[{"target":"headline","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0,"dur":0.6,"ease":"out"},{"target":"g-encode","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.2,"dur":0.6,"ease":"out"},{"target":"g-window","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.5,"ease":"out"},{"target":"arr1","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.3,"ease":"out"},{"target":"arr1","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.5,"ease":"linear"},{"target":"g-thought","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.6,"dur":0.6,"ease":"out"},{"target":"arr2","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.6,"dur":0.3,"ease":"out"},{"target":"arr2","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.6,"dur":0.5,"ease":"linear"},{"target":"loop","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4,"dur":0.3,"ease":"out"},{"target":"loop","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4,"dur":0.8,"ease":"linear"},{"target":"tick-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.4,"dur":0.4,"ease":"out"},{"target":"txt-shared","op":"highlight","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.8,"dur":0.6,"ease":"out"},{"target":"g-decode","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.7,"dur":0.5,"ease":"out"},{"target":"arr3","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.7,"dur":0.3,"ease":"out"},{"target":"arr3","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.7,"dur":0.5,"ease":"linear"}],"holds":[1.0,2.0,4.9,6.6,8.0],"camera":{"on":"box-thought","k":2.4,"t0":8.2,"dur":1.3}},{"id":"s02-carrier","intent":"The carrier equation first makes a dense feature field, then partitions that field into tokens without dropping the field.","claim":"\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})","narration":"The encoder maps the low-resolution image into a dense feature field. The field is the carrier that stays spatial rather than becoming only a compact thought. The window operator partitions that field into tokens while keeping every token in the carrier equation.","evidence":[{"kind":"equation","id":"eq-carrier"},{"kind":"section","id":"sec2"}],"weight":0.8,"seconds":8,"objects":[{"id":"headline","kind":"text","parent":null,"at":{"x":0.5,"y":0.11},"size":{"w":0.86,"h":0.08},"text":"The carrier starts dense, then the window step keeps every token.","tex":null,"figureId":null,"points":null,"fontPx":66,"tone":"a","fill":null,"opacity":0},{"id":"eq","kind":"tex","parent":null,"at":{"x":0.5,"y":0.30},"size":{"w":0.82,"h":0.12},"text":null,"tex":"\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})","figureId":null,"points":null,"fontPx":72,"tone":"muted","fill":null,"opacity":0},{"id":"lr","kind":"rect","parent":null,"at":{"x":0.19,"y":0.63},"size":{"w":0.18,"h":0.16},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"a","fill":"surface","opacity":0},{"id":"lr-label","kind":"text","parent":null,"at":{"x":0.19,"y":0.63},"size":{"w":0.15,"h":0.08},"text":"low-resolution image","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"a","fill":null,"opacity":0},{"id":"field","kind":"rect","parent":null,"at":{"x":0.50,"y":0.63},"size":{"w":0.22,"h":0.18},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"b","fill":"surface","opacity":0},{"id":"field-grid1","kind":"polyline","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.445,"y":0.54},{"x":0.445,"y":0.72},{"x":0.555,"y":0.72},{"x":0.555,"y":0.54}],"fontPx":null,"tone":"b","fill":null,"opacity":0},{"id":"field-label","kind":"text","parent":null,"at":{"x":0.50,"y":0.63},"size":{"w":0.18,"h":0.07},"text":"dense feature field","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"b","fill":null,"opacity":0},{"id":"tokens","kind":"rect","parent":null,"at":{"x":0.81,"y":0.63},"size":{"w":0.18,"h":0.18},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"c","fill":"surface","opacity":0},{"id":"tokens-label","kind":"text","parent":null,"at":{"x":0.81,"y":0.63},"size":{"w":0.14,"h":0.08},"text":"window tokens","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0},{"id":"a1","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.28,"y":0.63},{"x":0.39,"y":0.63}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"a2","kind":"arrow","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.61,"y":0.63},{"x":0.72,"y":0.63}],"fontPx":null,"tone":"muted","fill":null,"opacity":0}],"anims":[{"target":"headline","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0,"dur":0.5,"ease":"out"},{"target":"eq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.3,"dur":0.6,"ease":"out"},{"target":"lr","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1,"dur":0.4,"ease":"out"},{"target":"lr-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.1,"dur":0.4,"ease":"out"},{"target":"eq","op":"highlight","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":"\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})","start":1.2,"dur":0.7,"ease":"out"},{"target":"field","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.4,"ease":"out"},{"target":"field-grid1","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.4,"ease":"out"},{"target":"field-grid1","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.6,"ease":"linear"},{"target":"field-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.7,"dur":0.4,"ease":"out"},{"target":"a1","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.3,"ease":"out"},{"target":"a1","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.5,"dur":0.5,"ease":"linear"},{"target":"eq","op":"highlight","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":"\\mathcal{W}(\\mathbf{F})","start":4.9,"dur":0.7,"ease":"out"},{"target":"tokens","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.2,"dur":0.4,"ease":"out"},{"target":"tokens-label","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.3,"dur":0.4,"ease":"out"},{"target":"a2","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.2,"dur":0.3,"ease":"out"},{"target":"a2","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":5.2,"dur":0.5,"ease":"linear"}],"holds":[2.1,3.4,6.1],"camera":null},{"id":"s03-params","intent":"DQ-CTM-SR is not the smallest model in the comparison; by parameters it is second largest among the five listed methods.","claim":"Table 1 reports Params: CATANet 0.535M, RFDN 0.550M, IMDN 0.715M, DQ-CTM-SR 1.129M, CARN 1.592M.","narration":"The parameter comparison runs from the smallest model to the largest model in the table. DQ-CTM-SR has one point one two nine million parameters, which makes it second largest among these five. The result is compact in method design, but this table does not support calling it cheap by parameter count.","evidence":[{"kind":"table","id":"tbl-bench"},{"kind":"section","id":"sec3"}],"weight":0.85,"seconds":9,"objects":[{"id":"headline","kind":"text","parent":null,"at":{"x":0.5,"y":0.11},"size":{"w":0.86,"h":0.08},"text":"DQ-CTM-SR is second largest by parameter count here.","tex":null,"figureId":null,"points":null,"fontPx":68,"tone":"a","fill":null,"opacity":0},{"id":"base","kind":"polyline","parent":null,"at":{"x":0,"y":0},"size":null,"text":null,"tex":null,"figureId":null,"points":[{"x":0.08,"y":0.78},{"x":0.92,"y":0.78}],"fontPx":null,"tone":"muted","fill":null,"opacity":0},{"id":"bar-catanet","kind":"rect","parent":null,"at":{"x":0.14,"y":0.713},"size":{"w":0.10,"h":0.134},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-catanet","kind":"text","parent":null,"at":{"x":0.14,"y":0.606},"size":{"w":0.13,"h":0.05},"text":"0.535M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-catanet","kind":"text","parent":null,"at":{"x":0.14,"y":0.86},"size":{"w":0.15,"h":0.05},"text":"CATANet","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"bar-rfdn","kind":"rect","parent":null,"at":{"x":0.32,"y":0.711},"size":{"w":0.10,"h":0.138},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-rfdn","kind":"text","parent":null,"at":{"x":0.32,"y":0.602},"size":{"w":0.13,"h":0.05},"text":"0.550M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-rfdn","kind":"text","parent":null,"at":{"x":0.32,"y":0.86},"size":{"w":0.14,"h":0.05},"text":"RFDN","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"bar-imdn","kind":"rect","parent":null,"at":{"x":0.50,"y":0.690},"size":{"w":0.10,"h":0.180},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-imdn","kind":"text","parent":null,"at":{"x":0.50,"y":0.560},"size":{"w":0.13,"h":0.05},"text":"0.715M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-imdn","kind":"text","parent":null,"at":{"x":0.50,"y":0.86},"size":{"w":0.14,"h":0.05},"text":"IMDN","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"bar-dq","kind":"rect","parent":null,"at":{"x":0.68,"y":0.638},"size":{"w":0.10,"h":0.284},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"c","fill":"tone","opacity":0},{"id":"val-dq","kind":"text","parent":null,"at":{"x":0.68,"y":0.456},"size":{"w":0.13,"h":0.05},"text":"1.129M","tex":null,"figureId":null,"points":null,"fontPx":44,"tone":"c","fill":null,"opacity":0},{"id":"lab-dq","kind":"text","parent":null,"at":{"x":0.68,"y":0.86},"size":{"w":0.16,"h":0.06},"text":"DQ-CTM-SR","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0},{"id":"bar-carn","kind":"rect","parent":null,"at":{"x":0.86,"y":0.580},"size":{"w":0.10,"h":0.400},"text":null,"tex":null,"figureId":null,"points":null,"fontPx":null,"tone":"muted","fill":"tone","opacity":0},{"id":"val-carn","kind":"text","parent":null,"at":{"x":0.86,"y":0.340},"size":{"w":0.13,"h":0.05},"text":"1.592M","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"lab-carn","kind":"text","parent":null,"at":{"x":0.86,"y":0.86},"size":{"w":0.14,"h":0.05},"text":"CARN","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"muted","fill":null,"opacity":0},{"id":"note","kind":"text","parent":null,"at":{"x":0.5,"y":0.93},"size":{"w":0.78,"h":0.05},"text":"Parameter count does not make DQ-CTM-SR the cheap model in this set.","tex":null,"figureId":null,"points":null,"fontPx":42,"tone":"c","fill":null,"opacity":0}],"anims":[{"target":"headline","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0,"dur":0.5,"ease":"out"},{"target":"base","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.3,"dur":0.3,"ease":"out"},{"target":"base","op":"draw","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.3,"dur":0.6,"ease":"linear"},{"target":"bar-catanet","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":0.8,"dur":0.2,"ease":"out"},{"target":"bar-catanet","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":0.8,"dur":0.5,"ease":"out"},{"target":"val-catanet","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.3,"ease":"out"},{"target":"lab-catanet","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.2,"dur":0.3,"ease":"out"},{"target":"bar-rfdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.3,"dur":0.2,"ease":"out"},{"target":"bar-rfdn","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":1.3,"dur":0.5,"ease":"out"},{"target":"val-rfdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.7,"dur":0.3,"ease":"out"},{"target":"lab-rfdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.7,"dur":0.3,"ease":"out"},{"target":"bar-imdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":1.8,"dur":0.2,"ease":"out"},{"target":"bar-imdn","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":1.8,"dur":0.5,"ease":"out"},{"target":"val-imdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.2,"dur":0.3,"ease":"out"},{"target":"lab-imdn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":2.2,"dur":0.3,"ease":"out"},{"target":"bar-dq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":3.6,"dur":0.2,"ease":"out"},{"target":"bar-dq","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":3.6,"dur":0.6,"ease":"out"},{"target":"val-dq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.1,"dur":0.3,"ease":"out"},{"target":"lab-dq","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.1,"dur":0.3,"ease":"out"},{"target":"bar-carn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.4,"dur":0.2,"ease":"out"},{"target":"bar-carn","op":"growFrom","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":"bottom","part":null,"start":4.4,"dur":0.6,"ease":"out"},{"target":"val-carn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.9,"dur":0.3,"ease":"out"},{"target":"lab-carn","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":4.9,"dur":0.3,"ease":"out"},{"target":"note","op":"fadeIn","from":0,"to":1,"toPos":null,"toObject":null,"toTone":null,"anchor":null,"part":null,"start":6.4,"dur":0.4,"ease":"out"}],"holds":[2.8,5.5,7.1],"camera":null}]}
+tokens used
+8,398

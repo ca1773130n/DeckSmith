@@ -1,0 +1,154 @@
+{
+  "_comment": "COVERAGE CONTROL. The task control exercises the ops a real deck of that task needs; this one exercises the rest, so an arm-VOCAB plan cannot fail on an emitter path no control ever touched. Every object kind and every op appears at least once. It is not a deck anybody would present — it is a fixture, and it is gated like one.",
+  "sourceId": "thinksr",
+  "title": "Vocabulary coverage",
+  "lang": "en",
+  "scenes": [
+    {
+      "id": "s01-moves",
+      "intent": "move, scale, recolour, fade out, count, draw a box",
+      "narration": "A box travels across the stage and settles. It grows, changes tone, and the figure beside it fades away. A counter rolls to one thousand one hundred and twenty nine.",
+      "evidence": [{ "kind": "section", "id": "sec1" }],
+      "weight": 0.5,
+      "seconds": 10,
+      "holds": [2.4, 5.0, 8.4],
+      "objects": [
+        {
+          "id": "head",
+          "kind": "text",
+          "at": { "x": 0.5, "y": 0.12 },
+          "size": { "w": 0.8, "h": 0.1 },
+          "text": "Transforms, one at a time",
+          "fontPx": 68
+        },
+        { "id": "grp", "kind": "group", "at": { "x": 0.0, "y": 0.0 } },
+        {
+          "id": "box",
+          "kind": "rect",
+          "parent": "grp",
+          "at": { "x": 0.22, "y": 0.42 },
+          "size": { "w": 0.14, "h": 0.12 },
+          "fill": "surface",
+          "tone": "a"
+        },
+        {
+          "id": "boxlab",
+          "kind": "text",
+          "parent": "grp",
+          "at": { "x": 0.22, "y": 0.42 },
+          "size": { "w": 0.12, "h": 0.08 },
+          "text": "rect",
+          "fontPx": 44,
+          "tone": "a"
+        },
+        {
+          "id": "dot",
+          "kind": "ellipse",
+          "at": { "x": 0.5, "y": 0.42 },
+          "size": { "w": 0.09, "h": 0.16 },
+          "fill": "none",
+          "tone": "c"
+        },
+        {
+          "id": "fig",
+          "kind": "image",
+          "at": { "x": 0.78, "y": 0.42 },
+          "size": { "w": 0.2, "h": 0.1 },
+          "figureId": "fig-arch"
+        },
+        {
+          "id": "wire",
+          "kind": "polyline",
+          "at": { "x": 0.5, "y": 0.7 },
+          "points": [
+            { "x": 0.18, "y": 0.66 },
+            { "x": 0.36, "y": 0.72 },
+            { "x": 0.62, "y": 0.66 },
+            { "x": 0.82, "y": 0.72 }
+          ],
+          "tone": "d",
+          "opacity": 0
+        },
+        {
+          "id": "count",
+          "kind": "text",
+          "at": { "x": 0.5, "y": 0.86 },
+          "size": { "w": 0.3, "h": 0.08 },
+          "text": "0",
+          "fontPx": 72,
+          "tone": "b"
+        }
+      ],
+      "anims": [
+        { "target": "box", "op": "draw", "start": 0.3, "dur": 0.6, "ease": "out" },
+        { "target": "grp", "op": "moveTo", "toPos": { "x": 0.06, "y": 0.04 }, "start": 1.0, "dur": 0.9, "ease": "inOut" },
+        { "target": "dot", "op": "growFrom", "anchor": "left", "start": 1.2, "dur": 0.6, "ease": "back" },
+        { "target": "box", "op": "scaleTo", "to": 1.2, "start": 3.0, "dur": 0.7, "ease": "out" },
+        { "target": "box", "op": "recolor", "toTone": "b", "start": 3.0, "dur": 0.7, "ease": "linear" },
+        { "target": "boxlab", "op": "recolor", "toTone": "b", "start": 3.0, "dur": 0.7, "ease": "linear" },
+        { "target": "fig", "op": "fadeOut", "start": 3.4, "dur": 0.6, "ease": "inOut" },
+        { "target": "wire", "op": "fadeIn", "start": 5.4, "dur": 0.3, "ease": "out" },
+        { "target": "wire", "op": "draw", "start": 5.4, "dur": 1.0, "ease": "linear" },
+        { "target": "wire", "op": "recolor", "toTone": "c", "start": 6.6, "dur": 0.5, "ease": "linear" },
+        { "target": "count", "op": "countTo", "from": 0, "to": 1129, "start": 6.0, "dur": 1.6, "ease": "out" }
+      ]
+    },
+    {
+      "id": "s02-morph",
+      "intent": "one object becomes another, and a right-anchored grow",
+      "narration": "A single token box carries across the stage and becomes the field it is part of. A bar rises from its left edge to mark the width.",
+      "evidence": [{ "kind": "section", "id": "sec2" }],
+      "weight": 0.5,
+      "seconds": 8,
+      "holds": [1.6, 4.6],
+      "objects": [
+        {
+          "id": "head",
+          "kind": "text",
+          "at": { "x": 0.5, "y": 0.12 },
+          "size": { "w": 0.8, "h": 0.1 },
+          "text": "One object becomes another",
+          "fontPx": 68
+        },
+        {
+          "id": "src",
+          "kind": "rect",
+          "at": { "x": 0.24, "y": 0.44 },
+          "size": { "w": 0.08, "h": 0.1 },
+          "fill": "tone",
+          "tone": "a"
+        },
+        {
+          "id": "dst",
+          "kind": "rect",
+          "at": { "x": 0.7, "y": 0.44 },
+          "size": { "w": 0.24, "h": 0.22 },
+          "fill": "surface",
+          "tone": "d",
+          "opacity": 0
+        },
+        {
+          "id": "eq",
+          "kind": "tex",
+          "at": { "x": 0.5, "y": 0.74 },
+          "tex": "\\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+          "fontPx": 72,
+          "tone": "muted"
+        },
+        {
+          "id": "rule",
+          "kind": "rect",
+          "at": { "x": 0.5, "y": 0.88 },
+          "size": { "w": 0.5, "h": 0.012 },
+          "fill": "tone",
+          "tone": "muted"
+        }
+      ],
+      "anims": [
+        { "target": "src", "op": "morphInto", "toObject": "dst", "start": 2.4, "dur": 1.2, "ease": "inOut" },
+        { "target": "rule", "op": "growFrom", "anchor": "right", "start": 5.2, "dur": 0.8, "ease": "out" },
+        { "target": "eq", "op": "highlight", "part": "\\mathcal{W}", "start": 5.6, "dur": 0.5, "ease": "out" }
+      ]
+    }
+  ]
+}

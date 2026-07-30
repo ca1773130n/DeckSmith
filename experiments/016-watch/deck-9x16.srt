@@ -1,0 +1,168 @@
+1
+00:00:01,950 --> 00:00:06,147
+This paper puts a thought process
+that stays small up against
+
+2
+00:00:06,147 --> 00:00:10,137
+a task whose output has to stay
+large — every pixel of it.
+
+3
+00:00:11,817 --> 00:00:17,279
+The encoder does the heavy lifting
+first, in the style SwinIR established.
+
+4
+00:00:18,783 --> 00:00:23,708
+Then the field is cut into windows, and
+nothing is pooled away on the way through.
+
+5
+00:00:25,217 --> 00:00:29,454
+The thought machine sits here in the
+middle, working on what the windows hold.
+
+6
+00:00:30,950 --> 00:00:35,600
+Only at the very end does the
+decoder upsample, four times over.
+
+7
+00:00:36,950 --> 00:00:39,612
+That loop is a single tick, and it runs in
+
+8
+00:00:39,612 --> 00:00:42,400
+place rather than around
+the whole pipeline.
+
+9
+00:00:43,283 --> 00:00:45,998
+Every tick reuses the same weights, so
+
+10
+00:00:45,998 --> 00:00:49,283
+thinking for longer costs
+time and not memory.
+
+11
+00:00:50,983 --> 00:00:53,745
+Picture the feature map
+as a grid of tokens.
+
+12
+00:00:54,917 --> 00:00:57,804
+Attention runs inside
+one window at a time.
+
+13
+00:00:59,117 --> 00:01:04,079
+The next window does the same, and
+at this stage the two never mix.
+
+14
+00:01:05,183 --> 00:01:09,020
+Count the tokens before a tick and
+after it and you get the same number.
+
+15
+00:01:11,517 --> 00:01:15,842
+The encoder turns the low-resolution
+image into a dense feature field.
+
+16
+00:01:17,850 --> 00:01:22,500
+The partition then cuts that field into
+windows without throwing any of it away.
+
+17
+00:01:24,583 --> 00:01:29,508
+The window-wise version collapses each
+window down to a single summary token.
+
+18
+00:01:30,517 --> 00:01:36,067
+This one asks a question at every position
+instead, and the token count survives it.
+
+19
+00:01:36,983 --> 00:01:38,983
+The partition is identical in both.
+
+20
+00:01:38,983 --> 00:01:42,658
+What differs is how much of it
+the thought state ever sees.
+
+21
+00:01:46,417 --> 00:01:52,017
+On parameters the method lands second
+from the top, at 1.13 million.
+
+22
+00:01:52,917 --> 00:01:56,954
+So this is not the cheap option,
+and the paper never claims it is.
+
+23
+00:01:59,417 --> 00:02:03,429
+These are five-benchmark averages
+at four times upscaling.
+
+24
+00:02:04,250 --> 00:02:08,400
+CATANet is the one to beat, at 29.48.
+
+25
+00:02:09,683 --> 00:02:13,226
+The method here comes
+in at 28.98 — ahead of
+
+26
+00:02:13,226 --> 00:02:16,608
+two CNN baselines, behind the transformer.
+
+27
+00:02:18,017 --> 00:02:20,704
+Only that last row was
+trained for this paper.
+
+28
+00:02:20,704 --> 00:02:22,404
+Every other number is quoted.
+
+29
+00:02:25,517 --> 00:02:28,642
+The first tick is worth
+almost a full decibel.
+
+30
+00:02:29,550 --> 00:02:32,524
+The fourth is worth under
+a tenth, and training
+
+31
+00:02:32,524 --> 00:02:35,687
+stopped there, so nothing
+past it is demonstrated.
+
+32
+00:02:37,250 --> 00:02:40,300
+One warning to carry
+into the paper itself.
+
+33
+00:02:41,317 --> 00:02:47,229
+The abstract reports this sweep
+running from 28.10 up to 30.28.
+
+34
+00:02:48,283 --> 00:02:53,663
+The table for the same sweep says
+28.91 to 30.47, and the body
+
+35
+00:02:53,663 --> 00:02:58,695
+quotes a gain of 1.46 decibels
+where the table gives 0.59.

@@ -1,0 +1,22 @@
+{
+  "arm": "B",
+  "i": 7,
+  "ms": 158792,
+  "exit": 0,
+  "promptChars": 8659,
+  "schemaChars": 3324,
+  "outChars": 21770,
+  "stage": "valid",
+  "units": 3,
+  "jsonChars": 14335,
+  "refsResolve": true,
+  "shared": [
+    "scene[0] s01-flow: narration 3 sentences, 4 holds"
+  ],
+  "algebra": [
+    "scene[0] s01-flow obj s01-title: declared w 0.86 but the text renders 1.11 wide",
+    "scene[0] s01-flow obj s01-title: box extends off stage"
+  ],
+  "soft": [],
+  "coherent": false
+}

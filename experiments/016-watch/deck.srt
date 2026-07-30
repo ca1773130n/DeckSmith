@@ -1,0 +1,237 @@
+1
+00:00:01,950 --> 00:00:06,147
+This paper puts a thought process
+that stays small up against
+
+2
+00:00:06,147 --> 00:00:10,137
+a task whose output has to stay
+large — every pixel of it.
+
+3
+00:00:11,817 --> 00:00:17,279
+The encoder does the heavy lifting
+first, in the style SwinIR established.
+
+4
+00:00:18,783 --> 00:00:23,708
+Then the field is cut into windows, and
+nothing is pooled away on the way through.
+
+5
+00:00:25,217 --> 00:00:29,454
+The thought machine sits here in the
+middle, working on what the windows hold.
+
+6
+00:00:30,950 --> 00:00:35,600
+Only at the very end does the
+decoder upsample, four times over.
+
+7
+00:00:36,950 --> 00:00:39,612
+That loop is a single tick, and it runs in
+
+8
+00:00:39,612 --> 00:00:42,400
+place rather than around
+the whole pipeline.
+
+9
+00:00:43,283 --> 00:00:45,998
+Every tick reuses the same weights, so
+
+10
+00:00:45,998 --> 00:00:49,283
+thinking for longer costs
+time and not memory.
+
+11
+00:00:50,950 --> 00:00:54,313
+Look at the bottom row of the
+comparison figure — all three
+
+12
+00:00:54,313 --> 00:00:57,675
+approaches differ only in what
+they hand the thought block.
+
+13
+00:00:59,050 --> 00:01:01,787
+The windows come first: the field is
+
+14
+00:01:01,787 --> 00:01:05,437
+partitioned, and each one
+is handled on its own.
+
+15
+00:01:06,483 --> 00:01:10,908
+The block in the middle is shared,
+the same weights for every window.
+
+16
+00:01:11,983 --> 00:01:16,820
+And what comes out is still a dense field,
+one query for every position in it.
+
+17
+00:01:18,517 --> 00:01:21,279
+Picture the feature map
+as a grid of tokens.
+
+18
+00:01:22,450 --> 00:01:25,337
+Attention runs inside
+one window at a time.
+
+19
+00:01:26,650 --> 00:01:31,612
+The next window does the same, and
+at this stage the two never mix.
+
+20
+00:01:32,717 --> 00:01:36,554
+Count the tokens before a tick and
+after it and you get the same number.
+
+21
+00:01:39,050 --> 00:01:43,375
+The encoder turns the low-resolution
+image into a dense feature field.
+
+22
+00:01:45,383 --> 00:01:50,033
+The partition then cuts that field into
+windows without throwing any of it away.
+
+23
+00:01:51,650 --> 00:01:56,187
+At the bottom is the carrier, and it
+keeps every token it started with.
+
+24
+00:01:57,117 --> 00:02:02,892
+Above it sit the queries — one for each
+position, rather than one for each window.
+
+25
+00:02:03,783 --> 00:02:09,408
+Synchronisation is the part that remembers:
+every neuron carries its own history.
+
+26
+00:02:10,350 --> 00:02:14,750
+The compact state on top is what actually
+changes from one tick to the next.
+
+27
+00:02:16,783 --> 00:02:21,708
+The window-wise version collapses each
+window down to a single summary token.
+
+28
+00:02:22,750 --> 00:02:28,300
+This one asks a question at every position
+instead, and the token count survives it.
+
+29
+00:02:29,217 --> 00:02:31,217
+The partition is identical in both.
+
+30
+00:02:31,217 --> 00:02:34,892
+What differs is how much of it
+the thought state ever sees.
+
+31
+00:02:38,650 --> 00:02:44,250
+On parameters the method lands second
+from the top, at 1.13 million.
+
+32
+00:02:45,150 --> 00:02:49,187
+So this is not the cheap option,
+and the paper never claims it is.
+
+33
+00:02:51,650 --> 00:02:55,662
+These are five-benchmark averages
+at four times upscaling.
+
+34
+00:02:56,483 --> 00:03:00,633
+CATANet is the one to beat, at 29.48.
+
+35
+00:03:01,917 --> 00:03:05,460
+The method here comes
+in at 28.98 — ahead of
+
+36
+00:03:05,460 --> 00:03:08,842
+two CNN baselines, behind the transformer.
+
+37
+00:03:10,250 --> 00:03:12,937
+Only that last row was
+trained for this paper.
+
+38
+00:03:12,937 --> 00:03:14,637
+Every other number is quoted.
+
+39
+00:03:17,750 --> 00:03:20,875
+The first tick is worth
+almost a full decibel.
+
+40
+00:03:21,783 --> 00:03:24,757
+The fourth is worth under
+a tenth, and training
+
+41
+00:03:24,757 --> 00:03:27,920
+stopped there, so nothing
+past it is demonstrated.
+
+42
+00:03:29,417 --> 00:03:32,492
+The claim is that
+reconstruction improves at
+
+43
+00:03:32,492 --> 00:03:35,917
+every tick, on all one
+hundred validation images.
+
+44
+00:03:37,017 --> 00:03:40,138
+The figure is the
+evidence — each column is
+
+45
+00:03:40,138 --> 00:03:43,404
+one more tick, and the
+detail keeps arriving.
+
+46
+00:03:44,983 --> 00:03:48,033
+One warning to carry
+into the paper itself.
+
+47
+00:03:49,050 --> 00:03:54,962
+The abstract reports this sweep
+running from 28.10 up to 30.28.
+
+48
+00:03:56,017 --> 00:04:01,396
+The table for the same sweep says
+28.91 to 30.47, and the body
+
+49
+00:04:01,396 --> 00:04:06,429
+quotes a gain of 1.46 decibels
+where the table gives 0.59.

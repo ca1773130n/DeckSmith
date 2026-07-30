@@ -1,0 +1,61 @@
+{
+  "name": "decksmith",
+  "version": "0.1.0",
+  "description": "Turn a source document into an animated explanation deck.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "decksmith": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "score": "npm run build && node scripts/score.mjs",
+    "build:server": "esbuild src/server/*.ts --outdir=dist/server --platform=node --target=node22 --format=esm --log-level=warning",
+    "serve": "npm run build && npm run build:server && node dist/server/main.js",
+    "demo": "node demo/build.mjs && node dist/cli.js build demo/storyboard.json --source demo/source.json -o demo/deck && python3 -m http.server 8080 --directory demo/deck --bind 127.0.0.1"
+  },
+  "dependencies": {
+    "@puppeteer/browsers": "^3.0.6",
+    "commander": "^14.0.1",
+    "fflate": "^0.8.3",
+    "gsap": "^3.14.2",
+    "hyperframes": "0.7.71",
+    "katex": "^0.16.11",
+    "puppeteer-core": "^25.3.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.14",
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^22.19.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

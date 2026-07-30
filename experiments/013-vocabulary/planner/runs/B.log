@@ -1,0 +1,9 @@
+B-2 valid 146s units=3 shared=0 algebra=0 soft=1
+B-3 valid 168s units=3 shared=0 algebra=1 soft=0
+B-1 valid 172s units=3 shared=0 algebra=0 soft=0
+B-4 valid 175s units=3 shared=1 algebra=0 soft=0
+B-6 valid 148s units=3 shared=0 algebra=2 soft=0
+B-8 valid 152s units=3 shared=0 algebra=1 soft=0
+B-7 valid 159s units=3 shared=1 algebra=2 soft=0
+B-5 valid 189s units=3 shared=0 algebra=1 soft=0
+done B 8

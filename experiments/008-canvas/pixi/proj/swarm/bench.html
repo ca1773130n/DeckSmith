@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>swarm bench</title>
+    <script src="vendor/deckpixi.iife.js"></script>
+    <style>
+      * { margin: 0; padding: 0; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0d10; }
+      #gl, #svgHost { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl" width="1920" height="1080"></canvas>
+    <div id="svgHost"></div>
+    <script>
+      window.__ready = false;
+      (async function () {
+        var q = new URLSearchParams(location.search);
+        var n = Number(q.get("n") || 60000);
+        var mode = q.get("mode") || "pixi";
+        DP.killTickers();
+        if (mode === "pixi") {
+          document.getElementById("svgHost").remove();
+          window.__scene = await DP.swarmScene(document.getElementById("gl"), 1920, 1080, n);
+        } else {
+          document.getElementById("gl").remove();
+          window.__scene = DP.swarmSvg(document.getElementById("svgHost"), 1920, 1080, n);
+        }
+        window.__DP = DP;
+        window.__scene.render(0);
+        window.__ready = true;
+      })();
+    </script>
+  </body>
+</html>
