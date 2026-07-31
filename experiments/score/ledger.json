@@ -4675,7 +4675,24 @@
       "cmd": "node dist/cli.js build experiments/018-duration/sb-ff-60s.json --source demo/source.json -o node_modules/.cache/decksmith-score/decks/experiments-018-duration-sb-ff-60s --format deck-16x9",
       "rules": [],
       "at": "2026-07-31T02:07:20.479Z"
+    },
+    "experiments/018-duration/sb-2min-15slide.json": {
+      "planSha": "388dcff872ce0bf070c9b6f05e1c3b7613d31bf5676fd503cebe4c2ca05a61cd",
+      "source": "demo/source.json",
+      "sourceSha": "f6c244cd22aecd1edbe2be4b5c7ae4af4bf66eabbf978708fed790390bcdb4ec",
+      "format": "deck-16x9",
+      "tool": "3f928a3995579944",
+      "passed": true,
+      "errors": 0,
+      "warnings": 0,
+      "unitKey": "beats",
+      "units": 15,
+      "normalized": false,
+      "deckSha": "e8d1ae274d8bca21998d32d8d78ac9efec871784b6c26ddd5702c07dc19a541a",
+      "cmd": "node dist/cli.js build experiments/018-duration/sb-2min-15slide.json --source demo/source.json -o node_modules/.cache/decksmith-score/decks/experiments-018-duration-sb-2min-15slide --format deck-16x9",
+      "rules": [],
+      "at": "2026-07-31T02:49:18.287Z"
     }
   },
-  "updated": "2026-07-31T02:07:20.482Z"
+  "updated": "2026-07-31T02:49:18.291Z"
 }
