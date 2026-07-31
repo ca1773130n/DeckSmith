@@ -350,6 +350,46 @@ describe("grid alignment", () => {
     }
   });
 
+  /**
+   * A SQUARE LATTICE IS HEIGHT-BOUND AT EVERY SIZE — measured across 2x2 to 6x6,
+   * neither `CELL_MAX` nor the width term ever binds — so every pixel the note
+   * takes off the budget comes straight off the cell while the width it does not
+   * use sits empty. On the demo's 4x4 the note cost 98px of a 516px budget and
+   * the field drew 504px wide in a 1700px box: 30% of the width, 55% of the
+   * height, with the rest black.
+   */
+  it("sets the note beside the field when the field leaves a column for it", () => {
+    // A SQUARE field with a note: `maximal` is 24x16 and leaves nothing, so this
+    // is the demo's own 4x4 shape, which is the one that measured 30% of width.
+    const square = beat({
+      headline: "Windowing turns the field into local regions",
+      cols: 4,
+      rows: 4,
+      regions: [{ x: 0, y: 0, w: 2, h: 2, label: "window", tone: "a" }],
+      note: "The source defines windowing as W(F).",
+    });
+    const html = grid(square, ctx("s4")).html;
+    expect(html).toContain("growbeside");
+    // The wrapper carries the field's REAL extent. Without it the row is the
+    // full content width before the note is added, and the note runs off the
+    // canvas — which it did, clipped mid-word, with every gate green.
+    const width = Number(/class="gwrap" style="width:(\d+)px/.exec(html)?.[1]);
+    expect(width).toBeGreaterThan(0);
+    expect(width).toBeLessThan(1700 - 380);
+  });
+
+  it("keeps the note under the field in portrait, where there is no spare width", () => {
+    const square = beat({
+      headline: "Windowing turns the field into local regions",
+      cols: 4,
+      rows: 4,
+      regions: [{ x: 0, y: 0, w: 2, h: 2, label: "window", tone: "a" }],
+      note: "The source defines windowing as W(F).",
+    });
+    const html = grid(square, { source, format: tall, theme, sid: "s4" }).html;
+    expect(html).not.toContain("growbeside");
+  });
+
   it("keeps a label that fits inside its own region there, however much width is spare", () => {
     // The demo's 12x8 field is height-bound at 16:9 and leaves ~930px down its
     // right. Filling that band by exiling both labels to a gutter draws two 900px
