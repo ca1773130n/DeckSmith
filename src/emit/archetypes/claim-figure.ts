@@ -35,6 +35,8 @@ const FULL_WIDTH_ASPECT = 3;
 const CLAIM_SIZE = 50;
 const CLAIM_LH = 1.5;
 const CLAIM_RULE = 6 + 32;
+/** The claim's column in `.cf-beside`. Named because the fit test has to agree with the CSS. */
+const BESIDE_COL = 560;
 
 export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   const { sid, theme } = ctx;
@@ -50,14 +52,28 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // PORTRAIT: everything stacks, so the aspect test never applies — a 3.6-aspect
   // strip and a square plate both get the full 860 and differ only in how much
   // height they then ask for.
-  const tall = isPortrait(ctx.format);
-  const wide = !tall && fig.width / fig.height >= FULL_WIDTH_ASPECT;
+  const portrait = isPortrait(ctx.format);
+  const wide = !portrait && fig.width / fig.height >= FULL_WIDTH_ASPECT;
+
+  // BESIDE IS ONLY VIABLE IF THE CLAIM FITS THE ROW. `.cf-beside` gives the claim
+  // a fixed 560px column and centres the row on its tallest item, so a long claim
+  // grows the row past the body box and — being centred — hangs off BOTH ends. A
+  // 220-character claim rendered 27px below the canvas with every gate green.
+  //
+  // Nothing about the figure's size fixes that: the column is fixed, so the
+  // claim's height is fixed by its own text. What fixes it is the measure. The
+  // same claim over the full 1700px box wraps to roughly a third as many lines,
+  // which is the stacked layout portrait already uses — so an over-tall claim
+  // falls back to it rather than being refused or clipped.
+  const bandFor = (width: number) =>
+    wrap(p.claim, CLAIM_SIZE, width - CLAIM_RULE).length * Math.round(CLAIM_SIZE * CLAIM_LH) + 34;
+  const rowBudget = bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND, 26);
+  const tall = portrait || (!wide && bandFor(BESIDE_COL) - 34 > rowBudget);
+
   // Stacked, the claim is above the figure rather than beside it, so it comes out
   // of the figure's height budget. Measured against the box because that is the
   // column it now sets in; the 560px `.cf-beside` column no longer exists.
-  const claimBand = tall
-    ? wrap(p.claim, CLAIM_SIZE, box - CLAIM_RULE).length * Math.round(CLAIM_SIZE * CLAIM_LH) + 34
-    : 0;
+  const claimBand = tall ? bandFor(box) : 0;
   // 550 was a flat cap that left 250px of the box unused under the plate and put
   // a 1507x208 band across the top of the slide. The figure is the evidence, so
   // it takes what the chrome and the caption leave; `32` is the plate's padding
@@ -99,7 +115,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // 560, not 640: the claim was set in a column narrow enough to break a
       // sentence over four lines while the figure beside it was capped short, so
       // both halves were smaller than the slide could carry.
-      ".cf-beside{display:grid;grid-template-columns:560px 1fr;gap:56px;align-items:center;margin-top:34px}",
+      `.cf-beside{display:grid;grid-template-columns:${BESIDE_COL}px 1fr;gap:56px;align-items:center;margin-top:34px}`,
       ".cf-under{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:start;margin-top:26px}",
       // PORTRAIT. Two children, not three: the caption is wrapped with the plate
       // it captions. `space-between` across claim/figure/caption separately put
