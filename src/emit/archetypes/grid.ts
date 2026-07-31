@@ -160,25 +160,21 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // portrait's absence, where there is width to spare at all. Otherwise this is
   // the layout it always was.
   const full = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, FIELD_TOP);
-  const square = solveCell(p.cols, p.rows, W, full);
-  const spare = W - (p.cols * square + (p.cols - 1) * square * GAP) - 2 * MARGIN - NOTE_GAP;
   const col = p.note ? noteColumn(p.note, BODY_SIZE) : undefined;
-  const beside = !isPortrait(ctx.format) && !!col && spare >= col.min;
-  const budget = beside
-    ? full
-    : bodyBudget(
-        ctx.format,
-        p.eyebrow,
-        p.headline,
-        noteHeight(p.note, noteWidth(ctx.format)),
-        FIELD_TOP,
-      );
+  /** The height the note costs when it sits underneath rather than beside. */
+  const stackedBudget = bodyBudget(
+    ctx.format,
+    p.eyebrow,
+    p.headline,
+    noteHeight(p.note, noteWidth(ctx.format)),
+    FIELD_TOP,
+  );
 
   /**
    * Square cells mean one unknown: `cell + gap = cell * (1 + GAP)`, so N cells
    * span `cell * (N + GAP * (N - 1))`. Take whichever axis runs out first.
    */
-  const solve = (boxW: number): Field => {
+  const solve = (boxW: number, budget: number): Field => {
     const cell = solveCell(p.cols, p.rows, boxW, budget);
     const gap = cell * GAP;
     return {
@@ -215,7 +211,6 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const crowded = p.regions.map((r, i) => p.regions.some((o, k) => k !== i && hits(r, o)));
 
-  const bare = solve(W);
   // Sized from the widest label over *every* region, not only the ones that
   // missed at pass one: reserving the gutter shrinks the cells, which can push a
   // further region out, and a gutter able to grow a second time never settles.
@@ -229,21 +224,55 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // was measured: it filled the band and drew two 900px leaders straight across
   // the lattice to do it, which is more ink for less meaning. The gutter is a
   // remedy, not a use for spare canvas.
-  const free = W - bare.w - 2 * MARGIN;
-  const needsGutter = p.regions.some((r, i) => crowded[i] || !fitsInside(bare, r));
-  // Floored at what the labels need rather than at a flat 220: the old floor was
-  // what made a 42px label wrap with ~350px of gutter sitting unused
-  // (EXPERIMENT-006, "Known, not fixed"). Given the room, every label gets one line.
-  const lw = needsGutter ? Math.max(wrapped, Math.min(oneLine, free - 90)) : 0;
-  const gutter = needsGutter ? lw + 90 : 0;
-  const f = needsGutter ? solve(W - gutter) : bare;
+  /**
+   * Everything downstream of the height budget, in one place so it can be solved
+   * TWICE.
+   *
+   * It has to be solvable twice because the note's placement is not known until
+   * the label gutter is, and the gutter is not known until the field is — which
+   * is decided by the budget the note's placement determines. The old code broke
+   * that loop with a probe: it guessed `beside` from a field measured BEFORE the
+   * gutter existed, granted the full budget on that guess, and then re-decided
+   * the placement at the end against the real field. When the two disagreed the
+   * note dropped underneath a field that had reserved nothing for it, and ran
+   * off the bottom of the canvas — 11px at 4x3, and again at 18x12 and 24x16,
+   * with every gate green.
+   */
+  const layout = (budget: number) => {
+    const bare = solve(W, budget);
+    const free = W - bare.w - 2 * MARGIN;
+    const needsGutter = p.regions.some((r, i) => crowded[i] || !fitsInside(bare, r));
+    // Floored at what the labels need rather than at a flat 220: the old floor was
+    // what made a 42px label wrap with ~350px of gutter sitting unused
+    // (EXPERIMENT-006, "Known, not fixed"). Given the room, every label gets one line.
+    const lw = needsGutter ? Math.max(wrapped, Math.min(oneLine, free - 90)) : 0;
+    const gutter = needsGutter ? lw + 90 : 0;
+    const f = needsGutter ? solve(W - gutter, budget) : bare;
 
-  /** Which labels the gutter has to carry. Fixed by `f`, so it settles here. */
-  const inGutter = p.regions.map((r, i) => crowded[i] || !fitsInside(f, r));
-  const lines = (r: Region) => wrap(r.label, LABEL, lw, 600).length;
-  const stackH = p.regions
-    .filter((_, i) => inGutter[i])
-    .reduce((t, r, i) => t + lines(r) * LABEL * LH + (i > 0 ? 14 : 16), 0);
+    /** Which labels the gutter has to carry. Fixed by `f`, so it settles here. */
+    const inGutter = p.regions.map((r, i) => crowded[i] || !fitsInside(f, r));
+    const lines = (r: Region) => wrap(r.label, LABEL, lw, 600).length;
+    const stackH = p.regions
+      .filter((_, i) => inGutter[i])
+      .reduce((t, r, i) => t + lines(r) * LABEL * LH + (i > 0 ? 14 : 16), 0);
+    return { bare, f, lw, gutter, inGutter, lines, stackH };
+  };
+
+  // Pass one at the FULL budget — the largest the field will ever be, so the
+  // room left beside it is the least there will ever be. A `beside` that holds
+  // against THIS field cannot be invalidated by a later shrink, which is exactly
+  // what made the old probe unsafe.
+  const roomy = layout(full);
+  const roomBeside = W - Math.ceil(roomy.f.w + 2 * MARGIN + roomy.gutter) - NOTE_GAP;
+  const beside = !isPortrait(ctx.format) && !!col && roomBeside >= col.min;
+
+  // Stacked, the note costs height, so the field is re-solved to pay for it.
+  // Committing to stacked rather than re-testing `beside` against the smaller
+  // field is deliberate: shrinking the field grows the room, which would flip
+  // the decision back, and a layout that oscillates never settles. Conservative
+  // in one direction beats undecidable.
+  const budget = beside ? full : stackedBudget;
+  const { f, lw, gutter, inGutter, lines, stackH } = beside ? roomy : layout(budget);
 
   // The frame hugs whatever it ended up holding rather than keeping the whole
   // budget. A 2x1 field left in an 800px frame is centred inside the frame and
@@ -401,20 +430,16 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // Measured that way first: the note's five lines were clipped mid-word at the
   // right edge, which no gate reads as wrong.
   const fieldW = Math.ceil(f.w + 2 * MARGIN + gutter);
-  // What the field and its label gutter actually left. `beside` above was decided
-  // against a PROBE — the field before its gutter was known — and a dense lattice
-  // grows into that gutter, so the room here can be less than the probe promised.
-  // Re-checked rather than trusted: at 24x16 the probe said yes and the note then
-  // had 227px for a column needing 230, which clipped mid-word with every gate
-  // green. Under its own longest word the note goes back underneath, where it
-  // costs height instead.
+  // No second opinion here any more. `beside` was decided against the field at
+  // its LARGEST — gutter included — so the room can only have grown since, and
+  // re-deciding could only ever move the note underneath a field already sized
+  // on the promise that it would not. That disagreement is the bug this fixes.
   const room = W - fieldW - NOTE_GAP;
-  const sideways = beside && !!col && room >= col.min;
   // The note takes the width IT wants, not everything left over: one sentence
   // stretched across 900px is a long line rather than a column, which is the same
   // judgement `noteCss` makes with `NOTE_MAX_W` for the stacked layout.
   const noteW = col ? Math.round(Math.min(col.want, room)) : 0;
-  const html = sideways
+  const html = beside
     ? `${chrome(sid, p.eyebrow, p.headline, W)}
 <div class="growbeside"><div class="gwrap" style="width:${fieldW}px;flex:none">${field}</div><div class="gnotecol" style="width:${noteW}px">${note}</div></div>`
     : `${chrome(sid, p.eyebrow, p.headline, W)}

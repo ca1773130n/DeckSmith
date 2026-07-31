@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { grid } from "../src/emit/archetypes/grid.js";
+import { bodyBudget, noteHeight, noteWidth } from "../src/emit/archetypes/title.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { tweenText } from "../src/emit/kit.js";
 import { textWidth } from "../src/emit/svg.js";
@@ -446,6 +447,65 @@ describe("grid alignment", () => {
           expect(fieldW + noteW + 52, `${where} overflows`).toBeLessThanOrEqual(W);
         }
       }
+    }
+  });
+
+  /**
+   * THE STACKED NOTE HAS TO BE PAID FOR OUT OF THE FIELD.
+   *
+   * `beside` used to be decided from a PROBE — the field measured before the
+   * label gutter existed — and the placement re-decided at the end against the
+   * real field. When the two disagreed the note dropped underneath a field whose
+   * budget had been granted on the promise that it would not, and hung off the
+   * bottom of the canvas: 11px at 4x3, and again at 18x12 and 24x16, with every
+   * gate green and the emitted `growbeside` absent so nothing looked wrong in
+   * the markup either.
+   *
+   * The invariant is the one the probe could not state: whatever the layout,
+   * the field plus whatever sits under it fits the box.
+   */
+  it("pays for a stacked note out of the field, at every lattice", () => {
+    const long = "The encoder makes the field; the partition keeps it, and nothing is discarded";
+    const note = "Token count is identical before and after the update.";
+    for (const [cols, rows] of [
+      [4, 3],
+      [8, 6],
+      [12, 8],
+      [18, 12],
+      [24, 16],
+    ] as const) {
+      const b = beat({
+        headline: long,
+        cols,
+        rows,
+        regions: [
+          {
+            x: 0,
+            y: 0,
+            w: Math.min(3, cols),
+            h: Math.min(3, rows),
+            label: "Incomprehensibilities",
+            tone: "a",
+          },
+          {
+            x: Math.max(0, cols - 3),
+            y: Math.max(0, rows - 3),
+            w: Math.min(3, cols),
+            h: Math.min(3, rows),
+            label: "the next window",
+            tone: "b",
+          },
+        ],
+        note,
+      });
+      const html = grid(b, ctx("s4")).html;
+      const where = `${cols}x${rows}`;
+      const svgH = Number(/<svg[^>]*height="([\d.]+)"/.exec(html)?.[1] ?? 0);
+      const beside = html.includes("growbeside");
+      const below = beside ? 0 : noteHeight(note, noteWidth(format));
+      const box = bodyBudget(format, undefined, long, 0, 52);
+      expect(svgH, `${where} svg alone`).toBeLessThanOrEqual(box);
+      expect(svgH + below, `${where} field + stacked note overflows`).toBeLessThanOrEqual(box);
     }
   });
 
