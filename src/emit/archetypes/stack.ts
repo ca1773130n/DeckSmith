@@ -137,6 +137,22 @@ export function stackLayout(p: Params, format: Format): StackLayout {
   return inline.fits || inline.blockH < stacked.blockH ? inline : stacked;
 }
 
+/**
+ * The weight a layer's label is DRAWN at, which the layout has to measure at.
+ *
+ * The top layer is set bolder to mark it as the outcome, and `solve` measured
+ * every label at 600 anyway. `textWidth` scales with weight, so on
+ * `experiments/018-duration` the emitter believed "Compact thought process" was
+ * one line at 600, budgeted one line of height for it, and the browser then set
+ * it in two at 700 — putting the second line's descenders straight through the
+ * note underneath. Nothing saw it: the pair is SVG text, which `content_overlap`
+ * exempts, and it took `svg_text_overprint` to find. One function, used by every
+ * measurement here and by the emitter, so the two cannot disagree again.
+ */
+function labelWeight(i: number, count: number): number {
+  return i === count - 1 ? 700 : 600;
+}
+
 function solve(p: Params, format: Format, inline: boolean): StackLayout {
   const width = contentW(format);
   const boxH = contentH(format);
@@ -151,7 +167,9 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
   // notes share the line, so they are part of what the column must hold.
   const noteW = (l: Params["layers"][number]) =>
     inline && l.note !== undefined ? textWidth(l.note, MIN_FONT, 400) + 28 : 0;
-  const want = Math.max(...p.layers.map((l) => textWidth(l.label, LABEL_SIZE, 600) + noteW(l)));
+  const want = Math.max(
+    ...p.layers.map((l, i) => textWidth(l.label, LABEL_SIZE, labelWeight(i, count)) + noteW(l)),
+  );
   const colCap = inline ? width * 0.56 : width * 0.5;
   const colW = clamp(Math.ceil(want) + 12, Math.min(520, width * 0.34), colCap);
   const labelX = width - colW;
@@ -159,15 +177,17 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
   // Notes are set at the floor and never shrink; the label gives way first,
   // because a label pushed under 40px is the failure this whole file guards.
   const labelRoom = Math.min(
-    ...p.layers.map((l) => (colW - noteW(l)) / Math.max(1, textWidth(l.label, 1, 600))),
+    ...p.layers.map(
+      (l, i) => (colW - noteW(l)) / Math.max(1, textWidth(l.label, 1, labelWeight(i, count))),
+    ),
   );
   const labelSize = Math.max(MIN_FONT, Math.min(LABEL_SIZE, labelRoom));
 
-  const lines = p.layers.map((l) => {
+  const lines = p.layers.map((l, i) => {
     const nw = noteW(l);
     const labelMaxW = Math.max(labelSize, colW - nw);
     return {
-      label: wrap(l.label, labelSize, labelMaxW, 600),
+      label: wrap(l.label, labelSize, labelMaxW, labelWeight(i, count)),
       // Inline notes stay on one line by contract — the schema calls a note "one
       // short line" — and wrapping one would put its second line under the label.
       note: l.note === undefined ? [] : inline ? [l.note] : wrap(l.note, MIN_FONT, colW, 400),
@@ -288,7 +308,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
         { x: L.labelX, y: L.inline ? mid : mid - noteH / 2 },
         {
           size: L.labelSize,
-          weight: top ? 700 : 600,
+          weight: labelWeight(i, count),
           fill: top ? theme.tones.b : theme.fg,
           maxWidth: block.labelMaxW,
           lineHeight: 1.16,
