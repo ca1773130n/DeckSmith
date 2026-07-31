@@ -171,8 +171,16 @@ export { verify } from "./verify/index.js";
  * before spending anything on it, which is the only moment it is worth acting on.
  */
 export { scanHeadlines, scanNarrationLead, scanRepeatedObject } from "./verify/index.js";
-export { check, parseCheckReport } from "./verify/check.js";
+export { check, parseCheckReport, sampleTimes } from "./verify/check.js";
 export type { CheckOptions } from "./verify/check.js";
+/**
+ * The chart-collision rule. Exported for the same reason `inkBelow` is: the
+ * predicate is pure over a list of measured text runs, so what counts as a
+ * collision is something a caller can read and test rather than infer from a
+ * verdict. `verify` runs it; nothing else has to.
+ */
+export { gradeOverprint, MIN_OVERLAP, overprints } from "./verify/overprint.js";
+export type { Overprint, Overprinted, TextRun } from "./verify/overprint.js";
 
 /**
  * The determinism gate: render the deck twice and compare. Separate from

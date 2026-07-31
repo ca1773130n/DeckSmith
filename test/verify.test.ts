@@ -3,10 +3,11 @@
  * `experiments/hf-thinksr`, the fail case a deck deliberately broken with an
  * oversized headline and near-invisible body text. Both were captured from 0.7.71.
  */
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { type Storyboard, storyboardSchema } from "../src/types.js";
 import { profilesFor, readCanvas, scanBudget } from "../src/verify/budget.js";
-import { check, parseCheckReport } from "../src/verify/check.js";
+import { check, parseCheckReport, sampleTimes } from "../src/verify/check.js";
 import {
   scanDeterminism,
   scanDiagrammatic,
@@ -14,6 +15,13 @@ import {
   scanNarrationLead,
   scanRepeatedObject,
 } from "../src/verify/index.js";
+import {
+  collectSvgTextRuns,
+  gradeOverprint,
+  MIN_OVERLAP,
+  overprints,
+  type TextRun,
+} from "../src/verify/overprint.js";
 import { scanTypeFloor, TYPE_FLOOR_PX } from "../src/verify/typefloor.js";
 
 const PASS = `{
@@ -977,5 +985,246 @@ describe("scanTypeFloor", () => {
     expect(message).toContain("36px on .c3");
     expect(message).not.toContain("37px on .c2");
     expect(message).toContain("…");
+  });
+});
+
+/**
+ * THE INSTRUMENT CHECK the sweep's corpus cannot perform.
+ *
+ * `experiments/sweep/ledger.json` records nine cells that must be CLEAN, so a
+ * predicate that has quietly stopped firing satisfies every one of them — the
+ * corpus proves fixes have not been reverted and can never prove the ruler still
+ * has marks on it. These cases give both halves inputs whose answer is known and
+ * is not "nothing": the widened sampling must actually widen, and the collision
+ * rule must actually collide.
+ */
+describe("the sweep's two instruments still register", () => {
+  let seq = 0;
+  const run = (text: string, y: number, h = 50) => ({ node: seq++, text, x: 100, y, w: 200, h });
+  /** Two client rects of ONE text node — what Chrome hands back for a wrapped label. */
+  const split = (text: string, y: number, h = 50) => {
+    const node = seq++;
+    return [
+      { node, text, x: 100, y, w: 200, h },
+      { node, text, x: 100, y: y + 10, w: 200, h },
+    ];
+  };
+
+  it("finds two labels printed through each other", () => {
+    // 30px of shared height on 200px of shared width — the shape of the
+    // line-chart defect, where a value label sat on the delta label under it.
+    const pairs = overprints([run("28.90", 100), run("+0.90", 120)]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]?.overlap).toEqual([200, 30]);
+  });
+
+  it("does not call abutting lines a collision", () => {
+    // A text run's client rect carries the font's leading, so two lines of one
+    // stacked label overlap by a few pixels while being perfectly legible. At a
+    // threshold of zero the first sweep called every multi-line label a defect.
+    expect(overprints([run("line one", 100), run("line two", 100 + 50 - MIN_OVERLAP)])).toEqual([]);
+  });
+
+  it("ignores two rects of ONE text node, which is one label Chrome split", () => {
+    expect(overprints(split("T=4", 100))).toEqual([]);
+  });
+
+  it("still reports two DIFFERENT labels that happen to read the same", () => {
+    // The skip above used to compare the string, so two chart labels showing the
+    // same rounded value were exempt from each other — and `text` is truncated
+    // at 40 characters, so two long labels agreeing on their opening were too.
+    // Both are real collisions: the audience sees one smudge.
+    expect(overprints([run("28.90", 100), run("28.90", 120)])).toHaveLength(1);
+  });
+
+  /**
+   * THE PAGE-SIDE HALF, which is the half that can fail by returning NOTHING.
+   *
+   * `overprints` above is pure and its failure is loud. `collectSvgTextRuns` runs
+   * inside Chrome, is reached only through `page.evaluate`, and is coupled to two
+   * things it does not own: the `data-composition-id` attribute the emitter
+   * writes, and the fact that chart labels are `<text>` inside an `<svg>`. Rename
+   * either and it returns `[]` — every corpus cell stays clean, every case above
+   * still passes, and the collision rule is gone without a word. So the walk is
+   * driven here against a DOM stub, and `scripts/sweep.mjs` separately checks the
+   * attribute against a really-built deck, because a stub cannot.
+   */
+  interface StubRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }
+  interface StubText {
+    nodeType: number;
+    textContent: string;
+    rects: StubRect[];
+  }
+  interface StubEl {
+    tagName: string;
+    style: { display: string; visibility: string; opacity: string };
+    childNodes: (StubText | StubEl)[];
+    children: StubEl[];
+  }
+  const rect = (x: number, y: number, width = 60, height = 20): StubRect => ({
+    x,
+    y,
+    width,
+    height,
+  });
+  const txt = (textContent: string, ...rects: StubRect[]): StubText => ({
+    nodeType: 3,
+    textContent,
+    rects,
+  });
+  const tag = (
+    tagName: string,
+    kids: (StubText | StubEl)[] = [],
+    style: Partial<StubEl["style"]> = {},
+  ): StubEl => ({
+    tagName,
+    style: { display: "block", visibility: "visible", opacity: "1", ...style },
+    childNodes: kids,
+    children: kids.filter((k): k is StubEl => "tagName" in k),
+  });
+
+  /** Install just enough `document`/`CSS`/`getComputedStyle` to run the walk. */
+  const inPage = (scene: StubEl | null): TextRun[] => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    const saved = {
+      document: g.document,
+      CSS: g.CSS,
+      getComputedStyle: g.getComputedStyle,
+    };
+    const cur: { node?: StubText } = {};
+    g.CSS = { escape: (s: string) => s };
+    g.getComputedStyle = (e: StubEl) => e.style;
+    g.document = {
+      querySelector: () => scene,
+      createRange: () => ({
+        selectNodeContents: (n: StubText) => {
+          cur.node = n;
+        },
+        getClientRects: () => cur.node?.rects ?? [],
+      }),
+    };
+    try {
+      return collectSvgTextRuns("s6");
+    } finally {
+      Object.assign(g, saved);
+    }
+  };
+
+  it("collects the glyphs of every text node inside the scene's svg", () => {
+    const runs = inPage(
+      tag("div", [
+        tag("div", [tag("svg", [tag("g", [tag("text", [txt("28.90", rect(10, 20))])])])]),
+      ]),
+    );
+    expect(runs).toEqual([{ node: 0, text: "28.90", x: 10, y: 20, w: 60, h: 20 }]);
+  });
+
+  it("gives one text node one id however many line boxes Chrome returns", () => {
+    // The pairing rule leans on this: two rects of one node must not be a
+    // collision, and it is this function that has to make them recognisable.
+    const runs = inPage(
+      tag("div", [
+        tag("svg", [tag("text", [txt("a long wrapped label", rect(0, 0), rect(0, 18))])]),
+      ]),
+    );
+    expect(runs.map((r) => r.node)).toEqual([0, 0]);
+    expect(overprints(runs)).toEqual([]);
+  });
+
+  it("ignores text that is not inside an svg", () => {
+    // Everything outside a chart is `hyperframes check`'s business; a second
+    // opinion on it is how two definitions of "broken" start to drift.
+    expect(
+      inPage(tag("div", [tag("h1", [txt("The encoder makes the field", rect(0, 0))])])),
+    ).toEqual([]);
+  });
+
+  it("does not measure a chart that is hidden or not yet faded in", () => {
+    const hidden = (style: Partial<StubEl["style"]>) =>
+      inPage(tag("div", [tag("div", [tag("svg", [tag("text", [txt("x", rect(0, 0))])])], style)]));
+    expect(hidden({ display: "none" })).toEqual([]);
+    expect(hidden({ visibility: "hidden" })).toEqual([]);
+    expect(hidden({ opacity: "0" })).toEqual([]);
+    expect(hidden({ opacity: "0.3" })).toHaveLength(1);
+  });
+
+  it("returns nothing when the scene selector matches nothing", () => {
+    // Pinned because this is the silent-failure path: if the emitter stops
+    // writing `data-composition-id`, this is what every scene looks like.
+    expect(inPage(null)).toEqual([]);
+  });
+
+  it("reports one finding per scene, naming the worst stop", () => {
+    const findings = gradeOverprint([
+      { sid: "s7", t: 1, pairs: [{ a: "a", b: "b", overlap: [10, 10] }] },
+      {
+        sid: "s7",
+        t: 2,
+        pairs: [
+          { a: "a", b: "b", overlap: [10, 10] },
+          { a: "c", b: "d", overlap: [12, 12] },
+        ],
+      },
+      { sid: "s8", t: 3, pairs: [] },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.rule).toBe("svg_text_overprint");
+    expect(findings[0]?.severity).toBe("error");
+    expect(findings[0]?.message).toContain("2 overlapping pair(s) at t=2s");
+  });
+
+  it("adds the deck's stops to the midpoint grid rather than replacing it", () => {
+    // `--at` REPLACES upstream's nine midpoints. Handing over only the stops
+    // would silently delete the coverage that catches `data-table` at 9 rows,
+    // which no stop of its own reaches.
+    const times = sampleTimes([91.4], 92.5);
+    expect(times).toContain(91.4);
+    // (0 + 0.5) / 9 * 92.5, upstream's own formula.
+    expect(times).toContain(5.139);
+    expect(times).toHaveLength(10);
+  });
+
+  it("drops a stop past the end and keeps the list sorted and unique", () => {
+    expect(sampleTimes([50, 50, 999], 100)).toEqual([
+      5.556, 16.667, 27.778, 38.889, 50, 61.111, 72.222, 83.333, 94.444,
+    ]);
+  });
+
+  it("falls back to the plain grid when there are no stops", () => {
+    expect(sampleTimes([], 9)).toEqual([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]);
+  });
+
+  /**
+   * THE COPY IS ONLY SAFE WHILE IT IS STILL A COPY.
+   *
+   * `sampleTimes` reproduces three facts about the pinned `hyperframes`: that
+   * `--at` REPLACES the grid rather than adding to it, that the grid is nine
+   * points, and that a point is `(i + 0.5) / n * duration`. All three are read
+   * off a private function in a dependency, and nothing else in this repository
+   * would notice them changing — `.github/workflows/upstream-drift.yml` watches
+   * the version string, and a version bump is exactly when they would change.
+   * Get any of them wrong and the union silently NARROWS, which is the one
+   * outcome the union exists to prevent, so the alarm is here.
+   *
+   * If this fails, read `buildLayoutSampleTimes` in the new version and make
+   * `sampleTimes` agree with it again. Do not relax the assertion.
+   */
+  it("still matches the grid the pinned hyperframes would have used", async () => {
+    const cli = await readFile(
+      new URL("../node_modules/hyperframes/dist/cli.js", import.meta.url),
+      "utf8",
+    );
+    const fn = /function buildLayoutSampleTimes\([\s\S]{0,600}?\n\}/.exec(cli)?.[0] ?? "";
+    expect(fn, "buildLayoutSampleTimes is gone from hyperframes/dist/cli.js").not.toBe("");
+    // `at` short-circuits, so passing stops DELETES the grid.
+    expect(fn).toMatch(/if \(at\w*\?\.length\) \{\s*return/);
+    // …and the grid it deletes is nine of these.
+    expect(fn).toContain("(index + 0.5) / count * duration");
+    expect(cli).toMatch(/DEFAULT_CHECK_OPTIONS = \{[\s\S]{0,400}?samples: 9,/);
   });
 });

@@ -148,6 +148,7 @@ import { pathToFileURL } from "node:url";
 import { DECK_PAGE } from "../emit/composition.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
+import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
 
 /**
  * Ink at a stop, as a fraction of the WHOLE frame — not of the measured band.
@@ -210,6 +211,15 @@ export interface FidelityOptions {
 
 export interface FidelityReport {
   stops: Measured[];
+  /**
+   * Both gates' findings — this one's `blank_at_stop` and `overprint`'s
+   * `svg_text_overprint`.
+   *
+   * They share a report because they share a browser, a page and a seek: the
+   * collision rule is one `page.evaluate` inside the loop below. Keeping it in
+   * its own module and folding the findings in here is the split that costs
+   * nothing — see `verify/overprint.ts` for why the rule has to exist at all.
+   */
   findings: Finding[];
   elapsedMs: number;
 }
@@ -453,8 +463,12 @@ export function gradeFidelity(rows: readonly Measured[], floor = INK_FLOOR): Fin
       severity: "error" as const,
       gate: "fidelity",
       rule: "blank_at_stop",
+      // `#${sid}`, so the scene can be found the same way every other finding in
+      // this project names one — and so a reader of the report can attribute it.
+      // See the same note in `overprint.ts`: written bare, a finding is a
+      // sentence about a scene nothing downstream can identify.
       message:
-        `${sid} stops ${stops.length === 1 ? "" : `${stops.length}x `}with nothing below its caption: ` +
+        `#${sid} stops ${stops.length === 1 ? "" : `${stops.length}x `}with nothing below its caption: ` +
         `${pct(worst.ink)} of the frame is ink at t=${worst.t}s (floor ${pct(floor)}, ` +
         `about one 40px label), so the audience is looking at a headline over an empty stage. ` +
         `Times: ${stops.map((s) => `${s.t}s`).join(", ")}.`,
@@ -598,6 +612,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
 
     const cdp = await page.createCDPSession();
     const measured: Measured[] = [];
+    const collided: Overprinted[] = [];
     for (const stop of stops) {
       await page.evaluate(renderSeek, stop.t);
       const bandTopPx = await page.evaluate(
@@ -606,6 +621,13 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         CAPTION,
         FALLBACK_BAND_TOP * height,
       );
+      // The frame is already seeked and already settled, so the collision rule
+      // is one more DOM read on the same page. The pairwise arithmetic stays in
+      // Node, where it can be tested without a browser.
+      collided.push({
+        ...stop,
+        pairs: overprints(await page.evaluate(collectSvgTextRuns, stop.sid)),
+      });
       const shot = await cdp.send("Page.captureScreenshot", {
         format: "png",
         fromSurface: true,
@@ -621,7 +643,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     }
     return {
       stops: measured,
-      findings: gradeFidelity(measured, floor),
+      findings: [...gradeFidelity(measured, floor), ...gradeOverprint(collided)],
       elapsedMs: Date.now() - started,
     };
   } catch (err) {
