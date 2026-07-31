@@ -316,6 +316,54 @@ not a polish gap:
   by age on boot.
 - **Disk is bounded only by TTL × queue rate**, and uploaded files are not scanned.
 
+## Connecting an agent (MCP)
+
+`decksmith-mcp` is a stdio [MCP](https://modelcontextprotocol.io) server, so an agent can
+turn a document into a deck with the same settings the CLI takes.
+
+```json
+{
+  "mcpServers": {
+    "decksmith": {
+      "command": "node",
+      "args": ["/absolute/path/to/DeckSmith/dist/mcp.js"],
+      "env": {
+        "DECKSMITH_MCP_ROOT": "/Users/me/papers",
+        "DECKSMITH_MCP_WORK": "/Users/me/.decksmith"
+      }
+    }
+  }
+}
+```
+
+Build it first with `npm run build && npm run build:mcp`. `DECKSMITH_MCP_ROOT` is the fence
+— documents outside it are not readable, and it defaults to your home directory rather than
+the working directory, because not every client launches a stdio server anywhere useful.
+
+Four tools:
+
+| tool | what it does |
+|---|---|
+| `decksmith_capabilities` | formats, themes, every setting's range, and which of Codex, edge-tts, ffmpeg and Chrome are installed |
+| `decksmith_estimate_length` | what a duration/slides/density combination costs, and what it cannot buy — instant, no job |
+| `decksmith_create_deck` | document + settings → a deck, and optionally an mp4 |
+| `decksmith_job_status` | where a job got to |
+
+**The pipeline takes minutes**, so `create_deck` and `job_status` block for `wait_seconds`
+(default 45, max 300) and then answer with whatever is true; the job keeps running between
+calls. Prerequisites are checked *before* the job starts, so a missing ffmpeg is a message
+in milliseconds rather than a failure four minutes in.
+
+Every report carries `storyboard_path`, and that is the point of the surface rather than a
+convenience: the storyboard is JSON on disk, an agent can read and edit it natively, and
+[it is the human checkpoint](#the-storyboard-is-the-human-checkpoint) where the quality is
+won. `estimate_length` returns `durationPlan`'s warnings verbatim for the same reason —
+they are the product telling you what your settings cost.
+
+No setting has a default in the tool schema. Absence is the signal: a theme you did not
+mention loses to the storyboard's own, and a language you did not mention loses to the
+document's.
+
 ## Using it as a library
 
 A server generating a deck per document should not shell out to a binary. It costs an

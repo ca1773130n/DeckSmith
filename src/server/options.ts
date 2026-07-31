@@ -24,6 +24,7 @@ import {
   type Prefs,
   prefsSchema,
   resizeFormat,
+  slidesFor,
   THEME_NAMES,
 } from "../index.js";
 import { UploadError } from "./upload.js";
@@ -184,6 +185,14 @@ export function parseOptions(fields: Record<string, string>): JobOptions {
   // text a SLIDE carries, this is how many of a beat's stops SPEAK. One name for
   // both would reach the planner as a single instruction about two things.
   if (str(fields.narrationDensity) !== undefined) narration.density = str(fields.narrationDensity);
+  // FELL ON THE FLOOR UNTIL NOW. `prefsSchema` has carried `rate` and `pitch`
+  // since narration existed and this parser never read them, so a request that
+  // set either got the default with no error and no warning — the silent-setting
+  // failure this file's own `stated` comment exists to prevent, one field over.
+  // Validated by the schema below like everything else, so a bad shape is a 400
+  // rather than a surprise at synthesis time.
+  if (str(fields.rate) !== undefined) narration.rate = str(fields.rate);
+  if (str(fields.pitch) !== undefined) narration.pitch = str(fields.pitch);
   patch.narration = narration;
 
   const parsed = prefsSchema.safeParse(patch);
@@ -196,10 +205,25 @@ export function parseOptions(fields: Record<string, string>): JobOptions {
     );
   }
 
+  // THE SLIDE COUNT IS DERIVED FROM THE DURATION, and this path was not deriving
+  // it. `slidesFor` is applied in `loadPrefs`, which the header above explains is
+  // deliberately not used here — so a request for ten minutes got the schema's
+  // flat default of twelve while the same request through the CLI got thirty.
+  // Measured: `--duration 600` is 30 slides at 20s a beat on one path and 12 at
+  // 50s on the other, from one number nobody chose.
+  //
+  // Applied HERE rather than in the schema because it can only run once `stated`
+  // is still visible: a twelve that the caller asked for must survive, and only
+  // the absence of the field distinguishes the two.
+  const prefs =
+    fields.slides === undefined && parsed.data.duration !== undefined
+      ? { ...parsed.data, slides: slidesFor(parsed.data) }
+      : parsed.data;
+
   return {
     format,
     formatId,
-    prefs: parsed.data,
+    prefs,
     narrate,
     video,
     stated: { theme: patch.theme !== undefined, lang: patch.lang !== undefined },
