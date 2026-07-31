@@ -8,7 +8,8 @@
     "node": ">=22"
   },
   "bin": {
-    "decksmith": "./dist/cli.js"
+    "decksmith": "./dist/cli.js",
+    "decksmith-mcp": "./dist/mcp.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/types/index.d.ts",
@@ -33,10 +34,12 @@
     "check": "npm run typecheck && npm run lint && npm run test",
     "score": "npm run build && node scripts/score.mjs",
     "build:server": "esbuild src/server/*.ts --outdir=dist/server --platform=node --target=node22 --format=esm --log-level=warning",
+    "build:mcp": "esbuild src/mcp/main.ts --bundle --outfile=dist/mcp.js --platform=node --target=node22 --format=esm --packages=external --log-level=warning",
     "serve": "npm run build && npm run build:server && node dist/server/main.js",
     "demo": "node demo/build.mjs && node dist/cli.js build demo/storyboard.json --source demo/source.json -o demo/deck && python3 -m http.server 8080 --directory demo/deck --bind 127.0.0.1"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@puppeteer/browsers": "^3.0.6",
     "commander": "^14.0.1",
     "fflate": "^0.8.3",

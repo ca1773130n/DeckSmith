@@ -85,6 +85,7 @@ export { renderSource, systemPrompt } from "./plan/prompt.js";
 export {
   COMFORTABLE_CPS,
   durationPlan,
+  slidesFor,
   LAST_HOLD_SECONDS,
   MAX_PLAYBACK,
   MIN_SENTENCE_CHARS,
