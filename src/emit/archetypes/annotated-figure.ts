@@ -556,6 +556,13 @@ export function planFigure(
 }
 
 /**
+ * The shortest stage that can still hold a figure worth annotating: a plate's
+ * two mats plus a picture no shorter than the caption underneath it. Below this
+ * the beat is refused rather than drawn small; above it, the figure shrinks.
+ */
+const MIN_STAGE = 2 * PLATE + 2 * Math.round(LAB * CAP_LH);
+
+/**
  * Height the stage may spend, once the chrome and the caption have taken theirs.
  * A budget, not a size — `planFigure` gives back only what it used.
  *
@@ -564,6 +571,16 @@ export function planFigure(
  * so a three-line headline went 174px unaccounted and pushed the stage down
  * until the caption rendered 81px BELOW the canvas and a note's second line 41px
  * below. `chromeHeight` is the same measurement every other archetype makes.
+ *
+ * AND IT NO LONGER FLOORS AT 360, which was the same fix half-made. Charging the
+ * headline correctly stopped the caption falling off the canvas and left it
+ * being CRUSHED instead: under a three-line headline the honest remainder is
+ * 299px, the floor handed back 360, the stage took 345 of it, and `.af-cap` —
+ * a flex child that may shrink — was squeezed to a 1.7px box with
+ * `-webkit-line-clamp` quietly eating the text. `clipped_text` and
+ * `text_box_overflow`, on a slide whose provenance line is invisible. A floor
+ * that reports more room than exists does not create room; it only moves which
+ * gate notices.
  */
 export function stageBudget(
   format: Format,
@@ -573,13 +590,12 @@ export function stageBudget(
 ): number {
   const lines = Math.min(CAP_LINES, wrap(caption, LAB, contentW(format)).length);
   const capH = lines * LAB * CAP_LH;
-  return Math.max(
-    360,
+  return (
     contentH(format) -
-      chromeHeight(eyebrow, headline, contentW(format)) -
-      STAGE_GAP -
-      CAP_GAP -
-      capH,
+    chromeHeight(eyebrow, headline, contentW(format)) -
+    STAGE_GAP -
+    CAP_GAP -
+    capH
   );
 }
 
@@ -631,13 +647,19 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
 
   /** The stage's own box: the content width the shell's padding leaves. */
   const STAGE_W = contentW(ctx.format);
-  const plan = planFigure(
-    STAGE_W,
-    notes,
-    view,
-    stageBudget(ctx.format, p.eyebrow, p.headline, fig.caption),
-    isPortrait(ctx.format),
-  );
+  const budget = stageBudget(ctx.format, p.eyebrow, p.headline, fig.caption);
+  // The ladder's last rung. Between `MIN_STAGE` and the whole canvas the figure
+  // simply shrinks; below it there is no picture left to annotate, and drawing
+  // one inside-out — `scale` goes negative once `stageH < 2 * PLATE` — is how a
+  // stage nothing can read still passes every gate. Same answer, same wording, as
+  // `split-compare` and `callout`.
+  if (budget < MIN_STAGE) {
+    throw new Error(
+      `annotated-figure ${beat.id}: the headline and caption leave ${Math.round(budget)}px for the figure, ` +
+        `under the ${MIN_STAGE}px floor — shorten the headline or split the beat`,
+    );
+  }
+  const plan = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format));
   const stageH = plan.height;
   const plate: Box = {
     x: plan.img.x - PLATE,
