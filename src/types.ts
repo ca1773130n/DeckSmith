@@ -308,37 +308,90 @@ const beatCore = {
   /** The source sentence or equation this beat is accountable to. */
   claim: z.string().optional(),
   evidence: z.array(refSchema).default([]),
-  narration: z.string().optional(),
   /** Salience, 0–1. Decides what survives a 30-second cut. */
   weight: z.number().min(0).max(1).default(0.5),
   /** Seconds this beat holds in a linear render. Deck mode is human-paced. */
   seconds: z.number().positive().max(60).default(7),
 };
 
+/**
+ * The fields a beat writes AFTER it has chosen its picture.
+ *
+ * Structured output decodes in schema key order, and stored model plans confirm
+ * it: `id, intent, claim, evidence, narration, weight, seconds, archetype,
+ * params`. So `narration` sitting in `beatCore` meant every line was written
+ * BEFORE the archetype was picked and before a single label existed — the model
+ * was asked to say what the slide shows while it had not yet decided what the
+ * slide shows. That is most of why the narration comes out generic, and why "name
+ * its parts in the order it draws them" was unsatisfiable rather than merely
+ * ignored.
+ *
+ * Moving it after `params` costs nothing: zod ignores key order on parse, so all
+ * 136 stored plans still validate and `experiments/score/scored.test.mjs` hashes
+ * their bytes unchanged.
+ */
+const beatTail = {
+  /** What the presenter says over this beat. Written last, knowing the picture. */
+  narration: z.string().optional(),
+};
+
 export const beatSchema = z.discriminatedUnion("archetype", [
-  z.object({ ...beatCore, archetype: z.literal("title"), params: titleParamsSchema }),
-  z.object({ ...beatCore, archetype: z.literal("claim-figure"), params: claimFigureParamsSchema }),
+  z.object({ ...beatCore, archetype: z.literal("title"), params: titleParamsSchema, ...beatTail }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("claim-figure"),
+    params: claimFigureParamsSchema,
+    ...beatTail,
+  }),
   z.object({
     ...beatCore,
     archetype: z.literal("equation-walk"),
     params: equationWalkParamsSchema,
+    ...beatTail,
   }),
-  z.object({ ...beatCore, archetype: z.literal("data-table"), params: dataTableParamsSchema }),
-  z.object({ ...beatCore, archetype: z.literal("line-chart"), params: lineChartParamsSchema }),
-  z.object({ ...beatCore, archetype: z.literal("callout"), params: calloutParamsSchema }),
-  z.object({ ...beatCore, archetype: z.literal("pipeline"), params: pipelineParamsSchema }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("data-table"),
+    params: dataTableParamsSchema,
+    ...beatTail,
+  }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("line-chart"),
+    params: lineChartParamsSchema,
+    ...beatTail,
+  }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("callout"),
+    params: calloutParamsSchema,
+    ...beatTail,
+  }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("pipeline"),
+    params: pipelineParamsSchema,
+    ...beatTail,
+  }),
   z.object({
     ...beatCore,
     archetype: z.literal("annotated-figure"),
     params: annotatedFigureParamsSchema,
+    ...beatTail,
   }),
-  z.object({ ...beatCore, archetype: z.literal("grid"), params: gridParamsSchema }),
-  z.object({ ...beatCore, archetype: z.literal("bar-compare"), params: barCompareParamsSchema }),
-  z.object({ ...beatCore, archetype: z.literal("stack"), params: stackParamsSchema }),
+  z.object({ ...beatCore, archetype: z.literal("grid"), params: gridParamsSchema, ...beatTail }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("bar-compare"),
+    params: barCompareParamsSchema,
+    ...beatTail,
+  }),
+  z.object({ ...beatCore, archetype: z.literal("stack"), params: stackParamsSchema, ...beatTail }),
   z.object({
     ...beatCore,
     archetype: z.literal("split-compare"),
     params: splitCompareParamsSchema,
+    ...beatTail,
   }),
 ]);
 

@@ -121,6 +121,38 @@ export const SETTLE_SECONDS = 0.4;
  */
 export const EXPLAINING_CHARS = 72;
 
+/**
+ * Sentences a beat needs before its narration can be a story rather than a label.
+ *
+ * TWO, and it is the demo that says so rather than taste. `demo/storyboard.json`
+ * writes 39 sentences over 12 beats — 3.25 each — and every bit of its
+ * storytelling lives in the second and third: "Then the field is cut into
+ * windows...", "Only at the very end does the decoder upsample...", "That loop is
+ * a single tick...", "So this is not the cheap option, and the paper never claims
+ * it is." The flow is INSIDE a beat, between its own sentences.
+ *
+ * Reduce that same deck to its FIRST sentence per beat — which is literally what
+ * a 60-second target over twelve slides buys — and the deck that works reads like
+ * this:
+ *
+ *     The encoder does the heavy lifting first.
+ *     The encoder turns the low-resolution image into a dense feature field.
+ *     The first tick is worth almost a full decibel.
+ *
+ * Twelve disconnected statements. So one sentence per beat cannot flow no matter
+ * who writes it, and the owner's complaint — "they don't have a flow, just
+ * sentence by sentence" — is arithmetic, not prose quality.
+ *
+ * WHY THIS IS A COUNT AND NOT A COHESION SCORE. The obvious check is to measure
+ * connectives and anaphora in the finished narration. It was built and then
+ * defeated: prefixing one discourse marker to each of the twelve rejected
+ * sentences — changing no content, no claim, no relation — moved the score from
+ * 42% to 92%, ABOVE the hand-written demo's 74%. That is §9's lesson exactly, so
+ * the thing measured here is the BUDGET, which is not a judgement and cannot be
+ * written around.
+ */
+export const SENTENCES_PER_BEAT = 2;
+
 /** Broadcast subtitle practice. Past this the captions stop being readable. */
 export const COMFORTABLE_CPS = 17;
 
@@ -192,6 +224,11 @@ export interface DurationPlan {
    * saying less. `"+0%"` whenever the budget already affords a real sentence.
    */
   rate: string;
+  /**
+   * Sentences this beat's budget affords. 1 means the deck can only caption; see
+   * `SENTENCES_PER_BEAT`. Absent when no duration was asked for.
+   */
+  sentences?: number;
   /** Characters per narration sentence. Absent when no duration was asked for. */
   chars?: number;
   /** Seconds of speech one beat can afford. Absent without a target. */
@@ -261,31 +298,61 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     );
   }
 
+  // How many sentences this beat's budget buys, which is what decides whether the
+  // narration can be a paragraph or only a label.
+  //
+  // THE BEAT'S budget, not one stop's. `chars` is divided by `stops`, so at
+  // `medium` it is half the beat and at `high` a third — reading it as the beat's
+  // total said a 60-second medium deck could not reach two sentences at ANY slide
+  // count, which is false and made the advisory tell the author nothing.
+  //
+  // FLOOR, not round: a beat with 1.9 sentences' worth of room gets one sentence
+  // and the slack, never a second one it has to clip.
+  const beatChars = Math.round(speechSeconds * cps * speedup);
+  const sentences = Math.max(1, Math.floor(beatChars / explainingChars(cps)));
+
   if (chars < MIN_SENTENCE_CHARS) {
     warnings.push(
       `${prefs.duration}s over ${prefs.slides} slides at ${prefs.narration.density} narration density leaves ${chars} characters per sentence, which is a fragment, not narration. Lower the density, cut the slide count, or raise the target.`,
     );
-  } else if (chars < explainingChars(cps)) {
-    // NAME THE SLIDE COUNT, not "use fewer slides". The whole value of this
-    // finding is the number the author would otherwise have to derive, and the
-    // same lesson `INSTEAD` in src/verify/index.ts records: a specific
-    // alternative changes a plan, a nudge does not. Searched rather than solved
-    // because `speed` clamps at both ends and a closed form would be wrong
-    // exactly where the clamp bites. Only reached once the rate is already at
-    // its ceiling, so it is what SPEED COULD NOT BUY, not the first resort.
+  } else if (sentences < SENTENCES_PER_BEAT) {
+    // THE FINDING THE OWNER RAISED, in the units that cause it. A beat with room
+    // for one sentence gets a caption, whoever writes it — the hand-written demo
+    // reduced to one sentence a beat reads exactly like the deck he rejected.
+    //
+    // NAME THE SLIDE COUNT, not "use fewer slides". A specific alternative
+    // changes a plan; a nudge does not — the same lesson `INSTEAD` in
+    // src/verify/index.ts records. Searched rather than solved because `speed`
+    // clamps at both ends and a closed form would be wrong exactly where the
+    // clamp bites.
+    const affords = (n: number) => {
+      const b = budget(prefs.duration as number, n, stops, cps);
+      const [, faster] = fastEnough(b.chars, cps);
+      return Math.floor(Math.round(b.speechSeconds * cps * faster) / explainingChars(cps));
+    };
     let roomier = 0;
     for (let n = prefs.slides - 1; n >= 3; n--) {
-      const [, faster] = fastEnough(budget(prefs.duration, n, stops, cps).chars, cps);
-      if (budget(prefs.duration, n, stops, cps).chars * faster >= EXPLAINING_CHARS) {
+      if (affords(n) >= SENTENCES_PER_BEAT) {
         roomier = n;
         break;
       }
     }
+    // What target keeps every slide AND buys the second sentence: the per-beat
+    // seconds have to cover the quiet plus two sentences of speech.
+    const longer =
+      Math.ceil(
+        ((prefs.slides *
+          (OPEN_SECONDS_AT_SPEED * speed +
+            SETTLE_SECONDS +
+            (SENTENCES_PER_BEAT * explainingChars(cps)) / (cps * speedup))) /
+          10) *
+          1.0,
+      ) * 10;
     const advice = roomier
-      ? `${roomier} slides at the same target would buy ${Math.round(budget(prefs.duration, roomier, stops, cps).chars * fastEnough(budget(prefs.duration, roomier, stops, cps).chars, cps)[1])}, or keep all ${prefs.slides} and raise the target to ${Math.ceil((prefs.slides * EXPLAINING_CHARS) / (chars / beatSeconds) / 10) * 10}s.`
-      : `no slide count at this target reaches ${EXPLAINING_CHARS} — raise the duration.`;
+      ? `${roomier} slides at the same target gives each one ${affords(roomier)} sentences, or keep all ${prefs.slides} and raise the target to about ${longer}s.`
+      : `no slide count at this target reaches two — raise the duration.`;
     warnings.push(
-      `even at ${rate}, ${prefs.duration}s over ${prefs.slides} slides leaves ${chars} characters a slide, about ${Math.round(chars / 5.5)} words. The shipped demo averages 72. Each slide will caption rather than explain: ${advice}`,
+      `${prefs.duration}s over ${prefs.slides} slides leaves ${beatChars} characters a slide, which is one sentence. A single sentence per slide cannot carry a story — the hand-written demo cut to one sentence a beat reads as captions too — so the deck will narrate slide by slide instead of explaining the paper: ${advice}`,
     );
   }
   if (speed === 0.25) {
@@ -298,6 +365,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     speed,
     speakingStops,
     rate,
+    sentences,
     chars: Math.max(MIN_SENTENCE_CHARS, chars),
     speechSeconds: round3(speechSeconds),
     beatSeconds: round3(beatSeconds),

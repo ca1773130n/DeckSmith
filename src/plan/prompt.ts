@@ -307,32 +307,50 @@ const DENSITIES: Record<Prefs["density"], string> = {
  * the other two it would be telling the model to count something it must not use.
  */
 function cadenceFor(prefs: Prefs, plan: DurationPlan): Cadence {
+  // WHAT WAS HERE, and why it is gone. At `low` this said "ONE SENTENCE PER
+  // BEAT", justified by "THAT SENTENCE IS HEARD OVER THE BEAT'S FIRST FRAME,
+  // before the stages, panels or layers after the first have been drawn."
+  //
+  // That reason is FALSE, and has been since §11: the voice now starts when the
+  // headline lands and runs continuously while the reveals play underneath it.
+  // Nothing removed the rule when its reason went, so the planner went on being
+  // told to write one self-contained line per slide — and it did, twelve times,
+  // and the result narrates slide by slide instead of explaining anything. The
+  // owner: "they don't explain the paper well and they don't have a flow. just
+  // sentence by sentence."
+  //
+  // The count is now DERIVED from what the beat's seconds can hold
+  // (`durationPlan.sentences`), because that is the thing that actually decides
+  // whether a beat can hold a paragraph — see `SENTENCES_PER_BEAT`.
+  const n = plan.sentences ?? (prefs.narration.density === "medium" ? 2 : 1);
   const sentences =
-    prefs.narration.density === "low"
-      ? `  - ONE SENTENCE PER BEAT. The deck reveals its stages, terms, notes, bars and
-    layers in silence, so the beat gets exactly one spoken line: the thing the
-    visual does not say. A second sentence is not more narration, it is a
-    sentence heard over the wrong picture.
-  - THAT SENTENCE IS HEARD OVER THE BEAT'S FIRST FRAME, before the stages,
-    panels or layers after the first have been drawn. So say the beat's POINT,
-    never a list of its parts: "one thought tick does all the reasoning", not
-    "encode, window, think, then decode" — the second names four things over a
-    picture showing one, and the other three then appear with nothing said.`
-      : prefs.narration.density === "medium"
-        ? `  - AT MOST TWO SENTENCES PER BEAT, in this order: the first covers the beat
-    arriving, the second the first thing revealed after it. Everything the beat
-    reveals from there on holds in silence. A third sentence is heard over the
-    wrong picture.
-  - Neither sentence may list what the beat reveals later. Both are heard while
-    at most two of its parts are on screen, so a sentence naming all six stages
-    is a sentence describing a picture the viewer cannot see yet.`
-        : `  - ONE SENTENCE PER REVEAL, in reveal order, separated by a single space. A beat
+    prefs.narration.density === "high"
+      ? `  - ONE SENTENCE PER REVEAL, in reveal order, separated by a single space. A beat
     lands and then reveals its stages, terms, notes, bars or layers one at a time,
     and the audio is cut sentence by sentence across those stops — so the first
     sentence covers the beat arriving and each later sentence belongs to the thing
     that appears next. Get the count wrong and the voice runs ahead of the
     animation, systematically, for the whole beat.
-${REVEAL_COUNTS}`;
+${REVEAL_COUNTS}`
+      : `  - ${n === 1 ? "ONE SENTENCE" : `${n} SENTENCES`} FOR THIS BEAT, spoken as ONE CONTINUOUS TAKE. The voice starts the
+    moment the headline lands and runs to the end of the beat without a pause you
+    can hear, and the beat's reveals play underneath it. The picture is still
+    assembling while you talk.
+  - THE DECK IS ONE SCRIPT, NOT ${prefs.slides} CAPTIONS. Read your narration end to end,
+    ignoring the slide boundaries: it has to work as a single spoken paragraph
+    that argues from the problem to the idea to the evidence to the cost. So a
+    beat's line continues the one before it — it may open with a pronoun, a
+    consequence or a contrast, and it must not restate what the previous line
+    already established.
+  - THE WORST THING YOU CAN WRITE is a line that would read identically if the
+    other beats did not exist. "The carrier keeps spatial detail while thought
+    stays compact." is a caption: true, self-contained, and it explains nothing
+    that the slide has not already drawn. Compare a line that knows what came
+    before: "That carrier is what lets the thought block stay small — it holds
+    the picture so the thinking does not have to."
+  - Never name a part before the beat has drawn it. The reveals arrive in the
+    order you list them, so a sentence naming the fourth stage first is heard
+    over a picture that does not have it yet.`;
 
   // A character count, not a word count, because the budget is seconds of speech
   // and characters per second is the thing that was measured. Both are given: the
@@ -349,16 +367,23 @@ ${REVEAL_COUNTS}`;
   // true when `durationPlan` started deriving the speaking rate. The budget below
   // is already the fast-speech budget; saying otherwise told the model to solve a
   // constraint that had been solved for it.
+  // THE BUDGET IS THE BEAT'S, NOT ONE SENTENCE'S, and conflating the two shipped
+  // a real defect: at a 300-second target over twelve slides the prompt said
+  // "ONE SENTENCE PER BEAT" in one bullet and "each sentence runs 290-341
+  // characters" in the next, which is an instruction to write a 341-character
+  // sentence. Now the beat gets a total and a sentence count, and dividing is
+  // the model's business.
   const floor = plan.chars === undefined ? 0 : Math.round(plan.chars * 0.85);
   const length =
     plan.chars === undefined
       ? "  - Keep each sentence to about 25 words. It has to be said in one breath."
-      : `  - Each sentence runs ${floor}-${plan.chars} characters, and you should write to the TOP
-    of that range. It is spoken in ${plan.speechSeconds}s${plan.rate === "+0%" ? "" : ` at a ${plan.rate} speaking rate`}, and those seconds are
-    reserved whether you use them or not — a sentence that comes in short does not
-    make the deck shorter, it makes the slide sit in silence. Under ${floor} the slide
-    captions instead of explaining, which is the most common way this goes wrong.
-    Over ${plan.chars} is what makes a deck miss its duration.`;
+      : `  - This beat's narration runs ${floor}-${plan.chars} characters IN TOTAL across its
+    ${n === 1 ? "one sentence" : `${n} sentences`}, and you should write to the TOP of that range. It is spoken in
+    ${plan.speechSeconds}s${plan.rate === "+0%" ? "" : ` at a ${plan.rate} speaking rate`}, and those seconds are reserved whether you use them or
+    not — narration that comes in short does not make the deck shorter, it makes
+    the slide sit in silence. Under ${floor} the slide captions instead of explaining,
+    which is the most common way this goes wrong. Over ${plan.chars} is what makes a deck
+    miss its duration.`;
 
   return { sentences, length };
 }

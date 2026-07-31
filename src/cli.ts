@@ -166,7 +166,6 @@ const HYPERFRAMES_JSON = `${JSON.stringify(
  */
 function planFlags(cmd: Command): Command {
   return cmd
-    .option("--slides <n>", "target beat count (3–40)")
     .option("--lang <bcp47>", "language of the deck's copy")
     .option("--tone <tone>", "plain | academic | conversational | punchy")
     .option("--density <level>", "sparse | normal | dense");
@@ -176,11 +175,16 @@ function planFlags(cmd: Command): Command {
  * The three knobs that decide how LONG it is, and its own group because they are
  * the only ones every one of `plan`, `narrate` and `build` needs.
  *
- * `--slides` is in `planFlags` above and is the third of them. The two here reach
- * all three verbs because the length budget is spent in three places: the planner
- * writes to a character count, `narrate` decides which stops speak, and `build`
- * derives the animation speed. A flag missing from one of those is a deck whose
- * three stages disagree about how long it is.
+ * All THREE are here, because the length budget is spent in three places: the
+ * planner writes to a character count, `narrate` decides which stops speak and at
+ * what rate, and `build` derives the animation speed. A flag missing from one of
+ * those is a deck whose three stages disagree about how long it is.
+ *
+ * `--slides` used to sit in `planFlags` alone, and that is exactly the failure the
+ * paragraph above describes: every one of those three numbers is derived from
+ * `duration / slides`, so a deck planned at five slides and narrated without the
+ * flag was SPOKEN at the twelve-slide rate — a different voice from the one its
+ * own budget was written for. Nothing reported it.
  *
  * What is NOT here: words per sentence, and narration or animation speed. Those
  * are derived — see `durationPlan`. Exposing them as well would only be a way to
@@ -189,6 +193,7 @@ function planFlags(cmd: Command): Command {
 function lengthFlags(cmd: Command): Command {
   return cmd
     .option("--duration <s>", "target length of the finished video, in seconds (10–1800)")
+    .option("--slides <n>", "target beat count (3–40)")
     .option(
       "--narration-density <level>",
       "how many stops speak: high (every reveal) | medium (two a beat) | low (one a beat)",
@@ -313,6 +318,28 @@ lookFlags(
   // open, and fixing it costs a keystroke now against a rebuild later.
   for (const f of [...scanHeadlines(storyboard), ...scanRepeatedObject(storyboard)])
     step(`plan:   ${f.message}`);
+
+  // THE SCRIPT, END TO END, WITH THE SLIDE BOUNDARIES TAKEN OUT.
+  //
+  // Every defect this narration has had was invisible in the file and obvious the
+  // moment the lines were read in a row. Twelve fields each holding a true
+  // sentence look fine one at a time; joined, they were twelve captions that did
+  // not know the others existed, and it took the owner watching an mp4 to say so.
+  //
+  // No gate can see this. A cohesion score was built and then defeated in one
+  // edit — prefixing a discourse marker to each of the twelve rejected sentences,
+  // changing no content, moved it from 42% to 92%, above the hand-written demo.
+  // So the check is the thing that has actually worked six times in this project:
+  // a human looking at the artifact. Printing it costs three lines and is the
+  // only moment before a render when the fix is still one keystroke.
+  const script = storyboard.beats
+    .map((b) => b.narration?.trim())
+    .filter(Boolean)
+    .join(" ");
+  if (script) {
+    step("plan: the narration, read as one script —");
+    for (const line of wrapScript(script, 76)) step(`plan:   ${line}`);
+  }
   step("plan: read it and edit it before building. This is where the quality is won.");
 });
 
@@ -826,6 +853,20 @@ async function audioFiles(from: string, narration: Narration): Promise<PackFiles
     files[`${AUDIO_DIR}/${name}`] = new Uint8Array(bytes);
   }
   return files;
+}
+
+/** Greedy wrap, so the script reads as prose in a terminal rather than one line. */
+function wrapScript(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    if (line && line.length + word.length + 1 > width) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 /* -------------------------------------------------------------------- timing */

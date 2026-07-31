@@ -1,0 +1,215 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b01-mismatch",
+      "intent": "The core problem is that CTM works with compact thought, while super-resolution must produce a dense spatial field.",
+      "claim": "CTM's thought representation is compact; super-resolution needs a dense spatial field.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec1"
+        },
+        {
+          "kind": "figure",
+          "id": "fig-compare"
+        }
+      ],
+      "weight": 0.9,
+      "seconds": 10.7,
+      "archetype": "split-compare",
+      "params": {
+        "eyebrow": "The mismatch",
+        "headline": "Compact thought must serve a dense output task.",
+        "left": {
+          "label": "CTM",
+          "lines": [
+            "Compact thought representation"
+          ]
+        },
+        "right": {
+          "label": "Super-resolution",
+          "lines": [
+            "Dense spatial field"
+          ]
+        }
+      },
+      "narration": "The problem starts with a mismatch in shape. CTM keeps its reasoning compact, but super-resolution must predict detail across the image."
+    },
+    {
+      "id": "b02-carrier",
+      "intent": "ThinkSR resolves the mismatch by keeping a persistent dense carrier that compact thought can read and update.",
+      "claim": "A persistent dense carrier, read and updated by a compact thought process.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.88,
+      "seconds": 10.7,
+      "archetype": "stack",
+      "params": {
+        "eyebrow": "Method",
+        "headline": "A dense carrier lets compact thought work on the image.",
+        "layers": [
+          {
+            "label": "Dense carrier",
+            "note": "Persistent spatial state"
+          },
+          {
+            "label": "Compact thought process",
+            "note": "Reads and updates the carrier"
+          }
+        ]
+      },
+      "narration": "That carrier is the bridge between the two shapes. It keeps spatial state available while the compact process decides what to revise."
+    },
+    {
+      "id": "b03-encode-windows",
+      "intent": "The carrier is created by encoding the low-resolution input, then windowing that dense feature field.",
+      "inside": {
+        "beat": "b02-carrier",
+        "element": "lay0"
+      },
+      "claim": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
+      "evidence": [
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        },
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        }
+      ],
+      "weight": 0.76,
+      "seconds": 10.7,
+      "archetype": "equation-walk",
+      "params": {
+        "eyebrow": "Carrier setup",
+        "headline": "The low-resolution image becomes windowed features.",
+        "equationId": "eq-carrier",
+        "terms": [
+          {
+            "tex": "\\mathbf{I}_{\\mathrm{LR}}",
+            "label": "the low-resolution input",
+            "tone": "a"
+          },
+          {
+            "tex": "\\mathcal{E}",
+            "label": "the encoder that forms dense features",
+            "tone": "b"
+          },
+          {
+            "tex": "\\mathbf{F}",
+            "label": "the encoded dense carrier",
+            "tone": "c"
+          },
+          {
+            "tex": "\\mathcal{W}(\\mathbf{F})",
+            "label": "the windowed carrier sent onward",
+            "tone": "d"
+          }
+        ]
+      },
+      "narration": "The setup is explicit in the equation. The low-resolution image is encoded into dense features, and those features are split into windows."
+    },
+    {
+      "id": "b04-end-to-end",
+      "intent": "End to end, ThinkSR runs encoder, windows, shared DQ-CTM ticks, and decoder as a single reconstruction path.",
+      "claim": "ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        }
+      ],
+      "weight": 0.82,
+      "seconds": 10.7,
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "End to end",
+        "headline": "ThinkSR reconstructs through shared DQ-CTM ticks.",
+        "stages": [
+          {
+            "label": "Encoder",
+            "note": "forms the carrier",
+            "tone": "a"
+          },
+          {
+            "label": "Windows",
+            "note": "partition the carrier",
+            "tone": "b"
+          },
+          {
+            "label": "Shared DQ-CTM ticks",
+            "note": "updates repeat over ticks",
+            "tone": "c"
+          },
+          {
+            "label": "Decoder",
+            "note": "outputs reconstruction",
+            "tone": "d"
+          }
+        ]
+      },
+      "narration": "After windowing, the same DQ-CTM module is applied across ticks. The decoder then turns the updated representation into the reconstruction."
+    },
+    {
+      "id": "b05-results",
+      "intent": "DQ-CTM-SR is competitive with CNN baselines but trails the recent lightweight transformer result in the benchmark table.",
+      "claim": "Competitive with CNN baselines; behind recent lightweight transformers.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec3"
+        },
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "weight": 0.86,
+      "seconds": 10.7,
+      "archetype": "bar-compare",
+      "params": {
+        "eyebrow": "Results",
+        "headline": "DQ-CTM-SR is competitive, but CATANet leads.",
+        "unit": "Average over five benchmarks",
+        "bars": [
+          {
+            "label": "CARN",
+            "value": 28.97,
+            "tone": "a"
+          },
+          {
+            "label": "IMDN",
+            "value": 28.968,
+            "tone": "a"
+          },
+          {
+            "label": "RFDN",
+            "value": 29.022,
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM-SR",
+            "value": 28.983,
+            "tone": "c"
+          },
+          {
+            "label": "CATANet",
+            "value": 29.482,
+            "tone": "d"
+          }
+        ],
+        "note": "Params range from 0.535M to 1.592M in the table."
+      },
+      "narration": "The reported averages put DQ-CTM-SR in the CNN baseline range. CATANet remains ahead, so the result is competitive but not best."
+    }
+  ]
+}
