@@ -221,8 +221,8 @@ const sha = (buf) => createHash("sha256").update(buf).digest("hex");
  * emitter for today's, which is the whole disease: a number that was true of
  * something else, reported about this.
  */
-async function toolFingerprint() {
-  const parts = [];
+export async function toolFingerprint(extra = []) {
+  const parts = [...extra];
   for (const f of ["cli.js", "index.js", "deck-runtime.js"])
     parts.push(await readFile(join(REPO, "dist", f)).catch(() => Buffer.from(`missing:${f}`)));
   const pkg = await readJson(join(REPO, "package.json"));
@@ -233,6 +233,10 @@ async function toolFingerprint() {
   // verdict saying it was, and the re-run reported the identical wrong number.
   // Exactly the disease the paragraph above describes, one level up — a number
   // that was true of a previous version of the judge, reported about this one.
+  //
+  // `extra` is how a SECOND judge folds its own bytes in — `scripts/sweep.mjs`
+  // runs the same compiler through a different harness, and a receipt earned by
+  // an earlier version of that harness is no more evidence about this one.
   parts.push(await readFile(new URL(import.meta.url)).catch(() => Buffer.from("missing:self")));
   return sha(Buffer.concat(parts)).slice(0, 16);
 }

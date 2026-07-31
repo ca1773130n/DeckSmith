@@ -1,0 +1,511 @@
+{
+  "tool": "c6bd34a599f8f950",
+  "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
+  "corpus": {
+    "b04-grid:0": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "canvas_overflow — note 11px past the canvas",
+      "fixed": "b7a1f26"
+    },
+    "b04-grid:3": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "canvas_overflow at 18x12",
+      "fixed": "b7a1f26"
+    },
+    "b04-grid:4": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "canvas_overflow at 24x16",
+      "fixed": "b7a1f26"
+    },
+    "b11-claim-figure:2": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "canvas_overflow — claim off the bottom, then the caption after it",
+      "fixed": "3b96ff8 + the bodyBudget floor in claim-figure.ts"
+    },
+    "b03-annotated-figure:3": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "canvas_overflow, then clipped_text + text_box_overflow",
+      "fixed": "33aba64 + the stageBudget floor in annotated-figure.ts"
+    },
+    "b03-annotated-figure:4": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "canvas_overflow, then clipped_text + text_box_overflow",
+      "fixed": "33aba64 + the stageBudget floor in annotated-figure.ts"
+    },
+    "b10-line-chart:2": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "svg_text_overprint",
+      "fixed": "b3e5f35"
+    },
+    "b10-line-chart:3": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "svg_text_overprint",
+      "fixed": "b3e5f35 + 86b8535"
+    },
+    "b10-line-chart:4": {
+      "verdict": "ok",
+      "expect": [],
+      "was": "svg_text_overprint — 71 pairs at 16 points (69 before the same-string exemption went)",
+      "fixed": "b3e5f35 + 86b8535 + 701ae1d"
+    }
+  },
+  "open": {
+    "b09-data-table:3": {
+      "verdict": "DEFECT",
+      "expect": [
+        "canvas_overflow"
+      ],
+      "was": "headline 40px above the canvas and note 40px below, at 9 rows x 5 columns",
+      "fixed": "NOT FIXED — if this cell is clean, fix the entry, not the sweep"
+    },
+    "b09-data-table:4": {
+      "verdict": "DEFECT",
+      "expect": [
+        "canvas_overflow"
+      ],
+      "was": "the same, at 10 rows x 6 columns",
+      "fixed": "NOT FIXED — if this cell is clean, fix the entry, not the sweep"
+    }
+  },
+  "format": "deck-16x9",
+  "updated": "2026-07-31T21:03:36.262Z",
+  "levels": [],
+  "cells": {
+    "b01-title:0": {
+      "verdict": "ok",
+      "axis": "headline length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s1"
+    },
+    "b01-title:1": {
+      "verdict": "ok",
+      "axis": "headline length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s1"
+    },
+    "b01-title:2": {
+      "verdict": "ok",
+      "axis": "headline length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s1"
+    },
+    "b02-pipeline:0": {
+      "verdict": "ok",
+      "axis": "stage count (schema 2..6)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s2"
+    },
+    "b02-pipeline:1": {
+      "verdict": "ok",
+      "axis": "stage count (schema 2..6)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s2"
+    },
+    "b02-pipeline:2": {
+      "verdict": "ok",
+      "axis": "stage count (schema 2..6)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s2"
+    },
+    "b02-pipeline:3": {
+      "verdict": "ok",
+      "axis": "stage count (schema 2..6)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s1"
+    },
+    "b02-pipeline:4": {
+      "verdict": "ok",
+      "axis": "stage count (schema 2..6)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
+      "scene": "s1"
+    },
+    "b03-annotated-figure:0": {
+      "verdict": "ok",
+      "axis": "note count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s3"
+    },
+    "b03-annotated-figure:1": {
+      "verdict": "ok",
+      "axis": "note count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s3"
+    },
+    "b03-annotated-figure:2": {
+      "verdict": "ok",
+      "axis": "note count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s3"
+    },
+    "b03-annotated-figure:3": {
+      "verdict": "ok",
+      "axis": "note count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s2"
+    },
+    "b03-annotated-figure:4": {
+      "verdict": "ok",
+      "axis": "note count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
+      "scene": "s2"
+    },
+    "b04-grid:0": {
+      "verdict": "ok",
+      "axis": "lattice size",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s4"
+    },
+    "b04-grid:1": {
+      "verdict": "ok",
+      "axis": "lattice size",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s4"
+    },
+    "b04-grid:2": {
+      "verdict": "ok",
+      "axis": "lattice size",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s4"
+    },
+    "b04-grid:3": {
+      "verdict": "ok",
+      "axis": "lattice size",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s3"
+    },
+    "b04-grid:4": {
+      "verdict": "ok",
+      "axis": "lattice size",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
+      "scene": "s3"
+    },
+    "b05-equation-walk:0": {
+      "verdict": "ok",
+      "axis": "equation length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s5"
+    },
+    "b05-equation-walk:1": {
+      "verdict": "ok",
+      "axis": "equation length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s5"
+    },
+    "b05-equation-walk:2": {
+      "verdict": "ok",
+      "axis": "equation length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s5"
+    },
+    "b06-stack:0": {
+      "verdict": "ok",
+      "axis": "layer count (schema 2..7)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s6"
+    },
+    "b06-stack:1": {
+      "verdict": "ok",
+      "axis": "layer count (schema 2..7)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s6"
+    },
+    "b06-stack:2": {
+      "verdict": "ok",
+      "axis": "layer count (schema 2..7)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s6"
+    },
+    "b06-stack:3": {
+      "verdict": "ok",
+      "axis": "layer count (schema 2..7)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s4"
+    },
+    "b06-stack:4": {
+      "verdict": "ok",
+      "axis": "layer count (schema 2..7)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
+      "scene": "s4"
+    },
+    "b07-split-compare:0": {
+      "verdict": "ok",
+      "axis": "line count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s7"
+    },
+    "b07-split-compare:1": {
+      "verdict": "ok",
+      "axis": "line count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s7"
+    },
+    "b07-split-compare:2": {
+      "verdict": "ok",
+      "axis": "line count and length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s7"
+    },
+    "b07-split-compare:3": {
+      "verdict": "refused",
+      "axis": "line count and length",
+      "rules": [],
+      "reason": "split-compare b07: the panels do not fit beside each other at the 40px floor — shorten the lines or split the beat",
+      "deck": null,
+      "scene": null
+    },
+    "b07-split-compare:4": {
+      "verdict": "refused",
+      "axis": "line count and length",
+      "rules": [],
+      "reason": "split-compare b07: the panels do not fit beside each other at the 40px floor — shorten the lines or split the beat",
+      "deck": null,
+      "scene": null
+    },
+    "b08-bar-compare:0": {
+      "verdict": "ok",
+      "axis": "bar count (schema 2..8)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s8"
+    },
+    "b08-bar-compare:1": {
+      "verdict": "ok",
+      "axis": "bar count (schema 2..8)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s8"
+    },
+    "b08-bar-compare:2": {
+      "verdict": "ok",
+      "axis": "bar count (schema 2..8)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s8"
+    },
+    "b08-bar-compare:3": {
+      "verdict": "ok",
+      "axis": "bar count (schema 2..8)",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s5"
+    },
+    "b09-data-table:0": {
+      "verdict": "ok",
+      "axis": "row and column count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s9"
+    },
+    "b09-data-table:1": {
+      "verdict": "ok",
+      "axis": "row and column count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s9"
+    },
+    "b09-data-table:2": {
+      "verdict": "ok",
+      "axis": "row and column count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s9"
+    },
+    "b09-data-table:3": {
+      "verdict": "DEFECT",
+      "axis": "row and column count",
+      "rules": [
+        "canvas_overflow"
+      ],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s6"
+    },
+    "b09-data-table:4": {
+      "verdict": "DEFECT",
+      "axis": "row and column count",
+      "rules": [
+        "canvas_overflow"
+      ],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
+      "scene": "s5"
+    },
+    "b10-line-chart:0": {
+      "verdict": "ok",
+      "axis": "point count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s10"
+    },
+    "b10-line-chart:1": {
+      "verdict": "ok",
+      "axis": "point count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s10"
+    },
+    "b10-line-chart:2": {
+      "verdict": "ok",
+      "axis": "point count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s10"
+    },
+    "b10-line-chart:3": {
+      "verdict": "ok",
+      "axis": "point count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s7"
+    },
+    "b10-line-chart:4": {
+      "verdict": "ok",
+      "axis": "point count",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
+      "scene": "s6"
+    },
+    "b11-claim-figure:0": {
+      "verdict": "ok",
+      "axis": "claim length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s11"
+    },
+    "b11-claim-figure:1": {
+      "verdict": "ok",
+      "axis": "claim length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s11"
+    },
+    "b11-claim-figure:2": {
+      "verdict": "ok",
+      "axis": "claim length",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s11"
+    },
+    "b12-callout:0": {
+      "verdict": "ok",
+      "axis": "panels and lines per panel",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s12"
+    },
+    "b12-callout:1": {
+      "verdict": "ok",
+      "axis": "panels and lines per panel",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s12"
+    },
+    "b12-callout:2": {
+      "verdict": "ok",
+      "axis": "panels and lines per panel",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s12"
+    },
+    "b12-callout:3": {
+      "verdict": "refused",
+      "axis": "panels and lines per panel",
+      "rules": [],
+      "reason": "callout b12: 894px of panel in a 606px box — shorten the lines or split the beat",
+      "deck": null,
+      "scene": null
+    },
+    "b12-callout:4": {
+      "verdict": "refused",
+      "axis": "panels and lines per panel",
+      "rules": [],
+      "reason": "callout b12: 1572px of panel in a 606px box — shorten the lines or split the beat",
+      "deck": null,
+      "scene": null
+    }
+  }
+}
