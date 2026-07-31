@@ -182,8 +182,30 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
         `<circle class="dot" cx="${n(x(i))}" cy="${n(y(pt.y))}" r="${i === p.points.length - 1 ? 11 : 9}" fill="${i === p.points.length - 1 ? theme.tones.b : theme.accent}" />`,
     )
     .join("");
+  // HOW MANY LABELS THE PLOT CAN CARRY.
+  //
+  // A value sits over every point and a delta over every midpoint, so both are
+  // spaced by the step between points. `points` has no maximum in the schema:
+  // at 5 points the step is ~240px and 40px labels clear each other, at 16 it is
+  // ~75px and "28.90" prints straight through its neighbour — 69 overlapping
+  // pairs on one slide, with every gate green.
+  //
+  // Thinned rather than shrunk: 40px IS the audience floor (invariant 5), so
+  // there is nowhere to shrink to. The first and last always survive because
+  // they carry the range the chart is about; the rest are dropped evenly.
+  const LABEL_SIZE = 40;
+  /** Tabular figures run ~0.58em, the same estimate `padR` above uses. */
+  const runW = (s: string) => s.length * LABEL_SIZE * 0.58;
+  const stepX = p.points.length > 1 ? plotW / (p.points.length - 1) : plotW;
+  const widestValue = Math.max(...p.points.map((pt) => runW(String(pt.y))));
+  const every = Math.max(1, Math.ceil((widestValue + 12) / Math.max(stepX, 1)));
+  const lastPoint = p.points.length - 1;
+  const showsValue = (i: number) => i === 0 || i === lastPoint || i % every === 0;
+
   const values = p.points
-    .map((pt, i) => {
+    .map((pt, i) => ({ pt, i }))
+    .filter(({ i }) => showsValue(i))
+    .map(({ pt, i }) => {
       // The first point sits ON the axis (x(0) === PAD.l), so a middle-anchored
       // value hangs half its width to the LEFT of the plot and prints straight
       // through the y-axis label beside it — measured at 16.4px of baseline
@@ -195,7 +217,52 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       return `<text class="pv"${anchor} x="${n(x(i))}" y="${n(Math.max(44, y(pt.y) - 26))}">${esc(String(pt.y))}</text>`;
     })
     .join("");
-  const deltas = (p.deltas ?? [])
+  // Deltas share the band with the values in landscape and sit half a step from
+  // them, so they need that half-step to hold both halves plus air. Stacked
+  // below the line in portrait they only have to clear each OTHER, a full step
+  // apart. Where neither holds the deltas are dropped: the values and the line
+  // still carry the shape, and a legible chart missing its annotations beats an
+  // illegible one that has them.
+  /** A label's painted box: middle-anchored on `cx`, sitting on baseline `cy`. */
+  const labelBox = (cx: number, cy: number, text: string, anchorStart = false) => {
+    const w = runW(text);
+    return { x: anchorStart ? cx : cx - w / 2, y: cy - LABEL_SIZE, w, h: LABEL_SIZE };
+  };
+  const valueBoxes = p.points
+    .map((pt, i) => ({ pt, i }))
+    .filter(({ i }) => showsValue(i))
+    .map(({ pt, i }) => labelBox(x(i), Math.max(44, y(pt.y) - 26), String(pt.y), i === 0));
+
+  // WHETHER THE DELTAS FIT IS A QUESTION ABOUT BOXES, NOT ABOUT SPACING.
+  //
+  // A horizontal rule alone gets this wrong in both directions. A delta sits half
+  // a step from the values either side, which makes the spacing tighter than it
+  // looks — but it also rides the MIDPOINT of two points' heights while a value
+  // rides its own point, so on a rising curve they are vertically separated and
+  // never meet however close they are horizontally. The demo's five points are
+  // exactly that case: a step-based test drops four deltas the chart has always
+  // shown and that measure clean.
+  //
+  // So the real boxes are compared, the same way the layout gate compares them.
+  const overlaps = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
+    Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 8 &&
+    Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 8;
+  const deltaBoxes = (p.deltas ?? []).slice(0, p.points.length - 1).map((d, i) => {
+    const a = p.points[i];
+    const b = p.points[i + 1];
+    if (!a || !b) return null;
+    const mid = (y(a.y) + y(b.y)) / 2;
+    return labelBox((x(i) + x(i + 1)) / 2, tall ? mid + 52 : Math.max(44, mid - 28), d);
+  });
+  // All or none: a chart showing the gain between some pairs and not others reads
+  // as data missing rather than as a layout decision.
+  const deltasFit = deltaBoxes.every(
+    (d, i) =>
+      d !== null &&
+      !valueBoxes.some((v) => overlaps(d, v)) &&
+      deltaBoxes.slice(i + 1).every((o) => o === null || !overlaps(d, o)),
+  );
+  const deltas = (deltasFit ? (p.deltas ?? []) : [])
     .slice(0, p.points.length - 1)
     .map((d, i) => {
       const a = p.points[i];

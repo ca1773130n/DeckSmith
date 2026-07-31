@@ -495,6 +495,51 @@ describe("archetypes", () => {
     );
   });
 
+  /**
+   * `points` has no maximum in the schema. A value sits over every point and a
+   * delta over every midpoint, so both are spaced by the step between points: at
+   * 5 points the step is ~250px and 40px labels clear, at 16 it is ~75px and
+   * "28.90" prints straight through its neighbour — 69 overlapping pairs on one
+   * slide, with every gate green.
+   *
+   * Thinned rather than shrunk, because 40px IS the audience floor. The test is
+   * two-sided on purpose: a rule that drops labels whenever a chart gets busy
+   * would also strip the demo's own five-point chart, which is correct as drawn.
+   */
+  it("thins chart labels as the points crowd, and leaves a sparse chart alone", () => {
+    const chart = (n: number) => {
+      const b = structuredClone(beats[4]) as Extract<Beat, { archetype: "line-chart" }>;
+      b.params.points = Array.from({ length: n }, (_, i) => ({
+        x: `T=${i}`,
+        y: Number((28.9 + Math.log1p(i)).toFixed(2)),
+      }));
+      b.params.deltas = Array.from({ length: n - 1 }, (_, i) => `+${(0.9 / (i + 1)).toFixed(2)}`);
+      const html = emitScene(b, ctx("s4")).html;
+      return {
+        values: (html.match(/class="pv"/g) ?? []).length,
+        deltas: (html.match(/class="dv"/g) ?? []).length,
+      };
+    };
+
+    // Sparse: every point labelled, every delta shown.
+    expect(chart(5)).toEqual({ values: 5, deltas: 4 });
+    // Crowded: the deltas go first — they sit half a step from a value either
+    // side, so they are the first thing to have nowhere to be.
+    expect(chart(8).deltas).toBe(0);
+    // Denser still: the values thin too, and never to fewer than the two that
+    // carry the range.
+    for (const n of [12, 16, 24]) {
+      const { values, deltas } = chart(n);
+      expect(deltas, `${n} points`).toBe(0);
+      expect(values, `${n} points`).toBeLessThan(n);
+      expect(values, `${n} points`).toBeGreaterThanOrEqual(2);
+    }
+
+    // The demo's own chart is unchanged — it is five points and reads correctly.
+    const demo = emitScene(beats[4] as Beat, ctx("s4")).html;
+    expect((demo.match(/class="dv"/g) ?? []).length).toBe(3);
+  });
+
   it("sets table cells at the 40px floor however wide the table is", () => {
     // Deriving the size from the table's width shrank six columns to 37px, which
     // is unreadable projected and clean through every gate (invariant 10). The
