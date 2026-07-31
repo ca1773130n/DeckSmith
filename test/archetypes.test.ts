@@ -542,6 +542,35 @@ describe("archetypes", () => {
     expect(cellSize(beats[3] as Beat)).toBeGreaterThan(40);
   });
 
+  /**
+   * `.cf-beside` gives the claim a fixed 560px column and centres the row on its
+   * tallest item, so a long claim grew the row past the body box and — being
+   * centred — hung off BOTH ends. A 215-character claim rendered 27px below the
+   * canvas with every gate green.
+   *
+   * Nothing about the figure's size fixes it: the column is fixed, so the claim's
+   * height is fixed by its own text. The measure is what fixes it, so an
+   * over-tall claim falls back to the full-width stack rather than being clipped.
+   */
+  it("stacks a claim too tall to sit beside the figure", () => {
+    const long =
+      "Shifting the window by half its width lets information cross the boundary between two neighbouring regions";
+    const layoutOf = (claim: string) => {
+      const b = structuredClone(beats[1]) as Extract<Beat, { archetype: "claim-figure" }>;
+      b.params.claim = claim;
+      b.params.figureId = "f2";
+      const html = emitScene(b, ctx("s4")).html;
+      return html.includes("cf-stack") ? "stacked" : html.includes("cf-under") ? "under" : "beside";
+    };
+    // Short claims keep the side-by-side reading the archetype exists for...
+    expect(layoutOf("Reconstruction improves.")).toBe("beside");
+    expect(
+      layoutOf("Reconstruction improves monotonically across ticks on all 100 validation images."),
+    ).toBe("beside");
+    // ...and one that cannot fit the column takes the whole measure instead.
+    expect(layoutOf(`${long}. ${long}.`)).toBe("stacked");
+  });
+
   it("data-table refuses a highlight that matches no row", () => {
     const bad = structuredClone(beats[3]) as Extract<Beat, { archetype: "data-table" }>;
     bad.params.highlight = [{ row: "Nonexistent", tone: "a" }];
