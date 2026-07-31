@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emitScene, emitters } from "../src/emit/archetypes/index.js";
 import { chartScale } from "../src/emit/archetypes/line-chart.js";
+import { bodyBudget, noteHeight, noteWidth } from "../src/emit/archetypes/title.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { tweenText } from "../src/emit/kit.js";
 import { baseCss } from "../src/emit/theme.js";
@@ -545,5 +546,65 @@ describe("archetypes", () => {
     const bad = structuredClone(beats[3]) as Extract<Beat, { archetype: "data-table" }>;
     bad.params.highlight = [{ row: "Nonexistent", tone: "a" }];
     expect(() => emitScene(bad, ctx("s4"))).toThrow(/no row labelled/);
+  });
+
+  /**
+   * Swept rather than sampled, for the same reason grid's note is: the panels'
+   * height cap was derived from the panels' own content and never asked what the
+   * slide had left, so it grew with the text right past the box. Three panels of
+   * four lines wanted 834px of a 693px box at 16:9 — and `.panels` is
+   * `flex:1;min-height:0`, so the box was clamped and the TEXT overflowed, out
+   * through the border, over the note, off the bottom, clipped by `.scene` with
+   * nothing anywhere reporting it.
+   *
+   * The property, not the pixel: whatever a callout emits fits the budget the
+   * rest of the archetypes measure themselves against. A beat too tall for that
+   * is refused, which `onBeatError` can act on — silence is the only answer that
+   * is wrong.
+   */
+  it("never emits panels taller than the slide has room for, at any panel or line count", () => {
+    const tall: Format = { ...format, id: "reel-9x16", width: 1080, height: 1920 };
+    const LINES = [
+      "PSNR-Y 28.10 → 30.28",
+      "The source defines windowing over the dense field and never says what happens at the edge",
+      "Set5 32.44",
+    ];
+    let refused = 0;
+    let drawn = 0;
+    for (const nPanels of [1, 2, 3]) {
+      for (const nLines of [1, 2, 4, 8]) {
+        for (const fmt of [format, tall]) {
+          const beat = structuredClone(beats[5]) as Extract<Beat, { archetype: "callout" }>;
+          beat.params.headline = "A headline of moderate length";
+          beat.params.panels = Array.from({ length: nPanels }, (_, i) => ({
+            label: `panel ${i}`,
+            lines: Array.from({ length: nLines }, (_, j) => LINES[j % LINES.length] as string),
+          }));
+          const where = `${nPanels}p x ${nLines}l ${fmt.id}`;
+          expect(beatSchema.safeParse(beat).success, where).toBe(true);
+          let html: string;
+          try {
+            html = emitScene(beat, { ...ctx("s4"), format: fmt }).html;
+          } catch (err) {
+            expect((err as Error).message, where).toMatch(/^callout b6: \d+px of panel/);
+            refused++;
+            continue;
+          }
+          drawn++;
+          const budget = bodyBudget(
+            fmt,
+            beat.params.eyebrow,
+            beat.params.headline,
+            noteHeight(beat.params.note, noteWidth(fmt)),
+          );
+          const cap = Number(/class="panels"[^>]*max-height:(\d+)px/.exec(html)?.[1]);
+          expect(cap, where).toBeGreaterThan(0);
+          expect(cap, `${where} overflows`).toBeLessThanOrEqual(budget);
+        }
+      }
+    }
+    // Neither half of the gate is vacuous: the sweep both draws and refuses.
+    expect(drawn).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
   });
 });
