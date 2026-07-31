@@ -153,8 +153,21 @@ function lineBudget(count: number, stageH: number): number {
  * and 60px of column it did not need is 120px of plate it could have had. A
  * column that cannot hold its labels reports `!ok` and the next one is tried, so
  * the head can be as ambitious as it likes.
+ *
+ * IT WAS NOT AMBITIOUS ENOUGH. The list began at 320 and that is where the search
+ * STARTS, so no figure was ever offered a narrower one. Measured over the four
+ * annotated-figures of the shipped sixty-second deck: every column came back
+ * 320px reserved against 256-303px of actual label, and three of the four figures
+ * were WIDTH-bound at scale 0.71-0.75 — downscaled, with 643px of stage height
+ * unused, to make room for margins the labels did not fill. `b05-architecture` is
+ * a 3.6:1 strip that could have scaled 1.61x on height and drew at 0.71x.
+ *
+ * 220 is the head now, which is a hair over the widest single word these labels
+ * carry. `ok` refuses a column its labels overflow, so the cost of an over-tight
+ * head is one more `attempt` — arithmetic over strings, no browser — and the
+ * benefit is that a figure whose labels are short finally gets the width.
  */
-const COLS = [320, 380, 470, 560];
+const COLS = [220, 260, 320, 380, 470, 560];
 
 /**
  * Never blow a small figure up more than this. Beyond it the interpolation is
@@ -248,6 +261,37 @@ interface Work extends Measured {
   ruleY: number;
 }
 
+/**
+ * Which margins this attempt reserves, and therefore which sides may hold labels.
+ *
+ * Landscape reserves a label column on BOTH sides, always — and a figure whose
+ * notes all point at its left half never fills the right one. Measured on the
+ * shipped sixty-second deck: `fig-progress` carries one note, on the left, and
+ * the empty right margin cost it 508 of 1700 stage pixels. The paper's densest
+ * asset — a six-by-three grid of image crops — drew at 55% of the width it could
+ * have had, with dead space beside it.
+ *
+ * So the margin is a CHOICE the search makes rather than a constant, and it is a
+ * choice because it cannot be decided in advance: dropping a margin makes the
+ * figure wider, a wider figure is a taller one, and a taller figure leaves its
+ * labels less room. `planFigure` therefore tries the tight arrangement first and
+ * falls back to reserving both — the same shape as the column-width search it
+ * already runs, and for the same reason.
+ */
+interface Sides {
+  l: boolean;
+  r: boolean;
+}
+
+/** The side each note would prefer: the margin its own half of the figure faces. */
+function wantedSides(notes: readonly FigureNote[]): Sides {
+  const want = { l: false, r: false };
+  for (const note of notes) want[(note.x ?? 0) < 0.5 ? "l" : "r"] = true;
+  // A figure with no notes still needs somewhere for the caption's spine; keeping
+  // both is the arrangement every deck built before this had.
+  return want.l || want.r ? want : { l: true, r: true };
+}
+
 function attempt(
   stageW: number,
   notes: FigureNote[],
@@ -255,6 +299,7 @@ function attempt(
   stageH: number,
   want: number,
   tall: boolean,
+  sides: Sides = { l: true, r: true },
 ): FigureLayout {
   // A row of columns when they are wide enough to read in, two stacked columns
   // otherwise. See `MIN_COL`.
@@ -277,7 +322,10 @@ function attempt(
   // more than a third of the stage it sits in; at 1700 that is 566px and clamps
   // nothing, so this is a floor under the arithmetic rather than a new policy.
   const asked = Math.min(want, stageW / 3);
-  const plateMax = tall ? stageW - 2 * EDGE : stageW - 2 * (asked + LEAD + EDGE);
+  // A margin only costs width when it is going to hold something. `sides` is the
+  // arrangement this attempt is making; `planFigure` tries the tight one first.
+  const margin = (s: "l" | "r") => (tall || !sides[s] ? EDGE : asked + LEAD + EDGE);
+  const plateMax = tall ? stageW - 2 * EDGE : stageW - margin("l") - margin("r");
   const scale = Math.min(
     (plateMax - 2 * PLATE) / fig.width,
     (stageH - bandMin - 2 * PLATE) / fig.height,
@@ -286,16 +334,26 @@ function attempt(
   const img: Box = {
     w: fig.width * scale,
     h: fig.height * scale,
-    x: (stageW - fig.width * scale) / 2,
+    // Centred between the MARGINS, not on the stage. With both reserved the two
+    // are the same number; with one, centring on the stage walks the figure into
+    // the margin its own labels are standing in.
+    x: tall ? (stageW - fig.width * scale) / 2 : margin("l") + (plateMax - fig.width * scale) / 2,
     // Portrait pins the figure to the top of the stage — the labels take the
     // band under it, so centring it would open a gap the labels then hang off.
     y: tall ? PLATE : (stageH - fig.height * scale) / 2,
   };
+  // THE COLUMN IS THE RESERVED MARGIN, not the left one. It used to be
+  // `img.x - PLATE - LEAD - EDGE` and that was the same number both ways only
+  // while both margins were always reserved: with the figure pushed left to fill
+  // an unused left margin, `img.x` is the leftover air and not the label column,
+  // so a 30px label was measured against 29px of column and reported as fitting.
   const col = row
     ? (band[0]?.w ?? stageW)
     : tall
       ? (stageW - MID_GAP) / 2
-      : img.x - PLATE - LEAD - EDGE;
+      : sides.l
+        ? img.x - PLATE - LEAD - EDGE
+        : stageW - (img.x + img.w) - PLATE - LEAD - EDGE;
   /** Portrait: the top of the label band, and the height it has. */
   const stackTop = tall ? img.y + img.h + PLATE + BAND_GAP : 0;
   const room = stageH - stackTop;
@@ -348,7 +406,12 @@ function attempt(
     const cost = (s: "l" | "r", h: number) => used[s] + (used[s] > 0 ? LAB_GAP : 0) + h;
     for (const w of order) {
       const pref: "l" | "r" = (notes[w.i]?.x ?? 0) < 0.5 ? "l" : "r";
-      const other: "l" | "r" = pref === "l" ? "r" : "l";
+      const across: "l" | "r" = pref === "l" ? "r" : "l";
+      // Only escape to the other margin if this attempt RESERVED it — the width
+      // went to the figure otherwise, and a label sent there hangs off a stage
+      // that was sized without it. `sides[pref]` is true by construction (the
+      // preference is what `wantedSides` read), so nothing is left homeless.
+      const other = sides[across] ? across : pref;
       w.side =
         cost(pref, w.h) <= room
           ? pref
@@ -410,6 +473,12 @@ function attempt(
     height: bottom - top,
     ok:
       (row ? bottom - stackTop <= room : used.l <= room && used.r <= room) &&
+      // THE COLUMN HOLDS WHAT WAS MEASURED AGAINST IT. `measure` wraps to `col`,
+      // so a label wider than `col` means the column shrank AFTER the wrap — the
+      // one-margin arrangement widening the figure into it. Without this the
+      // search calls that a fit and never falls back, and the label runs off the
+      // stage: measured at 30px of text in 29.1px of column.
+      !work.some((w) => w.w > col) &&
       !work.some((w) => w.clipped),
     boxes: work.map((w) => ({
       side: w.side,
@@ -442,11 +511,29 @@ export function planFigure(
   // Portrait's column is fixed at half the stage, so there is nothing to widen
   // and the search has one entry.
   if (tall) return attempt(stageW, notes, fig, stageH, 0, true);
-  let plan = attempt(stageW, notes, fig, stageH, COLS[0] ?? 380, false);
-  for (let k = 1; k < COLS.length && !plan.ok; k++) {
-    plan = attempt(stageW, notes, fig, stageH, COLS[k] ?? 560, false);
+
+  // TWO AXES, TIGHT FIRST. The margins a figure's own notes actually face, then
+  // both — and each arrangement walks the column widths as before.
+  //
+  // A search rather than a decision because the two axes fight: dropping the
+  // empty margin makes the figure wider, a wider figure is TALLER, and a taller
+  // figure leaves its labels less vertical room, which is what `ok` reports. So
+  // the tight arrangement is an attempt and not an assumption, and a figure that
+  // cannot afford it falls back to exactly the layout every deck had before.
+  const wanted = wantedSides(notes);
+  const both: Sides = { l: true, r: true };
+  const tries = wanted.l && wanted.r ? [both] : [wanted, both];
+  let plan: FigureLayout | undefined;
+  for (const sides of tries) {
+    for (const col of COLS) {
+      plan = attempt(stageW, notes, fig, stageH, col, false, sides);
+      if (plan.ok) return plan;
+    }
   }
-  return plan;
+  // Nothing fit. Return the last attempt, which is the widest column of the
+  // both-margins arrangement — the most forgiving one — and let `ok: false`
+  // travel with it.
+  return plan as FigureLayout;
 }
 
 /**

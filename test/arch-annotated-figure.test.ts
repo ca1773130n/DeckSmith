@@ -155,9 +155,23 @@ describe("annotated-figure layout", () => {
         }
       });
 
-      it("centres the figure and keeps its aspect ratio", () => {
+      it("keeps its aspect ratio, and leaves room only where a label goes", () => {
         const { plan: p } = plan(params);
-        expect(p.img.x).toBeCloseTo((STAGE_W - p.img.w) / 2, 6);
+        // CENTRING IS NO LONGER ON THE STAGE, and it should not be. A figure
+        // whose notes all point at one half reserves only that margin — the other
+        // was 508 of 1700 stage pixels of nothing on the shipped deck — so the
+        // property worth asserting is that the air is where the labels are, not
+        // that the two sides are equal.
+        const left = STAGE_W - (STAGE_W - p.img.x);
+        const right = STAGE_W - p.img.x - p.img.w;
+        for (const side of ["l", "r"] as const) {
+          const air = side === "l" ? left : right;
+          const used = p.boxes.some((b) => b.side === side);
+          if (used) expect(air, `${side} margin holds a label`).toBeGreaterThanOrEqual(p.col);
+        }
+        // Whichever margin holds nothing is the small one — the figure took it.
+        if (!p.boxes.some((b) => b.side === "l")) expect(left).toBeLessThan(right);
+        if (!p.boxes.some((b) => b.side === "r")) expect(right).toBeLessThan(left);
         expect(p.img.w / p.img.h).toBeCloseTo(wide.width / wide.height, 6);
         expect(p.img.y).toBeGreaterThanOrEqual(0);
         expect(p.img.y + p.img.h).toBeLessThanOrEqual(p.height);
