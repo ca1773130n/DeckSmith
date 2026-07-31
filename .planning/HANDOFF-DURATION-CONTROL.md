@@ -1089,6 +1089,99 @@ pinned by tests.
 > writes **it** back... The CNN baselines cluster around the same reported
 > average, **and** DQ-CTM-SR sits in **that range**. CATANet is **still** higher.
 
+---
+
+## 16. A ONE-MINUTE DECK IS A CONFERENCE FAST-FORWARD TALK
+
+The owner, on §15's deck: *"in auto mode the decision of narration speed,
+animation speed and the number of slides and the enrichment on slides in terms of
+animation/figures are too conservative when it's 1 minute... haven't you ever seen
+a fast-forward presentation of paper authors on conferences... they never use
+stupidly small number of slides... put more images and animations. you must
+utilize all the space of the screen. you must utilize every single second."*
+
+Three things measured on the §15 artifact, and the third is the damning one:
+
+```
+  5 beats            a fast-forward talk uses 10-15
+  133 words/minute   a fast-forward talk delivers 160-190
+  0 of 4 figures     the paper's own architecture figure sat unused
+```
+
+### The reference was wrong, not the arithmetic
+
+§14 derived `SENTENCES_PER_BEAT = 2` from `demo/storyboard.json` and concluded
+one sentence a beat cannot flow. That is true of the demo — a FOUR-MINUTE deck at
+twenty seconds a beat — and false of a teaser, which runs one sentence a slide
+across a dozen slides and flows fine because its flow comes from the SCRIPT being
+continuous, which §14's own prompt rewrite already delivers. Reading a lecture's
+shape onto a teaser is what produced five slides.
+
+So the rule now reads onto lectures only: the advisory fires when a beat is
+LONGER than `FF_BEAT_SECONDS` and still gets one sentence, which is the genuine
+thin case. Under it, one sentence a slide is the format.
+
+### Three changes
+
+**`slidesFor` is tempo, not sentence count.** Beat length clamped to
+[`MIN_BEAT_SECONDS`, 20] and slides derived from it. Both references agree on
+twelve: a fast-forward talk is 12 beats in 60s, the demo is 12 in 246s. What
+changes with duration is how long each beat lasts.
+
+```
+  30s ->  8    90s -> 12    300s -> 15
+  60s -> 12   120s -> 12    600s -> 30
+```
+
+**`fastEnough` has two regimes.** A lecture takes the slowest step that clears a
+sentence. Under `FF_BEAT_SECONDS` there is no spare room, so the deck takes the
+FASTEST step the captions can carry — `SHORT_FORM_CPS`, anchored on the demo's
+own measured 18.41 cps rather than the 17 of broadcast television.
+
+`CUE_OVERHEAD` exists because the first version of that ceiling was on the wrong
+quantity. A cue spans the words and not the breath around them, so it reads ~17%
+faster than the utterance; the arithmetic admitted `+30%` and the artifact came
+back at 23.7 cps, past the bar the constant exists to hold.
+
+**The prompt demands the figures.** "Every figure in the inventory should earn a
+beat unless you can say why it does not", plus a FORMAT block that names the
+fast-forward talk explicitly when the beats are short enough to be one.
+
+### Also: `inside` is checked at plan time
+
+A real run asked to fly the camera into `stage1` of an ANNOTATED-FIGURE. The
+emitter refuses it, so nothing shipped broken — but it refuses at BUILD, after
+`narrate` has spent a minute and a dozen network round trips on a storyboard that
+was never going to build. `assertInsideResolves` emits the previous beat and asks
+`enterableIds` what it drew, so it cannot drift from the emitter.
+
+### Measured
+
+```
+                    §15 (5 beats)      §16 (12 beats)
+  beats                    5                12
+  figures used           0/4               4/4
+  narration            734 chars        927 chars
+  words per minute       133               169
+  speech            42.87s (74%)      44.32s (74%)
+  gates              0 err 0 warn      0 err 0 warn
+```
+
+`renders/ff-12beat-60s.mp4`, `sb-ff-60s.json`.
+
+### STILL OPEN after §16
+
+- **The subtitle p95 lands at 22.8 against a 22 ceiling.** `CUE_OVERHEAD` is 1.17
+  from single-sentence probes; this deck measures ~1.26. Within 4% and in a known
+  direction, but the constant is optimistic and should be re-measured over whole
+  decks rather than probes.
+- **Screen space is unaddressed.** "You must utilize all the space of the screen"
+  is an emitter question — figure sizing, full-bleed layouts — and nothing here
+  touched it. `annotated-figure` still parks the image in a box.
+- The 120s cliff: beats cross `FF_BEAT_SECONDS` between 90s and 120s, so the
+  rate drops +20% to +0% and words per minute go 172 to 139. It is a regime
+  change and defensible, but it is abrupt.
+
 ### STILL OPEN after §15
 
 - `slidesFor` sits exactly at the two-sentence floor, so a planner that writes

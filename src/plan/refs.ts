@@ -8,7 +8,11 @@
  * it is a property of the pair, and `build` re-checks it on a hand-edited
  * storyboard that no planner ever touched.
  */
-import type { Beat, Source, Storyboard } from "../types.js";
+import { emitScene } from "../emit/archetypes/index.js";
+import { enterableIds } from "../emit/camera.js";
+import { ink } from "../emit/theme.js";
+import type { Beat, Format, Source, Storyboard } from "../types.js";
+import { FORMATS } from "../types.js";
 
 export function assertRefsResolve(storyboard: Storyboard, source: Source): void {
   const known = {
@@ -56,5 +60,60 @@ export function assertRefsResolve(storyboard: Storyboard, source: Source): void 
 
   if (dangling.length) {
     throw new Error(`Storyboard cites ids that do not exist:\n  ${dangling.join("\n  ")}`);
+  }
+}
+
+/**
+ * Every `inside` names a part the previous beat actually draws.
+ *
+ * THE SAME SHAPE AS THE CHECK ABOVE, one level in: a schema proves `inside` has
+ * a beat and an element, and cannot prove the element exists. RULE 11 says only a
+ * pipeline's `stageN`, a grid's `rgnN` and a stack's `layN` have interiors worth
+ * entering, and a real plan asked to fly into `stage1` of an ANNOTATED-FIGURE —
+ * which has notes and leader lines and no stages at all.
+ *
+ * WHY IT MOVED HERE. The emitter already refuses this, so nothing shipped
+ * broken. But it refuses at BUILD, which is after `narrate` has spent a minute
+ * and a dozen network round trips synthesising speech for a storyboard that was
+ * never going to build. `plan` is where the author is being told to read the file
+ * anyway, and emitting a scene is cheap — the emitters build strings.
+ *
+ * Cheap enough to be exact rather than a table: the previous beat is emitted and
+ * `enterableIds` is asked what it drew, so this cannot drift from the emitter the
+ * way a hardcoded list of archetype interiors would.
+ */
+export function assertInsideResolves(storyboard: Storyboard, source: Source): void {
+  const format = FORMATS["deck-16x9"] as Format;
+  const problems: string[] = [];
+
+  for (const [i, beat] of storyboard.beats.entries()) {
+    if (!beat.inside) continue;
+    const previous = storyboard.beats[i - 1];
+    if (!previous || previous.id !== beat.inside.beat) {
+      problems.push(
+        `${beat.id} happens inside "${beat.inside.beat}", which is not the beat immediately before it. Only the previous beat is still on screen to move through (RULE 11).`,
+      );
+      continue;
+    }
+    let drawn: string[];
+    try {
+      const sid = `s${i}`;
+      const scene = emitScene(previous, { source, format, theme: ink, sid });
+      drawn = enterableIds(sid, scene.html).map((id) => id.replace(`${sid}-`, ""));
+    } catch {
+      // The beat cannot be drawn at all; `build` will say so in its own words.
+      continue;
+    }
+    if (!drawn.includes(beat.inside.element)) {
+      problems.push(
+        `${beat.id} happens inside "${beat.inside.element}", which ${previous.id} (${previous.archetype}) does not draw. It draws: ${drawn.join(", ") || "nothing enterable"}.`,
+      );
+    }
+  }
+
+  if (problems.length) {
+    throw new Error(
+      `Storyboard asks for a camera move that cannot happen:\n  ${problems.join("\n  ")}`,
+    );
   }
 }

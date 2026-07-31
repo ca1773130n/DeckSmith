@@ -26,7 +26,7 @@ import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
 import { codexPlanner } from "./plan/codex.js";
 import { durationPlan } from "./plan/duration.js";
-import { assertRefsResolve } from "./plan/refs.js";
+import { assertInsideResolves, assertRefsResolve } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
 import { loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
 import { render, type SubtitleMode } from "./render/render.js";
@@ -311,6 +311,7 @@ lookFlags(
     theme: stated(prefs, "theme") ?? planned.theme,
   };
   assertRefsResolve(storyboard, source);
+  assertInsideResolves(storyboard, source);
   await writeJson(o.out, storyboard);
   step(`plan: ${storyboard.beats.length} beats → ${o.out}`);
   // Said HERE, not only at `verify`, because this is the moment the advice below

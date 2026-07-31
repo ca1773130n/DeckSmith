@@ -143,6 +143,14 @@ export const EXPLAINING_CHARS = 72;
  * who writes it, and the owner's complaint — "they don't have a flow, just
  * sentence by sentence" — is arithmetic, not prose quality.
  *
+ * THAT CONCLUSION IS TRUE OF A LECTURE AND FALSE OF A TEASER, which is why this
+ * only governs beats longer than `FF_BEAT_SECONDS`. A conference fast-forward
+ * talk runs one sentence a slide across a dozen slides and flows perfectly well,
+ * because its flow comes from the SCRIPT being continuous — the prompt's "the
+ * deck is one script, not N captions" — rather than from paragraphs inside each
+ * beat. The demo is a four-minute deck, and reading its shape onto a
+ * sixty-second teaser is what produced five slides and 133 words a minute.
+ *
  * WHY THIS IS A COUNT AND NOT A COHESION SCORE. The obvious check is to measure
  * connectives and anaphora in the finished narration. It was built and then
  * defeated: prefixing one discourse marker to each of the twelve rejected
@@ -152,6 +160,58 @@ export const EXPLAINING_CHARS = 72;
  * written around.
  */
 export const SENTENCES_PER_BEAT = 2;
+
+/**
+ * Beat length below which a deck is a fast-forward talk rather than a lecture.
+ *
+ * The conference teaser: sixty seconds, a dozen slides, the voice never stopping.
+ * A beat this short cannot afford a leisurely delivery, so `fastEnough` stops
+ * asking for the SLOWEST rate that clears a sentence and takes the FASTEST the
+ * captions can carry — which is the difference between 133 words a minute and
+ * 180, on the same seconds.
+ */
+export const FF_BEAT_SECONDS = 8;
+
+/**
+ * The shortest a slide may be and still be seen.
+ *
+ * A fast-forward talk runs four to six seconds a slide; under four the deck is
+ * flicking rather than presenting, and the build has no room to read. This is the
+ * floor `slidesFor` clamps the beat length to, distinct from `FF_BEAT_SECONDS`,
+ * which is the threshold that decides how fast the voice goes — using one number
+ * for both put 60 seconds at eight slides when the reference is twelve.
+ */
+export const MIN_BEAT_SECONDS = 4;
+
+/**
+ * Subtitle rate a short-form viewer will take, as against broadcast television.
+ *
+ * `COMFORTABLE_CPS` is 17 and comes from broadcast practice, where the viewer is
+ * across a room and did not choose the subtitle. A one-minute research teaser is
+ * neither. The anchor is this project's own artifact: `demo/audio/narration.json`
+ * — the deck every other number here is measured against — runs a p95 of 18.41
+ * cps, already past the broadcast bar, and nobody has ever complained about it.
+ *
+ * 22 is that with the headroom a fast-forward talk needs, and it is the ceiling
+ * rather than a target: `fastEnough` only goes as fast as the beat requires.
+ */
+export const SHORT_FORM_CPS = 22;
+
+/**
+ * How much faster a CUE reads than the speech it transcribes.
+ *
+ * A cue spans the words and not the breath around them, so its characters-per-
+ * second is always above the utterance's. MEASURED end to end on rendered decks,
+ * spoken `SPEECH_CPS.latin * speedup` against the p95 of the shipped `.srt`:
+ *
+ *     +0%   14.4 -> 16.6      +20%  18.0 -> 21.3
+ *     +10%  17.1 -> 18.6      +30%  20.1 -> 23.7
+ *
+ * A ratio of 1.15-1.18, so 1.17. Without it `SHORT_FORM_CPS` was a ceiling on
+ * the wrong quantity: it admitted `+30%` on the arithmetic and the artifact came
+ * back at 23.7 cps, past the bar the constant exists to hold.
+ */
+export const CUE_OVERHEAD = 1.17;
 
 /** Broadcast subtitle practice. Past this the captions stop being readable. */
 export const COMFORTABLE_CPS = 17;
@@ -281,7 +341,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
   // only what speed cannot buy is charged to the word count. Smallest, not
   // fastest — a deck whose budget already affords a real sentence is spoken at
   // `+0%` and comes out byte-for-byte as before.
-  const [rate, speedup] = fastEnough(slow.chars, cps);
+  const [rate, speedup] = fastEnough(slow.chars, cps, slow.beatSeconds);
   const chars = Math.round(slow.chars * speedup);
 
   if (prefs.narration.rate !== "+0%" && rate !== prefs.narration.rate) {
@@ -315,7 +375,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     warnings.push(
       `${prefs.duration}s over ${prefs.slides} slides at ${prefs.narration.density} narration density leaves ${chars} characters per sentence, which is a fragment, not narration. Lower the density, cut the slide count, or raise the target.`,
     );
-  } else if (sentences < SENTENCES_PER_BEAT) {
+  } else if (sentences < SENTENCES_PER_BEAT && beatSeconds > FF_BEAT_SECONDS) {
     // THE FINDING THE OWNER RAISED, in the units that cause it. A beat with room
     // for one sentence gets a caption, whoever writes it — the hand-written demo
     // reduced to one sentence a beat reads exactly like the deck he rejected.
@@ -327,7 +387,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     // clamp bites.
     const affords = (n: number) => {
       const b = budget(prefs.duration as number, n, stops, cps);
-      const [, faster] = fastEnough(b.chars, cps);
+      const [, faster] = fastEnough(b.chars, cps, b.beatSeconds);
       return Math.floor(Math.round(b.speechSeconds * cps * faster) / explainingChars(cps));
     };
     let roomier = 0;
@@ -374,52 +434,79 @@ export function durationPlan(prefs: Prefs): DurationPlan {
 }
 
 /**
- * The most slides a target can carry and still give every beat a paragraph.
+ * How many slides a target should have, by TEMPO.
  *
- * MOST, not fewest: more slides is more of the paper drawn, so the answer is the
- * largest count whose beats still afford `SENTENCES_PER_BEAT`. At a 60-second
- * target that is five — six drops each beat to one sentence, and one sentence a
- * beat cannot carry a story whoever writes it.
+ * WHAT THIS REPLACED, and why it was wrong. It used to return the most slides a
+ * target could carry while every beat still afforded two sentences, which gave
+ * FIVE slides for a minute. The owner, watching it: "in auto mode the number of
+ * slides is too conservative when it's 1 minute... in their fast-forward
+ * presentation they never use stupidly small number of slides."
  *
- * Searched rather than solved because `speed` clamps at both ends and
- * `fastEnough` steps rather than scales, so a closed form would be wrong exactly
- * where the clamps bite. Forty down to three is 38 iterations of arithmetic.
+ * He is describing the conference fast-forward talk — the one-minute teaser an
+ * author gives before the session — and that is the right reference for a short
+ * target. Those run ten to fifteen slides in sixty seconds, about five seconds
+ * each, with the voice carrying straight over the cuts. The two-sentence floor
+ * was derived from `demo/storyboard.json`, which is a FOUR-MINUTE deck at twenty
+ * seconds a beat, and applying its shape to a teaser is what produced five
+ * slides and 133 words per minute against a fast-forward talk's 160-190.
+ *
+ * So the anchor is the beat LENGTH, and the two references agree on twelve
+ * slides: a fast-forward talk is 12 beats in 60s, the demo is 12 beats in 246s.
+ * What changes with duration is how long each beat lasts, not how many there
+ * are — until the beat would run past twenty seconds, where a deck stops being
+ * one thought a slide and starts being a lecture.
+ *
+ *     30s ->  8    120s -> 12    600s -> 30
+ *     60s -> 12    300s -> 15
  *
  * This is the DEFAULT, never an override. `slides` is one of the three knobs the
- * owner asked to hold, so an explicit `--slides` is obeyed and the mismatch is
- * reported instead — see `durationPlan`'s advisory.
+ * owner asked to hold — "user can give you the number of slides they want in the
+ * video with duration of their choice" — so an explicit count is obeyed.
  */
 export function slidesFor(prefs: Prefs): number {
   if (prefs.duration === undefined) return prefs.slides;
-  const stops = Math.min(SPEAKING_STOPS[prefs.narration.density], STOPS_PER_BEAT);
-  const cps = charsPerSecond(prefs.lang);
-  for (let n = 40; n >= 3; n--) {
-    const b = budget(prefs.duration, n, stops, cps);
-    const [, faster] = fastEnough(b.chars, cps);
-    const beatChars = Math.round(b.speechSeconds * cps * faster);
-    if (Math.floor(beatChars / explainingChars(cps)) >= SENTENCES_PER_BEAT) return n;
-  }
-  // Nothing reaches two sentences — the target is too short for any deck. Keep
-  // the floor and let `durationPlan` say what it costs.
-  return 3;
+  const beat = clamp(prefs.duration / 12, MIN_BEAT_SECONDS, 20);
+  return Math.round(clamp(prefs.duration / beat, 3, 40));
 }
 
 /**
- * The slowest rate that lifts `chars` to a sentence which explains something.
+ * How fast this deck speaks.
  *
- * SLOWEST, not fastest: speech is sped up only as far as the shortfall needs, so
- * a target that already affords a real sentence is spoken at `+0%` and its deck
- * does not move a byte. Falls back to the last step when even that cannot reach
- * the bar — the extra words are still worth having, and the caller then says
- * what speed could not buy.
+ * TWO REGIMES, and which one applies is decided by the beat length.
+ *
+ * A LECTURE (`beatSeconds` over `FF_BEAT_SECONDS`) takes the SLOWEST step that
+ * lifts a sentence to something which explains — speech is sped up only as far as
+ * the shortfall needs, so a target with room to spare is spoken at `+0%` and its
+ * deck does not move a byte.
+ *
+ * A FAST-FORWARD TALK takes the FASTEST step the captions can carry. Below eight
+ * seconds a beat there is no such thing as spare room: every second not carrying
+ * a word is information the viewer does not get, and the owner's whole complaint
+ * — "you must utilize every single second" — is that this function was being
+ * thrifty with seconds nobody wanted saved. The ceiling is `SHORT_FORM_CPS`
+ * against the DECK'S OWN measured cue rate, not a constant, because how fast a
+ * caption can run depends on how densely this deck happens to be written.
+ *
+ * Measured on the sixty-second target: the slow rule gave `+10%` and 133 words a
+ * minute; the fast rule gives `+30%` and 180, which is conference teaser pace.
  */
 export function fastEnough(
   chars: number,
   cps: number = SPEECH_CPS.latin,
+  beatSeconds?: number,
 ): readonly [rate: string, speedup: number] {
+  const last = RATE_STEPS[RATE_STEPS.length - 1] as readonly [string, number];
+  if (beatSeconds !== undefined && beatSeconds <= FF_BEAT_SECONDS) {
+    // Fastest whose captions still read. `cps * speedup` is the spoken rate, and
+    // the cue rate tracks it within a few percent — measured across RATE_STEPS.
+    const steps = [...RATE_STEPS].reverse();
+    return (
+      steps.find(([, s]) => cps * s * CUE_OVERHEAD <= SHORT_FORM_CPS) ??
+      (RATE_STEPS[0] as typeof last)
+    );
+  }
   const bar = explainingChars(cps);
-  const enough = RATE_STEPS.find(([, speedup]) => chars * speedup >= bar);
-  return enough ?? (RATE_STEPS[RATE_STEPS.length - 1] as readonly [string, number]);
+  return RATE_STEPS.find(([, speedup]) => chars * speedup >= bar) ?? last;
 }
 
 /**

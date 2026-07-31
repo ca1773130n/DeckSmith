@@ -12,7 +12,7 @@
  */
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
-import { type DurationPlan, durationPlan } from "./duration.js";
+import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 
 /**
  * How many sentences each archetype wants, because it is how many stops it has.
@@ -182,6 +182,15 @@ RULES
 2. Every id you write — in params and in evidence — must appear in the inventory
    below. A dangling id fails the build. If no figure fits the point, choose a
    different archetype; never guess an id or invent one that "should" exist.
+
+   AND USE THE FIGURES. The authors drew them because they carry the argument
+   faster than a sentence does, and a deck that redraws every idea as a synthetic
+   diagram while the paper's own architecture figure sits unused is throwing away
+   its densest asset. Every figure in the inventory should earn a beat unless you
+   can say why it does not — prefer \`annotated-figure\`, which points INTO the
+   image, over rebuilding what it already shows. Real measured failure: a plan
+   came back with four synthetic diagrams, four unused figures, and 133 words a
+   minute where a conference fast-forward talk delivers 180.
 
 3. Be faithful. Never invent a number, an axis, a baseline, or a result. Report
    what the source says, including the limitations and caveats it states — an
@@ -410,7 +419,22 @@ ${
     ? ""
     : `\nDURATION   The finished video runs about ${prefs.duration} seconds. That budget is already
            spent below: it is where the ${prefs.slides}-beat target and the sentence length
-           come from. Do not restate it, and never mention it in a beat.\n`
+           come from. Do not restate it, and never mention it in a beat.
+${
+  (plan.beatSeconds ?? 99) > FF_BEAT_SECONDS
+    ? ""
+    : `
+FORMAT     This is a CONFERENCE FAST-FORWARD TALK — the one-minute teaser an author
+           gives to make the room want the full session. ${prefs.slides} slides in
+           ${prefs.duration} seconds is about ${(plan.beatSeconds ?? 0).toFixed(0)} seconds each, and the voice runs at
+           ${plan.rate}, roughly 180 words a minute. That is the format, not an accident,
+           so write for it: every second carries a word, every slide carries a
+           picture, and the whole thing is ONE breathless argument that still
+           lands. Compress by cutting hedges and restatement, never by cutting
+           the story — the viewer must come away knowing the problem, the idea,
+           what it costs, and what was measured.
+`
+}`
 }
 LENGTH     Write ${prefs.slides} beats. Each one you leave out is ${
     prefs.duration === undefined

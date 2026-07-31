@@ -72,7 +72,7 @@ export type { CodexOptions, Runner } from "./plan/codex.js";
  * not contain. `buildDeck` does not call it — a caller assembling a storyboard
  * by hand wants this before it spends a render on a dangling ref.
  */
-export { assertRefsResolve } from "./plan/refs.js";
+export { assertInsideResolves, assertRefsResolve } from "./plan/refs.js";
 
 /** The prompt, so a consumer driving its own model can reproduce our planning. */
 export { renderSource, systemPrompt } from "./plan/prompt.js";
