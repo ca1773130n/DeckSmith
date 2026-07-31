@@ -196,11 +196,42 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const LABEL_SIZE = 40;
   /** Tabular figures run ~0.58em, the same estimate `padR` above uses. */
   const runW = (s: string) => s.length * LABEL_SIZE * 0.58;
-  const stepX = p.points.length > 1 ? plotW / (p.points.length - 1) : plotW;
   const widestValue = Math.max(...p.points.map((pt) => runW(String(pt.y))));
-  const every = Math.max(1, Math.ceil((widestValue + 12) / Math.max(stepX, 1)));
   const lastPoint = p.points.length - 1;
-  const showsValue = (i: number) => i === 0 || i === lastPoint || i % every === 0;
+
+  // Chosen by walking the axis and keeping a label only where the previous one
+  // has ended, rather than by a fixed stride.
+  //
+  // A stride plus "always keep the last" is what a modulo gives you, and the two
+  // rules meet badly at the end: at 16 points the stride kept index 14 and the
+  // rule kept 15, which are one step — 68px — apart under 116px labels. Six
+  // overlapping pairs, in the fix for overlapping pairs. Walking the real edges
+  // has no seam to get wrong, and handles labels of different widths, which a
+  // stride cannot.
+  /** The first is anchored at the start, not centred, so it occupies only its right half. */
+  const leftEdgeOf = (i: number) =>
+    i === 0 ? x(i) : x(i) - runW(String(p.points[i]?.y ?? "")) / 2;
+  const rightEdgeOf = (i: number) => {
+    const w = runW(String(p.points[i]?.y ?? ""));
+    return i === 0 ? x(i) + w : x(i) + w / 2;
+  };
+
+  const kept: number[] = [];
+  for (let i = 0; i <= lastPoint; i++) {
+    const previous = kept[kept.length - 1];
+    if (i === lastPoint) {
+      // The last always survives: with the first it carries the range the chart
+      // is about. Anything it would land on gives way instead.
+      while (kept.length > 0 && rightEdgeOf(kept[kept.length - 1] as number) + 8 > leftEdgeOf(i)) {
+        kept.pop();
+      }
+      kept.push(i);
+    } else if (previous === undefined || leftEdgeOf(i) >= rightEdgeOf(previous) + 8) {
+      kept.push(i);
+    }
+  }
+  const shownValues = new Set(kept);
+  const showsValue = (i: number) => shownValues.has(i);
 
   const values = p.points
     .map((pt, i) => ({ pt, i }))
