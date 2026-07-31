@@ -15,6 +15,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { z } from "zod";
+import { slidesFor } from "./plan/duration.js";
 import { prefsSchema } from "./types.js";
 
 export type Prefs = z.infer<typeof prefsSchema>;
@@ -43,7 +44,24 @@ const NARRATION_KEYS = Object.keys(prefsSchema.shape.narration.unwrap().shape);
 export async function loadPrefs(overrides: PrefsPatch = {}, cwd = process.cwd()): Promise<Prefs> {
   const found = await findConfig(cwd);
   const fromFile = found ? checkKeys(found.value, found.path) : {};
-  return parsePrefs(merge(fromFile, overrides), found?.path);
+  const merged = merge(fromFile, overrides);
+  const parsed = parsePrefs(merged, found?.path);
+
+  // THE ONE PREFERENCE WHOSE DEFAULT DEPENDS ON ANOTHER, so it is the one that
+  // cannot be a constant in the schema. Twelve slides is right at three minutes
+  // and wrong at one: `duration / slides` is what every derived number comes
+  // from, and at 60 seconds twelve beats leave each one a single sentence, which
+  // cannot be a story whoever writes it (see `SENTENCES_PER_BEAT`).
+  //
+  // Derived only when NOBODY SAID. `slides` is one of the three knobs the owner
+  // asked to hold, so a number in the config file or on the command line is
+  // obeyed even when it cannot flow — `durationPlan` reports that rather than
+  // quietly overruling it. This is the layer that already owns "what happens when
+  // a preference comes from nowhere", which is exactly the question.
+  if (merged.slides === undefined && parsed.duration !== undefined) {
+    return { ...parsed, slides: slidesFor(parsed) };
+  }
+  return parsed;
 }
 
 /**

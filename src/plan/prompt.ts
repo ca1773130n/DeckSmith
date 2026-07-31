@@ -348,9 +348,16 @@ ${REVEAL_COUNTS}`
     that the slide has not already drawn. Compare a line that knows what came
     before: "That carrier is what lets the thought block stay small — it holds
     the picture so the thinking does not have to."
-  - Never name a part before the beat has drawn it. The reveals arrive in the
-    order you list them, so a sentence naming the fourth stage first is heard
-    over a picture that does not have it yet.`;
+  - LEAD WITH WHAT IS DRAWN FIRST. The beat reveals its stages, bars, layers and
+    notes one at a time, in the order you list them in \`params\`, and the voice
+    starts before the first one has landed. So the first thing your narration
+    names must be the first thing the beat draws, and a part must not be named
+    before it appears.
+    You control both lists, so make them agree — reorder \`params\` to match what
+    you want to say, or say it in the order the picture arrives. "The reported
+    averages put DQ-CTM-SR in the CNN baseline range" over bars listed CARN,
+    IMDN, RFDN, DQ-CTM-SR names the fourth bar while the first is still growing;
+    either list DQ-CTM-SR first, or open on what the early bars show.`;
 
   // A character count, not a word count, because the budget is seconds of speech
   // and characters per second is the thing that was measured. Both are given: the

@@ -374,6 +374,37 @@ export function durationPlan(prefs: Prefs): DurationPlan {
 }
 
 /**
+ * The most slides a target can carry and still give every beat a paragraph.
+ *
+ * MOST, not fewest: more slides is more of the paper drawn, so the answer is the
+ * largest count whose beats still afford `SENTENCES_PER_BEAT`. At a 60-second
+ * target that is five — six drops each beat to one sentence, and one sentence a
+ * beat cannot carry a story whoever writes it.
+ *
+ * Searched rather than solved because `speed` clamps at both ends and
+ * `fastEnough` steps rather than scales, so a closed form would be wrong exactly
+ * where the clamps bite. Forty down to three is 38 iterations of arithmetic.
+ *
+ * This is the DEFAULT, never an override. `slides` is one of the three knobs the
+ * owner asked to hold, so an explicit `--slides` is obeyed and the mismatch is
+ * reported instead — see `durationPlan`'s advisory.
+ */
+export function slidesFor(prefs: Prefs): number {
+  if (prefs.duration === undefined) return prefs.slides;
+  const stops = Math.min(SPEAKING_STOPS[prefs.narration.density], STOPS_PER_BEAT);
+  const cps = charsPerSecond(prefs.lang);
+  for (let n = 40; n >= 3; n--) {
+    const b = budget(prefs.duration, n, stops, cps);
+    const [, faster] = fastEnough(b.chars, cps);
+    const beatChars = Math.round(b.speechSeconds * cps * faster);
+    if (Math.floor(beatChars / explainingChars(cps)) >= SENTENCES_PER_BEAT) return n;
+  }
+  // Nothing reaches two sentences — the target is too short for any deck. Keep
+  // the floor and let `durationPlan` say what it costs.
+  return 3;
+}
+
+/**
  * The slowest rate that lifts `chars` to a sentence which explains something.
  *
  * SLOWEST, not fastest: speech is sped up only as far as the shortfall needs, so

@@ -1023,6 +1023,81 @@ Two real 60s/5 runs, against the rejected deck:
 > updated representation into the reconstruction... CATANet remains ahead, **so**
 > the result is competitive but not best.
 
+---
+
+## 15. THE TWO THINGS §14 LEFT
+
+### The slide count is derived, not just warned about
+
+`slidesFor` returns the MOST slides a target can carry while every beat still
+affords `SENTENCES_PER_BEAT` — most, not fewest, because beyond the floor more
+slides is more of the paper drawn. It is applied in `loadPrefs`, which is the
+layer that already owns "what happens when a preference comes from nowhere", and
+ONLY when nobody said: a number in the config file or on the command line is
+obeyed even when it cannot flow, because `slides` is one of the three knobs the
+owner asked to hold. `durationPlan` reports the mismatch instead.
+
+```
+   30s ->  3 slides      180s -> 16 slides
+   60s ->  5             300s -> 26
+   90s ->  8             600s -> 40
+  120s -> 10
+  explicit --slides 12 at 60s -> 12, obeyed and warned about
+  no duration at all          -> 12, the schema default, untouched
+```
+
+### `name_before_reveal` was two different things
+
+Both survivors turned out to be separate problems wearing one warning.
+
+**The true positive was an ORDERING mismatch the planner controls both sides
+of.** `b05-results` said *"The reported averages put DQ-CTM-SR in the CNN
+baseline range"* over bars listed `CARN, IMDN, RFDN, DQ-CTM-SR, CATANet` — it
+opens on the fourth bar while the first is still growing. The planner writes both
+the sentence and the part order, so the fix is to make them agree, and the prompt
+now says so with that exact case as the worked example. Measured over two fresh
+runs: **2 warnings → 1.**
+
+**The remainder was a FALSE POSITIVE class.** Every one left was `equation-walk`.
+Checked against the real emitter: `#sid-eq` fades the whole equation in at 0.8s
+and `terms` are `color`/`scale` tweens on symbols that have been on screen the
+entire time. Naming a term "early" is naming something the viewer is already
+looking at. Excluded — same precedent and same reasoning as `partLabels`'
+existing exclusion of `highlight[].row`, and placed in `scanNarrationLead` rather
+than in `partLabels` because `scanHeadlines` wants the opposite answer: a
+headline reciting an equation's term labels is RULE 8's defect either way.
+
+**2 → 1 → 0, and the detector keeps its teeth**: re-run against §14's deck it
+still flags the genuine `pipeline` and `bar-compare` cases. Both directions are
+pinned by tests.
+
+### Measured
+
+```
+  60s, no --slides passed at all:
+    5 beats, PASS, 0 errors 0 warnings
+    58.23s   speech 42.87s (74%)   silence 26%
+    subtitle p95 16.6 cps, under the 17 practice
+```
+
+`renders/auto-60s.mp4`. The narration, read end to end:
+
+> Start with the mismatch: CTM keeps its thought compact, **but** super-resolution
+> asks for a value at every spatial location. The method has to bridge **that
+> gap**. The dense carrier is the part that persists, **so** spatial detail does
+> not disappear when thought stays compact. The thought process reads **it** and
+> writes **it** back... The CNN baselines cluster around the same reported
+> average, **and** DQ-CTM-SR sits in **that range**. CATANet is **still** higher.
+
+### STILL OPEN after §15
+
+- `slidesFor` sits exactly at the two-sentence floor, so a planner that writes
+  slightly long lines can tip a beat back to one. The demo's own load is 3.25
+  sentences a beat; a margin above the floor is defensible and unmeasured.
+- Nothing checks that the arc is actually an arc. `scanNarrationLead` catches a
+  name arriving early; nothing catches a deck whose five beats are all mechanism
+  and no cost.
+
 ### STILL OPEN after §14
 
 - **The slide count is still the author's to get right.** `durationPlan` warns
