@@ -25,8 +25,17 @@ import type { Finding, Verdict } from "../types.js";
 
 const run = promisify(execFile);
 
-/** A real check boots Chrome and samples nine frames; ~60s is normal, so leave room. */
+/** A real check boots Chrome and samples every frame in `at`; ~60s is normal, so leave room. */
 const DEFAULT_TIMEOUT_MS = 240_000;
+
+/**
+ * Upstream's grid when nothing else is asked for: nine midpoints across the
+ * duration, `(i + 0.5) / 9 * duration` (`buildLayoutSampleTimes` in
+ * hyperframes 0.7.71). Reproduced here because `--at` REPLACES that grid rather
+ * than adding to it, and this module's job is to make sure passing stops can
+ * only ever widen the sampling — see `sampleTimes`.
+ */
+const DEFAULT_SAMPLES = 9;
 
 /** The report's per-gate sections, in the order the CLI runs them. */
 const GATES = ["lint", "runtime", "layout", "motion", "contrast"] as const;
@@ -44,6 +53,23 @@ const SEVERITIES = new Set(["error", "warning", "info"]);
 export interface CheckOptions {
   /** Also write the five contrast-pass PNGs to `<dir>/snapshots`. */
   snapshots?: boolean;
+  /**
+   * Extra moments to sample, in absolute deck seconds — the deck's own stops.
+   *
+   * WHY THE DEFAULT GRID IS NOT ENOUGH. Upstream samples nine midpoints across
+   * the whole duration, and a stop is a POINT: a twelve-beat deck is ~92s, so
+   * the grid lands on 5.1, 15.4, 25.6 … and the odds that any of them coincides
+   * with a hold are nil. Measured on a deliberately reverted `claim-figure` fix:
+   * the default grid reported 0 findings, and the same deck sampled at its own
+   * stops reported `canvas_overflow` on `#s11-c` and `#s11-e` at t=91.4. The
+   * overflow was there the whole time; nothing ever looked at the frame the
+   * audience actually sees.
+   *
+   * `regrade` still excuses anything inside a camera transit window, so widening
+   * the sampling cannot resurrect the mid-flight false positives that exemption
+   * exists for.
+   */
+  at?: readonly number[];
   timeoutMs?: number;
 }
 
@@ -60,7 +86,8 @@ export async function check(dir: string, opts: CheckOptions = {}): Promise<Verdi
   // Read before the run, not after: the windows describe the artifact we are
   // about to gate, and a concurrent rebuild between the two would grade this
   // report against another deck's camera.
-  const transit = await readTransit(dir);
+  const { transit, duration } = await readComposition(dir);
+  if (opts.at?.length) args.push(`--at=${sampleTimes(opts.at, duration).join(",")}`);
   try {
     const { stdout, stderr } = await run("npx", args, { timeout: timeoutMs, maxBuffer: 32 << 20 });
     return interpret(stdout, stderr, { timeoutMs, elapsed: Date.now() - started, transit });
@@ -77,23 +104,29 @@ export async function check(dir: string, opts: CheckOptions = {}): Promise<Verdi
 }
 
 /**
- * The camera's transit windows, as the composition itself published them.
+ * What the built composition says about itself: the camera's transit windows,
+ * and how long the deck runs.
  *
- * `emitDeck` writes `data-ds-transit="t0,t1"` on a scene the camera flies out
- * of (`transitWindow` in `emit/camera.ts`). Reading them back here is what lets
- * `regrade` tell "the plate is cut off" from "the plate is mid-flight", without
- * the gate needing to know what a camera is.
+ * TRANSIT — `emitDeck` writes `data-ds-transit="t0,t1"` on a scene the camera
+ * flies out of (`transitWindow` in `emit/camera.ts`). Reading them back here is
+ * what lets `regrade` tell "the plate is cut off" from "the plate is
+ * mid-flight", without the gate needing to know what a camera is.
  *
- * A deck we cannot read yields no windows, which grades exactly as it did
- * before this existed — the strict direction. Never the permissive one: a
- * missing file must not become a blanket exemption.
+ * DURATION — only ever used to reconstruct the grid `--at` would replace. It is
+ * read from the artifact rather than asked of the caller because the caller that
+ * supplies stops (`verify`) has no more claim to know the composition's own
+ * length than this module does.
+ *
+ * A deck we cannot read yields no windows and no duration, which grades exactly
+ * as it did before this existed — the strict direction. Never the permissive
+ * one: a missing file must not become a blanket exemption.
  */
-async function readTransit(dir: string): Promise<Window[]> {
+async function readComposition(dir: string): Promise<{ transit: Window[]; duration: number }> {
   let html: string;
   try {
     html = await readFile(join(dir, "index.html"), "utf8");
   } catch {
-    return [];
+    return { transit: [], duration: 0 };
   }
   const out: Window[] = [];
   // The id and the window live in the same tag, so one match gets both. `[^>]*`
@@ -105,7 +138,34 @@ async function readTransit(dir: string): Promise<Window[]> {
     if (Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0)
       out.push({ sid: m[1] as string, t0, t1 });
   }
-  return out;
+  return { transit: out, duration: Number(/data-duration="([\d.]+)"/.exec(html)?.[1] ?? 0) };
+}
+
+/**
+ * The times to hand `--at`: the caller's stops UNION the grid they displace.
+ *
+ * THE UNION IS THE WHOLE POINT. `--at` is a replacement, not an addition
+ * (`buildLayoutSampleTimes` returns early on a non-empty `at`), so handing over
+ * a list of stops silently deletes nine samples that were doing real work —
+ * `data-table` at 7 rows is caught by a midpoint and by no stop of its own. A
+ * gate change that trades one class of defect for another is not a
+ * strengthening, and this is the line that stops it being one.
+ *
+ * Times past the end are dropped by upstream anyway; dropping them here keeps
+ * the argument honest about what was asked for. Rounded to 3dp because that is
+ * upstream's own `roundTime`, so a stop and its midpoint neighbour dedupe
+ * instead of running the same frame twice.
+ */
+export function sampleTimes(stops: readonly number[], duration: number): number[] {
+  const times = new Set<number>();
+  const add = (t: number) => {
+    if (Number.isFinite(t) && t >= 0 && (duration <= 0 || t <= duration))
+      times.add(Math.round(t * 1000) / 1000);
+  };
+  for (const t of stops) add(t);
+  if (duration > 0)
+    for (let i = 0; i < DEFAULT_SAMPLES; i++) add(((i + 0.5) / DEFAULT_SAMPLES) * duration);
+  return [...times].sort((a, b) => a - b);
 }
 
 /**

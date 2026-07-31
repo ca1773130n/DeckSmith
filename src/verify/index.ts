@@ -13,7 +13,7 @@ import { TIMING_FILE } from "../render/timing.js";
 import { type Beat, DIAGRAMMATIC, type Finding, type Storyboard, type Verdict } from "../types.js";
 import { scanBudget } from "./budget.js";
 import { type CheckOptions, check } from "./check.js";
-import { fidelity } from "./fidelity.js";
+import { fidelity, readStops, type Stop } from "./fidelity.js";
 import { scanTypeFloor } from "./typefloor.js";
 
 /**
@@ -56,6 +56,20 @@ export {
   readStops,
   type Stop,
 } from "./fidelity.js";
+/**
+ * The chart-collision rule, folded into `fidelity`'s report because it shares
+ * that gate's browser. Exported here so the pure half is testable and so a
+ * caller can see what the rule considers a collision.
+ */
+export {
+  collectSvgTextRuns,
+  gradeOverprint,
+  MIN_OVERLAP,
+  type Overprint,
+  type Overprinted,
+  overprints,
+  type TextRun,
+} from "./overprint.js";
 /**
  * Invariant 5. Emit enforces the floor while laying a beat out, and this checks
  * that the artifact came out the way emit believed — the two are not the same
@@ -119,12 +133,20 @@ export async function verify(
   // check that cannot see its inputs must not report that it found nothing.
   const lead = kept ? await readTiming(dir).then((t) => (t ? scanNarrationLead(kept, t) : [])) : [];
   const ours = [...determinism, ...narration, ...budget, ...type, ...lead];
+  // ONE READING OF THE STOPS, HANDED TO BOTH GATES.
+  //
+  // `fidelity` already worked this out for itself and `check` never knew the
+  // deck had stops at all — which is why the layout gate was sampling nine
+  // midpoints of a 92s deck and never once looking at a frame the audience
+  // holds on. The two must agree about what a stop is, and the cheapest way to
+  // guarantee that is for there to be one list.
+  const stops = await declaredStops(dir);
   // Both boot a Chrome, and they boot different ones, so they overlap almost
   // perfectly rather than contending: `check` is a child process pinning ~40% of
   // one core (scripts/score.mjs measured that), this one is in-process.
   const [verdict, frames] = await Promise.all([
-    check(dir, opts),
-    opts.fidelity === false ? null : fidelity(dir),
+    check(dir, { ...opts, at: stops.map((s) => s.t) }),
+    opts.fidelity === false ? null : fidelity(dir, { stops }),
   ]);
   const seen = [...ours, ...(frames?.findings ?? [])];
   return {
@@ -141,6 +163,22 @@ export async function verify(
       ...verdict.findings,
     ],
   };
+}
+
+/**
+ * The stops the built deck declares, read once for both browser gates.
+ *
+ * An empty list is ordinary and is handled by both callers without ceremony:
+ * `check` falls back to the default midpoint grid, and `fidelity` says it did
+ * not measure. A deck with no declared stops is a deck that never claims the
+ * audience is looking at anything in particular, which is a fact about the deck
+ * rather than a failure of the gate.
+ */
+async function declaredStops(dir: string): Promise<Stop[]> {
+  return readStops(
+    await readFile(join(dir, TIMING_FILE), "utf8").catch(() => null),
+    await readFile(join(dir, DECK_PAGE), "utf8").catch(() => null),
+  );
 }
 
 /** Only one island, and only in the presented page — so a regex is honest here. */

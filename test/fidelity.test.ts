@@ -314,7 +314,7 @@ describe("gradeFidelity", () => {
     expect(findings[0]?.severity).toBe("error");
     expect(findings[0]?.gate).toBe("fidelity");
     expect(findings[0]?.rule).toBe("blank_at_stop");
-    expect(findings[0]?.message).toMatch(/^s1 stops 3x /);
+    expect(findings[0]?.message).toMatch(/^#s1 stops 3x /);
     expect(findings[0]?.message).toContain("t=1.2s");
     expect(findings[0]?.message).toContain("1.2s, 2.4s, 4.1s");
   });
