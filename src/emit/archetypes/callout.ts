@@ -10,12 +10,15 @@ import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_LH,
   BODY_SIZE,
+  bodyBudget,
   chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
   isPortrait,
   noteCss,
+  noteHeight,
+  noteWidth,
   tween,
 } from "./title.js";
 
@@ -80,11 +83,37 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // stack at the height of its tallest member clips every panel but that one, and
   // the note then lays out underneath the overflow rather than below it.
   const stackedH = heights.reduce((a, b) => a + b, 0) + PANEL_GAP * (heights.length - 1);
+  // Across, the row is the tallest panel; down, the rows sum. This is the height
+  // the panels ARE, before any slack.
+  const need = cols === 1 ? stackedH : Math.max(...heights);
+  // …and this is the height the slide has for them, which every other archetype
+  // here asks for and this one did not. The cap below is derived from the content
+  // alone, so it grows with the text and walks straight past the box: at 16:9,
+  // three panels of four lines want 834px of a 693px box. `.panels` is
+  // `flex:1;min-height:0`, so the BOX is clamped to the budget whatever the cap
+  // says — the TEXT is what overflows, out through the panel's own border, over
+  // the note, and off the bottom, where `.scene` clips it away silently.
+  const budget = bodyBudget(
+    ctx.format,
+    p.eyebrow,
+    p.headline,
+    noteHeight(p.note, noteWidth(ctx.format)),
+  );
+  // Refused rather than clipped, and refused rather than shrunk: the body is
+  // 44px against a 40px audience floor, which is 9% of a height that can be over
+  // by 50%. A callout is the archetype for a caveat or a contradiction — a panel
+  // needing eight lines is a beat that wanted to be two, and `onBeatError` is
+  // what tells the caller so. Same contract as split-compare's own fit gate.
+  if (need > budget) {
+    throw new Error(
+      `callout ${beat.id}: ${Math.round(need)}px of panel in a ${Math.round(budget)}px box — shorten the lines or split the beat`,
+    );
+  }
   // 1.22 of the TALLEST panel is ~120px of slack. 1.22 of a SUM is that times the
   // panel count, and two panels each carrying 130px of empty floor is the hole
   // inside a border this fraction was chosen to avoid. Same intent, applied to
   // the thing that is actually growing.
-  const cap = Math.round(cols === 1 ? stackedH * 1.1 : Math.max(...heights) * 1.22);
+  const cap = Math.min(budget, Math.round(need * (cols === 1 ? 1.1 : 1.22)));
 
   const note = p.note ? `\n<div class="conote" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html = `${chrome(sid, p.eyebrow, p.headline, box)}
