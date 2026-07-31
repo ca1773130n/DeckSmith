@@ -1,111 +1,67 @@
-## Project
-A oneshot slide deck generation framework.
-See .planning/INITIAL_DESIGN.md if you want to know about detailed product design sketch.
+**Read `~/.agents/AGENTS.md` and `~/.agents/OPERATIONS.md` first.** They are the
+source of truth for how work is done here — process, memory, git, scratch files,
+document naming — and they outrank this file. What follows is only what is
+specific to this project.
 
-## The invariants
+# context-mode — MANDATORY routing rules
 
-Break one of these and the deck still passes every gate. That is the point of
-the list: each entry is a failure the gate stack cannot see. Most were found by
-a human looking at the artifact, which is also how the next one will be found.
+You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
 
- 1. **SEEK, NOT PLAY.** Capture sets an absolute time and grabs a frame.
- 2. Every tween is `fromTo()`. Never `from()`.
- 3. Timeline selectors are scoped per scene (`` `#${ctx.sid} .thing` ``) or lint fails.
- 4. No `Date.now`, no `Math.random`, no network AT RENDER TIME in `index.html`.
- 5. Audience text never below 40px at 1920x1080.
- 6. Ambient life is one `.ds-live`-gated rule per scene inside a reduced-motion query.
- 7. `deck.html` must never contain the literal string `data-composition-id`.
- 8. A hold outside its own slide's window fails `emitIsland`.
- 9. A font stack naming a family the bundle does not declare falls back silently.
-10. Times are rounded to 3 decimals so float drift never moves a byte.
-11. **`seek()` passes `suppressEvents`, so a GSAP `onUpdate` NEVER FIRES under
-    capture.** Nor does `onStart`, `onComplete`, or any other callback. Motion
-    driven by a callback plays perfectly in a browser and renders a **frozen
-    video**, silently, with every gate green — `lint`, `check`, the type floor,
-    and even `drift`, which passes twice over because both renders are
-    identically frozen. State must be applied *by the thing being seeked* — tween
-    the property — never by a callback hanging off it. If a value is not directly
-    tweenable, tween a proxy object and bind the property; do not write it from
-    `onUpdate`. This is the most dangerous failure shape in the project.
+## BLOCKED commands — do NOT attempt these
 
-A related trap, found while reconciling the render and camera workstreams: the
-video retimer freezes each scene at its holds and then plays whatever is left of
-the scene. That tail must be taken from the **end** of the scene, not from the
-source cursor's position — otherwise anything living after the last hold (a
-camera dive does, by construction) is replaced by a replay of earlier frames, at
-exactly the right length, with every gate green. See `framePlan` in
-`src/render/timing.ts`.
+### curl / wget — BLOCKED
+Any Bash command containing `curl` or `wget` is intercepted and replaced with an error message. Do NOT retry.
+Instead use:
+- `ctx_fetch_and_index(url, source)` to fetch and index web pages
+- `ctx_execute(language: "javascript", code: "const r = await fetch(...)")` to run HTTP calls in sandbox
 
-**A gate passing is not evidence.** There are six documented cases in this
-project of green gates over wrong output, and every one was caught by a human
-looking at the artifact. If your work has a visible or audible result, look at
-it — or listen to it — before you report.
+### Inline HTTP — BLOCKED
+Any Bash command containing `fetch('http`, `requests.get(`, `requests.post(`, `http.get(`, or `http.request(` is intercepted and replaced with an error message. Do NOT retry with Bash.
+Instead use:
+- `ctx_execute(language, code)` to run HTTP calls in sandbox — only stdout enters context
 
-## Required Tooling
+### WebFetch — BLOCKED
+WebFetch calls are denied entirely. The URL is extracted and you are told to use `ctx_fetch_and_index` instead.
+Instead use:
+- `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` to query the indexed content
 
-These are standing requirements, not suggestions. Each one exists because the
-default approach has repeatedly proved slower, noisier, or less accurate on this
-codebase.
+## REDIRECTED tools — use sandbox equivalents
 
-### Searching the codebase — codegraph MCP
+### Bash (>20 lines output)
+Bash is ONLY for: `git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip install`, and other short-output commands.
+For everything else, use:
+- `ctx_batch_execute(commands, queries)` — run multiple commands + search in ONE call
+- `ctx_execute(language: "shell", code: "...")` — run in sandbox, only stdout enters context
 
-Use codegraph for every question about where code lives or how it fits together.
-It is a pre-built SQLite index of every symbol, edge, and file in the workspace,
-so a question that would take dozens of grep-and-read cycles is usually answered
-in two or three calls. Consult it **before** writing or editing code, not while
-debugging the consequences.
+### Read (for analysis)
+If you are reading a file to **Edit** it → Read is correct (Edit needs content in context).
+If you are reading to **analyze, explore, or summarize** → use `ctx_execute_file(path, language, code)` instead. Only your printed summary enters context. The raw file content stays in the sandbox.
 
-- `codegraph_context` — the primary entry point; composes search, symbol lookup,
-  callers, and callees in a single call. Start here for "how does X work".
-- `codegraph_search` — locate a symbol by name.
-- `codegraph_callers` / `codegraph_callees` — trace a call graph in one direction.
-- `codegraph_impact` — determine the blast radius before a refactor. Prefer this
-  over walking callers by hand.
-- `codegraph_node` / `codegraph_explore` — read one symbol's source, or survey
-  several related ones in a single capped call.
-- `codegraph_files` — list what a directory contains.
+### Grep (large results)
+Grep results can flood context. Use `ctx_execute(language: "shell", code: "grep ...")` to run searches in sandbox. Only your printed summary enters context.
 
-Answer such questions directly from codegraph rather than delegating them to a
-file-reading subagent, which merely repeats work the index has already done.
-Fall back to Grep or Read only to confirm a specific detail codegraph did not
-surface.
+## Tool selection hierarchy
 
-### Writing code — ponytail and context-mode
+1. **GATHER**: `ctx_batch_execute(commands, queries)` — Primary tool. Runs all commands, auto-indexes output, returns search results. ONE call replaces 30+ individual calls.
+2. **FOLLOW-UP**: `ctx_search(queries: ["q1", "q2", ...])` — Query indexed content. Pass ALL questions as array in ONE call.
+3. **PROCESSING**: `ctx_execute(language, code)` | `ctx_execute_file(path, language, code)` — Sandbox execution. Only stdout enters context.
+4. **WEB**: `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` — Fetch, chunk, index, query. Raw HTML never enters context.
+5. **INDEX**: `ctx_index(content, source)` — Store content in FTS5 knowledge base for later search.
 
-Apply **ponytail** to every coding task. It enforces the smallest solution that
-actually works: question whether the work needs to exist at all, prefer the
-standard library to custom code and native platform features to new
-dependencies, and choose one line over fifty. This project has accumulated
-enough surface area that new complexity must justify itself.
+## Subagent routing
 
-Apply **context-mode** throughout, so that large command output, file contents,
-and search results are processed in the sandbox and only the resulting summary
-enters the context window. The specific tools are listed below.
+When spawning subagents (Agent/Task tool), the routing block is automatically injected into their prompt. Bash-type subagents are upgraded to general-purpose so they have access to MCP tools. You do NOT need to manually instruct subagents about context-mode.
 
-### Writing natural language — patina
+## Output constraints
 
-Run **patina** over user-facing prose before it ships: UI copy, marketing text,
-notification and email bodies, changelog and release notes, and any Korean
-content. It detects and rewrites the patterns that make text read as
-machine-generated, across Korean, English, Chinese, and Japanese, and verifies
-that meaning is preserved rather than merely paraphrased. See
-`feedback_copy_patina_conventions` for this project's established copy
-conventions.
+- Keep responses under 500 words.
+- Write artifacts (code, configs, PRDs) to FILES — never return them as inline text. Return only: file path + 1-line description.
+- When indexing content, use descriptive source labels so others can `ctx_search(source: "label")` later.
 
-### File Operations — Context Mode MCP
+## ctx commands
 
-Prefer these over Read/Bash/Grep to keep context window small:
-
-- `ctx_batch_execute` — run multiple commands + search results in ONE call (primary tool)
-- `ctx_execute` — run code in sandbox; only stdout enters context (use over Bash for large output)
-- `ctx_execute_file` — read and process a file without loading contents into context
-- `ctx_search` — search previously indexed content (batch all queries in one call)
-- `ctx_index` — index docs/markdown into searchable knowledge base
-- `ctx_fetch_and_index` — fetch URL, convert to markdown, index for search (use over WebFetch)
-- `ctx_stats` — show context consumption stats
-- `ctx_doctor` — diagnose context-mode installation
-- `ctx_upgrade` — update context-mode to latest version
-
-Fall back to Read/Grep/Glob only for quick targeted lookups or when editing files.
-
- 
+| Command | Action |
+|---------|--------|
+| `ctx stats` | Call the `ctx_stats` MCP tool and display the full output verbatim |
+| `ctx doctor` | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist |
+| `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |
