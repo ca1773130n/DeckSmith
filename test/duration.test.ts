@@ -20,6 +20,7 @@ import {
   COMFORTABLE_CPS,
   durationPlan,
   EXPLAINING_CHARS,
+  FF_BEAT_SECONDS,
   LAST_HOLD_SECONDS,
   MIN_SENTENCE_CHARS,
   OPEN_SECONDS_AT_SPEED,
@@ -81,7 +82,7 @@ describe("durationPlan", () => {
     // `MIN_SENTENCE_CHARS` and is caught by the advisory instead. The deck is
     // still refused in words; a different sentence does the refusing.
     expect(high.chars).toBeLessThan(EXPLAINING_CHARS / 2);
-    expect(high.warnings.join(" ")).toContain("which is one sentence");
+    expect(high.warnings.join(" ")).toContain("fragment");
 
     // Low density buys a real sentence out of the same 60 seconds — that is the
     // whole trade this feature exists to make, and it still holds.
@@ -125,7 +126,10 @@ describe("durationPlan", () => {
   it("uses the SLOWEST rate that clears the bar, and none at all when it can", () => {
     // Never faster than the shortfall needs. A target that already affords a
     // real sentence is spoken normally, so its deck does not move a byte.
-    for (const duration of [90, 120, 180]) {
+    // A LECTURE takes the slowest step that clears the bar. A fast-forward talk
+    // does not — under `FF_BEAT_SECONDS` a beat has no spare seconds and takes the
+    // fastest rate the captions can carry, so 60s and 90s are deliberately fast.
+    for (const duration of [120, 180]) {
       const roomy = durationPlan(prefs({ duration, slides: 12, narration: { density: "low" } }));
       expect(roomy.rate, `${duration}s`).toBe("+0%");
       expect(roomy.chars, `${duration}s`).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
@@ -145,17 +149,17 @@ describe("durationPlan", () => {
           r ===
           durationPlan(prefs({ duration: d, slides: 12, narration: { density: "low" } })).rate,
       );
-    expect(rateOf(60)).toBeGreaterThan(rateOf(90));
+    expect(rateOf(60)).toBeGreaterThan(rateOf(120));
   });
 
-  it("still says so when even the fastest rate cannot buy a real sentence", () => {
-    // Speed has a ceiling — `RATE_STEPS` stops where the captions do. Past it
-    // the advisory is the honest answer, and it names a slide count rather than
-    // saying "use fewer".
-    const thin = durationPlan(
-      prefs({ duration: 60, slides: 12, narration: { density: "medium" } }),
-    );
-    expect(thin.rate).toBe(RATE_STEPS[RATE_STEPS.length - 1]?.[0]);
+  it("still says so when a LECTURE beat cannot buy a real sentence", () => {
+    // A LECTURE-length beat that still gets one sentence is the thin case the
+    // advisory is for. A teaser's beats are SHORT on purpose and one sentence
+    // each is the format, so the advisory stays quiet there — see
+    // `SENTENCES_PER_BEAT`, which reads onto a lecture and not onto a teaser.
+    const thin = durationPlan(prefs({ duration: 170, slides: 20, narration: { density: "low" } }));
+    expect(thin.beatSeconds).toBeGreaterThan(FF_BEAT_SECONDS);
+    expect(thin.sentences).toBeLessThan(SENTENCES_PER_BEAT);
 
     const said = thin.warnings.join(" ");
     expect(said).toContain("cannot carry a story");
@@ -163,7 +167,7 @@ describe("durationPlan", () => {
     expect(named, `no slide count named in: ${said}`).toBeTruthy();
     // Whatever it names must actually clear the bar it is recommending.
     const roomier = durationPlan(
-      prefs({ duration: 60, slides: Number(named?.[1]), narration: { density: "medium" } }),
+      prefs({ duration: 170, slides: Number(named?.[1]), narration: { density: "low" } }),
     );
     expect(roomier.sentences).toBeGreaterThanOrEqual(SENTENCES_PER_BEAT);
     expect(roomier.warnings.join(" ")).not.toContain("cannot carry a story");
