@@ -42,9 +42,19 @@ demo/audio/
 # directory — which put 335 of these in the tree before anyone noticed. Ignored
 # rather than fixed in the tests: on a machine with a normal TMPDIR they are
 # already in /var/folders and the OS reaps them.
+#
+# THE LIST HAS TO BE COMPLETE OR IT IS WORSE THAN NOTHING. It covered three of
+# the seven prefixes, so 2333 directories accumulated and `git add -A` swept 14
+# files out of four of them into four separate commits — an MCP upload fixture,
+# a storyboard schema and two pairs of verify frames, none of which anything
+# reads. Every prefix any of these mkdtemp calls uses belongs here.
 decksmith-narrate-*/
+decksmith-pack-*/
+decksmith-plan-*/
 decksmith-server-*/
+ds-mcp-*/
 ds-prov-*/
+hf-*/
 node-compile-cache/
 tsx-*/
 .scratch/
