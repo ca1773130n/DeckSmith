@@ -35,6 +35,7 @@ import {
   chromeCss,
   chromeIn,
   holdsWithin,
+  isPortrait,
   noteCss,
   noteHeight,
   noteWidth,
@@ -67,6 +68,26 @@ const MARGIN = 6;
  */
 const MAX_LINES = 2;
 const FIELD_TOP = 52;
+
+/**
+ * Narrowest column a note may be set in beside the field, and the air before it.
+ *
+ * A 34px body line under about 380px starts breaking mid-phrase often enough to
+ * read as ragged rather than as a column, so a field that leaves less than this
+ * keeps its note underneath — where it costs height, which is the trade this
+ * number exists to decide.
+ */
+const NOTE_COL = 380;
+const NOTE_GAP = 64;
+
+/** The cell a square-ish field settles on, shared by the probe and the solve. */
+function solveCell(cols: number, rows: number, boxW: number, boxH: number): number {
+  return Math.min(
+    CELL_MAX,
+    (boxW - 2 * MARGIN) / (cols + GAP * (cols - 1)),
+    (boxH - 2 * MARGIN) / (rows + GAP * (rows - 1)),
+  );
+}
 
 interface Field {
   cell: number;
@@ -103,24 +124,41 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   //
   // `wrap` errs wide, so it over-counts lines rather than under-counting them —
   // the safe direction, since an under-count overflows the canvas.
-  const budget = bodyBudget(
-    ctx.format,
-    p.eyebrow,
-    p.headline,
-    noteHeight(p.note, noteWidth(ctx.format)),
-    FIELD_TOP,
-  );
+  //
+  // THE NOTE MOVES BESIDE THE FIELD WHEN THERE IS ROOM. A square lattice is
+  // height-bound at every size — measured across 2x2 to 6x6, `CELL_MAX` never
+  // binds and the width term never binds — so every pixel the note takes off the
+  // BUDGET comes straight off the cell, while the width it does not use sits
+  // empty. On the demo's 4x4: the note cost 98px of a 516px budget and the field
+  // drew 504px wide in a 1700px box, using 30% of the width and 55% of the
+  // height. Setting the note in the column the field was never going to reach
+  // hands those 98px back to the cell.
+  //
+  // Only when the field genuinely leaves a column worth setting in — `NOTE_COL`
+  // is the narrowest that does not shred a 34px line — and only in landscape,
+  // where there is width to spare. Otherwise this is the layout it always was.
+  const full = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, FIELD_TOP);
+  const square = solveCell(p.cols, p.rows, W, full);
+  const beside =
+    !isPortrait(ctx.format) &&
+    !!p.note &&
+    W - (p.cols * square + (p.cols - 1) * square * GAP) - 2 * MARGIN >= NOTE_COL + NOTE_GAP;
+  const budget = beside
+    ? full
+    : bodyBudget(
+        ctx.format,
+        p.eyebrow,
+        p.headline,
+        noteHeight(p.note, noteWidth(ctx.format)),
+        FIELD_TOP,
+      );
 
   /**
    * Square cells mean one unknown: `cell + gap = cell * (1 + GAP)`, so N cells
    * span `cell * (N + GAP * (N - 1))`. Take whichever axis runs out first.
    */
   const solve = (boxW: number): Field => {
-    const cell = Math.min(
-      CELL_MAX,
-      (boxW - 2 * MARGIN) / (p.cols + GAP * (p.cols - 1)),
-      (budget - 2 * MARGIN) / (p.rows + GAP * (p.rows - 1)),
-    );
+    const cell = solveCell(p.cols, p.rows, boxW, budget);
     const gap = cell * GAP;
     return {
       cell,
@@ -333,7 +371,19 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     group(cells, { class: "gcells" }) + group(rects) + leads.join("") + labels.join(""),
   );
   const note = p.note ? `\n<div class="gdnote" id="${id(sid, "note")}">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W)}
+  // Beside the field, in the width a square lattice was never going to use, or
+  // under it as before. The field's `<svg>` is already only as wide as it needs,
+  // so the row is the field's own width plus the column — see `beside` above.
+  // The `<svg>` is emitted at the full content width whatever the field uses, so
+  // the wrapper has to be told the field's REAL extent — otherwise the row is
+  // 1700px wide before the note is even added and the note runs off the canvas.
+  // Measured that way first: the note's five lines were clipped mid-word at the
+  // right edge, which no gate reads as wrong.
+  const fieldW = Math.ceil(f.w + 2 * MARGIN + gutter);
+  const html = beside
+    ? `${chrome(sid, p.eyebrow, p.headline, W)}
+<div class="growbeside"><div class="gwrap" style="width:${fieldW}px;flex:none">${field}</div>${note}</div>`
+    : `${chrome(sid, p.eyebrow, p.headline, W)}
 <div class="gwrap">${field}</div>${note}`;
 
   // The empty field first, fast and low-contrast: it is the thing being operated
@@ -415,6 +465,13 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     css: [
       chromeCss(theme),
       ".gwrap{margin-top:52px}",
+      // The note beside the field rather than under it. `align-items:center` sets
+      // it against the middle of the lattice, and the column takes what the field
+      // left — which `beside` already proved is at least `NOTE_COL`. `margin-top`
+      // on the note is zeroed because `noteCss` sets one for the stacked layout,
+      // where it is the gap under the field; here the gap is horizontal.
+      `.growbeside{display:flex;align-items:center;gap:${NOTE_GAP}px}`,
+      ".growbeside .gdnote{margin-top:0;flex:1}",
       `.gcell{fill:${theme.panel};stroke:${theme.rule};stroke-width:1}`,
       // `fill-opacity` and the dash offset are what the reveal animates; the
       // stylesheet holds the pre-reveal state so a still render is a bare field.
