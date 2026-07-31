@@ -906,6 +906,135 @@ per §9 a prompt rule about this can be met cosmetically — the honest lever is
 probably to let the beat declare its reveal ORDER from the sentence rather than
 the other way round.
 
+---
+
+## 14. THE NARRATION IS ONE SENTENCE PER SLIDE, AND THAT IS WHY IT HAS NO STORY
+
+The owner, on the §13 deck: *"static under voice is not a problem. viewers should
+have enough time to see the slide. more important problem is your narration
+sentences. they don't explain the paper well and they don't have a flow. just
+sentence by sentence. it's all about storytelling... and this must be consistent
+regardless of the length of the video (duration setting)."*
+
+### The measurement that found the cause
+
+The generated deck writes 12 sentences over 12 beats. The hand-written demo
+writes **39 over 12 — 3.25 a beat**. And every bit of the demo's storytelling
+lives in its second and third sentences: *"Then the field is cut into
+windows..."*, *"Only at the very end does the decoder upsample..."*, *"That loop
+is a single tick..."*, *"So this is not the cheap option, and the paper never
+claims it is."* **The flow is INSIDE a beat, between its own sentences.**
+
+The decisive test is to reduce the demo to its first sentence per beat — which is
+exactly what a 60-second target over twelve slides buys:
+
+```
+  The encoder does the heavy lifting first.
+  The encoder turns the low-resolution image into a dense feature field.
+  The first tick is worth almost a full decibel.
+```
+
+The deck that works, at the 60-second configuration, is ALSO captions. So the
+prose was never the problem. **One sentence per beat cannot flow, whoever writes
+it.** The complaint is arithmetic.
+
+### The rule, and its reason, which had been false for two sessions
+
+`cadenceFor` at `density: low` said `ONE SENTENCE PER BEAT`, justified by:
+
+> THAT SENTENCE IS HEARD OVER THE BEAT'S FIRST FRAME, before the stages, panels
+> or layers after the first have been drawn.
+
+§11 made that false — the voice starts when the headline lands and runs
+continuously with the reveals underneath. Nobody removed the rule when its reason
+went, so the planner went on being told to write one self-contained caption per
+slide, and did, twelve times.
+
+### What changed
+
+**The sentence count is derived** (`durationPlan.sentences`) from the beat's own
+speech budget rather than from the density preference, and `SENTENCES_PER_BEAT`
+is 2 — the floor below which a beat can only caption. The prompt asks for that
+many sentences **as one continuous take**, says the deck is one script rather
+than N captions, and names the failure explicitly: *a line that would read
+identically if the other beats did not exist*.
+
+**`narration` moved after `params` in the schema.** Structured output decodes in
+key order, and stored plans confirm it: `id, intent, claim, evidence, narration,
+weight, seconds, archetype, params`. Every line was being written BEFORE the
+archetype was chosen — the model was asked what the slide shows while it had not
+yet decided. Free for the 136 stored plans; zod ignores key order on parse.
+
+**A shipping bug, found by a judge**: at 300s over twelve slides the prompt said
+`ONE SENTENCE PER BEAT` and *"each sentence runs 290-341 characters"* — an
+instruction to write a 341-character sentence. The budget is now the beat's
+total and the count is separate.
+
+**`--slides` reaches `narrate` and `build`.** The comment above `lengthFlags`
+already warned that "a flag missing from one of those is a deck whose three
+stages disagree about how long it is" — and `--slides` was missing from two.
+Every derived number comes from `duration / slides`, so a deck planned at five
+slides and narrated without the flag was SPOKEN at the twelve-slide rate.
+
+### WHY THERE IS NO COHESION GATE
+
+The obvious check is to score connectives and anaphora. It was built, and then
+defeated in one edit: prefixing a discourse marker to each of the twelve rejected
+sentences — changing no content, no claim, no relation — moved the score from
+**42% to 92%, above the hand-written demo's 74%**. It is also exactly invariant
+under shuffling the deck, so it is provably blind to the only property being
+asked for. That is §9 with the answer key attached.
+
+So what ships instead is (a) the sentence-count arithmetic, which is a property
+of the BUDGET and not a judgement, and (b) `plan` printing the narration joined
+into one paragraph, because a human reading it is the detector that has actually
+worked six times in this project.
+
+### Measured, and duration-consistent
+
+| target | 12 slides | flows at |
+|---|---|---|
+| 60s | 1.00 sentences/beat — captions | 5 slides |
+| 120s | 1.76 — captions | 8 slides |
+| 180s | **2.74 — flows** | 12 slides |
+| 300s | **4.74 — flows** | 12 slides |
+
+That table IS the owner's fourth requirement: the same twelve-slide deck told a
+story at 180s and could not at 60s. The advisory now names the slide count that
+reaches two sentences at whatever target is asked for, so the arc and the flow
+are available at every duration and only the DETAIL scales.
+
+Two real 60s/5 runs, against the rejected deck:
+
+```
+  back-reference at the sentence opener:  9%  ->  22% and 33%   (demo 21%)
+  speech                            42.51s (70%)  ->  41.00s (72%)
+  subtitle p95                       18.6 cps     ->  17.1 cps   (practice 17)
+  animation speed                    0.417x       ->  1.0x, uncompressed
+```
+
+`renders/story-5beat-60s.mp4`. Read `sb-story-60s.json`'s narration end to end:
+
+> The problem starts with a mismatch in shape. CTM keeps its reasoning compact,
+> **but** super-resolution must predict detail across the image. **That carrier**
+> is the bridge between the two shapes. **It** keeps spatial state available
+> while the compact process decides what to revise... **After windowing**, the
+> same DQ-CTM module is applied across ticks. The decoder **then** turns the
+> updated representation into the reconstruction... CATANet remains ahead, **so**
+> the result is competitive but not best.
+
+### STILL OPEN after §14
+
+- **The slide count is still the author's to get right.** `durationPlan` warns
+  and names the number; it does not choose. Deriving a default beat count from
+  the duration is the obvious next step and was deliberately not taken here,
+  because `slides` is one of the three knobs the owner asked to control.
+- `scanNarrationLead` fires twice on the new deck — real instances, where a
+  sentence names a stage a second before it is drawn. Nothing steers the planner
+  on reveal ORDER yet, and per §9 a prompt rule about it can be met cosmetically.
+- The shuffle-drop test used to check the back-reference numbers above is too
+  noisy at n=12 to be a gate. It is a diagnostic, not a check, and is not shipped.
+
 ### STILL OPEN after §11
 
 - **30% silence, not 15%.** The model predicts 16% (`open + SETTLE` per scene);

@@ -27,6 +27,7 @@ import {
   playbackFactor,
   playbackWarning,
   RATE_STEPS,
+  SENTENCES_PER_BEAT,
   SETTLE_SECONDS,
   SPEAKING_STOPS,
   SPEECH_CPS,
@@ -80,7 +81,7 @@ describe("durationPlan", () => {
     // `MIN_SENTENCE_CHARS` and is caught by the advisory instead. The deck is
     // still refused in words; a different sentence does the refusing.
     expect(high.chars).toBeLessThan(EXPLAINING_CHARS / 2);
-    expect(high.warnings.join(" ")).toContain("caption rather than explain");
+    expect(high.warnings.join(" ")).toContain("which is one sentence");
 
     // Low density buys a real sentence out of the same 60 seconds — that is the
     // whole trade this feature exists to make, and it still holds.
@@ -128,8 +129,13 @@ describe("durationPlan", () => {
       const roomy = durationPlan(prefs({ duration, slides: 12, narration: { density: "low" } }));
       expect(roomy.rate, `${duration}s`).toBe("+0%");
       expect(roomy.chars, `${duration}s`).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
-      expect(roomy.warnings, `${duration}s`).toEqual([]);
     }
+    // 180s over twelve is the first target that affords a paragraph a slide, so
+    // it is the first one with nothing at all to say. 90s and 120s still warn —
+    // they clear the sentence-LENGTH bar and miss the sentence-COUNT one.
+    expect(
+      durationPlan(prefs({ duration: 180, slides: 12, narration: { density: "low" } })).warnings,
+    ).toEqual([]);
 
     // Monotone in the direction that matters: a tighter target never speaks
     // slower than a looser one.
@@ -152,15 +158,15 @@ describe("durationPlan", () => {
     expect(thin.rate).toBe(RATE_STEPS[RATE_STEPS.length - 1]?.[0]);
 
     const said = thin.warnings.join(" ");
-    expect(said).toContain("caption rather than explain");
+    expect(said).toContain("cannot carry a story");
     const named = said.match(/(\d+) slides at the same target/);
     expect(named, `no slide count named in: ${said}`).toBeTruthy();
     // Whatever it names must actually clear the bar it is recommending.
     const roomier = durationPlan(
       prefs({ duration: 60, slides: Number(named?.[1]), narration: { density: "medium" } }),
     );
-    expect(roomier.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
-    expect(roomier.warnings.join(" ")).not.toContain("caption rather than explain");
+    expect(roomier.sentences).toBeGreaterThanOrEqual(SENTENCES_PER_BEAT);
+    expect(roomier.warnings.join(" ")).not.toContain("cannot carry a story");
   });
 
   it("leaves a deck with no duration target speaking at its own rate", () => {
@@ -351,13 +357,21 @@ describe("the prompt", () => {
     expect(dflt).not.toContain("DURATION   ");
 
     const low = systemPrompt(prefs({ duration: 60, narration: { density: "low" } }));
-    expect(low).toContain("ONE SENTENCE PER BEAT");
     // Two answers to one question is the failure this parameterisation prevents.
     expect(low).not.toContain("ONE SENTENCE PER REVEAL");
     expect(low).not.toContain("about 25 words");
     expect(low).toContain("DURATION   ");
     // The reveal-count table is only a constraint at high density.
     expect(low).not.toContain("annotated-figure  one per note");
+
+    // THE CLAUSE THAT HAD TO GO. It said the beat's sentence "IS HEARD OVER THE
+    // BEAT'S FIRST FRAME, before the stages, panels or layers after the first
+    // have been drawn" — false since §11, when the voice started running
+    // continuously with the reveals playing underneath. It is why the planner was
+    // still being told to write one self-contained caption per slide.
+    expect(low).not.toContain("FIRST FRAME");
+    expect(low).toContain("ONE CONTINUOUS TAKE");
+    expect(low).toContain("ONE SCRIPT, NOT");
 
     const high = systemPrompt(prefs({ duration: 240 }));
     expect(high).toContain("ONE SENTENCE PER REVEAL");
