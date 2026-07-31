@@ -163,8 +163,59 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const yLabels = ticks
     .map((v) => `<text x="${PAD.l - 22}" y="${n(y(v) + 13)}">${v.toFixed(scale.decimals)}</text>`)
     .join("");
+  /**
+   * WHICH OF A ROW OF LABELS THE AXIS CAN CARRY.
+   *
+   * `points` has no maximum in the schema, and every row along the x axis — the
+   * category names, the values over the points — is spaced by the step between
+   * points. At 5 points that step is ~250px and 40px labels clear each other; at
+   * 16 it is ~68px and they print through their neighbours.
+   *
+   * Chosen by walking the axis and keeping a label only where the previous one
+   * has ended, rather than by a stride. A stride plus "always keep the last" is
+   * two rules that meet badly at the end — the stride keeps index 14, the rule
+   * keeps 15, and they are one step apart. Walking the real edges has no seam,
+   * and handles labels of different widths, which a stride computed from the
+   * widest cannot.
+   *
+   * Thinned rather than shrunk, because 40px IS the audience floor (invariant 5)
+   * and there is nowhere to shrink to. First and last always survive: together
+   * they carry the range the chart is about.
+   */
+  const fitIndices = (widthAt: (i: number) => number, firstAnchoredStart: boolean): Set<number> => {
+    const leftEdge = (i: number) => (i === 0 && firstAnchoredStart ? x(i) : x(i) - widthAt(i) / 2);
+    const rightEdge = (i: number) =>
+      i === 0 && firstAnchoredStart ? x(i) + widthAt(i) : x(i) + widthAt(i) / 2;
+    const kept: number[] = [];
+    const last = p.points.length - 1;
+    for (let i = 0; i <= last; i++) {
+      const previous = kept[kept.length - 1];
+      if (i === last) {
+        // Anything the last would land on gives way instead of crowding it.
+        while (kept.length > 0 && rightEdge(kept[kept.length - 1] as number) + 8 > leftEdge(i)) {
+          kept.pop();
+        }
+        kept.push(i);
+      } else if (previous === undefined || leftEdge(i) >= rightEdge(previous) + 8) {
+        kept.push(i);
+      }
+    }
+    return new Set(kept);
+  };
+
+  const LABEL_SIZE = 40;
+  /** Tabular figures run ~0.58em; a category name is proportional and reaches ~0.68em. */
+  const runW = (s: string) => s.length * LABEL_SIZE * 0.58;
+  const catW = (s: string) => s.length * LABEL_SIZE * 0.68;
+
+  // The category names were the six collisions left after the values were
+  // thinned: "T=9" through "T=15" printing into each other along the bottom of a
+  // 16-point chart. Same disease, same cure.
+  const shownX = fitIndices((i) => catW(p.points[i]?.x ?? ""), false);
   const xLabels = p.points
-    .map((pt, i) => `<text x="${n(x(i))}" y="${H - PAD.b + 56}">${esc(pt.x)}</text>`)
+    .map((pt, i) =>
+      shownX.has(i) ? `<text x="${n(x(i))}" y="${H - PAD.b + 56}">${esc(pt.x)}</text>` : "",
+    )
     .join("");
 
   const path = p.points.map((pt, i) => `${i === 0 ? "M" : "L"}${n(x(i))},${n(y(pt.y))}`).join(" ");
@@ -182,55 +233,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
         `<circle class="dot" cx="${n(x(i))}" cy="${n(y(pt.y))}" r="${i === p.points.length - 1 ? 11 : 9}" fill="${i === p.points.length - 1 ? theme.tones.b : theme.accent}" />`,
     )
     .join("");
-  // HOW MANY LABELS THE PLOT CAN CARRY.
-  //
-  // A value sits over every point and a delta over every midpoint, so both are
-  // spaced by the step between points. `points` has no maximum in the schema:
-  // at 5 points the step is ~240px and 40px labels clear each other, at 16 it is
-  // ~75px and "28.90" prints straight through its neighbour — 69 overlapping
-  // pairs on one slide, with every gate green.
-  //
-  // Thinned rather than shrunk: 40px IS the audience floor (invariant 5), so
-  // there is nowhere to shrink to. The first and last always survive because
-  // they carry the range the chart is about; the rest are dropped evenly.
-  const LABEL_SIZE = 40;
-  /** Tabular figures run ~0.58em, the same estimate `padR` above uses. */
-  const runW = (s: string) => s.length * LABEL_SIZE * 0.58;
-  const widestValue = Math.max(...p.points.map((pt) => runW(String(pt.y))));
-  const lastPoint = p.points.length - 1;
-
-  // Chosen by walking the axis and keeping a label only where the previous one
-  // has ended, rather than by a fixed stride.
-  //
-  // A stride plus "always keep the last" is what a modulo gives you, and the two
-  // rules meet badly at the end: at 16 points the stride kept index 14 and the
-  // rule kept 15, which are one step — 68px — apart under 116px labels. Six
-  // overlapping pairs, in the fix for overlapping pairs. Walking the real edges
-  // has no seam to get wrong, and handles labels of different widths, which a
-  // stride cannot.
-  /** The first is anchored at the start, not centred, so it occupies only its right half. */
-  const leftEdgeOf = (i: number) =>
-    i === 0 ? x(i) : x(i) - runW(String(p.points[i]?.y ?? "")) / 2;
-  const rightEdgeOf = (i: number) => {
-    const w = runW(String(p.points[i]?.y ?? ""));
-    return i === 0 ? x(i) + w : x(i) + w / 2;
-  };
-
-  const kept: number[] = [];
-  for (let i = 0; i <= lastPoint; i++) {
-    const previous = kept[kept.length - 1];
-    if (i === lastPoint) {
-      // The last always survives: with the first it carries the range the chart
-      // is about. Anything it would land on gives way instead.
-      while (kept.length > 0 && rightEdgeOf(kept[kept.length - 1] as number) + 8 > leftEdgeOf(i)) {
-        kept.pop();
-      }
-      kept.push(i);
-    } else if (previous === undefined || leftEdgeOf(i) >= rightEdgeOf(previous) + 8) {
-      kept.push(i);
-    }
-  }
-  const shownValues = new Set(kept);
+  // The values, by the same walk. The first is anchored at the START rather than
+  // centred — see the axis note below — so it occupies only its right half.
+  const shownValues = fitIndices((i) => runW(String(p.points[i]?.y ?? "")), true);
   const showsValue = (i: number) => shownValues.has(i);
 
   const values = p.points
