@@ -182,6 +182,12 @@ export interface McpOptions {
   work: string;
   /** Injected in tests so no test reaches the network or the clock. */
   now?: () => number;
+  /**
+   * Injected for the same reason as `now`: which binaries a machine happens to
+   * have is not what a test is about, and CI has no Codex. Defaults to the real
+   * probe, so the server itself is unchanged.
+   */
+  probe?: () => Promise<Prereq[]>;
 }
 
 /**
@@ -197,7 +203,7 @@ export function deckTools(opts: McpOptions) {
   let cached: Prereq[] | undefined;
 
   const found = async () => {
-    cached ??= await prereqs();
+    cached ??= await (opts.probe ?? prereqs)();
     return cached;
   };
 
@@ -259,6 +265,14 @@ export function deckTools(opts: McpOptions) {
       const settings = input.settings ?? {};
       const options = parseOptions(fieldsFor(settings));
 
+      // The fence BEFORE the probe below. It is pure string work — nothing is
+      // read here — and a path outside the root is refused whatever happens to
+      // be installed. Probing first meant a machine without Codex answered
+      // `/etc/passwd` with "codex is not installed", which is the security check
+      // reporting somebody else's news, and it is how the two tests that pin the
+      // fence came to pass only on a machine that had Codex.
+      const file = input.document_path ? insideRoot(input.document_path) : undefined;
+
       // BEFORE ANYTHING EXPENSIVE. A job that dies four minutes in because ffmpeg
       // is absent has spent a Codex plan to deliver a message this returns in
       // milliseconds.
@@ -270,8 +284,8 @@ export function deckTools(opts: McpOptions) {
       }
 
       const filename = input.document_path ? input.document_path.split(sep).pop() : "document.md";
-      const bytes = input.document_path
-        ? await readFile(insideRoot(input.document_path))
+      const bytes = file
+        ? await readFile(file)
         : new TextEncoder().encode(input.document_text as string);
       if (bytes.byteLength > MAX_UPLOAD_BYTES) {
         throw new Error(

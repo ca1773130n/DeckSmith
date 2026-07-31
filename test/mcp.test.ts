@@ -15,6 +15,24 @@ import { parseOptions } from "../src/server/options.js";
 const work = () => mkdtemp(join(tmpdir(), "ds-mcp-"));
 const tools = async () => deckTools({ root: await work(), work: await work() });
 
+/**
+ * What the machine has, stated rather than probed.
+ *
+ * Every test here is about the MCP surface, not about this laptop. Left to the
+ * real probe, three of them passed only where Codex happened to be installed
+ * and failed on a runner that has none — which is how a suite goes green for a
+ * reason that has nothing to do with the code.
+ */
+function installed(...absent: string[]) {
+  const all = ["codex", "edge-tts", "ffmpeg"].map((name) => ({
+    name,
+    ok: !absent.includes(name),
+    neededFor: "plan",
+    install: `install ${name}`,
+  }));
+  return async () => all;
+}
+
 describe("the settings schema", () => {
   /**
    * THE ONE THAT PROTECTS `stated`. `JobOptions.stated` is derived from which
@@ -115,6 +133,21 @@ describe("decksmith_create_deck", () => {
       /exactly one/,
     );
   });
+
+  /**
+   * THE ONE THAT KEEPS THE FENCE IN FRONT. The prereq probe used to run first,
+   * so on a machine without Codex `/etc/passwd` was answered with "codex is not
+   * installed" — the refusal that matters buried under a message about somebody's
+   * toolchain, and the two tests above passing for the wrong reason wherever
+   * Codex happened to exist.
+   */
+  it("refuses a path outside the root before it looks at what is installed", async () => {
+    const t = deckTools({ root: await work(), work: await work(), probe: installed("codex") });
+    await expect(t.create({ document_path: "/etc/passwd" })).rejects.toThrow(/outside/);
+    await expect(t.create({ document_path: "../../etc/passwd" })).rejects.toThrow(/absolute/);
+    // …and the probe still speaks for a request the fence has nothing to say about.
+    await expect(t.create({ document_text: "# x" })).rejects.toThrow(/codex is not installed/);
+  });
 });
 
 describe("decksmith_job_status", () => {
@@ -131,7 +164,7 @@ describe("decksmith_job_status", () => {
    */
   it("reports the storyboard where the pipeline writes it", async () => {
     const dir = await work();
-    const t = deckTools({ root: dir, work: dir });
+    const t = deckTools({ root: dir, work: dir, probe: installed() });
     const out = await t.create({ document_text: "# x", settings: {}, wait_seconds: 0 });
     expect(out.storyboard_path.endsWith(`${sep}storyboard.json`)).toBe(true);
     expect(out.storyboard_path).toContain(out.job_id);
