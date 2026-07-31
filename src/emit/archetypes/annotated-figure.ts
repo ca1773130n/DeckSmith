@@ -44,19 +44,14 @@ import { ambient, BREATHE } from "../theme.js";
 import {
   chrome,
   chromeCss,
+  chromeHeight,
   chromeIn,
-  EYEBROW_H,
-  HEADLINE_H,
   holdsWithin,
   isPortrait,
   tween,
 } from "./title.js";
 
 /* --------------------------------------------------------------- the budget */
-
-/** Read off `chromeCss` rather than restated here — a local copy drifts silently. */
-const HEAD_H = HEADLINE_H;
-const BROW_H = EYEBROW_H;
 /**
  * Air above and below the stage. Both are wider than a dot's halo plus its
  * shadow, because a note at `y: 0` puts that halo outside the overlay's box and
@@ -563,13 +558,28 @@ export function planFigure(
 /**
  * Height the stage may spend, once the chrome and the caption have taken theirs.
  * A budget, not a size — `planFigure` gives back only what it used.
+ *
+ * TAKES THE HEADLINE, because the chrome's height is a fact about the headline.
+ * This charged a flat `HEAD_H` — one line — however many the headline wrapped to,
+ * so a three-line headline went 174px unaccounted and pushed the stage down
+ * until the caption rendered 81px BELOW the canvas and a note's second line 41px
+ * below. `chromeHeight` is the same measurement every other archetype makes.
  */
-export function stageBudget(format: Format, eyebrow: boolean, caption: string): number {
+export function stageBudget(
+  format: Format,
+  eyebrow: string | undefined,
+  headline: string,
+  caption: string,
+): number {
   const lines = Math.min(CAP_LINES, wrap(caption, LAB, contentW(format)).length);
   const capH = lines * LAB * CAP_LH;
   return Math.max(
     360,
-    contentH(format) - (eyebrow ? BROW_H : 0) - HEAD_H - STAGE_GAP - CAP_GAP - capH,
+    contentH(format) -
+      chromeHeight(eyebrow, headline, contentW(format)) -
+      STAGE_GAP -
+      CAP_GAP -
+      capH,
   );
 }
 
@@ -625,7 +635,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     STAGE_W,
     notes,
     view,
-    stageBudget(ctx.format, p.eyebrow !== undefined, fig.caption),
+    stageBudget(ctx.format, p.eyebrow, p.headline, fig.caption),
     isPortrait(ctx.format),
   );
   const stageH = plan.height;

@@ -13,7 +13,8 @@ import {
   stageBudget,
 } from "../src/emit/archetypes/annotated-figure.js";
 import type { EmitContext } from "../src/emit/kit.js";
-import { tweenText } from "../src/emit/kit.js";
+import { contentW, tweenText } from "../src/emit/kit.js";
+import { wrap } from "../src/emit/svg.js";
 import { ink } from "../src/emit/theme.js";
 import type { BeatOf, Figure, Format, Source } from "../src/types.js";
 import { annotatedFigureParamsSchema, FORMATS } from "../src/types.js";
@@ -101,7 +102,7 @@ const crowded: Params = {
 };
 
 function plan(params: Params, fig = wide): { plan: FigureLayout; budget: number } {
-  const budget = stageBudget(format, params.eyebrow !== undefined, fig.caption);
+  const budget = stageBudget(format, params.eyebrow, params.headline, fig.caption);
   return { plan: planFigure(STAGE_W, params.notes, fig, budget), budget };
 }
 
@@ -126,7 +127,11 @@ describe("annotated-figure layout", () => {
         expect(p.height).toBeLessThanOrEqual(budget);
         for (const b of p.boxes) {
           expect(b.top).toBeGreaterThanOrEqual(0);
-          expect(b.top + b.h).toBeLessThanOrEqual(p.height);
+          // A label stack that exactly fills the stage lands on `p.height` by
+          // construction, and the accumulated line arithmetic gets there a
+          // thousandth of a pixel over — 464.2875000000001 against 464.2875. The
+          // slack is float noise, not layout: a real overrun is whole pixels.
+          expect(b.top + b.h).toBeLessThanOrEqual(p.height + 1e-6);
           // Horizontal containment reduces to this: a label runs outward from a
           // rule `col` wide, and both margins are `col` by construction.
           expect(b.w).toBeLessThanOrEqual(p.col);
@@ -190,9 +195,38 @@ describe("annotated-figure layout", () => {
   }
 
   it("fits five long labels without clipping any of them", () => {
-    // The whole point of the escalating column: the maximal case must land `ok`.
-    expect(plan(maximal).plan.ok).toBe(true);
-    expect(plan(maximal).plan.boxes.some((b) => b.clipped)).toBe(false);
+    // The whole point of the escalating column: five long labels must land `ok`
+    // when the slide has the room for them.
+    //
+    // `maximal`'s own headline WRAPS TO TWO LINES at 1700px. This used to pass
+    // with it, because `stageBudget` charged a flat one-line `HEAD_H` however
+    // many lines the headline took — an 87px overdraft that this assertion was
+    // quietly spending. Once the chrome is measured honestly the same fixture is
+    // genuinely over budget, which is the case below.
+    const oneLine = { ...maximal, headline: "Every part of the network" };
+    expect(plan(oneLine).plan.ok).toBe(true);
+    expect(plan(oneLine).plan.boxes.some((b) => b.clipped)).toBe(false);
+  });
+
+  /**
+   * The other half of that: when the chrome genuinely leaves too little, the
+   * archetype has to SAY so rather than draw past the canvas. Five long labels
+   * under a two-line headline is exactly that, and the old flat `HEAD_H` hid it —
+   * the stage kept its full height, the caption rendered 81px below the canvas
+   * and a note's second line 41px below, and every gate stayed green.
+   */
+  it("reports a stage the chrome has squeezed rather than overrunning it", () => {
+    const twoLines = wrap(maximal.headline, 76, contentW(format), 700).length;
+    expect(twoLines, "the fixture's headline is the two-line case").toBe(2);
+
+    const { plan: p, budget } = plan(maximal);
+    expect(p.ok, "five long labels under a two-line headline do not fit").toBe(false);
+    // …and being over budget is declared, not drawn: every box still sits inside
+    // the stage, with the overflow taken out of the labels as an ellipsis.
+    for (const b of p.boxes) {
+      expect(b.top).toBeGreaterThanOrEqual(0);
+      expect(b.top + b.h).toBeLessThanOrEqual(budget + 1e-6);
+    }
   });
 
   it("moves labels off a crowded side rather than off the stage", () => {
@@ -220,7 +254,7 @@ describe("annotated-figure column solver", () => {
   ];
 
   it("widens the column — and shrinks the figure — only when a label needs it", () => {
-    const h = stageBudget(format, false, wide.caption);
+    const h = stageBudget(format, undefined, "H", wide.caption);
     const a = planFigure(STAGE_W, short, wide, h);
     const b = planFigure(STAGE_W, long, wide, h);
     expect(b.col).toBeGreaterThan(a.col);
@@ -229,11 +263,21 @@ describe("annotated-figure column solver", () => {
   });
 
   it("gives the labels the margin a portrait figure leaves behind", () => {
-    const wideFig = planFigure(STAGE_W, short, wide, stageBudget(format, false, wide.caption));
-    const tallFig = planFigure(STAGE_W, short, tall, stageBudget(format, false, tall.caption));
+    const wideFig = planFigure(
+      STAGE_W,
+      short,
+      wide,
+      stageBudget(format, undefined, "H", wide.caption),
+    );
+    const tallFig = planFigure(
+      STAGE_W,
+      short,
+      tall,
+      stageBudget(format, undefined, "H", tall.caption),
+    );
     expect(tallFig.col).toBeGreaterThan(wideFig.col);
     // …without the figure spilling out of the stage's height to get there.
-    expect(tallFig.img.h).toBeLessThanOrEqual(stageBudget(format, false, tall.caption));
+    expect(tallFig.img.h).toBeLessThanOrEqual(stageBudget(format, undefined, "H", tall.caption));
   });
 
   it("spends the line budget the note count leaves free", () => {
@@ -242,7 +286,7 @@ describe("annotated-figure column solver", () => {
     const text = long[0]?.text ?? "";
     // The shortest stage this archetype ever gets: an eyebrow above and a
     // two-line caption below. That is where the budget has to bite.
-    const h = stageBudget(format, true, `${wide.caption} ${wide.caption}`);
+    const h = stageBudget(format, "Method", "H", `${wide.caption} ${wide.caption}`);
     const alone = planFigure(STAGE_W, [{ x: 0.5, y: 0.2, text }], wide, h);
     const five = planFigure(
       STAGE_W,
@@ -257,7 +301,7 @@ describe("annotated-figure column solver", () => {
   });
 
   it("refuses to blow a small figure up to fill the box", () => {
-    const p = planFigure(STAGE_W, short, tiny, stageBudget(format, false, tiny.caption));
+    const p = planFigure(STAGE_W, short, tiny, stageBudget(format, undefined, "H", tiny.caption));
     expect(p.img.w / tiny.width).toBeLessThanOrEqual(1.5);
   });
 
@@ -266,7 +310,7 @@ describe("annotated-figure column solver", () => {
       STAGE_W,
       [{ x: 0.5, y: 0.5, text: "word ".repeat(120) }],
       wide,
-      stageBudget(format, false, wide.caption),
+      stageBudget(format, undefined, "H", wide.caption),
     );
     const box = p.boxes[0];
     expect(p.ok).toBe(false);
@@ -449,7 +493,7 @@ describe("annotated-figure in portrait", () => {
       STAGE_9x16,
       params.notes,
       fig,
-      stageBudget(short, params.eyebrow !== undefined, fig.caption),
+      stageBudget(short, params.eyebrow, params.headline, fig.caption),
       true,
     );
 
@@ -516,7 +560,7 @@ describe("annotated-figure in portrait", () => {
       STAGE_W,
       minimal.notes,
       wide,
-      stageBudget(format, false, wide.caption),
+      stageBudget(format, undefined, "H", wide.caption),
     );
     const box = wideP.boxes[0] as { inner: number; side: string };
     // Landscape's rule ends beside the plate, not on a channel under it.
