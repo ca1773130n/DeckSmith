@@ -3,6 +3,45 @@ source of truth for how work is done here — process, memory, git, scratch file
 document naming — and they outrank this file. What follows is only what is
 specific to this project.
 
+## The invariants
+
+Break one of these and the deck still passes every gate. That is the point of
+the list: each entry is a failure the gate stack cannot see. Most were found by
+a human looking at the artifact, which is also how the next one will be found.
+
+ 1. **SEEK, NOT PLAY.** Capture sets an absolute time and grabs a frame.
+ 2. Every tween is `fromTo()`. Never `from()`.
+ 3. Timeline selectors are scoped per scene (`` `#${ctx.sid} .thing` ``) or lint fails.
+ 4. No `Date.now`, no `Math.random`, no network AT RENDER TIME in `index.html`.
+ 5. Audience text never below 40px at 1920x1080.
+ 6. Ambient life is one `.ds-live`-gated rule per scene inside a reduced-motion query.
+ 7. `deck.html` must never contain the literal string `data-composition-id`.
+ 8. A hold outside its own slide's window fails `emitIsland`.
+ 9. A font stack naming a family the bundle does not declare falls back silently.
+10. Times are rounded to 3 decimals so float drift never moves a byte.
+11. **`seek()` passes `suppressEvents`, so a GSAP `onUpdate` NEVER FIRES under
+    capture.** Nor does `onStart`, `onComplete`, or any other callback. Motion
+    driven by a callback plays perfectly in a browser and renders a **frozen
+    video**, silently, with every gate green — `lint`, `check`, the type floor,
+    and even `drift`, which passes twice over because both renders are
+    identically frozen. State must be applied *by the thing being seeked* — tween
+    the property — never by a callback hanging off it. If a value is not directly
+    tweenable, tween a proxy object and bind the property; do not write it from
+    `onUpdate`. This is the most dangerous failure shape in the project.
+
+A related trap, found while reconciling the render and camera workstreams: the
+video retimer freezes each scene at its holds and then plays whatever is left of
+the scene. That tail must be taken from the **end** of the scene, not from the
+source cursor's position — otherwise anything living after the last hold (a
+camera dive does, by construction) is replaced by a replay of earlier frames, at
+exactly the right length, with every gate green. See `framePlan` in
+`src/render/timing.ts`.
+
+**A gate passing is not evidence.** There are six documented cases in this
+project of green gates over wrong output, and every one was caught by a human
+looking at the artifact. If your work has a visible or audible result, look at
+it — or listen to it — before you report.
+
 # context-mode — MANDATORY routing rules
 
 You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
