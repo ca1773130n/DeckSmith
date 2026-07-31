@@ -223,15 +223,13 @@ function holdsFor(
   theme: DeckTheme,
   sid: string,
   speed: number,
-  segments?: readonly Segment[],
 ): { holds: number[]; open: number } {
   const ctx: EmitContext = { source, format, theme, sid };
-  // `stageScene` is the one place pacing and filling happen, shared with
-  // `planCut` and `layout`. The narration has to be passed in: the fill factor is
-  // computed from the sentence's length, so a manifest built without it would
-  // describe reveals at different times from the ones the deck contains — and on
-  // a linear format there is no island for `assertHoldsAgree` to catch it with.
-  const { scene, open } = stageScene(emitScene(beat, ctx), speed, segments);
+  // `stageScene` is the one place pacing happens, shared with `planCut` and
+  // `layout`, so the manifest cannot describe a scene the deck did not build —
+  // and on a linear format there is no island for `assertHoldsAgree` to catch a
+  // divergence with.
+  const { scene, open } = stageScene(emitScene(beat, ctx), speed);
   return {
     holds: [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
       (a, b) => a - b,
@@ -436,10 +434,10 @@ export function planTiming(input: TimingInput): Timing {
   const spoken: Record<string, Segment[]> = {};
   beats.forEach((beat, i) => {
     const scene = scenes[i] as TimedScene;
-    const segments = narration?.beats[beat.id];
-    const staging = holdsFor(beat, source, format, theme, scene.id, speed, segments);
+    const staging = holdsFor(beat, source, format, theme, scene.id, speed);
     scene.holds = staging.holds;
     scene.open = staging.open;
+    const segments = narration?.beats[beat.id];
     if (segments?.length) spoken[scene.id] = segments;
   });
 
