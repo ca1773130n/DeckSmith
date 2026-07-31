@@ -422,6 +422,25 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
 export const LEAD_SECONDS = 1;
 
 /**
+ * Archetypes whose parts are EMPHASISED rather than introduced.
+ *
+ * `equation-walk` draws the whole equation at 0.8s — `#sid-eq`, one fade — and
+ * its `terms` are then `color` and `scale` tweens on symbols that have been on
+ * screen the entire time. Naming one before its hold is naming something the
+ * viewer is already looking at, so the finding is about emphasis arriving late
+ * rather than a picture missing a part, and it fired on two of two real plans for
+ * exactly that reason.
+ *
+ * Same precedent, same reasoning as `partLabels`' deliberate exclusion of
+ * `highlight[].row`: a data-table's rows are drawn with the table.
+ *
+ * The exclusion lives HERE and not in `partLabels`, because `scanHeadlines` wants
+ * the opposite answer — a headline reciting an equation's term labels is RULE 8's
+ * defect whether or not the symbols are already visible.
+ */
+const EMPHASISED = new Set(["equation-walk", "data-table"]);
+
+/**
  * Warn when the narration names a part before that part is on screen.
  *
  * `scanHeadlines` one level down, and the reason it did not exist until now is
@@ -470,6 +489,7 @@ export function scanNarrationLead(
   for (const [i, scene] of timing.scenes.entries()) {
     const beat = beats[i];
     if (!beat || scene.holds.length === 0) continue;
+    if (EMPHASISED.has(beat.archetype)) continue;
     const labels = partLabels(beat.params as Record<string, unknown>);
     if (labels.length === 0) continue;
     const mine = timing.segments.filter((s) => s.scene === scene.id);

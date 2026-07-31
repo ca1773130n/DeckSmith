@@ -11,6 +11,7 @@ import {
   scanDeterminism,
   scanDiagrammatic,
   scanHeadlines,
+  scanNarrationLead,
   scanRepeatedObject,
 } from "../src/verify/index.js";
 import { scanTypeFloor, TYPE_FLOOR_PX } from "../src/verify/typefloor.js";
@@ -666,6 +667,66 @@ describe("scanHeadlines", () => {
             { label: "Decode", note: "×4 upsample" },
           ],
         }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * The name-before-reveal advisory, pinned on the two real cases that decided its
+ * shape: one it must catch, one it must not.
+ */
+describe("scanNarrationLead", () => {
+  const scene = { id: "s1", start: 0, holds: [2, 4, 6, 8] };
+  const seg = (start: number, text: string) => ({
+    scene: "s1",
+    start,
+    cues: [{ start: 0, end: 4, text }],
+  });
+
+  const beat = (archetype: string, params: object) =>
+    storyboardSchema.parse({
+      sourceId: "s1",
+      title: "A deck",
+      beats: [{ id: "b1", intent: "The viewer follows the path.", archetype, params }],
+    }).beats;
+
+  it("flags a stage named before the pipeline has drawn it", () => {
+    // MEASURED on a real plan: the narration opened "After windowing, the same
+    // DQ-CTM module is applied across ticks" over stages listed Encoder, Windows,
+    // ticks, Decoder — so `Windows` was spoken 1.6s before it appeared.
+    const found = scanNarrationLead(
+      beat("pipeline", {
+        headline: "One pass in, one pass out",
+        stages: [{ label: "Encoder" }, { label: "Windows" }, { label: "Decoder" }],
+      }),
+      { scenes: [scene], segments: [seg(0, "After windowing the decoder reconstructs it.")] },
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]?.rule).toBe("name_before_reveal");
+    expect(found[0]?.message).toContain("Windows");
+  });
+
+  it("says nothing about an equation-walk, whose terms are already on screen", () => {
+    // THE FALSE POSITIVE THAT SET THE EXCLUSION. `equation-walk` fades the whole
+    // equation in at 0.8s and then tweens `color` and `scale` on symbols that
+    // have been visible the whole time — measured off the real emitter. Naming a
+    // term early is naming something the viewer is already looking at, and it
+    // fired on two of two real plans for that reason alone.
+    expect(
+      scanNarrationLead(
+        beat("equation-walk", {
+          headline: "The carrier is read and written back",
+          equationId: "eq-carrier",
+          terms: [
+            { tex: "x", label: "low-resolution input", tone: "a" },
+            { tex: "y", label: "dense feature carrier", tone: "b" },
+          ],
+        }),
+        {
+          scenes: [scene],
+          segments: [seg(0, "The low-resolution input becomes a dense feature carrier.")],
+        },
       ),
     ).toEqual([]);
   });
