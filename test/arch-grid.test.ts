@@ -390,6 +390,65 @@ describe("grid alignment", () => {
     expect(html).not.toContain("growbeside");
   });
 
+  /**
+   * THE SWEEP, because the two examples above are two points and the layout is
+   * arbitrary: any lattice from 2x1 to 24x16, any note from one word to a
+   * paragraph, both formats.
+   *
+   * It earned its place immediately. `beside` is decided against a PROBE of the
+   * field — before the label gutter is known — and a dense lattice grows into
+   * that gutter, so at 24x16 the probe said yes and the note then had 227px for a
+   * column needing 230. It clipped mid-word, off the right edge, with every gate
+   * green. No hand-written case had that shape.
+   */
+  it("never puts the note past the edge, at any lattice and any note", () => {
+    const notes = [
+      "One line.",
+      "The source defines windowing as W(F) over the dense field.",
+      "Shifting the window by half its width is what lets information cross the boundary between two neighbouring regions, which is the whole point of the scheme.",
+      "Incomprehensibilities",
+    ];
+    for (const [cols, rows] of [
+      [2, 1],
+      [3, 3],
+      [4, 4],
+      [8, 6],
+      [12, 8],
+      [24, 16],
+      [2, 8],
+      [16, 2],
+    ] as const) {
+      for (const note of notes) {
+        for (const fmt of [format, tall]) {
+          const b = beat({
+            headline: "A headline of moderate length here",
+            cols,
+            rows,
+            regions: [
+              {
+                x: 0,
+                y: 0,
+                w: Math.min(2, cols),
+                h: Math.min(2, rows),
+                label: "window",
+                tone: "a",
+              },
+            ],
+            note,
+          });
+          const html = grid(b, { source, format: fmt, theme, sid: "s4" }).html;
+          if (!html.includes("growbeside")) continue;
+          const where = `${cols}x${rows} ${fmt.id} "${note.slice(0, 20)}"`;
+          const fieldW = Number(/class="gwrap" style="width:(\d+)px/.exec(html)?.[1]);
+          const noteW = Number(/class="gnotecol" style="width:(\d+)px/.exec(html)?.[1]);
+          const W = fmt.width - 220;
+          expect(noteW, where).toBeGreaterThan(0);
+          expect(fieldW + noteW + 52, `${where} overflows`).toBeLessThanOrEqual(W);
+        }
+      }
+    }
+  });
+
   it("keeps a label that fits inside its own region there, however much width is spare", () => {
     // The demo's 12x8 field is height-bound at 16:9 and leaves ~930px down its
     // right. Filling that band by exiling both labels to a gutter draws two 900px

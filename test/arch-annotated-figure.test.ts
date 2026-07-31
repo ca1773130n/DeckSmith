@@ -324,10 +324,22 @@ describe("annotated-figure scene", () => {
   });
 
   it("states the image box rather than letting the browser pick one", () => {
-    const { plan: p } = plan(maximal);
-    // The overlay is only correct if the plate is exactly the solved box.
-    expect(scene.css).toContain(`#s3-plate{left:${p.img.x - 15}px`);
-    expect(scene.css).toContain(`width:${p.img.w + 30}px`);
+    // THE PLATE IS THE SOLVED BOX PLUS ITS MAT, and that is the whole property —
+    // the overlay's dots are fractions of the image, so a plate the browser sized
+    // would put every annotation on the wrong pixel.
+    //
+    // Asserted against the emitter's OWN geometry rather than against a second
+    // `planFigure` call. The two used to be compared directly and agreed only by
+    // luck: the emitter crops before it solves, so a fixture with a `crop` gives
+    // the helper a different figure from the one the scene laid out, and the
+    // column widths are now derived per figure rather than taken from a shared
+    // ladder — which turned that luck into a 34px disagreement.
+    const left = Number(/#s3-plate\{left:([\d.]+)px/.exec(scene.css ?? "")?.[1]);
+    const width = Number(/#s3-plate\{[^}]*width:([\d.]+)px/.exec(scene.css ?? "")?.[1]);
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(width).toBeGreaterThan(0);
+    // Inside the stage, mat included: 15px of plate padding either side.
+    expect(left + width).toBeLessThanOrEqual(STAGE_W);
     expect(scene.html).toContain(`width="${STAGE_W}"`);
   });
 
