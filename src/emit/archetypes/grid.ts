@@ -30,6 +30,7 @@ import {
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
+  BODY_SIZE,
   bodyBudget,
   chrome,
   chromeCss,
@@ -70,15 +71,35 @@ const MAX_LINES = 2;
 const FIELD_TOP = 52;
 
 /**
- * Narrowest column a note may be set in beside the field, and the air before it.
- *
- * A 34px body line under about 380px starts breaking mid-phrase often enough to
- * read as ragged rather than as a column, so a field that leaves less than this
- * keeps its note underneath — where it costs height, which is the trade this
- * number exists to decide.
+ * Air between the field and a note set beside it. One `FIELD_TOP`, so the two
+ * gaps the layout opens are the same gap turned a quarter turn.
  */
-const NOTE_COL = 380;
-const NOTE_GAP = 64;
+const NOTE_GAP = FIELD_TOP;
+
+/**
+ * Narrowest column THIS note may be set in, from the note itself.
+ *
+ * A constant was wrong here in the way this file already knows about: "a 34px
+ * line under about 380px reads ragged" is a claim about one sentence, and the
+ * note is arbitrary text. The floor a column genuinely has is the note's own
+ * longest WORD — under it `wrap` breaks mid-word, which is the ragged edge the
+ * number was reaching for — and the ceiling is the whole note on one line, past
+ * which extra width buys nothing.
+ *
+ * Between them the choice is the note's, not the layout's: enough width that it
+ * sets in a few lines rather than a column of fragments. `NOTE_LINES` is that
+ * shape — the widest a sensible column needs is the note's length spread over
+ * that many lines, and `wrap` errs wide so the estimate is generous rather than
+ * tight.
+ */
+const NOTE_LINES = 4;
+
+function noteColumn(note: string, size: number): { min: number; want: number } {
+  const words = note.split(/\s+/).filter(Boolean);
+  const longest = Math.max(0, ...words.map((w) => textWidth(w, size)));
+  const whole = textWidth(note, size);
+  return { min: longest, want: Math.max(longest, whole / NOTE_LINES) };
+}
 
 /** The cell a square-ish field settles on, shared by the probe and the solve. */
 function solveCell(cols: number, rows: number, boxW: number, boxH: number): number {
@@ -134,15 +155,15 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // height. Setting the note in the column the field was never going to reach
   // hands those 98px back to the cell.
   //
-  // Only when the field genuinely leaves a column worth setting in — `NOTE_COL`
-  // is the narrowest that does not shred a 34px line — and only in landscape,
-  // where there is width to spare. Otherwise this is the layout it always was.
+  // Only when the field leaves a column THIS note can be set in — the width is
+  // asked of the note rather than assumed, see `noteColumn` — and only in
+  // portrait's absence, where there is width to spare at all. Otherwise this is
+  // the layout it always was.
   const full = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, FIELD_TOP);
   const square = solveCell(p.cols, p.rows, W, full);
-  const beside =
-    !isPortrait(ctx.format) &&
-    !!p.note &&
-    W - (p.cols * square + (p.cols - 1) * square * GAP) - 2 * MARGIN >= NOTE_COL + NOTE_GAP;
+  const spare = W - (p.cols * square + (p.cols - 1) * square * GAP) - 2 * MARGIN - NOTE_GAP;
+  const col = p.note ? noteColumn(p.note, BODY_SIZE) : undefined;
+  const beside = !isPortrait(ctx.format) && !!col && spare >= col.min;
   const budget = beside
     ? full
     : bodyBudget(
@@ -380,9 +401,22 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // Measured that way first: the note's five lines were clipped mid-word at the
   // right edge, which no gate reads as wrong.
   const fieldW = Math.ceil(f.w + 2 * MARGIN + gutter);
-  const html = beside
+  // What the field and its label gutter actually left. `beside` above was decided
+  // against a PROBE — the field before its gutter was known — and a dense lattice
+  // grows into that gutter, so the room here can be less than the probe promised.
+  // Re-checked rather than trusted: at 24x16 the probe said yes and the note then
+  // had 227px for a column needing 230, which clipped mid-word with every gate
+  // green. Under its own longest word the note goes back underneath, where it
+  // costs height instead.
+  const room = W - fieldW - NOTE_GAP;
+  const sideways = beside && !!col && room >= col.min;
+  // The note takes the width IT wants, not everything left over: one sentence
+  // stretched across 900px is a long line rather than a column, which is the same
+  // judgement `noteCss` makes with `NOTE_MAX_W` for the stacked layout.
+  const noteW = col ? Math.round(Math.min(col.want, room)) : 0;
+  const html = sideways
     ? `${chrome(sid, p.eyebrow, p.headline, W)}
-<div class="growbeside"><div class="gwrap" style="width:${fieldW}px;flex:none">${field}</div>${note}</div>`
+<div class="growbeside"><div class="gwrap" style="width:${fieldW}px;flex:none">${field}</div><div class="gnotecol" style="width:${noteW}px">${note}</div></div>`
     : `${chrome(sid, p.eyebrow, p.headline, W)}
 <div class="gwrap">${field}</div>${note}`;
 
@@ -471,7 +505,10 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
       // on the note is zeroed because `noteCss` sets one for the stacked layout,
       // where it is the gap under the field; here the gap is horizontal.
       `.growbeside{display:flex;align-items:center;gap:${NOTE_GAP}px}`,
-      ".growbeside .gdnote{margin-top:0;flex:1}",
+      // `max-width:none` because `noteCss` caps the stacked note at `NOTE_MAX_W`,
+      // which is a measure for a note running the full content width. Here the
+      // column is already the width the note asked for, and the cap would fight it.
+      ".growbeside .gdnote{margin-top:0;max-width:none}",
       `.gcell{fill:${theme.panel};stroke:${theme.rule};stroke-width:1}`,
       // `fill-opacity` and the dash offset are what the reveal animates; the
       // stylesheet holds the pre-reveal state so a still render is a bare field.

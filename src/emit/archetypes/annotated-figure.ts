@@ -146,28 +146,51 @@ function lineBudget(count: number, stageH: number): number {
 }
 
 /**
- * Label column widths tried in turn. Widening one shrinks the figure, and that is
- * the right trade: a figure 200px smaller still reads, a label that lost its last
- * clause does not. The narrow head of the list is tried first for the opposite
- * reason — a wide strip of a figure is height-bound long before its labels are,
- * and 60px of column it did not need is 120px of plate it could have had. A
- * column that cannot hold its labels reports `!ok` and the next one is tried, so
- * the head can be as ambitious as it likes.
+ * Label column widths to try, DERIVED FROM THE LABELS rather than listed.
  *
- * IT WAS NOT AMBITIOUS ENOUGH. The list began at 320 and that is where the search
- * STARTS, so no figure was ever offered a narrower one. Measured over the four
- * annotated-figures of the shipped sixty-second deck: every column came back
- * 320px reserved against 256-303px of actual label, and three of the four figures
- * were WIDTH-bound at scale 0.71-0.75 — downscaled, with 643px of stage height
- * unused, to make room for margins the labels did not fill. `b05-architecture` is
- * a 3.6:1 strip that could have scaled 1.61x on height and drew at 0.71x.
+ * The trade is real in both directions: widening a column shrinks the figure, and
+ * a figure 200px smaller still reads where a label that lost its last clause does
+ * not. So the search walks from tight to generous and stops at the first width
+ * that holds — `ok` refuses a column its labels overflow.
  *
- * 220 is the head now, which is a hair over the widest single word these labels
- * carry. `ok` refuses a column its labels overflow, so the cost of an over-tight
- * head is one more `attempt` — arithmetic over strings, no browser — and the
- * benefit is that a figure whose labels are short finally gets the width.
+ * WHAT WAS HERE was `[320, 380, 470, 560]`, four numbers with no derivation, and
+ * the bug was in the head rather than the tail: 320 is where the search STARTS,
+ * so no figure was ever offered narrower. Measured on the shipped deck's four
+ * figures, every column came back 320px reserved against 256-303px of actual
+ * label while three of the four figures were width-bound at scale 0.71-0.75,
+ * downscaled with 643px of stage height unused. Replacing it with
+ * `[220, 260, 320, …]` fixed those four and was the same mistake one notch along
+ * — 220 was "a hair over the widest word THESE labels carry", which is a constant
+ * tuned to one deck.
+ *
+ * The bounds are properties of the text:
+ *
+ *   FLOOR   the widest single WORD any label contains. Under it `wrap` has to
+ *           break mid-word, which `measure` then reports as overflow, so no
+ *           narrower column can ever succeed and trying one is wasted work.
+ *   CEILING the widest label ENTIRE. Past it nothing wraps, so a wider column
+ *           buys no label anything and costs the figure width.
+ *
+ * Between them, geometric steps: each is a fixed fraction wider than the last, so
+ * a two-word label and a two-clause one get the same *relative* granularity
+ * rather than the same pixel one. `STEPS` is how many attempts that is worth —
+ * each is arithmetic over strings with no browser, and past a handful the widths
+ * differ by less than a space.
  */
-const COLS = [220, 260, 320, 380, 470, 560];
+const STEPS = 6;
+
+function columns(notes: readonly FigureNote[], stageW: number): number[] {
+  const words = notes.flatMap((n) => n.text.split(/\s+/).filter(Boolean));
+  if (words.length === 0) return [stageW / 3];
+  const floor = Math.max(...words.map((w) => textWidth(w, LAB, LAB_WEIGHT)));
+  const ceiling = Math.max(...notes.map((n) => textWidth(n.text, LAB, LAB_WEIGHT)));
+  // A single word longer than the widest label cannot happen, but a label of one
+  // word makes them equal — one attempt is then the whole search.
+  const hi = Math.max(floor, ceiling);
+  if (hi <= floor) return [floor];
+  const ratio = (hi / floor) ** (1 / (STEPS - 1));
+  return Array.from({ length: STEPS }, (_, k) => floor * ratio ** k);
+}
 
 /**
  * Never blow a small figure up more than this. Beyond it the interpolation is
@@ -315,12 +338,12 @@ function attempt(
   // Ask for `want`, then hand the labels whatever the figure did not use: a
   // portrait figure leaves 600px of margin a side and the labels should have it.
   //
-  // `COLS` was drawn up against a 1700px stage, where every entry is well under
-  // a third of it. On an 860px one the wider entries are more than half the
-  // stage each, `plateMax` goes negative, and the figure is drawn inside-out at
-  // a negative width — which no gate reads as wrong. A column may never take
-  // more than a third of the stage it sits in; at 1700 that is 566px and clamps
-  // nothing, so this is a floor under the arithmetic rather than a new policy.
+  // The widths `columns` derives come from the TEXT and know nothing about the
+  // stage, so a long label on a narrow canvas asks for more than half of it,
+  // `plateMax` goes negative, and the figure is drawn inside-out — which no gate
+  // reads as wrong. A column may never take more than a third of the stage it
+  // sits in. At 1700 that is 566px and clamps almost nothing; at 860 it is what
+  // keeps the arithmetic the right way up.
   const asked = Math.min(want, stageW / 3);
   // A margin only costs width when it is going to hold something. `sides` is the
   // arrangement this attempt is making; `planFigure` tries the tight one first.
@@ -523,9 +546,10 @@ export function planFigure(
   const wanted = wantedSides(notes);
   const both: Sides = { l: true, r: true };
   const tries = wanted.l && wanted.r ? [both] : [wanted, both];
+  const cols = columns(notes, stageW);
   let plan: FigureLayout | undefined;
   for (const sides of tries) {
-    for (const col of COLS) {
+    for (const col of cols) {
       plan = attempt(stageW, notes, fig, stageH, col, false, sides);
       if (plan.ok) return plan;
     }
