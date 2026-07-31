@@ -161,12 +161,25 @@ export function chromeHeight(eyebrow: string | undefined, headline: string, widt
 }
 
 /**
+ * The floor `bodyBudget` applies when the caller does not name one.
+ *
+ * A scene whose chrome genuinely eats the canvas has a planner problem, and
+ * returning a negative budget turns that into a diagram drawn inside-out rather
+ * than one that is merely tight.
+ */
+const BODY_FLOOR = 320;
+
+/**
  * What is left for the body once the chrome, the body's own top margin, and
  * anything below it (a note, a caption band) have been paid for.
  *
- * Floored at 320: a scene whose chrome genuinely eats the canvas has a planner
- * problem, and returning a negative budget turns that into a diagram drawn
- * inside-out rather than one that is merely tight.
+ * `floor` IS A LAST RESORT, NOT A BUDGET, and the difference has already cost a
+ * defect. `claim-figure` asked for the space left under a 216-character claim,
+ * was told 320 when the true remainder was 163, sized the figure to fit 320, and
+ * drew the caption 7px below the canvas — with every gate green, because the
+ * gate was sampling nine midpoints and never looked at that hold. A caller that
+ * is LAST in the queue for space has to be able to hear "there is almost none",
+ * so it can pass its own floor and act on the answer.
  */
 export function bodyBudget(
   format: Format,
@@ -174,9 +187,10 @@ export function bodyBudget(
   headline: string,
   below = 0,
   top = 34,
+  floor = BODY_FLOOR,
 ): number {
   const width = contentW(format);
-  return Math.max(320, contentH(format) - chromeHeight(eyebrow, headline, width) - top - below);
+  return Math.max(floor, contentH(format) - chromeHeight(eyebrow, headline, width) - top - below);
 }
 
 /**

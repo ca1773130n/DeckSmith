@@ -38,6 +38,17 @@ const CLAIM_RULE = 6 + 32;
 /** The claim's column in `.cf-beside`. Named because the fit test has to agree with the CSS. */
 const BESIDE_COL = 560;
 
+/**
+ * The shortest plate that is still evidence rather than a thumbnail of it.
+ *
+ * Two caption lines' worth of height (`BODY_SIZE * BODY_LH`, rounded, doubled).
+ * A figure shorter than its own caption is not what the slide is about — which
+ * is the judgement EXPERIMENT-002 already made about the 244px plate the
+ * portrait grid used to draw, expressed here as the one measurement the layout
+ * has on hand.
+ */
+const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
+
 export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
@@ -78,9 +89,30 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // a 1507x208 band across the top of the slide. The figure is the evidence, so
   // it takes what the chrome and the caption leave; `32` is the plate's padding
   // and border, which the cap is on the *image* rather than the wrapper.
-  const figMax = Math.round(
-    bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND + claimBand, 26) - 32,
-  );
+  //
+  // THE FLOOR IS ASKED FOR EXPLICITLY WHEN STACKED, and that is the whole of
+  // bug ten. `bodyBudget`'s 320px default is a floor for a caller who gets space
+  // FIRST — beside, the row is centred and the figure sets the height. Stacked,
+  // the figure gets what the claim and the caption leave, and a 216-character
+  // claim leaves 163. Told 320, the plate was sized for 320, `.cf-stack`
+  // overflowed by the difference, and the caption's text landed at y=1087.16 on
+  // a 1080 canvas — seven pixels, invisible to the gate until it started
+  // sampling the deck's own stops rather than nine midpoints of a 92s timeline.
+  const figMax =
+    Math.round(
+      bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND + claimBand, 26, tall ? 0 : undefined),
+    ) - 32;
+  // A claim long enough to leave no plate is not a layout to solve, it is a beat
+  // to split — the same answer `split-compare` and `callout` already give, in the
+  // same words. Without this the cap goes negative, the browser discards an
+  // invalid `max-height`, and the figure renders at natural size: the 7px
+  // overflow becomes a 400px one.
+  if (figMax < MIN_PLATE) {
+    throw new Error(
+      `claim-figure ${beat.id}: the claim takes ${claimBand}px and leaves ${figMax}px for the figure, ` +
+        `under the ${MIN_PLATE}px floor — shorten the claim or split the beat`,
+    );
+  }
 
   const claim = `<div class="claim" id="${sid}-c">${esc(p.claim)}</div>`;
   // `figure.src` is relative to the deck's asset directory.
