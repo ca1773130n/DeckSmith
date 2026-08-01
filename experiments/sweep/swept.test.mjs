@@ -6,8 +6,8 @@
  * receipt is about THIS tree: this corpus file's bytes, this `dist/`. Staleness
  * is the failure.
  *
- * WHY STALENESS IS THE THING TO CHECK. The sweep's whole claim is "these nine
- * known defects are still fixed". A receipt earned by a previous build of the
+ * WHY STALENESS IS THE THING TO CHECK. The sweep's whole claim is "these known
+ * defects are still fixed". A receipt earned by a previous build of the
  * compiler says nothing whatsoever about the compiler in the working tree — it
  * is the exact disease `toolFingerprint` was written for over in `score.mjs`,
  * and it has already bitten this project twice: two line-chart fixes were
@@ -22,11 +22,14 @@
  * check you can turn off is one that is off, and the whole file would then be
  * decoration. Run `npm run sweep`; it takes a minute.
  *
- * WHAT IT DELIBERATELY DOES NOT REQUIRE: that every cell is clean. `b09-data-table`
- * at 9 and 10 rows is a real, open, unfixed defect, and making the suite red for
- * it would make deleting the cell the cheapest way to green — the incentive that
- * produces a corpus proving nothing. It is pinned in `OPEN` with the verdict it
- * actually has, so it is on the record without being an alarm.
+ * WHAT IT DELIBERATELY DOES NOT REQUIRE: that every cell is CLEAN. It requires
+ * that every pinned cell still has the verdict it was pinned with, which is not
+ * the same thing — `b09-data-table` at 9 and 10 rows is pinned `refused`,
+ * because a table that does not fit at the 40px floor is declined rather than
+ * drawn off the canvas. Demanding "clean everywhere" would make deleting an
+ * awkward cell the cheapest way to green, which is the incentive that produces a
+ * corpus proving nothing. `OPEN` is empty today and is what a defect reported
+ * before it is fixed goes into, so it is on the record without being an alarm.
  *
  * TO FIX A FAILURE HERE:  npm run sweep
  */
@@ -47,8 +50,8 @@ describe("the perturbation sweep has a receipt for this tree", () => {
   it("has been run at all", () => {
     expect(
       ledger,
-      `no sweep receipt at ${LEDGER}. The nine layout defects this corpus exists to ` +
-        "catch are unverified on this tree. Run:\n    npm run sweep\n",
+      `no sweep receipt at ${LEDGER}. The ${Object.keys(CORPUS).length} layout defects this ` +
+        "corpus exists to catch are unverified on this tree. Run:\n    npm run sweep\n",
     ).toBeTruthy();
   });
 

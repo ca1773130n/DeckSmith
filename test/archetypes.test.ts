@@ -542,10 +542,20 @@ describe("archetypes", () => {
 
   it("sets table cells at the 40px floor however wide the table is", () => {
     // Deriving the size from the table's width shrank six columns to 37px, which
-    // is unreadable projected and clean through every gate (invariant 10). The
-    // size is now derived, but only ever *upwards*: a table that would not fit at
-    // the floor is still set at the floor and allowed to trip the layout gate,
-    // which someone can see.
+    // is unreadable projected and clean through every gate (invariant 5). The
+    // size is now derived, but only ever *upwards*, and these assertions are
+    // unchanged.
+    //
+    // WHAT THIS TEST USED TO ALSO SAY, and no longer does: that a table too big
+    // for its slide "is still set at the floor and allowed to trip the layout
+    // gate, which someone can see". That held for WIDTH — an over-wide table is
+    // the thing that runs off the canvas — and was false for HEIGHT, where
+    // `.scene` being centred sends the HEADLINE and the NOTE off the two ends
+    // and leaves the table looking fine. The sweep reported exactly that at 9
+    // and 10 rows and nobody could act on it. A table too tall to DRAW is
+    // refused now; see the row sweep below. The width rule this case exercises
+    // is untouched: `t2` is one row of six columns, so it still hits the floor
+    // and still draws.
     const wide = structuredClone(beats[3]) as Extract<Beat, { archetype: "data-table" }>;
     wide.params.tableId = "t2";
     wide.params.highlight = [];
@@ -614,6 +624,201 @@ describe("archetypes", () => {
     ).toBe("beside");
     // ...and one that cannot fit the column takes the whole measure instead.
     expect(layoutOf(`${long}. ${long}.`)).toBe("stacked");
+  });
+
+  /**
+   * Swept rather than sampled, because the thing that was wrong here was a
+   * MISSING dimension rather than a wrong number: `cell` was solved from the
+   * table's width and the row COUNT was never asked about at all, so a table
+   * grew downwards out of its box without anything in the emitter noticing.
+   *
+   * What that looked like, and why it had to become a refusal: `.scene` is
+   * `justify-content:center`, so an over-tall column hangs off BOTH ends, and
+   * the elements that leave the canvas are `#sN-h` and `#sN-note` — the headline
+   * above, the note below, the table itself apparently fine. The sweep reported
+   * that at 9 rows x 5 columns and again at 10 x 6 (`scripts/sweep.mjs`), and it
+   * sat open, because a report naming the headline gives the author no reason to
+   * think about the row count.
+   *
+   * The property, not the pixel: the verdict is monotone in the rows, both
+   * halves happen, and where the boundary falls is decided by the height the
+   * rows are DRAWN at — so it moves with the type size and with the chrome, and
+   * is pinned at four combinations of the two rather than at one.
+   *
+   * FOUR AND NOT ONE, because one chrome is how the first version of this rule
+   * passed while being wrong twice over. It charged the 40px floor rather than
+   * the size actually set, and charged the content box rather than the canvas —
+   * an under-count and an over-count that cancel at exactly the 16:9 chrome
+   * below, and nowhere else. Sampled there alone it looked exact; a chrome
+   * tighter by 136px refused a table that renders clean, and at 9:16 it let
+   * three row counts draw off the canvas, which is the defect it was written to
+   * close.
+   */
+  it("refuses a table whose drawn rows will not fit the canvas, and not before", () => {
+    const tall: Format = { ...format, id: "short-9x16", width: 1080, height: 1920 };
+    // The sweep's own b09 chrome: a headline that sets on two lines at 16:9, and
+    // a one-line note.
+    const sweep = {
+      headline: "The encoder makes the field; the partition keeps it, and nothing is discarded",
+      note: "Comparison figures are quoted from their papers.",
+    };
+
+    const short = (i: number) => `M${i}`;
+    const long = (i: number) => `Ablation variant ${i}`;
+
+    interface Case {
+      what: string;
+      fmt: Format;
+      cols: number;
+      label: (i: number) => string;
+      /** The column headings, which count towards the width solve as much as the cells do. */
+      metric: string;
+      eyebrow?: string;
+      headline: string;
+      note: string;
+      /** The size the width solve lands on, and so the height each row costs. */
+      cell: number;
+      /** The most rows this chrome draws. Measured against the emitter, not derived. */
+      last: number;
+    }
+
+    // EVERY FIXTURE HERE FITS THE BOX WIDTHWISE, which `cell > MIN_FONT` below
+    // asserts and is not a detail: the width solve only ever clamps to 40 when
+    // the table is too wide for the box, and such a table is drawn overflowing
+    // its sides ON PURPOSE. Sampled with one, the "more rows fit at a smaller
+    // size" case built a deck that failed the gate on ten `td`s in columns five
+    // and six — nothing to do with the row count, and no evidence about it.
+    const CASES: Case[] = [
+      {
+        what: "16:9, three short columns — type at the 52px cap",
+        fmt: format,
+        cols: 3,
+        label: short,
+        metric: "Metric",
+        ...sweep,
+        cell: 52,
+        last: 7,
+      },
+      // SAME FORMAT, SAME CHROME, SAME COLUMN COUNT, DIFFERENT ANSWER — the
+      // property the rule turns on, and the one an earlier version of this test
+      // asserted the opposite of by pinning the verdict as column-independent.
+      // What moved is the type: wider headings solve to 42px, a 42px row stands
+      // 12px shorter than a 52px one, and two more of them fit.
+      {
+        what: "16:9, three wide columns — same count, 42px type, two more rows",
+        fmt: format,
+        cols: 3,
+        label: long,
+        metric: "Benchmark metric average",
+        ...sweep,
+        cell: 42,
+        last: 9,
+      },
+      {
+        what: "16:9, six columns — twice the columns, a third boundary again",
+        fmt: format,
+        cols: 6,
+        label: long,
+        metric: "Metric",
+        ...sweep,
+        cell: 49,
+        last: 8,
+      },
+      {
+        what: "9:16, three short columns — the same rule against twice the height",
+        fmt: tall,
+        cols: 3,
+        label: short,
+        metric: "Metric",
+        ...sweep,
+        cell: 52,
+        last: 23,
+      },
+      // THE CASE THAT CATCHES AN OVER-STRICT RULE, and the one the first version
+      // failed: an eyebrow and a two-line note leave 478px here against the
+      // 614px above, and six rows still draw. The demo ships five.
+      {
+        what: "a tighter 16:9 chrome with an eyebrow, shaped like the demo's b09",
+        fmt: format,
+        cols: 3,
+        label: short,
+        metric: "Metric",
+        eyebrow: "Quantitative comparison · ×4",
+        headline: "Competitive with CNN baselines, behind recent models",
+        note: "Comparison figures are quoted from their papers; only DQ-CTM-SR was trained here.",
+        cell: 52,
+        last: 6,
+      },
+    ];
+
+    const verdict = (c: Case, n: number) => {
+      const beat = structuredClone(beats[3]) as Extract<Beat, { archetype: "data-table" }>;
+      beat.params.eyebrow = c.eyebrow;
+      beat.params.headline = c.headline;
+      beat.params.note = c.note;
+      beat.params.tableId = "t3";
+      beat.params.highlight = [];
+      const where = `${n} rows x ${c.cols} cols — ${c.what}`;
+      expect(beatSchema.safeParse(beat).success, where).toBe(true);
+      const table = {
+        id: "t3",
+        columns: [
+          "Method",
+          ...Array.from({ length: c.cols - 1 }, (_, j) => `${c.metric} ${j + 1}`),
+        ],
+        rows: Array.from({ length: n }, (_, i) => [
+          c.label(i),
+          ...Array.from({ length: c.cols - 1 }, (_, j) => (28.9 + i + j / 10).toFixed(3)),
+        ]),
+      };
+      // Caught and re-read OUTSIDE the try, so an assertion of this test's own
+      // cannot be mistaken for the emitter refusing.
+      let css: string | undefined;
+      let refusal: string | undefined;
+      try {
+        css = emitScene(beat, {
+          ...ctx("s4"),
+          format: c.fmt,
+          source: { ...source, tables: [...source.tables, table] },
+        }).css;
+      } catch (err) {
+        refusal = (err as Error).message;
+      }
+      if (refusal !== undefined) {
+        // The message names the row count, the height it wanted and the size it
+        // wanted it at — the last of which is the whole reason these cases
+        // differ from one another.
+        expect(refusal, where).toMatch(
+          /^data-table b4: table "t3" has \d+ rows, which with the header stand \d+px tall at \d+px type/,
+        );
+        return "refused";
+      }
+      const set = Number((css as string).match(/table\{[^}]*font-size:(\d+)px/)?.[1]);
+      // The size the rows are actually set at, which is what decides where this
+      // case's boundary falls — and, being above the floor, proof that the width
+      // solve did not clamp and so that this table fits its box.
+      expect(set, `${where}: set at ${set}px`).toBe(c.cell);
+      expect(set, `${where}: clamped to the floor, so this table overruns its box`).toBeGreaterThan(
+        40,
+      );
+      return "drawn";
+    };
+
+    for (const c of CASES) {
+      let seenRefusal = false;
+      // Two past the boundary, so every leg sees both answers and none of the
+      // assertions below is carried by another case. Scanning to 12 was how the
+      // 9:16 leg came to assert nothing at all: it refuses at 24.
+      for (let n = 1; n <= c.last + 2; n++) {
+        const got = verdict(c, n);
+        // Monotone: rows only ever cost height, so a table that fits cannot be
+        // one row longer than a table that does not.
+        if (seenRefusal) expect(got, `${n} rows after a refusal — ${c.what}`).toBe("refused");
+        seenRefusal ||= got === "refused";
+        expect(got, `${n} rows — ${c.what}`).toBe(n <= c.last ? "drawn" : "refused");
+      }
+      expect(seenRefusal, `never refused anything — ${c.what}`).toBe(true);
+    }
   });
 
   it("data-table refuses a highlight that matches no row", () => {

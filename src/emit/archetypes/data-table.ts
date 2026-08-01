@@ -2,12 +2,23 @@
  * A table from the source, revealed row by row, then read for the viewer: the
  * highlighted rows light up in the order the argument needs them.
  *
- * Nothing here invents numbers, and nothing here resizes them either: the cells
- * are 40px because that is the floor, and a table that will not fit at 40px is a
- * table the planner has to cut columns from.
+ * Nothing here invents numbers, and nothing here drops them either: every row of
+ * the named table is drawn, at 40px or above, or the beat is refused. The type
+ * is solved from the WIDTH — upwards from the 40px floor, capped — and the height
+ * rule then asks whether those rows, drawn at that size, fit on the canvas. The
+ * one lever the height rule owns is the row padding, and it is already shut to
+ * `PAD_Y_MIN` whenever this refuses, so "will not fit" is a measurement of this
+ * slide rather than a preference about it.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO: buy rows by taking the type back down toward
+ * 40. That would be legal — invariant 5 is a floor, not a fixed size, and a table
+ * declined here at 52px would often fit at 40 — but it makes `cell` solve two
+ * constraints at once, and the width solve is the one that has been measured. So
+ * the refusal names the size it refused AT, and the choice stays visible to
+ * whoever reads the error instead of being buried in this file.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc, mathy } from "../kit.js";
+import { contentW, esc, mathy, PAD_Y } from "../kit.js";
 import { MIN_FONT, textWidth } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
@@ -41,6 +52,27 @@ const CELL_MAX = 52;
  */
 const PAD_Y_MAX = { wide: 40, tall: 68 };
 
+/**
+ * Tightest row padding, per side. The other floor: below this the rules between
+ * rows stop reading as a table and start reading as a wall of digits, so the
+ * height a table NEEDS is settled by `MIN_FONT` and this together.
+ */
+const PAD_Y_MIN = 12;
+
+/**
+ * The rules between rows, in px — the one under the head and the one under each
+ * body row.
+ *
+ * Declared rather than written twice because they are BOTH stylesheet and
+ * arithmetic: `border-collapse:collapse` makes each rule part of the height its
+ * row occupies, so a table of eleven rows stands eleven-ish px taller than its
+ * type and padding alone predict. That is the difference between drawing 24 rows
+ * at 9:16 and drawing them 11px off the canvas, and `kit.ts` has already named
+ * the hazard of a stylesheet that disagrees with the arithmetic reading it.
+ */
+const RULE_HEAD = 2;
+const RULE_ROW = 1;
+
 export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
@@ -57,7 +89,7 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   // with a 789x498 hole in the middle of it. `textWidth` is linear in size, so
   // the largest size that fits is a division: sum the widest cell per column at
   // 1px, add the padding, divide the content width by the total. Deriving it
-  // *downwards* is what invariant 10 forbids and `MIN_FONT` here is the floor
+  // *downwards* is what invariant 5 forbids and `MIN_FONT` here is the floor
   // that keeps this a growth-only rule.
   const box = contentW(ctx.format);
   const units = table.columns.reduce((total, col, i) => {
@@ -67,15 +99,78 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   const channels = 2 * CELL_PAD * table.columns.length;
   const cell = Math.max(MIN_FONT, Math.min(CELL_MAX, Math.floor((box - channels) / units)));
 
+  const rows = table.rows.length + 1;
+  // LAST in the queue for space, so it passes its own floor: `bodyBudget`'s 320
+  // default is the lie that put claim-figure's caption 7px off the canvas. It
+  // changes no output on this tree — every table here has a remainder well over
+  // 320 — and it is what stops a huge HEADLINE buying room the slide has not got.
+  //
+  // A huge EYEBROW still can, and this is not the place to stop it: `chromeHeight`
+  // charges one `EYEBROW_H` however many lines the eyebrow sets in, so a long one
+  // overstates the remainder by a line box each time it wraps and the refusal
+  // below inherits that. It is a defect in the shared budget rather than in this
+  // rule — callout, split-compare and claim-figure all read the same number — and
+  // it wants fixing there, against the uppercasing and letter-spacing an eyebrow
+  // is drawn with, which `wrap` does not model either.
+  const budget = bodyBudget(
+    ctx.format,
+    p.eyebrow,
+    p.headline,
+    noteHeight(p.note, noteWidth(ctx.format), 26),
+    34,
+    0,
+  );
+
   // Row padding takes what is left over vertically, so a five-row table fills
   // the box instead of banding across its middle. Capped, or a two-row table
   // becomes two rules a third of a canvas apart.
-  const rows = table.rows.length + 1;
-  const spare =
-    bodyBudget(ctx.format, p.eyebrow, p.headline, noteHeight(p.note, noteWidth(ctx.format), 26)) -
-    rows * cell * 1.2;
+  const spare = budget - rows * cell * 1.2;
   const roomiest = isPortrait(ctx.format) ? PAD_Y_MAX.tall : PAD_Y_MAX.wide;
-  const padY = Math.round(Math.max(12, Math.min(roomiest, spare / (2 * rows))));
+  const padY = Math.round(Math.max(PAD_Y_MIN, Math.min(roomiest, spare / (2 * rows))));
+
+  // WHAT WILL BE DRAWN, AND WHAT THERE IS TO DRAW IT IN. Both measured, and the
+  // reason to measure rather than reason from the floors is that the floors get
+  // it wrong in BOTH directions at once:
+  //
+  //   - `MIN_FONT` is not the size. `cell` grows to `CELL_MAX` on any table
+  //     whose columns are narrow enough, which is 14.4px per row MORE than the
+  //     floor costs. Charging the floor let 24 rows at 9:16 draw 11px off the
+  //     canvas — the exact defect this gate exists to close, still open.
+  //   - `budget` is not the canvas. `.scene` is `justify-content:center` inside
+  //     `PAD_Y` of padding, so the body may overflow the content box by up to
+  //     `PAD_Y` at EACH end before any pixel leaves the canvas. Charging the box
+  //     refused a six-row table on the demo's own chrome that renders clean and
+  //     passes every gate.
+  //
+  // The two errors cancelled at exactly one chrome — the sweep's, at 16:9 — and
+  // that cancellation was the whole of the old rule's apparent correctness.
+  //
+  // `padY` is safe to read here rather than `PAD_Y_MIN`: it only ever exceeds
+  // the floor by spending `spare`, and a table with spare left over is one that
+  // fits the content box, let alone the canvas. So a refusal below always has
+  // both levers at their stop.
+  const drawn = rows * (cell * 1.2 + 2 * padY) + table.rows.length * RULE_ROW + RULE_HEAD;
+  const canvas = budget + 2 * PAD_Y;
+
+  // WHY REFUSE RATHER THAN OVERFLOW AND LET THE GATE CATCH IT, which is what
+  // this did until now. The width rule can afford that — an over-wide table runs
+  // off the side, and the thing that leaves the canvas is the table, which is
+  // the thing at fault. Height cannot: `.scene` is centred, so an over-tall
+  // column hangs off BOTH ends and what the gate reports is `#sN-h` above the
+  // canvas and `#sN-note` below it — a headline and a note that are individually
+  // blameless, with the table itself looking fine and the author's actual lever
+  // unguessable from the report. That is exactly why nine rows at 16:9 sat open
+  // in `scripts/sweep.mjs` unfixed. Both outcomes fail the whole build today;
+  // only one of them names the cause.
+  if (drawn > canvas) {
+    throw new Error(
+      `data-table ${beat.id}: table "${table.id}" has ${table.rows.length} rows, which with the ` +
+        `header stand ${Math.round(drawn)}px tall at ${cell}px type on ${padY}px of row ` +
+        `padding, and this slide has ${Math.round(canvas)}px. Every row of a cited table is ` +
+        `drawn and none is set below ${MIN_FONT}px, so the lever is upstream of this beat: a ` +
+        `shorter table in the source, or the one column that carries the argument in bar-compare.`,
+    );
+  }
 
   const head = table.columns.map((c) => `<th>${mathy(c)}</th>`).join("");
   const body = table.rows
@@ -147,15 +242,17 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
     css: [
       chromeCss(theme),
       // Never derived *downwards*. Shrinking to fit is the one failure mode
-      // invariant 10 names: a 30px table clears every automated gate and is
+      // invariant 5 names: a 30px table clears every automated gate and is
       // unreadable projected. A table too wide at 40px eats its margin first and
-      // then trips the layout gate at the canvas edge — both of which someone can
-      // see, which small type is not. `cell` is floored at 40 for exactly that.
+      // then trips the layout gate at the canvas edge, which someone can see —
+      // small type is not. A table too TALL to draw is refused above instead,
+      // because there the thing that leaves the canvas is the headline rather
+      // than the table. `cell` is floored at 40 for exactly that.
       `table{border-collapse:collapse;width:100%;margin-top:34px;font-size:${cell}px}`,
       `th,td{font-size:inherit;padding:${padY}px ${CELL_PAD}px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}`,
-      `th{color:${theme.dim};font-weight:500;letter-spacing:.04em;border-bottom:2px solid ${theme.rule}}`,
+      `th{color:${theme.dim};font-weight:500;letter-spacing:.04em;border-bottom:${RULE_HEAD}px solid ${theme.rule}}`,
       "td:first-child,th:first-child{text-align:left}",
-      `tbody tr{border-bottom:1px solid ${theme.rule}}`,
+      `tbody tr{border-bottom:${RULE_ROW}px solid ${theme.rule}}`,
       `tbody td{color:${theme.muted}}`,
       `.rownote{font-size:${BODY_SIZE}px;line-height:1.45;color:${theme.dim};margin-top:26px}`,
       // A table with nothing emphasised has no focal row, and so no ambient life.
