@@ -336,7 +336,7 @@ turn a document into a deck with the same settings the CLI takes.
 }
 ```
 
-Build it first with `npm run build && npm run build:mcp`. `DECKSMITH_MCP_ROOT` is the fence
+Build it first with `npm run build`. `DECKSMITH_MCP_ROOT` is the fence
 — documents outside it are not readable, and it defaults to your home directory rather than
 the working directory, because not every client launches a stdio server anywhere useful.
 

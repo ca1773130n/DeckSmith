@@ -1,10 +1,11 @@
-// Three artifacts, three shapes: a Node CLI, a library entry, and a browser
-// bundle that gets inlined into every generated deck. Plus a declarations pass,
-// because esbuild does not emit .d.ts and `import { emitDeck } from "decksmith"`
-// is useless to a TypeScript consumer without one. esbuild directly rather than
-// a build framework — there is no fourth case coming.
+// Four artifacts, four shapes: a Node CLI, an MCP server, a library entry, and a
+// browser bundle that gets inlined into every generated deck. Plus a
+// declarations pass, because esbuild does not emit .d.ts and
+// `import { emitDeck } from "@jokerized/decksmith"` is useless to a TypeScript
+// consumer without one. esbuild directly rather than a build framework — there
+// is no fifth case coming.
 import { execFileSync } from "node:child_process";
-import { rename, rm } from "node:fs/promises";
+import { access, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 
@@ -20,6 +21,16 @@ await build({
   outfile: "dist/cli.js",
   banner: { js: "#!/usr/bin/env node" },
 });
+
+// THE MCP SERVER, which `package.json` has always declared as the
+// `decksmith-mcp` binary and this script never built. A separate `build:mcp`
+// script did, and nothing ran it: `prepare` runs `build`, so every publish
+// shipped a manifest promising an executable that was not in the tarball. npm
+// said so on its way past — "No bin file found at dist/mcp.js" — in the middle
+// of a successful publish, twice, and 0.1.0 and 0.1.1 are both out there like
+// that. Built here so the thing that produces the package produces all of it,
+// and `build:mcp` is gone rather than left to drift from this line.
+await build({ ...node, entryPoints: ["src/mcp/main.ts"], outfile: "dist/mcp.js" });
 
 // Sibling of dist/cli.js on purpose: both read dist/deck-runtime.js relative to
 // their own import.meta.url, so the step layer stays one file in the package no
@@ -67,3 +78,29 @@ await rm("dist/types", { recursive: true, force: true });
 await rename("dist/.types/src", "dist/types");
 await rm("dist/.types", { recursive: true, force: true });
 console.log("  dist/types/index.d.ts");
+
+// EVERYTHING THE MANIFEST PROMISES EXISTS.
+//
+// This is the check that was missing. `bin` named `dist/mcp.js` for as long as
+// the MCP server has existed and nothing built it, so two releases went to npm
+// declaring an executable that was not in the tarball — `npx decksmith-mcp`
+// against either of them is a broken symlink. npm noticed both times and said
+// so in a warning, in the middle of an otherwise successful publish, which is
+// exactly the shape of a thing nobody reads.
+//
+// Here rather than in a test, because `prepare` runs this on the consumer's
+// machine during a git install, where no test suite runs at all.
+const { bin, main, types } = require("../package.json");
+const promised = { ...bin, main, types };
+const missing = [];
+for (const [name, file] of Object.entries(promised)) {
+  if (!file) continue;
+  await access(new URL(`../${file}`, import.meta.url)).catch(() =>
+    missing.push(`${name} -> ${file}`),
+  );
+}
+if (missing.length > 0) {
+  throw new Error(
+    `the build finished without producing what package.json promises:\n  ${missing.join("\n  ")}`,
+  );
+}

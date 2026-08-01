@@ -54,7 +54,6 @@
     "score": "npm run build && node scripts/score.mjs",
     "sweep": "npm run build && node scripts/sweep.mjs",
     "build:server": "esbuild src/server/*.ts --outdir=dist/server --platform=node --target=node22 --format=esm --log-level=warning",
-    "build:mcp": "esbuild src/mcp/main.ts --bundle --outfile=dist/mcp.js --platform=node --target=node22 --format=esm --packages=external --log-level=warning",
     "serve": "npm run build && npm run build:server && node dist/server/main.js",
     "demo": "node demo/build.mjs && node dist/cli.js build demo/storyboard.json --source demo/source.json -o demo/deck && python3 -m http.server 8080 --directory demo/deck --bind 127.0.0.1"
   },
