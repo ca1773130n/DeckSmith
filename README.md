@@ -393,6 +393,44 @@ npm install "github:ca1773130n/DeckSmith#<commit>"
 `npm run build`, and npm runs `prepare` on a git install and before a publish. Pin a
 commit rather than a branch — the build is the package.
 
+### Releasing
+
+Pushing a `v*` tag publishes it. `.github/workflows/release.yml` re-runs the four gates
+— a tag can point at any commit, including one that never saw a pull request — checks
+that the tag matches `version` in `package.json`, and publishes.
+
+There is no npm token anywhere in the repository. The workflow authenticates by OIDC
+([npm trusted publishing](https://docs.npmjs.com/trusted-publishers)): npm mints a
+short-lived credential for this workflow, on this repository, at publish time. Two
+consequences worth knowing before you touch anything:
+
+- **The workflow's filename is part of the credential.** The trusted publisher on
+  npmjs.com names `release.yml` exactly, and npm does not check that configuration when
+  you save it. Rename the file and publishing fails as an authentication error that says
+  nothing about a rename.
+- **`repository.url` in `package.json` must match this repo exactly**, for the same
+  reason.
+
+```sh
+npm version minor      # bumps package.json and tags
+git push --follow-tags
+```
+
+**The first publish of a new package cannot use OIDC.** npm requires a package to exist
+before a trusted publisher can be attached to it — the website and `npm trust` both say
+so — so version 0.1.0 has to be pushed by hand, once:
+
+```sh
+npm login                       # your account, your 2FA
+npm publish --access public     # scoped packages default to private
+```
+
+Then attach the trusted publisher (npmjs.com → the package → Settings → Trusted
+publishing, or `npm trust github ...`), and every release after that is a tag. Publishing
+by hand rather than with a bootstrap automation token is deliberate: it means no
+long-lived credential is ever created, so there is none to revoke afterwards and none to
+forget about.
+
 ### Generating a deck
 
 ```js

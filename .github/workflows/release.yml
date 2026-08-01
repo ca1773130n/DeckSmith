@@ -2,18 +2,27 @@ name: release
 
 # Tag-driven, so publishing is a deliberate act with a name on it rather than a
 # side effect of merging. `v0.2.0` publishes whatever `package.json` says it is;
-# the guard below refuses the two ways that go wrong quietly.
+# the guards below refuse the ways that go wrong quietly.
+#
+# NO TOKEN. Authentication is OIDC — npm trusted publishing — so there is no
+# long-lived credential in this repository to leak, rotate or forget. npm mints a
+# short-lived one for this workflow, on this repository, at publish time.
+#
+# THIS FILE'S NAME IS PART OF THE CREDENTIAL. The trusted publisher on npmjs.com
+# names the workflow file exactly, `release.yml`, and npm does not verify that
+# configuration when it is saved. Renaming this file breaks publishing, and it
+# breaks it as an authentication error that says nothing about a rename.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # npm reads the OIDC token this grants. Without it: ENEEDAUTH.
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # OIDC is not supported on self-hosted runners.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -21,8 +30,19 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
           registry-url: https://registry.npmjs.org
+          # No cache. A release is the one build that must not be handed
+          # anything an earlier run left behind, which is npm's own guidance for
+          # release workflows; the cache is worth seconds against that.
+          package-manager-cache: false
+
+      # Node 22 ships npm 10, and OIDC publishing landed in npm 11.5.1. Without
+      # this the run fails at the last step with an authentication error that
+      # reads like a misconfigured trusted publisher rather than an old CLI.
+      - name: npm new enough to authenticate with OIDC
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
 
       - run: npm ci
 
@@ -47,17 +67,20 @@ jobs:
             exit 1
           fi
 
-      # Fails here rather than at `npm publish`, where the error is a 401 that
-      # reads like a network problem.
-      - name: There is a token to publish with
+      # Fails here rather than at `npm publish`, where a missing OIDC token
+      # surfaces as ENEEDAUTH and reads like a registry problem. GitHub sets
+      # this only when `id-token: write` is in force.
+      - name: There is an OIDC token to authenticate with
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "NPM_TOKEN is not set on this repository. Add it in Settings > Secrets and variables > Actions." >&2
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL}" ]; then
+            echo "no OIDC token: this job was given no id-token:write permission." >&2
             exit 1
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # NO `--provenance`. Trusted publishing generates it by itself, and it is
+      # not supported from a private repository at all — so passing the flag
+      # here would fail the publish rather than merely do nothing. If this repo
+      # ever goes public, provenance starts appearing on its own.
+      #
+      # `--access public` because a scoped package is private by default.
+      - run: npm publish --access public
