@@ -8,7 +8,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc } from "../kit.js";
-import { drawFrom, wrap } from "../svg.js";
+import { drawFrom, textWidth, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -137,14 +137,15 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   // the wider one hangs past it — which at a flat 40px pad the layout gate
   // reports as container_overflow.
   //
-  // Estimate the two separately: a value is tabular figures (~0.58em, as in the
-  // table), while a category name is proportional and reaches ~0.68em once it
-  // has capitals. Measuring them with one number left the widest real label
-  // 3.6px from the clip edge, so carry explicit slack rather than round down to
-  // a near miss — this is the cheap side of the trade.
+  // Both through `textWidth`. They used to be two hand-rolled em factors here —
+  // 0.58 a character for a value, 0.68 for a category name — which is a second
+  // opinion about a question this project has exactly one answer to, and the
+  // reason `test/svg.test.ts` had to assert that `textWidth` stayed above them.
+  // Neither survives contact with a measured table: "SET5" is 2.539em, not the
+  // 2.72 that 0.68/char claims, and "T=9" is 1.957 against 2.04.
   const last = p.points[p.points.length - 1];
-  const valueW = String(last?.y ?? "").length * 40 * 0.58;
-  const labelW = (last?.x ?? "").length * 40 * 0.68;
+  const valueW = textWidth(String(last?.y ?? ""), 40);
+  const labelW = textWidth(last?.x ?? "", 40);
   const padR = Math.max(PAD.r, Math.ceil(Math.max(valueW, labelW) / 2) + 16);
   const plotW = width - PAD.l - padR;
   const plotH = H - PAD.t - PAD.b;
@@ -204,9 +205,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   };
 
   const LABEL_SIZE = 40;
-  /** Tabular figures run ~0.58em; a category name is proportional and reaches ~0.68em. */
-  const runW = (s: string) => s.length * LABEL_SIZE * 0.58;
-  const catW = (s: string) => s.length * LABEL_SIZE * 0.68;
+  /** One answer to "how wide is this", shared with every other archetype. */
+  const runW = (s: string) => textWidth(s, LABEL_SIZE);
+  const catW = (s: string) => textWidth(s, LABEL_SIZE);
 
   // The category names were the six collisions left after the values were
   // thinned: "T=9" through "T=15" printing into each other along the bottom of a

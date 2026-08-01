@@ -12,6 +12,7 @@ import {
   planFigure,
   stageBudget,
 } from "../src/emit/archetypes/annotated-figure.js";
+import { HEADLINE_TRACKING } from "../src/emit/archetypes/title.js";
 import type { EmitContext } from "../src/emit/kit.js";
 import { contentW, tweenText } from "../src/emit/kit.js";
 import { wrap } from "../src/emit/svg.js";
@@ -198,11 +199,11 @@ describe("annotated-figure layout", () => {
     // The whole point of the escalating column: five long labels must land `ok`
     // when the slide has the room for them.
     //
-    // `maximal`'s own headline WRAPS TO TWO LINES at 1700px. This used to pass
-    // with it, because `stageBudget` charged a flat one-line `HEAD_H` however
-    // many lines the headline took — an 87px overdraft that this assertion was
-    // quietly spending. Once the chrome is measured honestly the same fixture is
-    // genuinely over budget, which is the case below.
+    // This used to pass only because `stageBudget` charged a flat one-line
+    // `HEAD_H` however many lines the headline took — an 87px overdraft that
+    // this assertion was quietly spending. It is honest now: a one-line headline
+    // leaves room for all five, and the case below is what happens when it does
+    // not.
     const oneLine = { ...maximal, headline: "Every part of the network" };
     expect(plan(oneLine).plan.ok).toBe(true);
     expect(plan(oneLine).plan.boxes.some((b) => b.clipped)).toBe(false);
@@ -216,10 +217,20 @@ describe("annotated-figure layout", () => {
    * and a note's second line 41px below, and every gate stayed green.
    */
   it("reports a stage the chrome has squeezed rather than overrunning it", () => {
-    const twoLines = wrap(maximal.headline, 76, contentW(format), 700).length;
-    expect(twoLines, "the fixture's headline is the two-line case").toBe(2);
+    // MEASURED WITH THE TRACKING THE HEADLINE IS DRAWN WITH. This asked `wrap`
+    // for an UNTRACKED headline, which is not a headline — `.headline` is set at
+    // -.015em — and once `charUnits` was measured rather than eyeballed the two
+    // answers stopped agreeing: `maximal`'s own headline is two lines untracked
+    // and ONE line as drawn, so the case it was built to exercise had quietly
+    // stopped happening while the premise still read true.
+    const squeezed = {
+      ...maximal,
+      headline: "Every part of the network, in the exact order that it runs",
+    };
+    const lines = wrap(squeezed.headline, 76, contentW(format), 700, HEADLINE_TRACKING).length;
+    expect(lines, "the fixture's headline is the two-line case").toBe(2);
 
-    const { plan: p, budget } = plan(maximal);
+    const { plan: p, budget } = plan(squeezed);
     expect(p.ok, "five long labels under a two-line headline do not fit").toBe(false);
     // …and being over budget is declared, not drawn: every box still sits inside
     // the stage, with the overflow taken out of the labels as an ellipsis.

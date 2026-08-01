@@ -91,10 +91,14 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   // 1px, add the padding, divide the content width by the total. Deriving it
   // *downwards* is what invariant 5 forbids and `MIN_FONT` here is the floor
   // that keeps this a growth-only rule.
+  // `tabular: true` because the CSS below sets `font-variant-numeric:
+  // tabular-nums` — which is the whole point of a table, and makes every figure
+  // 0.649em rather than the 0.413 a proportional "1" costs. Measuring these
+  // cells in proportional figures solved every column short by up to 8%.
   const box = contentW(ctx.format);
   const units = table.columns.reduce((total, col, i) => {
     const cells = [col, ...table.rows.map((r) => r[i] ?? "")];
-    return total + Math.max(...cells.map((c) => textWidth(c, 1, 600)));
+    return total + Math.max(...cells.map((c) => textWidth(c, 1, 600, 0, true)));
   }, 0);
   const channels = 2 * CELL_PAD * table.columns.length;
   const cell = Math.max(MIN_FONT, Math.min(CELL_MAX, Math.floor((box - channels) / units)));

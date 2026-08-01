@@ -693,6 +693,13 @@ describe("archetypes", () => {
     // `noteHeight` predicts two lines where the browser sets one; refusing a
     // table that would have fitted is the safe side of that gap.
     //
+    // TWO `cell`s MOVED WHEN `charUnits` STOPPED BEING EYEBALLED — 42 to 43 and
+    // 49 to 51, both because a measured table is narrower than the old buckets
+    // for wide headings, so the width solve buys a bigger size. Not one `last`
+    // moved with them: a taller row could have taken the boundary down, so both
+    // were rebuilt as real decks and put through the gate stack, which passes at
+    // 8 rows x 3 wide columns and at 7 x 6. The other three cases are untouched.
+    //
     // EVERY FIXTURE HERE FITS THE BOX WIDTHWISE, which `cell > MIN_FONT` below
     // asserts and is not a detail: the width solve only ever clamps to 40 when
     // the table is too wide for the box, and such a table is drawn overflowing
@@ -722,7 +729,7 @@ describe("archetypes", () => {
         label: long,
         metric: "Benchmark metric average",
         ...sweep,
-        cell: 42,
+        cell: 43,
         last: 8,
       },
       {
@@ -732,7 +739,7 @@ describe("archetypes", () => {
         label: long,
         metric: "Metric",
         ...sweep,
-        cell: 49,
+        cell: 51,
         last: 7,
       },
       {
