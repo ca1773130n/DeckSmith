@@ -374,12 +374,19 @@ each with the reason it is there.
 
 ### Installing
 
-The bare name `decksmith` is taken on npm (someone else's package, at 1.1.3), so nothing
-is published under it and a real publish would need a scope. Install from git instead,
-which needs no registry:
+```sh
+npm install @jokerized/decksmith
+```
+
+Scoped, because the bare name `decksmith` on npm is somebody else's package — at 1.1.3,
+and nothing to do with this one. The two executables keep their short names: `decksmith`
+and `decksmith-mcp`.
+
+Installing from git works too and needs no registry, which is what to reach for if you
+want a commit that is not a release:
 
 ```sh
-npm install "github:owner/DeckSmith#<commit>"
+npm install "github:ca1773130n/DeckSmith#<commit>"
 ```
 
 `dist/` is not committed, so the package builds itself during install: `prepare` runs
@@ -389,7 +396,7 @@ commit rather than a branch — the build is the package.
 ### Generating a deck
 
 ```js
-import { buildDeck, FORMATS, sourceSchema, storyboardSchema, verify } from "decksmith";
+import { buildDeck, FORMATS, sourceSchema, storyboardSchema, verify } from "@jokerized/decksmith";
 
 const source = sourceSchema.parse(JSON.parse(await readFile("source.json", "utf8")));
 const storyboard = storyboardSchema.parse(JSON.parse(await readFile("storyboard.json", "utf8")));

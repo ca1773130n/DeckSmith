@@ -1,5 +1,5 @@
 {
-  "name": "decksmith",
+  "name": "@jokerized/decksmith",
   "version": "0.1.0",
   "description": "Turn a source document into an animated explanation deck.",
   "type": "module",
