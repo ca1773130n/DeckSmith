@@ -682,6 +682,17 @@ describe("archetypes", () => {
       last: number;
     }
 
+    // EVERY `last` HERE WAS MEASURED, NOT DERIVED — one table per deck, built and
+    // read from the real DOM, because the first attempt put every row count in
+    // ONE deck and data-table emits `table{}`/`td{}`/`th{}` UNSCOPED, so they all
+    // rendered with a single padding and the numbers were somebody else's. That
+    // artifact said portrait held 11 rows where it holds 23.
+    //
+    // Four of the five are the exact last row count that renders inside the
+    // canvas. The tight-chrome case stops one short of its measured 6, because
+    // `noteHeight` predicts two lines where the browser sets one; refusing a
+    // table that would have fitted is the safe side of that gap.
+    //
     // EVERY FIXTURE HERE FITS THE BOX WIDTHWISE, which `cell > MIN_FONT` below
     // asserts and is not a detail: the width solve only ever clamps to 40 when
     // the table is too wide for the box, and such a table is drawn overflowing
@@ -712,7 +723,7 @@ describe("archetypes", () => {
         metric: "Benchmark metric average",
         ...sweep,
         cell: 42,
-        last: 9,
+        last: 8,
       },
       {
         what: "16:9, six columns — twice the columns, a third boundary again",
@@ -722,7 +733,7 @@ describe("archetypes", () => {
         metric: "Metric",
         ...sweep,
         cell: 49,
-        last: 8,
+        last: 7,
       },
       {
         what: "9:16, three short columns — the same rule against twice the height",
@@ -747,7 +758,7 @@ describe("archetypes", () => {
         headline: "Competitive with CNN baselines, behind recent models",
         note: "Comparison figures are quoted from their papers; only DQ-CTM-SR was trained here.",
         cell: 52,
-        last: 6,
+        last: 5,
       },
     ];
 

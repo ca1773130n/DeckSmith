@@ -160,7 +160,7 @@ DESCRIBING ARCHETYPES — the fallbacks
                  cells themselves matter — mixed units, text values, a matrix the
                  reader must scan. If it is one column of numbers in one unit,
                  that is bar-compare. It draws EVERY row of the table it names and
-                 cannot show a subset. Six or seven rows is what a 16:9 slide
+                 cannot show a subset. Five to seven rows is what a 16:9 slide
                  holds — fewer under a long headline or a two-line note, more in
                  portrait or where wider columns set the type smaller — and a
                  table that does not fit is refused rather than shrunk, which

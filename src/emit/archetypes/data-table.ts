@@ -128,29 +128,34 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   const roomiest = isPortrait(ctx.format) ? PAD_Y_MAX.tall : PAD_Y_MAX.wide;
   const padY = Math.round(Math.max(PAD_Y_MIN, Math.min(roomiest, spare / (2 * rows))));
 
-  // WHAT WILL BE DRAWN, AND WHAT THERE IS TO DRAW IT IN. Both measured, and the
-  // reason to measure rather than reason from the floors is that the floors get
-  // it wrong in BOTH directions at once:
+  // WHAT WILL BE DRAWN, AND WHAT THERE IS TO DRAW IT IN. Both derived from decks
+  // that were built and measured, one table per deck, because two earlier
+  // versions of this rule were derived from arithmetic and both shipped tables
+  // off the canvas.
   //
-  //   - `MIN_FONT` is not the size. `cell` grows to `CELL_MAX` on any table
-  //     whose columns are narrow enough, which is 14.4px per row MORE than the
-  //     floor costs. Charging the floor let 24 rows at 9:16 draw 11px off the
-  //     canvas — the exact defect this gate exists to close, still open.
-  //   - `budget` is not the canvas. `.scene` is `justify-content:center` inside
-  //     `PAD_Y` of padding, so the body may overflow the content box by up to
-  //     `PAD_Y` at EACH end before any pixel leaves the canvas. Charging the box
-  //     refused a six-row table on the demo's own chrome that renders clean and
-  //     passes every gate.
+  //   `drawn` counts type and padding ONLY. `border-collapse:collapse` folds
+  //   each row's rule into the height that row already occupies, so adding
+  //   `RULE_ROW` per row on top over-counted by ~11px on a twelve-row table —
+  //   enough to move a boundary by one row.
   //
-  // The two errors cancelled at exactly one chrome — the sweep's, at 16:9 — and
-  // that cancellation was the whole of the old rule's apparent correctness.
+  //   `canvas` is the content box plus ONE `PAD_Y`. Once the body exceeds the
+  //   box it pins to the top padding and the whole overrun goes downward, so
+  //   only the bottom's padding is ever spendable. Charging two assumed
+  //   symmetric overflow and let a 9x5 table ship 74px off the bottom.
   //
-  // `padY` is safe to read here rather than `PAD_Y_MIN`: it only ever exceeds
-  // the floor by spending `spare`, and a table with spare left over is one that
-  // fits the content box, let alone the canvas. So a refusal below always has
-  // both levers at their stop.
-  const drawn = rows * (cell * 1.2 + 2 * padY) + table.rows.length * RULE_ROW + RULE_HEAD;
-  const canvas = budget + 2 * PAD_Y;
+  // Measured boundaries, last row count that renders entirely inside the canvas:
+  //
+  //   16:9 3 short cols  7      9:16 3 cols       23
+  //   16:9 3 wide cols   8      16:9 tight chrome  6
+  //   16:9 6 cols        7
+  //
+  // This rule reproduces all of those except the last, where it stops at 5. That
+  // one is `noteHeight` predicting two lines where the browser sets one — a
+  // text-metric gap shared with `chromeHeight`'s eyebrow under-count, not a fault
+  // in the bound. It errs toward refusing a table that would have fitted, which
+  // is the side to err on.
+  const drawn = rows * (cell * 1.2 + 2 * padY);
+  const canvas = budget + PAD_Y;
 
   // WHY REFUSE RATHER THAN OVERFLOW AND LET THE GATE CATCH IT, which is what
   // this did until now. The width rule can afford that — an over-wide table runs
