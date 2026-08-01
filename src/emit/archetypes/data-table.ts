@@ -253,12 +253,24 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
       // small type is not. A table too TALL to draw is refused above instead,
       // because there the thing that leaves the canvas is the headline rather
       // than the table. `cell` is floored at 40 for exactly that.
-      `table{border-collapse:collapse;width:100%;margin-top:34px;font-size:${cell}px}`,
-      `th,td{font-size:inherit;padding:${padY}px ${CELL_PAD}px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}`,
-      `th{color:${theme.dim};font-weight:500;letter-spacing:.04em;border-bottom:${RULE_HEAD}px solid ${theme.rule}}`,
-      "td:first-child,th:first-child{text-align:left}",
-      `tbody tr{border-bottom:${RULE_ROW}px solid ${theme.rule}}`,
-      `tbody td{color:${theme.muted}}`,
+      // SCOPED TO THIS SCENE, because two of these rules carry numbers this scene
+      // solved for itself. A deck shares one stylesheet, so an unscoped
+      // `td{padding:${padY}px}` is written once per data-table and the last one
+      // wins for all of them: two tables of different heights in one deck then
+      // render at a single padding, and the shorter one is drawn with the
+      // taller one's arithmetic. The height guard above cannot see that, because
+      // it reasons about the value this scene emitted.
+      //
+      // All six are scoped, not only the two that vary. Scoping `th,td` alone
+      // lifts it to an id's specificity and it would then beat
+      // `td:first-child{text-align:left}`, right-aligning the first column of
+      // every table — a fix that quietly breaks the thing next to it.
+      `#${sid} table{border-collapse:collapse;width:100%;margin-top:34px;font-size:${cell}px}`,
+      `#${sid} th,#${sid} td{font-size:inherit;padding:${padY}px ${CELL_PAD}px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}`,
+      `#${sid} th{color:${theme.dim};font-weight:500;letter-spacing:.04em;border-bottom:${RULE_HEAD}px solid ${theme.rule}}`,
+      `#${sid} td:first-child,#${sid} th:first-child{text-align:left}`,
+      `#${sid} tbody tr{border-bottom:${RULE_ROW}px solid ${theme.rule}}`,
+      `#${sid} tbody td{color:${theme.muted}}`,
       `.rownote{font-size:${BODY_SIZE}px;line-height:1.45;color:${theme.dim};margin-top:26px}`,
       // A table with nothing emphasised has no focal row, and so no ambient life.
       // `filter` again: the emphasis tween owns this row's colour and weight.
