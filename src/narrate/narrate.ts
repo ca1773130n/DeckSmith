@@ -42,10 +42,23 @@ export function stopCount(holds: readonly number[]): number {
   return Math.max(1, usable.size);
 }
 
-/** Ask the emitter how the beat is staged. Cheap: emitters build strings. */
+/**
+ * Ask the emitter how the beat is staged. Cheap: emitters build strings.
+ *
+ * A beat the emitter REFUSES answers one stop rather than throwing. Narration
+ * runs before the build and is not the stage that gets to decide a deck is dead:
+ * `planCut` emits every beat again and drops the refused ones through
+ * `onBeatError`, which is where a missing slide is reported and where a caller
+ * without that hook still gets the error. Throwing here instead killed the whole
+ * job one stage early, with the hook the caller had passed never reached.
+ */
 export function stopsFor(beat: Beat, source: Source, format: Format, sid = "s1"): number {
   const ctx: EmitContext = { source, format, theme: ink, sid };
-  return stopCount(emitScene(beat, ctx).holds);
+  try {
+    return stopCount(emitScene(beat, ctx).holds);
+  } catch {
+    return 1;
+  }
 }
 
 /* --------------------------------------------------------------- Sentences */

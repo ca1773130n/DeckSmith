@@ -1,0 +1,63 @@
+name: release
+
+# Tag-driven, so publishing is a deliberate act with a name on it rather than a
+# side effect of merging. `v0.2.0` publishes whatever `package.json` says it is;
+# the guard below refuses the two ways that go wrong quietly.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # THE SAME GATES `main` IS MERGED ON. A release that skips them is a
+      # release nobody checked: `ci.yml` runs on the branch, and a tag can point
+      # at any commit, including one that never saw a pull request.
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      # The tag and the manifest have to agree. They drift the moment someone
+      # tags before bumping, and npm will happily publish the OLD version under
+      # the NEW tag's name, which is unrecoverable — a version number is spent
+      # the first time it is used.
+      - name: The tag is the version in package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag v$tag does not match package.json $pkg" >&2
+            exit 1
+          fi
+
+      # Fails here rather than at `npm publish`, where the error is a 401 that
+      # reads like a network problem.
+      - name: There is a token to publish with
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_TOKEN is not set on this repository. Add it in Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

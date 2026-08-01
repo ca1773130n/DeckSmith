@@ -203,6 +203,91 @@ describe("emitComposition", () => {
     expect(cut.dropped).toHaveLength(0);
   });
 
+  /**
+   * A REFUSED BEAT MUST NOT KILL THE DECK.
+   *
+   * Six archetypes now refuse a beat they cannot fit rather than overflowing it,
+   * and `onBeatError` is the whole answer to what that costs: one slide, not
+   * twelve. It did not work. `layout` caught the throw on its SECOND pass over
+   * the beats, and `planCut` — the first pass, which emits every beat to measure
+   * it — did not catch anything, so a deterministic refusal (the only kind
+   * `emitScene` has: no clock, no randomness) took the build down before the
+   * filter that was supposed to see it ever ran. Nothing tested the hook, so a
+   * green suite said this worked for as long as it existed.
+   */
+  const overfull = {
+    id: "bad",
+    intent: "A callout nothing can fit.",
+    archetype: "callout",
+    seconds: 8,
+    weight: 0.9,
+    params: {
+      headline: "A headline of moderate length",
+      panels: [1, 2, 3].map((n) => ({
+        label: `panel ${n}`,
+        lines: Array.from(
+          { length: 8 },
+          () => "The source defines windowing over the dense field and never says what happens",
+        ),
+      })),
+    },
+  };
+  const mixed = storyboardSchema.parse({ ...storyboard, beats: [...storyboard.beats, overfull] });
+
+  it("still propagates a refusal when no one is listening", () => {
+    // The library contract, unchanged: without the hook the error is the answer.
+    expect(() => planCut(mixed, source, format("deck-16x9"))).toThrow(/panel/);
+    expect(() => emitComposition(mixed, source, format("deck-16x9"))).toThrow(/panel/);
+  });
+
+  it("costs the refused beat its own slide and no more", () => {
+    const seen: [string, string][] = [];
+    const onBeatError = (id: string, err: Error) => seen.push([id, err.message]);
+    const cut = planCut(mixed, source, format("deck-16x9"), { onBeatError });
+    expect(seen.map(([id]) => id)).toEqual(["bad"]);
+    expect(seen[0]?.[1]).toMatch(/panel/);
+    // Reported AND absent from the cut. A `kept` naming a beat the deck does not
+    // draw is what the old filter left behind — it dropped the beat after the
+    // cut had been decided, so the timing manifest and the budget gate were both
+    // handed a beat list the composition disagreed with.
+    expect(cut.kept.map((b) => b.id)).toEqual(storyboard.beats.map((b) => b.id));
+    const html = emitComposition(mixed, source, format("deck-16x9"), { onBeatError });
+    expect(sceneWindows(html)).toHaveLength(storyboard.beats.length);
+  });
+
+  it("says there is no deck when every beat is refused", () => {
+    const allBad = storyboardSchema.parse({ ...storyboard, beats: [overfull] });
+    expect(() => planCut(allBad, source, format("deck-16x9"), { onBeatError: () => {} })).toThrow(
+      /failed to draw/,
+    );
+  });
+
+  it("charges no camera tail for a dive out of a beat that was refused", () => {
+    // A tail is 1.8s of deck (`MOVE_SECONDS + FADE_SECONDS`) charged to the beat
+    // a camera leaves FROM. `layout` only creates one when the next SURVIVING
+    // beat dives in, so a tail owed to a beat an emitter has just refused is a
+    // tail the deck will never draw — and `planCut` was reading the relation off
+    // the pre-refusal list, so it billed 1.8s for a dive into a slide that is not
+    // there. Under a tight budget that pays for itself by cutting somebody else.
+    const withDive = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        storyboard.beats[0],
+        { ...overfull, inside: { beat: "b1", element: "eyebrow" } },
+        storyboard.beats[1],
+      ],
+    });
+    const noDive = storyboardSchema.parse({
+      ...storyboard,
+      beats: [storyboard.beats[0], overfull, storyboard.beats[1]],
+    });
+    const seconds = (sb: typeof withDive) =>
+      planCut(sb, source, format("deck-16x9"), { onBeatError: () => {} }).seconds;
+    // Same two surviving beats either way, so the same total. It differed by
+    // exactly MOVE_SECONDS + FADE_SECONDS before.
+    expect(seconds(withDive)).toBe(seconds(noDive));
+  });
+
   it("carries each scene across the seam instead of cutting to background", () => {
     // THE BLACKOUT. Scenes are absolutely positioned clips laid back to back, and
     // every archetype opens through `chromeIn` — nothing on screen before 0.15s,

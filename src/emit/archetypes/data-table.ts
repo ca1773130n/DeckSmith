@@ -38,6 +38,12 @@ import {
 const CELL_PAD = 14;
 /** Largest cell type. Past this a five-row table reads as a menu rather than data. */
 const CELL_MAX = 52;
+/**
+ * `th` letter-spacing, in em. ONE constant because the width solve and the CSS
+ * have to agree: the solve read 0 while the CSS drew .04em, and a column whose
+ * heading is its widest cell was solved that much short.
+ */
+const TH_TRACKING = 0.04;
 
 /**
  * Largest row padding, per side, by orientation.
@@ -91,10 +97,22 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   // 1px, add the padding, divide the content width by the total. Deriving it
   // *downwards* is what invariant 5 forbids and `MIN_FONT` here is the floor
   // that keeps this a growth-only rule.
+  // `tabular: true` because the CSS below sets `font-variant-numeric:
+  // tabular-nums` — which is the whole point of a table, and makes every figure
+  // 0.649em rather than the 0.413 a proportional "1" costs. Measuring these
+  // cells in proportional figures solved every column short by up to 8%.
+  //
+  // AND THE HEADING CARRIES `TH_TRACKING`, which this did not ask for. `th` is
+  // drawn at `letter-spacing:.04em` below; a heading measured without it is
+  // short by .04em a character, about 6% of a heading's width, and a column
+  // whose heading is its widest cell is exactly where that lands. The weight
+  // stays at 600 against a th's real 500 and a td's 400: it bounds both, and a
+  // margin that is deliberate is worth more here than a margin that is exact.
   const box = contentW(ctx.format);
   const units = table.columns.reduce((total, col, i) => {
-    const cells = [col, ...table.rows.map((r) => r[i] ?? "")];
-    return total + Math.max(...cells.map((c) => textWidth(c, 1, 600)));
+    const head = textWidth(col, 1, 600, TH_TRACKING, true);
+    const body = table.rows.map((r) => textWidth(r[i] ?? "", 1, 600, 0, true));
+    return total + Math.max(head, ...body);
   }, 0);
   const channels = 2 * CELL_PAD * table.columns.length;
   const cell = Math.max(MIN_FONT, Math.min(CELL_MAX, Math.floor((box - channels) / units)));
@@ -267,7 +285,7 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
       // every table — a fix that quietly breaks the thing next to it.
       `#${sid} table{border-collapse:collapse;width:100%;margin-top:34px;font-size:${cell}px}`,
       `#${sid} th,#${sid} td{font-size:inherit;padding:${padY}px ${CELL_PAD}px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}`,
-      `#${sid} th{color:${theme.dim};font-weight:500;letter-spacing:.04em;border-bottom:${RULE_HEAD}px solid ${theme.rule}}`,
+      `#${sid} th{color:${theme.dim};font-weight:500;letter-spacing:${TH_TRACKING}em;border-bottom:${RULE_HEAD}px solid ${theme.rule}}`,
       `#${sid} td:first-child,#${sid} th:first-child{text-align:left}`,
       `#${sid} tbody tr{border-bottom:${RULE_ROW}px solid ${theme.rule}}`,
       `#${sid} tbody td{color:${theme.muted}}`,

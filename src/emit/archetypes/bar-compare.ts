@@ -201,11 +201,18 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
       `bar-compare ${beat.id}: ${count} bars with labels this long need ${Math.ceil(H)}px of the ${Math.floor(avail)}px this slide has. Shorten the labels or split the beat.`,
     );
   }
+  // Ceiled. The label is right-aligned to the gutter's inner edge, so a gutter
+  // that is a fraction of a pixel narrower than the text it holds puts the first
+  // glyph a hair outside the frame — measured at -0.002px, which is nothing to
+  // look at and exactly the near-miss this file already refuses to round down to
+  // elsewhere. A whole pixel costs nothing and cannot be off by a fraction.
   const gutter = tall
     ? 0
     : Math.min(
         gutterMax,
-        Math.max(...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT))) + GUTTER_PAD,
+        Math.ceil(
+          Math.max(...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT))) + GUTTER_PAD,
+        ),
       );
 
   /* ------------------------------------- the scale, derived from the data */

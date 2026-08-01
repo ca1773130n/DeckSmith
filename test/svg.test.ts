@@ -40,17 +40,67 @@ describe("textWidth", () => {
     }
   });
 
-  // The 3.6px near-miss in line-chart is the reason this module exists. A figure
-  // run is uniformly tabular, so it must clear the 0.58/char that sized that pad;
-  // capitals must clear the 0.68 average the same emitter used for axis labels.
-  it("clears the em-factors the archetypes used to guess", () => {
-    for (const v of ["1.592", "32.13", "28.970", "0.930"]) {
-      expect(textWidth(v, 40)).toBeGreaterThanOrEqual(v.length * 40 * 0.58);
+  /**
+   * THE RECEIPT FOR THE TABLE, and the assertion this replaces.
+   *
+   * That one held `textWidth` above two hand-rolled em factors — 0.58 a
+   * character for a figure run, 0.68 for capitals — which `line-chart` carried
+   * as a second opinion about a question this project has one answer to. Those
+   * are gone: line-chart calls `textWidth` now, so an assertion about them is an
+   * assertion about nothing, and it would have failed anyway, because 0.68 a
+   * character is not what capitals measure ("SET5" is 2.539em, not 2.72).
+   *
+   * What matters instead is the contract the table exists to keep. `drawn` is
+   * Chrome, at 1000px, in the Inter that Google Fonts serves — the face
+   * HyperFrames resolves for a Latin deck. Pinned rather than measured here for
+   * the same reason `demo/audio`'s numbers are: this suite has no browser.
+   *
+   *     node scripts/measure-type.mjs
+   */
+  it("is above what Chrome draws, and not by much", () => {
+    // [text, size, weight, tracking, tabular, drawn px]
+    const CASES: [string, number, number, number, boolean, number][] = [
+      ["Reconstruction", 40, 400, 0, false, 285.11],
+      ["METHOD", 40, 500, 0.04, true, 185.67],
+      ["SET5", 40, 400, 0, false, 99.27],
+      ["1.592", 40, 400, 0, true, 114.5],
+      ["1.592", 40, 400, 0, false, 100.16],
+      ["28.970", 40, 400, 0, true, 140.44],
+      ["Every part of the network, in the order it runs", 76, 700, -0.015, false, 1604.42],
+      ["QUANTITATIVE COMPARISON · ×4", 42, 500, 0.14, false, 852.81],
+      ["L1 0.0346 → 0.0235", 40, 400, 0, false, 370.17],
+      // Noto Sans KR, ahead of Inter in the stack, as a Korean deck composes it.
+      ["복원 파이프라인", 40, 400, 0, false, 266.55],
+    ];
+    for (const [text, size, weight, tracking, tabular, drawn] of CASES) {
+      const w = textWidth(text, size, weight, tracking, tabular);
+      const where = `${JSON.stringify(text)} @${size}/${weight}`;
+      // NEVER SMALLER. A box sized through here that is narrower than the text
+      // draws the text outside the box, and `.scene` is centred, so it leaves on
+      // both sides at once.
+      expect(w, `${where} under-predicts`).toBeGreaterThanOrEqual(drawn);
+      // And not wastefully larger: room over-charged is room an archetype
+      // refuses a beat for.
+      //
+      // The Korean line gets its own bar because the CJK fallback is a BLANKET,
+      // unchanged by the Latin table below it: one 1.02em for Hangul, kana, Han,
+      // full-width forms and emoji alike. Noto Sans KR sets Hangul at about
+      // 0.92em, so a Korean deck is over-charged by ~12% — safe, deliberate, and
+      // the cost of not pinning per-script metrics for a face this suite cannot
+      // measure. Tighten it by measuring Hangul, not by lowering the blanket.
+      const bar = /[⺀-￿]/.test(text) ? 1.13 : 1.07;
+      expect(w / drawn, `${where} over-predicts`).toBeLessThanOrEqual(bar);
     }
-    for (const l of ["METHOD", "PARAMS", "SET5"]) {
-      expect(textWidth(l, 40)).toBeGreaterThanOrEqual(l.length * 40 * 0.68);
-    }
+  });
+
+  it("keeps the orderings every caller relies on", () => {
     expect(textWidth("MMMM", 40)).toBeGreaterThan(textWidth("iiii", 40));
+    // A table's figures are wider than a headline's, which is the whole reason
+    // `tabular` is a parameter rather than a single number for both.
+    expect(textWidth("1.592", 40, 400, 0, true)).toBeGreaterThan(textWidth("1.592", 40));
+    // Every glyph the table does not carry falls back to a full em, never to
+    // something narrower than the widest thing it might be.
+    expect(textWidth("\u{1F600}", 40)).toBeGreaterThanOrEqual(40);
   });
 
   it("treats bold as wider and CJK as full width", () => {

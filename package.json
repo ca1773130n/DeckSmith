@@ -1,9 +1,28 @@
 {
-  "name": "decksmith",
+  "name": "@jokerized/decksmith",
   "version": "0.1.0",
   "description": "Turn a source document into an animated explanation deck.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ca1773130n/DeckSmith.git"
+  },
+  "homepage": "https://github.com/ca1773130n/DeckSmith#readme",
+  "bugs": {
+    "url": "https://github.com/ca1773130n/DeckSmith/issues"
+  },
+  "keywords": [
+    "slides",
+    "presentation",
+    "deck",
+    "animation",
+    "gsap",
+    "video",
+    "paper",
+    "explainer",
+    "mcp"
+  ],
   "engines": {
     "node": ">=22"
   },

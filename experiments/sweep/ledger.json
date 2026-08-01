@@ -1,5 +1,5 @@
 {
-  "tool": "f7ce5f3785c329a1",
+  "tool": "d5843d1aaa3cb908",
   "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
   "corpus": {
     "b04-grid:0": {
@@ -71,7 +71,7 @@
   },
   "open": {},
   "format": "deck-16x9",
-  "updated": "2026-08-01T07:15:34.404Z",
+  "updated": "2026-08-01T10:46:35.272Z",
   "levels": [],
   "cells": {
     "b01-title:0": {
@@ -307,12 +307,12 @@
       "scene": "s7"
     },
     "b07-split-compare:3": {
-      "verdict": "refused",
+      "verdict": "ok",
       "axis": "line count and length",
       "rules": [],
-      "reason": "split-compare b07: the panels do not fit beside each other at the 40px floor — shorten the lines or split the beat",
-      "deck": null,
-      "scene": null
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
+      "scene": "s5"
     },
     "b07-split-compare:4": {
       "verdict": "refused",
@@ -352,7 +352,7 @@
       "rules": [],
       "reason": null,
       "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
-      "scene": "s5"
+      "scene": "s6"
     },
     "b09-data-table:0": {
       "verdict": "ok",
@@ -424,7 +424,7 @@
       "rules": [],
       "reason": null,
       "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
-      "scene": "s6"
+      "scene": "s7"
     },
     "b10-line-chart:4": {
       "verdict": "ok",

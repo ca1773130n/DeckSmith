@@ -183,6 +183,13 @@ export function emitDeck(
  * dropped buys nothing and adds a way to fail: `emitScene` throws on a beat it
  * cannot draw, and a beat nobody was ever going to draw must not be able to fail
  * a build that never wanted it.
+ *
+ * AND THIS IS WHERE A BEAT THAT CANNOT BE DRAWN IS CAUGHT. It has to be: this is
+ * the FIRST place every surviving beat is emitted, so a `layout` that only caught
+ * the throw on its own second pass never saw one — `emitScene` is deterministic,
+ * so a beat that throws here throws identically there, and the deck died in the
+ * measuring pass with `onBeatError` never called. Dropping it here also keeps the
+ * returned `Cut` honest: a beat that is not in the deck is not in `kept`.
  */
 export function planCut(
   storyboard: Storyboard,
@@ -194,25 +201,53 @@ export function planCut(
   const speed = opts.speed ?? 1;
   const floor = storyboard.beats.filter((b) => b.weight >= format.minWeight);
   const seconds: Record<string, number> = {};
+  /** Floor survivors an emitter refused. Empty unless `onBeatError` was given. */
+  const undrawable = new Set<string>();
   floor.forEach((beat, i) => {
     const segments = opts.narration?.beats[beat.id];
-    const { scene } = stageScene(
-      emitScene(beat, { source, format, theme, sid: `s${i + 1}` }),
-      speed,
-    );
-    const own = beatSeconds(beat.seconds * speed, scene, segments);
-    // A camera's travel-and-dip is part of what this beat costs the deck's TOTAL
-    // — `layout` adds `diveTail` to this same beat's window — so a selection
-    // blind to it under-counts by 1.8s per dive and hands `verify` a cut that
-    // turns out not to fit. Asked of the floor's list rather than the final one,
-    // which is an upper bound and therefore safe: a beat carries a tail only
-    // when the next SURVIVING beat dives into it, and cutting beats can remove a
-    // tail but never add one.
-    const tail = floor[i + 1]?.inside?.beat === beat.id ? MOVE_SECONDS + FADE_SECONDS : 0;
-    seconds[beat.id] = rnd(own + tail * speed);
+    let scene: Scene;
+    try {
+      ({ scene } = stageScene(emitScene(beat, { source, format, theme, sid: `s${i + 1}` }), speed));
+    } catch (err) {
+      // Without a hook the error propagates exactly as it always has, which is
+      // what every test and every library caller expects.
+      if (!opts.onBeatError) throw err;
+      opts.onBeatError(beat.id, err instanceof Error ? err : new Error(String(err)));
+      undrawable.add(beat.id);
+      return;
+    }
+    seconds[beat.id] = beatSeconds(beat.seconds * speed, scene, segments);
   });
+  if (floor.length > 0 && undrawable.size === floor.length) {
+    throw new Error(`every one of ${floor.length} beat(s) failed to draw — there is no deck`);
+  }
+
+  // A camera's travel-and-dip is part of what this beat costs the deck's TOTAL —
+  // `layout` adds `diveTail` to this same beat's window — so a selection blind to
+  // it under-counts by 1.8s per dive and hands `verify` a cut that turns out not
+  // to fit.
+  //
+  // CHARGED OVER THE DRAWABLE LIST, which is why it is a second pass: a tail
+  // exists only when the next beat that is actually in the deck dives into this
+  // one, and `enteredParts` reads that off the SURVIVORS. Asked of the raw floor
+  // it charged 1.8s for a dive out of a beat an emitter had just refused — a beat
+  // that is not in the deck to be dived into — and a tight budget then cut
+  // somebody else to pay for it. Still an upper bound against the final cut,
+  // which is safe and deliberate: cutting beats can remove a tail, never add one.
+  const drawable = floor.filter((b) => !undrawable.has(b.id));
+  drawable.forEach((beat, i) => {
+    const tail = drawable[i + 1]?.inside?.beat === beat.id ? MOVE_SECONDS + FADE_SECONDS : 0;
+    seconds[beat.id] = rnd((seconds[beat.id] ?? 0) + tail * speed);
+  });
+  // A refused beat is taken out of the storyboard the selection sees, not out of
+  // its result: `selectBeats` derives its own list from `storyboard.beats`, so a
+  // beat merely missing from `seconds` would be selected anyway, on its authored
+  // length, and then not be there.
+  const board = undrawable.size
+    ? { ...storyboard, beats: storyboard.beats.filter((b) => !undrawable.has(b.id)) }
+    : storyboard;
   // `Format` satisfies `SelectionBudget` structurally: minWeight, maxSeconds, id.
-  return selectBeats(storyboard, format, seconds);
+  return selectBeats(board, format, seconds);
 }
 
 /**
@@ -254,36 +289,17 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
   const spoken: Record<string, Segment[]> = {};
   const entered = enteredParts(beats);
 
-  // A beat that cannot be drawn is dropped here, BEFORE anything is numbered —
-  // scene ids have to stay dense, and renumbering after the fact would mean
-  // re-emitting every scene anyway. Trial-emitting is cheap: an emitter builds
-  // strings and touches nothing.
-  //
-  // Without a hook this is a no-op and an emitter's error propagates exactly as
-  // it always has, which is what every test and every library caller expects.
-  const drawable = opts.onBeatError
-    ? beats.filter((beat) => {
-        try {
-          emitScene(beat, { source, format, theme, sid: "trial" });
-          return true;
-        } catch (err) {
-          (opts.onBeatError as (id: string, e: Error) => void)(
-            beat.id,
-            err instanceof Error ? err : new Error(String(err)),
-          );
-          return false;
-        }
-      })
-    : beats;
-  if (drawable.length === 0) {
-    throw new Error(`every one of ${beats.length} beat(s) failed to draw — there is no deck`);
-  }
+  // Nothing filters for drawability here. `planCut` above has already emitted
+  // every one of these beats to measure it, and dropped the ones that threw —
+  // so a beat still in `cut.kept` has drawn once, and `emitScene` is
+  // deterministic. A second filter over the same beats caught nothing and made
+  // `onBeatError` look reachable from a build that had already died measuring.
 
   // Two passes, because a scene's clip has to outlast its own slide and must not
   // outlast the NEXT one — so how long the next scene runs has to be known
   // before this one can be written. Everything a scene needs on its own is
   // settled here; nothing that depends on a neighbour is.
-  const cuts = drawable.map((beat, i) => {
+  const cuts = beats.map((beat, i) => {
     const sid = `s${i + 1}`;
     const ctx: EmitContext = { source, format, theme, sid };
     // `pace` scales the scene's own times; the beat's length is the shell's

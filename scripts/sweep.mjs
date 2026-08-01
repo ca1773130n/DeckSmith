@@ -395,6 +395,23 @@ async function buildLevel(level, opts, onCell) {
       continue;
     }
 
+    // A BEAT CAN NOW BE REFUSED WITHOUT THE BUILD DYING, and reading only the
+    // death is how this instrument went briefly blind. `build` passes
+    // `onBeatError`, so an emitter that declines a beat costs that slide and the
+    // deck still comes out — which arrived here as a clean `ok` for a cell whose
+    // beat was not in the deck at all. Both pinned `b09-data-table` refusals
+    // flipped to `ok` on the run that landed the hook, and "53 ok over 53 cells"
+    // is exactly the green-over-nothing this whole file exists to catch.
+    for (const m of [...stderr.matchAll(/^build:\s+left out (\S+) — ([^\n]*)/gm)]) {
+      const hit = pending.find((p) => p.beat.id === m[1]);
+      if (!hit) continue;
+      results.set(
+        key(hit.cell),
+        await onCell(record(hit.cell, "refused", { reason: m[2].trim().slice(0, 160) })),
+      );
+      pending = pending.filter((p) => p !== hit);
+    }
+
     // Before reading a single verdict: did the gates that produce them run?
     for (const b of await blind(parsed, out, level)) results.set(b.where, b);
 
@@ -402,8 +419,16 @@ async function buildLevel(level, opts, onCell) {
     // the duration budget — `build` prints what it cut, so the mapping is read
     // off the run rather than assumed. Assuming it is how a finding about one
     // archetype gets filed against another.
+    // Cut by the budget or left out by an emitter — either way the beat is not
+    // in the deck, so scene N skips it. Counting only the budget's cuts put
+    // every later scene one archetype out of step, which files a finding about
+    // one archetype against another, which is what the note above forbids.
     const cut = new Set([...stderr.matchAll(/^build:\s+cut (\S+) /gm)].map((m) => m[1]));
-    const scenes = pending.filter((p) => !cut.has(p.beat.id));
+    const gone = new Set([
+      ...cut,
+      ...[...stderr.matchAll(/^build:\s+left out (\S+) /gm)].map((m) => m[1]),
+    ]);
+    const scenes = pending.filter((p) => !gone.has(p.beat.id));
     const perCell = new Map(pending.map((p) => [key(p.cell), []]));
     const orphans = [];
     for (const f of parsed.findings) {

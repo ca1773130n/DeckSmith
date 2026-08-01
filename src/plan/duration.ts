@@ -198,20 +198,37 @@ export const MIN_BEAT_SECONDS = 4;
 export const SHORT_FORM_CPS = 22;
 
 /**
- * How much faster a CUE reads than the speech it transcribes.
+ * How much faster a CUE reads, at its p95, than the deck's mean spoken rate.
  *
- * A cue spans the words and not the breath around them, so its characters-per-
- * second is always above the utterance's. MEASURED end to end on rendered decks,
- * spoken `SPEECH_CPS.latin * speedup` against the p95 of the shipped `.srt`:
+ * TWO things at once, deliberately, because `fastEnough` has only one number to
+ * multiply: a cue spans the words and not the breath around them, and the CUE
+ * that decides whether captions are readable is the fastest one, not the average.
+ * So this converts a mean spoken cps into a p95 CUE cps — the quantity
+ * `SHORT_FORM_CPS` is a ceiling on.
  *
- *     +0%   14.4 -> 16.6      +20%  18.0 -> 21.3
- *     +10%  17.1 -> 18.6      +30%  20.1 -> 23.7
+ * MEASURED on `demo/audio/narration.json`, this project's anchor deck, whose 37
+ * segments carry 39 cues. Its mean segment rate is 14.440 cps — `SPEECH_CPS.latin`
+ * to three figures, which is where that constant comes from — and its p95 cue
+ * rate is 18.409. That is a ratio of 1.278, and 1.28 rounds AWAY from admitting a
+ * step, which is the safe direction for a ceiling.
  *
- * A ratio of 1.15-1.18, so 1.17. Without it `SHORT_FORM_CPS` was a ceiling on
- * the wrong quantity: it admitted `+30%` on the arithmetic and the artifact came
- * back at 23.7 cps, past the bar the constant exists to hold.
+ * IT SAID 1.17 UNTIL NOW, and 1.17 was never reconcilable with the file it lives
+ * in: `SHORT_FORM_CPS` two constants above already quotes the same deck's p95 at
+ * 18.41, and 18.41/14.4 is 1.28, not 1.17. The old table paired a `.srt` against
+ * an arithmetic speech rate and got 16.6 cps at `+0%` where the anchor artifact
+ * reads 18.41 — a measurement of something that is not this. What shipped from it
+ * was a fast-forward deck at `+20%` (speedup 1.252), whose captions land at
+ * 14.4 x 1.252 x 1.278 = 23.0 cps against a ceiling of 22. At 1.28 the same deck
+ * takes `+10%` and lands at 21.9. Wrong in the OUTPUT, not in a gate — no gate
+ * looks at this, which is why it survived.
+ *
+ * SCALE-INVARIANCE IS ASSUMED, and is the one thing here not measured: the ratio
+ * is taken at `+0%` and applied at every step, on the reasoning that speeding the
+ * voice up shrinks the cue windows and the breaths between them together.
+ * Measuring it at `+10%` and `+20%` means synthesising the demo again at those
+ * rates. `test/duration.test.ts` pins the `+0%` end against the artifact.
  */
-export const CUE_OVERHEAD = 1.17;
+export const CUE_OVERHEAD = 1.28;
 
 /** Broadcast subtitle practice. Past this the captions stop being readable. */
 export const COMFORTABLE_CPS = 17;
@@ -353,8 +370,16 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     );
   }
   if (speedup > 1) {
+    // THE CUE RATE, not the spoken one. This quoted `cps * speedup` — what the
+    // VOICE does — under the word "subtitles", and a cue spans the words without
+    // the breath around them, so it always reads faster. At `+10%` that is 17
+    // reported against a caption that runs at 22: exactly at the broadcast bar by
+    // the number printed, 29% over it in the artifact. Same `CUE_OVERHEAD` that
+    // chooses the rate two lines up, so the sentence and the choice cannot
+    // disagree.
+    const cue = cps * speedup * CUE_OVERHEAD;
     warnings.push(
-      `narration speaks at ${rate} to fit ${chars} characters a slide into ${speechSeconds.toFixed(1)}s — ${slow.chars} at normal speed. Subtitles run near ${(cps * speedup).toFixed(0)} characters per second against the ${COMFORTABLE_CPS} cps broadcast practice, which is the cost of the extra words.`,
+      `narration speaks at ${rate} to fit ${chars} characters a slide into ${speechSeconds.toFixed(1)}s — ${slow.chars} at normal speed. Subtitles run near ${cue.toFixed(0)} characters per second against the ${COMFORTABLE_CPS} cps broadcast practice, which is the cost of the extra words.`,
     );
   }
 

@@ -693,6 +693,20 @@ describe("archetypes", () => {
     // `noteHeight` predicts two lines where the browser sets one; refusing a
     // table that would have fitted is the safe side of that gap.
     //
+    // NOT ONE `cell` MOVED WHEN `charUnits` STOPPED BEING EYEBALLED, which is
+    // not luck. The measured table is narrower than the old buckets for wide
+    // headings and briefly bought this case 43px — until the width solve started
+    // charging `TH_TRACKING`, which `th` is drawn with and the solve had never
+    // asked for. The two errors were opposite and close in size, and every size
+    // here landed back where it was.
+    //
+    // The wide-column case reads "Peak signal to noise ratio" rather than
+    // "Benchmark metric average" for that reason: measured honestly, the old
+    // heading solves to exactly 40, and a fixture on the MIN_FONT floor is a
+    // table too wide for its box — a different case, whose row boundary says
+    // nothing about this one. The rebuilt case still draws 8 rows at 42px, which
+    // was put through the gate stack as a real deck rather than derived.
+    //
     // EVERY FIXTURE HERE FITS THE BOX WIDTHWISE, which `cell > MIN_FONT` below
     // asserts and is not a detail: the width solve only ever clamps to 40 when
     // the table is too wide for the box, and such a table is drawn overflowing
@@ -720,7 +734,7 @@ describe("archetypes", () => {
         fmt: format,
         cols: 3,
         label: long,
-        metric: "Benchmark metric average",
+        metric: "Peak signal to noise ratio",
         ...sweep,
         cell: 42,
         last: 8,
