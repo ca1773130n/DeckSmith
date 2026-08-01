@@ -18,9 +18,11 @@ import { describe, expect, it } from "vitest";
 import { planSegments } from "../src/narrate/narrate.js";
 import {
   COMFORTABLE_CPS,
+  CUE_OVERHEAD,
   durationPlan,
   EXPLAINING_CHARS,
   FF_BEAT_SECONDS,
+  fastEnough,
   LAST_HOLD_SECONDS,
   MIN_SENTENCE_CHARS,
   OPEN_SECONDS_AT_SPEED,
@@ -30,6 +32,7 @@ import {
   RATE_STEPS,
   SENTENCES_PER_BEAT,
   SETTLE_SECONDS,
+  SHORT_FORM_CPS,
   SPEAKING_STOPS,
   SPEECH_CPS,
   tempoChain,
@@ -350,6 +353,71 @@ describe("narration density", () => {
       "Four.",
       "",
     ]);
+  });
+});
+
+/**
+ * THE CUE CEILING, RECOMPUTED FROM THE ARTIFACT IT WAS MEASURED ON.
+ *
+ * `CUE_OVERHEAD` is the only number here that decides how fast a shipped short
+ * actually speaks, and it is the only one no gate looks at: it is not a budget,
+ * not a hold, not a byte, so `lint`, `check` and `drift` are all green whatever
+ * it says. It said 1.17 while `demo/audio/narration.json` — the deck every other
+ * constant in the file is measured against — read 1.28, and the file's own
+ * `SHORT_FORM_CPS` docstring already quoted the 18.41 that says so. A short
+ * shipped at `+20%` with captions at 23.0 cps against its own 22 ceiling.
+ *
+ * So the constant is derived here rather than trusted, from the demo's cues.
+ */
+describe("the cue rate a fast-forward deck ships at", () => {
+  /**
+   * `demo/audio/narration.json`, measured. PINNED rather than read, for the same
+   * reason `LAST_HOLD` above is: `demo/audio/` is gitignored — it is 37 mp3s — so
+   * a test that read it would pass here and be skipped everywhere else, which is
+   * the silent-green shape this file exists to refuse.
+   *
+   * Re-derive both from a `npm run demo` narration with:
+   *
+   *     node -e 'const s=Object.values(require("./demo/audio/narration.json").beats).flat();
+   *       const c=s.flatMap(x=>x.cues??[]).map(q=>q.text.length/(q.end-q.start)).sort((a,b)=>a-b);
+   *       console.log(s.reduce((n,x)=>n+x.text.length,0)/s.reduce((n,x)=>n+x.seconds,0),
+   *                   c[Math.floor(0.95*c.length)])'
+   *
+   * 37 segments, 39 cues, `en-US-AndrewMultilingualNeural` at `+0%`.
+   */
+  const DEMO_SPEECH_CPS = 14.44;
+  const DEMO_P95_CUE_CPS = 18.409;
+
+  it("is the deck SPEECH_CPS was measured on", () => {
+    // The overhead's denominator. Were these two to disagree, the ratio below
+    // would be taken against a speech rate no deck actually has.
+    expect(DEMO_SPEECH_CPS).toBeCloseTo(SPEECH_CPS.latin, 1);
+  });
+
+  it("never claims less cue overhead than the deck actually has", () => {
+    const measured = DEMO_P95_CUE_CPS / SPEECH_CPS.latin;
+    expect(measured).toBeCloseTo(1.278, 2);
+    // One-sided on purpose. A constant BELOW the measurement admits a rate step
+    // whose captions are over the ceiling — that is the bug this replaces, at
+    // 1.17. Above it only ever costs a step.
+    expect(CUE_OVERHEAD).toBeGreaterThanOrEqual(measured);
+  });
+
+  it("picks a step whose captions stay under SHORT_FORM_CPS", () => {
+    // The property, end to end, and the one that was false. Whatever step
+    // `fastEnough` takes for a fast-forward beat, this deck's own p95 cue rate
+    // scaled by that step's MEASURED speedup has to clear the ceiling. At 1.17 it
+    // took +20% (speedup 1.252) and shipped captions at 23.0 cps.
+    const [rate, speedup] = fastEnough(0, SPEECH_CPS.latin, FF_BEAT_SECONDS);
+    expect(rate).toBe("+10%");
+    expect(DEMO_P95_CUE_CPS * speedup).toBeLessThanOrEqual(SHORT_FORM_CPS);
+    // Not vacuous at the other end: the next step up is genuinely over, so this
+    // is the FASTEST readable step and not merely a readable one.
+    const next = RATE_STEPS[RATE_STEPS.findIndex(([r]) => r === rate) + 1];
+    expect(next).toBeDefined();
+    expect(DEMO_P95_CUE_CPS * (next as readonly [string, number])[1]).toBeGreaterThan(
+      SHORT_FORM_CPS,
+    );
   });
 });
 
