@@ -458,6 +458,12 @@ lookFlags(
       theme,
       speed: paced.speed,
       ...(narration ? { narration } : {}),
+      // A beat an emitter refuses costs that slide, not the deck. Six archetypes
+      // refuse rather than overflow now, and without this one over-filled beat
+      // takes eleven good ones with it at the last stage. Printed, not swallowed:
+      // a missing slide the terminal never mentioned is the failure this project
+      // keeps finding by eye.
+      onBeatError: (id, err) => step(`build: left out ${id} — ${err.message}`),
     });
     await writeFile(join(out, "index.html"), deck.composition);
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);
