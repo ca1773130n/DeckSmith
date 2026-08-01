@@ -5,6 +5,7 @@
  * makes this file the boundary. Every rule below is one a wrong entry would
  * break silently, in a build that still says PASS.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   canvasProblem,
@@ -18,6 +19,7 @@ import {
   MIN_EDGE,
   resizeFormat,
 } from "../src/types.js";
+import { VERSION } from "../src/version.js";
 
 const entries = Object.entries(FORMATS);
 
@@ -223,5 +225,28 @@ describe("canvasWarnings", () => {
     // "silent" is exactly where a bad canvas hides.
     const [warning] = canvasWarnings(5000, 1000);
     expect(warning).toMatch(/height to draw in/);
+  });
+});
+
+/**
+ * WHAT THE BINARIES SAY THEY ARE.
+ *
+ * Both entry points hardcoded `"0.1.0"` and both went on saying it: 0.1.2,
+ * installed from the registry, answered `decksmith --version` with `0.1.0`.
+ * Nothing catches a wrong string that is still a string — no gate compared it to
+ * anything — and the one moment it is read is a user establishing which version
+ * they have while chasing a bug, which is the worst moment to be lied to.
+ */
+describe("the version the package reports", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version: string };
+
+  it("is the one in package.json", () => {
+    expect(VERSION).toBe(manifest.version);
+  });
+
+  it("is a version, not a placeholder", () => {
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
   });
 });

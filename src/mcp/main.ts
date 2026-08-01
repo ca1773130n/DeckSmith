@@ -19,6 +19,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { VERSION } from "../version.js";
 import {
   capabilitiesSchema,
   createSchema,
@@ -85,7 +86,7 @@ const TOOLS = [
   },
 ] as const;
 
-const server = new Server({ name: "decksmith", version: "0.1.0" }, { capabilities: { tools: {} } });
+const server = new Server({ name: "decksmith", version: VERSION }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
