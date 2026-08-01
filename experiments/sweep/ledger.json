@@ -1,5 +1,5 @@
 {
-  "tool": "47bde9332c61437d",
+  "tool": "5bfd9f695b42368e",
   "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
   "corpus": {
     "b04-grid:0": {
@@ -30,13 +30,13 @@
       "verdict": "refused",
       "expect": [],
       "was": "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` being centred put the headline off the top and the note off the bottom",
-      "fixed": "the data-table canvas-height gate, f9d3440"
+      "fixed": "the data-table canvas-height gate, 0ae7c18"
     },
     "b09-data-table:4": {
       "verdict": "refused",
       "expect": [],
       "was": "the same at 10 rows x 6 columns, and half again as far over: 962px against the same 782px",
-      "fixed": "the data-table canvas-height gate, f9d3440"
+      "fixed": "the data-table canvas-height gate, 0ae7c18"
     },
     "b03-annotated-figure:3": {
       "verdict": "ok",
@@ -71,7 +71,7 @@
   },
   "open": {},
   "format": "deck-16x9",
-  "updated": "2026-08-01T01:31:33.711Z",
+  "updated": "2026-08-01T01:32:55.887Z",
   "levels": [],
   "cells": {
     "b01-title:0": {

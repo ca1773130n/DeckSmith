@@ -211,13 +211,13 @@ export const CORPUS = {
     verdict: "refused",
     expect: [],
     was: "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` being centred put the headline off the top and the note off the bottom",
-    fixed: "the data-table canvas-height gate, f9d3440",
+    fixed: "the data-table canvas-height gate, 0ae7c18",
   },
   "b09-data-table:4": {
     verdict: "refused",
     expect: [],
     was: "the same at 10 rows x 6 columns, and half again as far over: 962px against the same 782px",
-    fixed: "the data-table canvas-height gate, f9d3440",
+    fixed: "the data-table canvas-height gate, 0ae7c18",
   },
   // Also two. 33aba64 charged the headline's real wrapped height and stopped the
   // caption rendering 81px BELOW the canvas; `stageBudget`'s 360px floor then
