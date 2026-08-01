@@ -1,5 +1,5 @@
 {
-  "tool": "c6bd34a599f8f950",
+  "tool": "47bde9332c61437d",
   "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
   "corpus": {
     "b04-grid:0": {
@@ -25,6 +25,18 @@
       "expect": [],
       "was": "canvas_overflow — claim off the bottom, then the caption after it",
       "fixed": "3b96ff8 + the bodyBudget floor in claim-figure.ts"
+    },
+    "b09-data-table:3": {
+      "verdict": "refused",
+      "expect": [],
+      "was": "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` being centred put the headline off the top and the note off the bottom",
+      "fixed": "the data-table canvas-height gate, f9d3440"
+    },
+    "b09-data-table:4": {
+      "verdict": "refused",
+      "expect": [],
+      "was": "the same at 10 rows x 6 columns, and half again as far over: 962px against the same 782px",
+      "fixed": "the data-table canvas-height gate, f9d3440"
     },
     "b03-annotated-figure:3": {
       "verdict": "ok",
@@ -57,26 +69,9 @@
       "fixed": "b3e5f35 + 86b8535 + 701ae1d"
     }
   },
-  "open": {
-    "b09-data-table:3": {
-      "verdict": "DEFECT",
-      "expect": [
-        "canvas_overflow"
-      ],
-      "was": "headline 40px above the canvas and note 40px below, at 9 rows x 5 columns",
-      "fixed": "NOT FIXED — if this cell is clean, fix the entry, not the sweep"
-    },
-    "b09-data-table:4": {
-      "verdict": "DEFECT",
-      "expect": [
-        "canvas_overflow"
-      ],
-      "was": "the same, at 10 rows x 6 columns",
-      "fixed": "NOT FIXED — if this cell is clean, fix the entry, not the sweep"
-    }
-  },
+  "open": {},
   "format": "deck-16x9",
-  "updated": "2026-07-31T21:03:36.262Z",
+  "updated": "2026-08-01T01:31:33.711Z",
   "levels": [],
   "cells": {
     "b01-title:0": {
@@ -384,24 +379,20 @@
       "scene": "s9"
     },
     "b09-data-table:3": {
-      "verdict": "DEFECT",
+      "verdict": "refused",
       "axis": "row and column count",
-      "rules": [
-        "canvas_overflow"
-      ],
-      "reason": null,
-      "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
-      "scene": "s6"
+      "rules": [],
+      "reason": "data-table b09: table \"tbl-b09-data-table-3\" has 9 rows, which with the header stand 875px tall at 52px type on 12px of row padding, and this slide has 782px. E",
+      "deck": null,
+      "scene": null
     },
     "b09-data-table:4": {
-      "verdict": "DEFECT",
+      "verdict": "refused",
       "axis": "row and column count",
-      "rules": [
-        "canvas_overflow"
-      ],
-      "reason": null,
-      "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
-      "scene": "s5"
+      "rules": [],
+      "reason": "data-table b09: table \"tbl-b09-data-table-4\" has 10 rows, which with the header stand 962px tall at 52px type on 12px of row padding, and this slide has 782px. ",
+      "deck": null,
+      "scene": null
     },
     "b10-line-chart:0": {
       "verdict": "ok",
@@ -433,7 +424,7 @@
       "rules": [],
       "reason": null,
       "deck": "node_modules/.cache/decksmith-sweep/decks/level-3/deck",
-      "scene": "s7"
+      "scene": "s6"
     },
     "b10-line-chart:4": {
       "verdict": "ok",
@@ -441,7 +432,7 @@
       "rules": [],
       "reason": null,
       "deck": "node_modules/.cache/decksmith-sweep/decks/level-4/deck",
-      "scene": "s6"
+      "scene": "s5"
     },
     "b11-claim-figure:0": {
       "verdict": "ok",

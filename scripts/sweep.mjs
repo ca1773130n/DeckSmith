@@ -26,10 +26,15 @@
  * the collision rule and turned up on a real deck in `experiments/018-duration`,
  * not on a perturbation at all.
  *
- * WHAT IT STILL REPORTS AND NOBODY HAS FIXED: `b09-data-table` at 9 and 10 rows
- * pushes its headline 40px above the canvas and its note 40px below. It is in
- * `OPEN`, not `CORPUS` — see both for the difference between a fix that must not
- * be reverted and a defect that must not be forgotten.
+ * THE LAST TWO IT REPORTED ARE NOW FIXED TOO. `b09-data-table` at 9 and 10 rows
+ * pushed its headline off the top of the canvas and its note off the bottom —
+ * `.scene` is centred, so an over-tall table overflows symmetrically and the
+ * gate names the two elements that are not at fault. `data-table` now measures
+ * the height its rows will actually be drawn at against the height the canvas
+ * actually has, and declines the beat rather than draw past it, so those cells
+ * are `refused` and they have moved from `OPEN` into `CORPUS` with that verdict
+ * pinned. `OPEN` is empty; it stays here because the next unfixed defect needs
+ * somewhere to be that is not silence.
  *
  * THE ONE RULE THIS FILE OBEYS, inherited from `scripts/score.mjs`: it shells out
  * to `node dist/cli.js build` and reports that command's own verdict. IT CONTAINS
@@ -190,6 +195,30 @@ export const CORPUS = {
     was: "canvas_overflow — claim off the bottom, then the caption after it",
     fixed: "3b96ff8 + the bodyBudget floor in claim-figure.ts",
   },
+  // THE ONLY TWO CELLS HERE WHOSE PINNED VERDICT IS NOT `ok`, and the verdict is
+  // the whole content of the fix: `data-table` measures the height its rows will
+  // be DRAWN at — the size the width solve chose, the padding already closed to
+  // its floor, the rules between the rows — against the height the canvas has,
+  // which is the content box plus the `PAD_Y` that `.scene` may overflow into at
+  // each end. It declines the beat rather than draw past that. `refused` is a
+  // correct outcome, not a defect (see the help text), but it must not become
+  // `ok` by accident either — a table that silently starts drawing again at 9
+  // rows is the old bug back.
+  //
+  // NEITHER CELL IS NEAR THE LINE, which is what makes them worth pinning: both
+  // are over by more than the rounding in any of the three measurements.
+  "b09-data-table:3": {
+    verdict: "refused",
+    expect: [],
+    was: "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` being centred put the headline off the top and the note off the bottom",
+    fixed: "the data-table canvas-height gate, f9d3440",
+  },
+  "b09-data-table:4": {
+    verdict: "refused",
+    expect: [],
+    was: "the same at 10 rows x 6 columns, and half again as far over: 962px against the same 782px",
+    fixed: "the data-table canvas-height gate, f9d3440",
+  },
   // Also two. 33aba64 charged the headline's real wrapped height and stopped the
   // caption rendering 81px BELOW the canvas; `stageBudget`'s 360px floor then
   // crushed the same caption into a 1.7px box instead, which reads as
@@ -237,37 +266,29 @@ export const CORPUS = {
 /**
  * THE OPEN DEFECTS: real, reported by every run, and nobody has fixed them.
  *
- * WHY THEY ARE PINNED AT ALL, given the argument above that a corpus of fixed
- * bugs must not carry unfixed ones. They are not in `CORPUS` and they are not
- * evidence that anything works; they are here so that the FORTY-TWO cells in
- * neither table can be held to "no defect". Without a baseline for the two that
- * are broken, the only honest rule left is "print DEFECTs and exit 0" — which is
- * what this script did, so a brand-new overflow at `b12-callout` was reported in
- * full and passed CI. Only the nine pinned cells could turn a run red; the other
- * forty-four could break in silence.
+ * EMPTY, as of the `data-table` height floor. The two cells that lived here —
+ * `b09-data-table` at 9 and 10 rows — are in `CORPUS` now with the verdict they
+ * actually have, `refused`. The table stays because the mechanism is what
+ * matters, and the next defect that is reported before it is fixed needs it.
+ *
+ * WHY ANYTHING WOULD BE PINNED HERE AT ALL, given the argument above that a
+ * corpus of fixed bugs must not carry unfixed ones. An entry here is not in
+ * `CORPUS` and is not evidence that anything works; it is here so that the
+ * cells in neither table can be held to "no defect". Without a baseline for the
+ * ones that are known-broken, the only honest rule left is "print DEFECTs and
+ * exit 0" — which is what this script did, so a brand-new overflow at
+ * `b12-callout` was reported in full and passed CI. Only the pinned cells could
+ * turn a run red; the rest could break in silence.
  *
  * A CHANGE IN EITHER DIRECTION IS RED, including a fix. That is deliberate and
  * it is the objection to a baseline file answered rather than dodged: repairing
- * `data-table` turns this run red ONCE, with a message that says the cell is
- * clean now and belongs in `CORPUS` with the commit that fixed it. Two lines of
- * bookkeeping at the moment the knowledge exists is the cheapest this is ever
- * going to be — cheaper than the alternative, which is a table that quietly
- * stops describing the tree.
+ * `data-table` turned this run red ONCE, with a message saying the cell had
+ * stopped matching and belonged in `CORPUS` with what fixed it — which is
+ * exactly the bookkeeping that happened. Two lines at the moment the knowledge
+ * exists is the cheapest this is ever going to be, and cheaper than the
+ * alternative, which is a table that quietly stops describing the tree.
  */
-export const OPEN = {
-  "b09-data-table:3": {
-    verdict: "DEFECT",
-    expect: ["canvas_overflow"],
-    was: "headline 40px above the canvas and note 40px below, at 9 rows x 5 columns",
-    fixed: "NOT FIXED — if this cell is clean, fix the entry, not the sweep",
-  },
-  "b09-data-table:4": {
-    verdict: "DEFECT",
-    expect: ["canvas_overflow"],
-    was: "the same, at 10 rows x 6 columns",
-    fixed: "NOT FIXED — if this cell is clean, fix the entry, not the sweep",
-  },
-};
+export const OPEN = {};
 
 /* -------------------------------------------------------------- the sweeper */
 
@@ -718,7 +739,11 @@ archetype that declines to draw what it cannot lay out has behaved correctly.
 The run is RED when any of these is true:
   - one of the ${Object.keys(CORPUS).length} cells in CORPUS stopped matching its pinned verdict, which
     means one of the layout fixes it names has been reverted
-  - one of the ${Object.keys(OPEN).length} cells in OPEN changed, INCLUDING being fixed — say so there
+  - ${
+    Object.keys(OPEN).length === 0
+      ? "an OPEN cell changed, INCLUDING being fixed — but OPEN is empty today"
+      : `one of the ${Object.keys(OPEN).length} cells in OPEN changed, INCLUDING being fixed — say so there`
+  }
   - any other cell produced a DEFECT or failed to build
   - a gate reported that it did not run, so the verdicts are not evidence
 `);

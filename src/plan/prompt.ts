@@ -159,9 +159,15 @@ DESCRIBING ARCHETYPES — the fallbacks
   data-table     A table with up to four rows revealed and toned. Use when the
                  cells themselves matter — mixed units, text values, a matrix the
                  reader must scan. If it is one column of numbers in one unit,
-                 that is bar-compare. params.tableId must name a table, and each
-                 highlight[].row must match one of that table's first-column
-                 values exactly.
+                 that is bar-compare. It draws EVERY row of the table it names and
+                 cannot show a subset. Six or seven rows is what a 16:9 slide
+                 holds — fewer under a long headline or a two-line note, more in
+                 portrait or where wider columns set the type smaller — and a
+                 table that does not fit is refused rather than shrunk, which
+                 fails the build. For a longer one, take the column that carries
+                 the argument to bar-compare, or cite it under another archetype.
+                 params.tableId must name a table, and each highlight[].row must
+                 match one of that table's first-column values exactly.
 
   callout        One to three short panels. The last resort, for structure that
                  has no shape at all: a definition, the limitations the source
