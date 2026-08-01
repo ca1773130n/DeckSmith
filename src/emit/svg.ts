@@ -121,10 +121,22 @@ function weightFactor(weight: number): number {
  * Every archetype sizes its boxes and padding through this function. When two of
  * them disagree about how wide "Reconstruction" is, one of them clips.
  */
-export function textWidth(text: string, fontSize: number, weight = 400): number {
+export function textWidth(text: string, fontSize: number, weight = 400, tracking = 0): number {
   let units = 0;
-  for (const c of text) units += charUnits(c);
-  return units * fontSize * weightFactor(weight);
+  let chars = 0;
+  for (const c of text) {
+    units += charUnits(c);
+    chars++;
+  }
+  // `tracking` is CSS `letter-spacing`, in em, and it is not decoration: the
+  // eyebrow is set at `.14em` AND uppercased, which together made a 60-character
+  // eyebrow render on two lines where this predicted one. Every archetype that
+  // asks `chromeHeight` how much room is left inherited that as room it did not
+  // have. The headline's `-.015em` runs the other way and cost a line.
+  //
+  // Applied per character, including the last — which is what the browser does
+  // when it measures a run for wrapping.
+  return units * fontSize * weightFactor(weight) + tracking * fontSize * chars;
 }
 
 /**
@@ -132,7 +144,13 @@ export function textWidth(text: string, fontSize: number, weight = 400): number 
  * character — which is also how Korean and Chinese wrap, since they arrive as
  * one unbroken "word".
  */
-export function wrap(text: string, fontSize: number, maxWidth: number, weight = 400): string[] {
+export function wrap(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  weight = 400,
+  tracking = 0,
+): string[] {
   if (maxWidth <= 0) return [text];
   const lines: string[] = [];
   let line = "";
@@ -142,17 +160,17 @@ export function wrap(text: string, fontSize: number, maxWidth: number, weight = 
   };
   for (const word of text.split(/\s+/).filter(Boolean)) {
     const candidate = line ? `${line} ${word}` : word;
-    if (textWidth(candidate, fontSize, weight) <= maxWidth) {
+    if (textWidth(candidate, fontSize, weight, tracking) <= maxWidth) {
       line = candidate;
       continue;
     }
     push();
-    if (textWidth(word, fontSize, weight) <= maxWidth) {
+    if (textWidth(word, fontSize, weight, tracking) <= maxWidth) {
       line = word;
       continue;
     }
     for (const c of word) {
-      if (line && textWidth(line + c, fontSize, weight) > maxWidth) push();
+      if (line && textWidth(line + c, fontSize, weight, tracking) > maxWidth) push();
       line += c;
     }
   }

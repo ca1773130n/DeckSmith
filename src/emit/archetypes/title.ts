@@ -45,8 +45,20 @@ export function isPortrait(format: Format): boolean {
  */
 export const EYEBROW_SIZE = 42;
 export const EYEBROW_LH = 1.2;
-/** Line box plus `margin-bottom`. */
-export const EYEBROW_H = Math.round(EYEBROW_SIZE * EYEBROW_LH) + 22;
+/** One line box. The block is this per line, plus `margin-bottom` once. */
+export const EYEBROW_LINE = Math.round(EYEBROW_SIZE * EYEBROW_LH);
+export const EYEBROW_GAP = 22;
+/** One line box plus `margin-bottom` — the one-line case, which is the common one. */
+export const EYEBROW_H = EYEBROW_LINE + EYEBROW_GAP;
+/**
+ * The eyebrow is drawn UPPERCASE at `.14em` of tracking, and the headline at
+ * `-.015em`. Neither is decoration to the arithmetic below: measured against the
+ * browser, a 60-character eyebrow sets on two lines where an untracked
+ * lowercase measurement predicts one, and a 138-character headline sets on three
+ * where an untracked one predicts four.
+ */
+export const EYEBROW_TRACKING = 0.14;
+export const HEADLINE_TRACKING = -0.015;
 export const HEADLINE_SIZE = 76;
 export const HEADLINE_LH = 1.15;
 export const HEADLINE_H = Math.round(HEADLINE_SIZE * HEADLINE_LH);
@@ -156,8 +168,21 @@ function wrapTokens(tokens: string[], size: number, width: number, weight: numbe
  * is centred so it overflows off *both* edges at once.
  */
 export function chromeHeight(eyebrow: string | undefined, headline: string, width: number): number {
-  const lines = wrap(headline, HEADLINE_SIZE, width, 700).length;
-  return (eyebrow ? EYEBROW_H : 0) + lines * HEADLINE_H;
+  const lines = wrap(headline, HEADLINE_SIZE, width, 700, HEADLINE_TRACKING).length;
+  // COUNTS THE EYEBROW'S LINES. It used to charge one `EYEBROW_H` however many
+  // an eyebrow wrapped to, and measured it as untracked lowercase besides — so a
+  // long one was charged a single 72px line while the browser drew two 50px ones
+  // plus the gap. Four archetypes read this number to decide whether they can
+  // draw, and every one of them inherited the shortfall as room it did not have.
+  //
+  // `toUpperCase` rather than a flag: `text-transform` changes which glyphs are
+  // measured, and the width table already knows what a capital costs.
+  const brow = eyebrow
+    ? wrap(eyebrow.toUpperCase(), EYEBROW_SIZE, width, 500, EYEBROW_TRACKING).length *
+        EYEBROW_LINE +
+      EYEBROW_GAP
+    : 0;
+  return brow + lines * HEADLINE_H;
 }
 
 /**
