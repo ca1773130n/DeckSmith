@@ -52,6 +52,7 @@ import {
   type Verdict,
 } from "./types.js";
 import { drift, FLOOR_DB, scanHeadlines, scanRepeatedObject, verify } from "./verify/index.js";
+import { VERSION } from "./version.js";
 
 type Narration = z.infer<typeof narrationSchema>;
 
@@ -262,7 +263,7 @@ const program = new Command();
 program
   .name("decksmith")
   .description("Turn a source document into an animated explanation deck.")
-  .version("0.1.0");
+  .version(VERSION);
 
 program
   .command("ingest")
