@@ -408,8 +408,16 @@ consequences worth knowing before you touch anything:
   npmjs.com names `release.yml` exactly, and npm does not check that configuration when
   you save it. Rename the file and publishing fails as an authentication error that says
   nothing about a rename.
+- **So is the environment name.** The job runs in the `release` environment and the
+  trusted publisher requires that claim, which is what stops some *other* workflow in
+  this repository from publishing. Both ends have to say `release`.
 - **`repository.url` in `package.json` must match this repo exactly**, for the same
   reason.
+
+The `release` environment is also where deployment protection lives. It is restricted to
+`v*` **tags**, so a push to a branch cannot reach it. Required reviewers would go here
+too — GitHub gates that rule behind a paid plan for private repositories, so there is no
+human approval step today; anyone who can push a `v*` tag can publish.
 
 ```sh
 npm version minor      # bumps package.json and tags

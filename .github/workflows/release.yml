@@ -24,6 +24,17 @@ jobs:
   publish:
     runs-on: ubuntu-latest # OIDC is not supported on self-hosted runners.
     timeout-minutes: 20
+    # PART OF THE CREDENTIAL, exactly like the filename above. The OIDC token
+    # carries this name as a claim, and the trusted publisher on npmjs.com is
+    # configured to require it — so a workflow in this repository that is not
+    # this job cannot publish, even one added later with `id-token: write`.
+    # Change it here and it must change there in the same breath.
+    #
+    # It is also where deployment protection lives: the environment is
+    # restricted to `v*` TAGS, so a push to a branch cannot reach it. Required
+    # reviewers belong here too and are not set — GitHub gates that rule behind
+    # a paid plan for private repositories.
+    environment: release
     steps:
       - uses: actions/checkout@v7
 
