@@ -370,8 +370,16 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     );
   }
   if (speedup > 1) {
+    // THE CUE RATE, not the spoken one. This quoted `cps * speedup` — what the
+    // VOICE does — under the word "subtitles", and a cue spans the words without
+    // the breath around them, so it always reads faster. At `+10%` that is 17
+    // reported against a caption that runs at 22: exactly at the broadcast bar by
+    // the number printed, 29% over it in the artifact. Same `CUE_OVERHEAD` that
+    // chooses the rate two lines up, so the sentence and the choice cannot
+    // disagree.
+    const cue = cps * speedup * CUE_OVERHEAD;
     warnings.push(
-      `narration speaks at ${rate} to fit ${chars} characters a slide into ${speechSeconds.toFixed(1)}s — ${slow.chars} at normal speed. Subtitles run near ${(cps * speedup).toFixed(0)} characters per second against the ${COMFORTABLE_CPS} cps broadcast practice, which is the cost of the extra words.`,
+      `narration speaks at ${rate} to fit ${chars} characters a slide into ${speechSeconds.toFixed(1)}s — ${slow.chars} at normal speed. Subtitles run near ${cue.toFixed(0)} characters per second against the ${COMFORTABLE_CPS} cps broadcast practice, which is the cost of the extra words.`,
     );
   }
 

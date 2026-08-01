@@ -693,12 +693,19 @@ describe("archetypes", () => {
     // `noteHeight` predicts two lines where the browser sets one; refusing a
     // table that would have fitted is the safe side of that gap.
     //
-    // TWO `cell`s MOVED WHEN `charUnits` STOPPED BEING EYEBALLED — 42 to 43 and
-    // 49 to 51, both because a measured table is narrower than the old buckets
-    // for wide headings, so the width solve buys a bigger size. Not one `last`
-    // moved with them: a taller row could have taken the boundary down, so both
-    // were rebuilt as real decks and put through the gate stack, which passes at
-    // 8 rows x 3 wide columns and at 7 x 6. The other three cases are untouched.
+    // NOT ONE `cell` MOVED WHEN `charUnits` STOPPED BEING EYEBALLED, which is
+    // not luck. The measured table is narrower than the old buckets for wide
+    // headings and briefly bought this case 43px — until the width solve started
+    // charging `TH_TRACKING`, which `th` is drawn with and the solve had never
+    // asked for. The two errors were opposite and close in size, and every size
+    // here landed back where it was.
+    //
+    // The wide-column case reads "Peak signal to noise ratio" rather than
+    // "Benchmark metric average" for that reason: measured honestly, the old
+    // heading solves to exactly 40, and a fixture on the MIN_FONT floor is a
+    // table too wide for its box — a different case, whose row boundary says
+    // nothing about this one. The rebuilt case still draws 8 rows at 42px, which
+    // was put through the gate stack as a real deck rather than derived.
     //
     // EVERY FIXTURE HERE FITS THE BOX WIDTHWISE, which `cell > MIN_FONT` below
     // asserts and is not a detail: the width solve only ever clamps to 40 when
@@ -727,9 +734,9 @@ describe("archetypes", () => {
         fmt: format,
         cols: 3,
         label: long,
-        metric: "Benchmark metric average",
+        metric: "Peak signal to noise ratio",
         ...sweep,
-        cell: 43,
+        cell: 42,
         last: 8,
       },
       {
@@ -739,7 +746,7 @@ describe("archetypes", () => {
         label: long,
         metric: "Metric",
         ...sweep,
-        cell: 51,
+        cell: 49,
         last: 7,
       },
       {

@@ -216,20 +216,29 @@ export function planCut(
       undrawable.add(beat.id);
       return;
     }
-    const own = beatSeconds(beat.seconds * speed, scene, segments);
-    // A camera's travel-and-dip is part of what this beat costs the deck's TOTAL
-    // — `layout` adds `diveTail` to this same beat's window — so a selection
-    // blind to it under-counts by 1.8s per dive and hands `verify` a cut that
-    // turns out not to fit. Asked of the floor's list rather than the final one,
-    // which is an upper bound and therefore safe: a beat carries a tail only
-    // when the next SURVIVING beat dives into it, and cutting beats can remove a
-    // tail but never add one.
-    const tail = floor[i + 1]?.inside?.beat === beat.id ? MOVE_SECONDS + FADE_SECONDS : 0;
-    seconds[beat.id] = rnd(own + tail * speed);
+    seconds[beat.id] = beatSeconds(beat.seconds * speed, scene, segments);
   });
   if (floor.length > 0 && undrawable.size === floor.length) {
     throw new Error(`every one of ${floor.length} beat(s) failed to draw — there is no deck`);
   }
+
+  // A camera's travel-and-dip is part of what this beat costs the deck's TOTAL —
+  // `layout` adds `diveTail` to this same beat's window — so a selection blind to
+  // it under-counts by 1.8s per dive and hands `verify` a cut that turns out not
+  // to fit.
+  //
+  // CHARGED OVER THE DRAWABLE LIST, which is why it is a second pass: a tail
+  // exists only when the next beat that is actually in the deck dives into this
+  // one, and `enteredParts` reads that off the SURVIVORS. Asked of the raw floor
+  // it charged 1.8s for a dive out of a beat an emitter had just refused — a beat
+  // that is not in the deck to be dived into — and a tight budget then cut
+  // somebody else to pay for it. Still an upper bound against the final cut,
+  // which is safe and deliberate: cutting beats can remove a tail, never add one.
+  const drawable = floor.filter((b) => !undrawable.has(b.id));
+  drawable.forEach((beat, i) => {
+    const tail = drawable[i + 1]?.inside?.beat === beat.id ? MOVE_SECONDS + FADE_SECONDS : 0;
+    seconds[beat.id] = rnd((seconds[beat.id] ?? 0) + tail * speed);
+  });
   // A refused beat is taken out of the storyboard the selection sees, not out of
   // its result: `selectBeats` derives its own list from `storyboard.beats`, so a
   // beat merely missing from `seconds` would be selected anyway, on its authored

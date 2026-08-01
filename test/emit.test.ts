@@ -262,6 +262,32 @@ describe("emitComposition", () => {
     );
   });
 
+  it("charges no camera tail for a dive out of a beat that was refused", () => {
+    // A tail is 1.8s of deck (`MOVE_SECONDS + FADE_SECONDS`) charged to the beat
+    // a camera leaves FROM. `layout` only creates one when the next SURVIVING
+    // beat dives in, so a tail owed to a beat an emitter has just refused is a
+    // tail the deck will never draw — and `planCut` was reading the relation off
+    // the pre-refusal list, so it billed 1.8s for a dive into a slide that is not
+    // there. Under a tight budget that pays for itself by cutting somebody else.
+    const withDive = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        storyboard.beats[0],
+        { ...overfull, inside: { beat: "b1", element: "eyebrow" } },
+        storyboard.beats[1],
+      ],
+    });
+    const noDive = storyboardSchema.parse({
+      ...storyboard,
+      beats: [storyboard.beats[0], overfull, storyboard.beats[1]],
+    });
+    const seconds = (sb: typeof withDive) =>
+      planCut(sb, source, format("deck-16x9"), { onBeatError: () => {} }).seconds;
+    // Same two surviving beats either way, so the same total. It differed by
+    // exactly MOVE_SECONDS + FADE_SECONDS before.
+    expect(seconds(withDive)).toBe(seconds(noDive));
+  });
+
   it("carries each scene across the seam instead of cutting to background", () => {
     // THE BLACKOUT. Scenes are absolutely positioned clips laid back to back, and
     // every archetype opens through `chromeIn` — nothing on screen before 0.15s,
