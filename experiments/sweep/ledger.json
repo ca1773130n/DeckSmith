@@ -1,5 +1,5 @@
 {
-  "tool": "5bfd9f695b42368e",
+  "tool": "de3238481a1692f2",
   "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
   "corpus": {
     "b04-grid:0": {
@@ -29,7 +29,7 @@
     "b09-data-table:3": {
       "verdict": "refused",
       "expect": [],
-      "was": "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` being centred put the headline off the top and the note off the bottom",
+      "was": "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` pins to the top padding once the body exceeds the content box, so the whole overrun went downward and put the note off the bottom",
       "fixed": "the data-table canvas-height gate, 0ae7c18"
     },
     "b09-data-table:4": {
@@ -71,7 +71,7 @@
   },
   "open": {},
   "format": "deck-16x9",
-  "updated": "2026-08-01T01:32:55.887Z",
+  "updated": "2026-08-01T06:16:01.696Z",
   "levels": [],
   "cells": {
     "b01-title:0": {
@@ -382,7 +382,7 @@
       "verdict": "refused",
       "axis": "row and column count",
       "rules": [],
-      "reason": "data-table b09: table \"tbl-b09-data-table-3\" has 9 rows, which with the header stand 875px tall at 52px type on 12px of row padding, and this slide has 782px. E",
+      "reason": "data-table b09: table \"tbl-b09-data-table-3\" has 9 rows, which with the header stand 864px tall at 52px type on 12px of row padding, and this slide has 698px. E",
       "deck": null,
       "scene": null
     },
@@ -390,7 +390,7 @@
       "verdict": "refused",
       "axis": "row and column count",
       "rules": [],
-      "reason": "data-table b09: table \"tbl-b09-data-table-4\" has 10 rows, which with the header stand 962px tall at 52px type on 12px of row padding, and this slide has 782px. ",
+      "reason": "data-table b09: table \"tbl-b09-data-table-4\" has 10 rows, which with the header stand 950px tall at 52px type on 12px of row padding, and this slide has 698px. ",
       "deck": null,
       "scene": null
     },

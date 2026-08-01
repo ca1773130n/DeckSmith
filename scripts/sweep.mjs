@@ -210,7 +210,7 @@ export const CORPUS = {
   "b09-data-table:3": {
     verdict: "refused",
     expect: [],
-    was: "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` being centred put the headline off the top and the note off the bottom",
+    was: "canvas_overflow at 9 rows x 5 columns — 10 rows at 52px type stand 875px against the 782px this slide has, and `.scene` pins to the top padding once the body exceeds the content box, so the whole overrun went downward and put the note off the bottom",
     fixed: "the data-table canvas-height gate, 0ae7c18",
   },
   "b09-data-table:4": {
