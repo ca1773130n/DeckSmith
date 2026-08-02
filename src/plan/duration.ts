@@ -222,11 +222,39 @@ export const SHORT_FORM_CPS = 22;
  * takes `+10%` and lands at 21.9. Wrong in the OUTPUT, not in a gate — no gate
  * looks at this, which is why it survived.
  *
- * SCALE-INVARIANCE IS ASSUMED, and is the one thing here not measured: the ratio
- * is taken at `+0%` and applied at every step, on the reasoning that speeding the
- * voice up shrinks the cue windows and the breaths between them together.
- * Measuring it at `+10%` and `+20%` means synthesising the demo again at those
- * rates. `test/duration.test.ts` pins the `+0%` end against the artifact.
+ * SCALE-INVARIANCE IS MEASURED, and it holds. The ratio is taken at `+0%` and
+ * applied at every step, on the reasoning that speeding the voice up shrinks the
+ * cue windows and the breaths between them together. `scripts/measure-cue-rate.mjs`
+ * re-synthesised all 37 segments at all five steps — `+0%` included, in one
+ * session, because edge-tts does not repeat itself and a fresh rate judged
+ * against a stored baseline measures the drift instead:
+ *
+ * ```
+ *   rate    meanCps   p95 cue   p95/mean   median/mean
+ *   +0%      14.509    18.089     1.2467        1.0601
+ *   +10%     15.752    20.392     1.2945        1.0653
+ *   +20%     17.148    21.321     1.2434        1.0567
+ *   +30%     18.540    23.263     1.2548        1.0572
+ *   +40%     20.205    25.515     1.2628        1.0663
+ * ```
+ *
+ * No trend in rate — so this stays a constant rather than becoming a function of
+ * the step. The p95 column wobbles because p95 over 39 cues IS THE SECOND-HIGHEST
+ * CUE, one window wide; `median/mean` is flat to within a percent, and it is the
+ * honest read on whether the distribution's shape moves. It does not.
+ *
+ * IT AND `RATE_STEPS` ARE ONE UNIT — DO NOT FIX EITHER ALONE. The same run
+ * measured what `--rate` actually buys over 37 segments rather than the one
+ * sentence `RATE_STEPS` was taken on, and the table overstates every step:
+ * 1.086 / 1.182 / 1.278 / 1.393 against its 1.187 / 1.252 / 1.394 / 1.533. That
+ * error runs OPPOSITE to this one. `+10%` measures 1.2945 here, 1.1% above the
+ * 1.28 below, which alone would under-predict a cue rate — but the inflated
+ * speedup more than covers it, so what `fastEnough` computes lands 1.9% to 10.7%
+ * ABOVE the artifact at every step, which is the safe direction for a ceiling.
+ * Correcting `RATE_STEPS` on its own removes the cover and leaves this number
+ * under-predicting at `+10%`. Re-measure both together, from the same run.
+ *
+ * `test/duration.test.ts` pins the `+0%` end against the artifact.
  */
 export const CUE_OVERHEAD = 1.28;
 
@@ -278,6 +306,17 @@ export const SPEAKING_STOPS: Record<Prefs["narration"]["density"], number> = {
  * 26.0 cps, already half again over the `COMFORTABLE_CPS` broadcast practice; at
  * `+60%` it is 28.5 and the caption is gone before it is read. `+50%` is
  * excluded for measuring slower than the step below it.
+ *
+ * THE SPEEDUPS ARE KNOWN TO BE HIGH, and are left alone deliberately. Measured
+ * again over the anchor deck's 37 segments rather than this one sentence,
+ * `--rate` buys 1.086 / 1.182 / 1.278 / 1.393 where this table claims 1.187 /
+ * 1.252 / 1.394 / 1.533 — a short sentence carries proportionally more silence
+ * at its ends, so timing one overstates what the prosody rate does to speech.
+ *
+ * Lowering them here is NOT a safe edit on its own: `CUE_OVERHEAD` is 1.1% below
+ * the cue ratio measured at `+10%`, and these inflated speedups are what covers
+ * that. See the coupling paragraph on `CUE_OVERHEAD`. Both come out of one run
+ * of `scripts/measure-cue-rate.mjs` and both have to move in it.
  *
  * Latin-measured. A CJK deck gets the same steps, which is a guess of the same
  * kind `SPEECH_CPS.cjk` already is — replace it the first time one is narrated.
