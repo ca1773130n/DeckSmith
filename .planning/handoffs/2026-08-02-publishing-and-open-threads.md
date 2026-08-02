@@ -212,10 +212,32 @@ npm deprecate "@jokerized/decksmith@0.1.1" "Broken decksmith-mcp binary — use 
 
 Low stakes. `latest` is 0.1.3, so nobody lands on them without pinning.
 
-### 6. `RATE_STEPS` overstates every speedup, and something else covers for it
+### 6. `RATE_STEPS` overstates every speedup — FIXED `9d724d9` (#27), 2026-08-02
 
-Found on 2026-08-02 while settling item 2, and left alone deliberately. This is
-now the top item on this list.
+Both constants moved together: the speedups are now the measured 1.086 / 1.182 /
+1.278 / 1.393, and `CUE_OVERHEAD` rose 1.28 → 1.30 to sit above every ratio the
+run observed rather than relying on the inflated speedups to cover it.
+
+**It cost a promise, and the promise was never real.** A 60s deck over twelve
+slides at low density now plans 66 characters against `EXPLAINING_CHARS` of 72.
+That is the configuration this repo's tests call "the configuration that shipped
+the complaint". It had been clearing 72 by two tenths of a character — 4.225 ×
+14.4 × 1.187 = 72.2 — on the strength of the wrong speedup, so the planner was
+asking for words the voice would not have fit in the beat. 90s reaches 102 and
+is where that configuration lives now.
+
+**One knob is still open, deliberately.** `CUE_OVERHEAD` at 1.30 refuses `+20%`
+for the demo (predicts 22.13 against a ceiling of 22) even though the artifact's
+own cues at that step read 21.76 and are inside it. ~1.26 is the centre of the
+five observations: it would take that step, track the artifact to within 0.6%,
+and put the 60s case back over 72 — while under-predicting on about half of
+future runs. Chosen 1.30 on 2026-08-02 to never be under on a statistic measured
+once over 39 cues. Both costs are pinned with their arithmetic in
+`test/duration.test.ts`; switching is one constant and two expectations.
+
+The finding and reasoning follow.
+
+Found on 2026-08-02 while settling item 2.
 
 The speedups in `src/plan/duration.ts` were timed on ONE 72-character sentence.
 Measured again over the anchor deck's 37 segments, `--rate` buys rather less:
@@ -231,7 +253,8 @@ Measured again over the anchor deck's 37 segments, `--rate` buys rather less:
 A short sentence carries proportionally more silence at its ends, so timing one
 overstates what the prosody rate does to speech.
 
-**Do not fix this alone.** `CUE_OVERHEAD` is 1.28 and the cue ratio measured at
+**Do not fix this alone.** (Both were fixed together in #27; this is the record
+of why that was the only safe way.) `CUE_OVERHEAD` is 1.28 and the cue ratio measured at
 `+10%` is 1.2945 — 1.1% above it, which by itself under-predicts a cue rate, and
 under-predicting is what puts unreadable captions on a deck. The inflated
 speedups are what covers that: together they land 1.9% to 10.7% ABOVE the
