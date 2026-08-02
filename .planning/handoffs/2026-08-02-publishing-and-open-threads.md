@@ -71,6 +71,17 @@ running at all. I would do the first and think about the second.
 
 ### 2. `CUE_OVERHEAD` is measured at one rate and applied at four
 
+**Settled in `ba0d4bc` (#24), 2026-08-02 — the assumption holds.**
+`scripts/measure-cue-rate.mjs` re-synthesised the anchor deck at all five steps
+and `p95/mean` does not trend with rate: 1.2467, 1.2945, 1.2434, 1.2548, 1.2628.
+So it stays a constant. The `+10%` reading is not an outlier worth chasing —
+p95 over 39 cues is the second-highest cue, and `median/mean` is flat to within
+a percent across the whole range.
+
+The run turned up something else, which is now item 6 below and matters more
+than this did: `RATE_STEPS` overstates every speedup, and the two errors
+currently cancel. Read that before touching either constant.
+
 In `src/plan/duration.ts`. The constant converts a mean spoken rate into a p95
 cue rate, and it decides how fast a fast-forward deck speaks. That puts it in
 shipped output instead of in a gate, which is how the old value survived so long.
@@ -148,6 +159,42 @@ npm deprecate "@jokerized/decksmith@0.1.1" "Broken decksmith-mcp binary — use 
 ```
 
 Low stakes. `latest` is 0.1.3, so nobody lands on them without pinning.
+
+### 6. `RATE_STEPS` overstates every speedup, and something else covers for it
+
+Found on 2026-08-02 while settling item 2, and left alone deliberately. This is
+now the top item on this list.
+
+The speedups in `src/plan/duration.ts` were timed on ONE 72-character sentence.
+Measured again over the anchor deck's 37 segments, `--rate` buys rather less:
+
+```
+  step    table   measured
+  +10%    1.187      1.086
+  +20%    1.252      1.182
+  +30%    1.394      1.278
+  +40%    1.533      1.393
+```
+
+A short sentence carries proportionally more silence at its ends, so timing one
+overstates what the prosody rate does to speech.
+
+**Do not fix this alone.** `CUE_OVERHEAD` is 1.28 and the cue ratio measured at
+`+10%` is 1.2945 — 1.1% above it, which by itself under-predicts a cue rate, and
+under-predicting is what puts unreadable captions on a deck. The inflated
+speedups are what covers that: together they land 1.9% to 10.7% ABOVE the
+artifact at every step, the safe direction for a ceiling. Lower these and the
+cover goes with them.
+
+Both constants carry the coupling in their own comments now. `npm run
+measure-cue-rate`, or rather `node scripts/measure-cue-rate.mjs`, produces every
+number for both in one run, which is the only way they should move.
+
+What it costs today: at `+20%` the artifact's p95 cue is 21.321 against a ceiling
+of 22, so that step is admissible — but the code predicts 23.077 for it and takes
+`+10%` instead. Fast-forward decks speak one step slower than they need to. That
+is a real cost and it is the safe kind, which is why this can wait for someone
+with ten minutes and a network.
 
 ---
 
