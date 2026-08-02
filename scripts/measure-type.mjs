@@ -30,6 +30,7 @@
  * Google Fonts endpoint `bundleFont` already calls. Needs network and the Chrome
  * `render` already requires.
  */
+import "./tmpdir.mjs";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -51,6 +52,48 @@ const CHARS = [
 
 /** The four the type scale uses. `weightFactor` must answer for exactly these. */
 const WEIGHTS = [400, 500, 600, 700];
+
+/** Must match `weightFactor` in src/emit/svg.ts. The two are one unit. */
+const factor = (w) => (w >= 700 ? 1.045 : w >= 600 ? 1.03 : w >= 500 ? 1.015 : 1);
+
+/**
+ * The blocks `BLOCK_ADVANCE` claims, and the faces that get to answer for them.
+ *
+ * One entry per Unicode block DeckSmith bundles a face for, because a block is
+ * the unit a CJK face is designed on: every Hangul syllable in Noto Sans KR is
+ * one advance, all 11,172 of them. The value pinned for a block is the MAX over
+ * these four families and every weight — `charUnits` is handed a character, not
+ * a language, so whichever family a deck bundles has to be covered by one
+ * number. Hangul is 0.920 in KR and 0.865 in SC/TC, so 0.920 it is.
+ *
+ * COVERAGE COMES FROM THE CSS, NOT FROM WHAT THE BROWSER DREW. Measuring a
+ * codepoint a family does not carry measures whatever system face Chrome fell
+ * back to, and it does so silently: Noto Sans TC "sets" Hangul at 0.865 that way
+ * while carrying no Hangul at all. So the `unicode-range` descriptors in
+ * Google's own CSS decide what is measured for whom.
+ */
+const CJK_FAMILIES = ["Noto Sans KR", "Noto Sans JP", "Noto Sans SC", "Noto Sans TC"];
+
+const BLOCKS = [
+  ["CJK symbols and punctuation", 0x3000, 0x303f],
+  ["hiragana", 0x3040, 0x309f],
+  ["katakana", 0x30a0, 0x30ff],
+  ["Hangul compatibility jamo", 0x3130, 0x318f],
+  ["CJK unified ideographs, extension A", 0x3400, 0x4dbf],
+  ["CJK unified ideographs", 0x4e00, 0x9fff],
+  ["Hangul syllables", 0xac00, 0xd7a3],
+  ["CJK compatibility ideographs", 0xf900, 0xfaff],
+  ["full-width forms", 0xff01, 0xff60],
+  // Deliberately absent, and each for its own reason. Hangul jamo (U+1100-11FF):
+  // KR declares none of it, so a bundle has no glyph to measure and decomposed
+  // jamo is out of contract. Half-width forms (U+FF61-FFDC): the faces declare
+  // the range but mostly do not carry it, and the measurements come back equal
+  // to the fallback face, which is a number about macOS rather than about the
+  // bundle. Both keep the blanket, which over-charges them — the safe direction.
+];
+
+/** Reported, not pinned — see the note this prints. */
+const EMOJI = [..."😀🎯🚀✅❌⚠️🔥💡📈🇰🇷👍🏽"];
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
@@ -178,12 +221,149 @@ const shaped = await tab.evaluate(
   corpus,
   WEIGHTS,
 );
+
+/* --------------------------------------------------------------- CJK blocks */
+
+/** Codepoints a family declares it carries, read off its @font-face rules. */
+async function coverage(family) {
+  const res = await fetch(
+    `https://fonts.googleapis.com/css2?family=${family.replaceAll(" ", "+")}` +
+      `:wght@400;500;700&display=block`,
+    { headers: { "User-Agent": UA } },
+  );
+  if (!res.ok) throw new Error(`${family}: HTTP ${res.status}`);
+  const css = await res.text();
+  const spans = [];
+  for (const rule of css.matchAll(/unicode-range:\s*([^;]+);/g)) {
+    for (const part of rule[1].split(",")) {
+      const t = part.trim().replace(/^U\+/i, "");
+      const [a, b] = t.split("-");
+      // `U+4E??` is a wildcard span, not a codepoint.
+      spans.push([
+        Number.parseInt(a.replaceAll("?", "0"), 16),
+        Number.parseInt((b ?? a).replaceAll("?", "F"), 16),
+      ]);
+    }
+  }
+  return (cp) => spans.some(([lo, hi]) => cp >= lo && cp <= hi);
+}
+
+const cjkTab = await browser.newPage();
+await cjkTab.setUserAgent(UA);
+await cjkTab.setContent("<!doctype html><meta charset=utf-8><body style=margin:0>");
+
+const blockMax = {};
+for (const family of CJK_FAMILIES) {
+  const covers = await coverage(family);
+  const chars = {};
+  for (const [name, lo, hi] of BLOCKS) {
+    const cs = [];
+    for (let cp = lo; cp <= hi; cp++) if (covers(cp)) cs.push(String.fromCodePoint(cp));
+    if (cs.length > 0) chars[name] = cs;
+  }
+  process.stderr.write(
+    `${family}: ${Object.entries(chars)
+      .map(([k, v]) => `${k} ${v.length}`)
+      .join(", ")}\n`,
+  );
+
+  await cjkTab.evaluate(
+    async (href) => {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = href;
+      document.head.appendChild(link);
+      await new Promise((done) => {
+        link.onload = done;
+        link.onerror = done;
+      });
+    },
+    `https://fonts.googleapis.com/css2?family=${family.replaceAll(" ", "+")}:wght@400;500;700&display=block`,
+  );
+
+  const measured = await cjkTab.evaluate(
+    async (family, weights, chars) => {
+      const out = {};
+      for (const weight of weights) {
+        for (const [name, cs] of Object.entries(chars)) {
+          // The slices are lazy: nothing loads until something asks for that
+          // text, and a `font-display: block` face serves fallback metrics
+          // until it does.
+          await document.fonts.load(`${weight} 100px "${family}"`, cs.join(""));
+          await document.fonts.ready;
+
+          // One layout for the whole block rather than one per character:
+          // 11,172 forced reflows is minutes, 11,172 reads after one is not.
+          const style = (fam) =>
+            `position:absolute;white-space:pre;font-size:1000px;font-weight:${weight};` +
+            `font-family:${fam};font-kerning:none;font-feature-settings:"kern" 0,"calt" 0,"liga" 0`;
+          const frag = document.createDocumentFragment();
+          const make = (fam) =>
+            cs.map((c) => {
+              const el = document.createElement("span");
+              el.style.cssText = style(fam);
+              el.textContent = c;
+              frag.appendChild(el);
+              return el;
+            });
+          const mine = make(`"${family}"`);
+          const fallback = make("__no_such_family__");
+          document.body.appendChild(frag);
+          const a = mine.map((el) => el.getBoundingClientRect().width / 1000);
+          const b = fallback.map((el) => el.getBoundingClientRect().width / 1000);
+          for (const el of [...mine, ...fallback]) el.remove();
+
+          out[`${weight}|${name}`] = {
+            n: a.length,
+            max: Math.max(...a),
+            distinct: new Set(a.map((x) => x.toFixed(4))).size,
+            // Equal to the fallback face is not proof of falling back — both are
+            // full-width for Han — but zero of them is proof of not.
+            fallbackEqual: a.filter((x, i) => x === b[i]).length,
+          };
+        }
+      }
+      return out;
+    },
+    family,
+    WEIGHTS,
+    chars,
+  );
+
+  for (const [key, s] of Object.entries(measured)) {
+    const [w, name] = key.split("|");
+    const prev = blockMax[name];
+    const value = s.max / factor(Number(w));
+    if (!prev || value > prev.value) {
+      blockMax[name] = { value, who: `${family}@${w}`, n: s.n, ...s };
+    }
+  }
+}
+
+const emoji = await cjkTab.evaluate(
+  (chars, weights) => {
+    const el = document.createElement("span");
+    el.style.cssText = "position:absolute;white-space:pre;font-size:1000px";
+    document.body.appendChild(el);
+    const out = {};
+    for (const weight of weights) {
+      el.style.fontWeight = String(weight);
+      for (const c of chars) {
+        el.textContent = c;
+        out[`${weight}|${c}`] = el.getBoundingClientRect().width / 1000;
+      }
+    }
+    el.remove();
+    return out;
+  },
+  EMOJI,
+  WEIGHTS,
+);
+
 await browser.close();
 
 /* ------------------------------------------------------------------- report */
 
-/** Must match `weightFactor` in src/emit/svg.ts. The two are one unit. */
-const factor = (w) => (w >= 700 ? 1.045 : w >= 600 ? 1.03 : w >= 500 ? 1.015 : 1);
 const up3 = (x) => Math.ceil(x * 1000) / 1000;
 const best = (c, mode) =>
   Math.max(...WEIGHTS.map((w) => (advances[`${w}|${mode}|${c}`] ?? 0) / factor(w)));
@@ -231,6 +411,33 @@ for (const w of WEIGHTS.slice(1)) {
     `  ${w}: ${(rs.reduce((a, b) => a + b, 0) / rs.length).toFixed(4)}   (code says ${factor(w)})`,
   );
 }
+
+console.log("\n/* paste into BLOCK_ADVANCE in src/emit/svg.ts */");
+const hex = (cp) => `0x${cp.toString(16)}`;
+for (const [name, lo, hi] of BLOCKS) {
+  const m = blockMax[name];
+  if (!m) {
+    console.log(`  /* ${name}: no family declares it — keeps the blanket */`);
+    continue;
+  }
+  console.log(
+    `  [${hex(lo)}, ${hex(hi)}, ${up3(m.value)}], // ${name}` +
+      `  (${m.n} declared, ${m.distinct} distinct, peak ${m.who}` +
+      `${m.fallbackEqual === 0 ? "" : `, ${m.fallbackEqual} equal to fallback`})`,
+  );
+}
+
+const emojiMax = Math.max(...Object.values(emoji));
+console.log(
+  `\nemoji, MEASURED BUT NOT PINNED: max ${emojiMax.toFixed(3)}em over ${EMOJI.length} ` +
+    `(worst ${JSON.stringify(
+      Object.entries(emoji)
+        .sort((a, b) => b[1] - a[1])[0][0]
+        .split("|")[1],
+    )}).\n  No bundle ships an emoji face, so this is whatever this machine falls back to\n` +
+    `  and a different render host answers differently. The blanket is ${1.02}; a value\n` +
+    `  above it here means the blanket under-predicts emoji ON THIS MACHINE.`,
+);
 
 const excess = shaped
   .map((r) => ({

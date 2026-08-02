@@ -195,21 +195,90 @@ const TABULAR_FIGURE = 0.649;
 const TABULAR_SEPARATOR = 0.269;
 
 /**
- * A character the table does not carry costs a full em.
+ * Advance of one character in the CJK faces this project bundles, per BLOCK.
  *
- * Hangul, kana, CJK, full-width forms and emoji genuinely do. So does the tail
- * this deliberately does not tabulate — Greek, Cyrillic, Latin Extended, the
- * arrows and operators outside the set above — where 1.02 over-predicts a
- * Cyrillic "ш" by half and under-predicts nothing. Over-predicting costs room;
- * under-predicting draws off the canvas, and only one of those is recoverable.
- * Measuring a script the product does not claim to set would be inventing data.
+ * A block is the right unit here in a way it never was for Inter. Latin advances
+ * vary per glyph by a factor of four, which is why `ADVANCE` is per character;
+ * a CJK face is drawn on an em grid, and all 11,172 Hangul syllables in Noto
+ * Sans KR are one number. Measured, they are: 11,172 codepoints, ONE distinct
+ * advance, at every weight.
+ *
+ * WHY THIS EXISTS. Everything here used to cost a flat 1.02em — the blanket
+ * below — and Hangul draws at 0.920. A Korean deck was measured 11% wider than
+ * it sets, and the whole cost of that lands as beats refused for room they
+ * actually have. Nothing else in the project could see it: over-predicting is
+ * the safe direction, so every gate stayed green while Korean decks quietly
+ * dropped content.
+ *
+ * ONE NUMBER PER BLOCK, ACROSS ALL FOUR FAMILIES. `charUnits` is handed a
+ * character, not a language, so it cannot know whether a "가" is being set in
+ * Noto Sans KR (0.920) or Noto Sans SC (0.865). The max over the families is
+ * therefore what gets pinned, which is exact for the family that peaks and
+ * over-predicts for the rest — the safe direction, again.
+ *
+ * WHAT THIS ASSUMES, SAID OUT LOUD: that the deck's bundle carries the glyphs
+ * the deck sets. `bundleFont` subsets the family `familyFor(lang)` chose over
+ * exactly those glyphs, so this holds for the language a deck is written in.
+ * It does NOT hold for a stray script — Hangul inside a `ja` deck bundles no
+ * Hangul, falls back to whatever the render host has, and is then measured
+ * against a face nobody chose. That deck is already broken by invariant 9,
+ * which is about the same silence.
+ *
+ * `node scripts/measure-type.mjs` re-derives this block, exhaustively over every
+ * codepoint the four families declare, and prints it ready to paste.
  */
-function charUnits(c: string, tabular: boolean): number {
+const BLOCK_ADVANCE: readonly (readonly [number, number, number])[] = [
+  [0x3000, 0x303f, 1], // CJK symbols and punctuation
+  [0x3040, 0x309f, 1], // hiragana
+  [0x30a0, 0x30ff, 1], // katakana
+  [0x3130, 0x318f, 0.92], // Hangul compatibility jamo
+  [0x3400, 0x4dbf, 1], // CJK unified ideographs, extension A
+  [0x4e00, 0x9fff, 1], // CJK unified ideographs
+  [0xac00, 0xd7a3, 0.92], // Hangul syllables
+  [0xf900, 0xfaff, 1], // CJK compatibility ideographs
+  [0xff01, 0xff60, 1], // full-width forms
+];
+
+/**
+ * A character neither table carries costs a little over a full em.
+ *
+ * This covers the tail nothing here deliberately tabulates — Greek, Cyrillic,
+ * Latin Extended, the arrows and operators outside `ADVANCE`, emoji, and the
+ * two CJK-adjacent blocks `BLOCK_ADVANCE` refuses on purpose. It over-predicts
+ * a Cyrillic "ш" by half and under-predicts nothing measured: emoji come back
+ * at 1.000em, and half-width forms at 0.500. Over-predicting costs room;
+ * under-predicting draws off the canvas, and only one of those is recoverable.
+ * Measuring a script the product ships no face for would be inventing data.
+ */
+const UNMEASURED = 1.02;
+
+/**
+ * Units for `c`, and whether that number grows with font weight.
+ *
+ * It does for Inter, which is the whole reason `weightFactor` exists. It does
+ * NOT for the CJK faces: Noto Sans KR sets Hangul at 0.920 at 400, at 500 and
+ * at 700 alike, because the em grid is the design and weight only fills it. The
+ * drawn widths in `test/svg.test.ts` say so twice over — "영상 복원 결과" at
+ * weight 700 measures 238.97px, which is six syllables of exactly 0.920em plus
+ * its spaces, with nothing left over for a bold penalty.
+ *
+ * Applying `weightFactor` to them anyway charged a bold Korean line 4.5% it
+ * never spends. That is the same failure as the blanket, one layer down.
+ */
+function charUnits(c: string, tabular: boolean): [units: number, scalesWithWeight: boolean] {
   if (tabular) {
-    if (c >= "0" && c <= "9") return TABULAR_FIGURE;
-    if (c === "." || c === ",") return TABULAR_SEPARATOR;
+    if (c >= "0" && c <= "9") return [TABULAR_FIGURE, true];
+    if (c === "." || c === ",") return [TABULAR_SEPARATOR, true];
   }
-  return ADVANCE[c] ?? 1.02;
+  const measured = ADVANCE[c];
+  if (measured !== undefined) return [measured, true];
+  // `for (const c of text)` iterates code points, so an astral character
+  // arrives whole and `codePointAt` reads it rather than half a surrogate.
+  const cp = c.codePointAt(0) ?? 0;
+  for (const [lo, hi, units] of BLOCK_ADVANCE) if (cp >= lo && cp <= hi) return [units, false];
+  // The unmeasured tail keeps the weight factor: most of it is Inter setting
+  // Greek or Cyrillic, and paying the factor over-predicts, which is safe.
+  return [UNMEASURED, true];
 }
 
 /**
@@ -250,10 +319,14 @@ export function textWidth(
   tracking = 0,
   tabular = false,
 ): number {
-  let units = 0;
+  // Two pools, because only one of them answers to weight. See `charUnits`.
+  let weighted = 0;
+  let emGrid = 0;
   let chars = 0;
   for (const c of text) {
-    units += charUnits(c, tabular);
+    const [units, scalesWithWeight] = charUnits(c, tabular);
+    if (scalesWithWeight) weighted += units;
+    else emGrid += units;
     chars++;
   }
   // `tracking` is CSS `letter-spacing`, in em, and it is not decoration: the
@@ -266,7 +339,19 @@ export function textWidth(
   // when it measures a run for wrapping. Tracking is purely additive: measured,
   // a run set at .14em is its own width plus .14em per character exactly, so it
   // is outside `KERN_SLACK` rather than multiplied by it.
-  return units * KERN_SLACK * fontSize * weightFactor(weight) + tracking * fontSize * chars;
+  // KEEP THE ORIGINAL BRACKETING WHEN THERE IS NOTHING TO SPLIT. Text with no
+  // em-grid character is every Latin deck, and for it the two pools collapse
+  // back to one sum — but `(u * f) * K * size` and `u * K * size * f` are not
+  // the same double. They differ on a third of inputs, by about 1e-12px, and
+  // that is enough: reassociating alone flipped `b06-stack:4` from ok to a real
+  // label overprint, because its layout sat exactly on a fit boundary. The
+  // sweep caught it; nothing else would have.
+  if (emGrid === 0) {
+    return weighted * KERN_SLACK * fontSize * weightFactor(weight) + tracking * fontSize * chars;
+  }
+  return (
+    (weighted * weightFactor(weight) + emGrid) * KERN_SLACK * fontSize + tracking * fontSize * chars
+  );
 }
 
 /**
