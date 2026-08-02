@@ -79,3 +79,8 @@ grid-16x9.png
 grid-full.png
 studio.png
 pilotB01.png
+
+# Local `just` settings. Read by `set dotenv-load`, so a line here overrides a
+# default in the justfile — which is how a machine's own choices (a non-loopback
+# DECKSMITH_HOST, a tighter rate limit) stay out of everyone else's checkout.
+.env
