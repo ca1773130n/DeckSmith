@@ -9,6 +9,17 @@ import { access, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 
+// EMPTY IT FIRST. `files` is `["dist", "README.md"]`, so the tarball is whatever
+// the directory happens to hold — and nothing here ever removed anything. A tree
+// where `npm run serve` had run carried `dist/server/` into the package: 0.1.0
+// went to npm with 78 entries against 0.1.3's 71, eight of them server files
+// nobody asked for. CI publishes from a fresh checkout so it never saw this; a
+// hand-publish does, and the first publish of any new package has to be one,
+// because npm requires the package to exist before OIDC can attach to it.
+// `prepare` runs this before `npm pack`/`npm publish`, so wiping here is what
+// makes the tarball equal the build — and a local build equal a CI one.
+await rm("dist", { recursive: true, force: true });
+
 const shared = { bundle: true, minify: false, logLevel: "info" };
 
 // Keep runtime deps external: they're installed, and bundling them into a CLI
