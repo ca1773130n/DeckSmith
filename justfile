@@ -98,6 +98,14 @@ doctor:
       else console.log("  TMPDIR    "+t);'
 
 # ────────────────────────────────────────────────────────────────── gates ────
+#
+# `build` AND `sweep` ARE UNSAFE AGAINST A RUNNING SERVER. `scripts/build.mjs`
+# empties `dist/` before it writes, and a job reads `dist/deck-runtime.js` off
+# disk every time it emits a deck (src/index.ts). So a build in a second
+# terminal deletes that file — and all of `dist/server/` — out from under a live
+# `just serve`: a deck emitting inside the window fails, and any import the
+# server had not yet loaded is gone for the life of the process. Stop the server
+# first. `check` does not build and is safe.
 
 # typecheck + lint + tests. Does NOT build — a green check over a stale dist
 # proves less than it looks like it does.

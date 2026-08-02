@@ -296,7 +296,12 @@ export function edgeProvider(runner: Runner = edgeTts): SpeechProvider {
   return {
     id: "edge-tts",
     async check() {
-      resolveEdgeTts();
+      // AWAITED. This read `resolveEdgeTts();` — the promise was built and
+      // dropped, so `check()` resolved whatever the answer was, and a missing
+      // edge-tts came back as a passed check plus an unhandled rejection. A
+      // readiness probe that cannot fail is worse than none, because the caller
+      // then trusts it.
+      await resolveEdgeTts();
     },
     async speak(req) {
       const subs = `${req.audio.replace(/\.mp3$/, "")}.srt`;
