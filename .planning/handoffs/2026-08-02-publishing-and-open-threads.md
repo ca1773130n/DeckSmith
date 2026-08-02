@@ -245,14 +245,29 @@ the complaint". It had been clearing 72 by two tenths of a character — 4.225 �
 asking for words the voice would not have fit in the beat. 90s reaches 102 and
 is where that configuration lives now.
 
-**One knob is still open, deliberately.** `CUE_OVERHEAD` at 1.30 refuses `+20%`
-for the demo (predicts 22.13 against a ceiling of 22) even though the artifact's
-own cues at that step read 21.76 and are inside it. ~1.26 is the centre of the
-five observations: it would take that step, track the artifact to within 0.6%,
-and put the 60s case back over 72 — while under-predicting on about half of
-future runs. Chosen 1.30 on 2026-08-02 to never be under on a statistic measured
-once over 39 cues. Both costs are pinned with their arithmetic in
-`test/duration.test.ts`; switching is one constant and two expectations.
+**The knob is CLOSED, and was tried.** An earlier version of this section said
+`CUE_OVERHEAD` could drop to ~1.26 — the centre of the five measured ratios — to
+take `+20%` and put the 60s case back over 72, "one constant and two
+expectations". That was tried on 2026-08-02 and **it is wrong**:
+
+```
+FAIL  never claims less cue overhead than the deck actually has
+      expected 1.26 to be greater than or equal to 1.2784027777777778
+```
+
+The floor is the anchor deck's own ratio, `DEMO_P95_CUE_CPS / SPEECH_CPS.latin`
+= 18.409 / 14.4 = 1.2784, and a constant under it admits a step whose captions
+are over the ceiling — the exact 1.17 bug that started all of this. The five
+re-measured ratios centre on 1.2604 and look like they permit 1.26, but they are
+a DIFFERENT synthesis: edge-tts does not repeat itself, and the shipped artifact
+in `demo/audio` is the deck that exists. The usable range is [1.2784, 1.2945].
+1.30 clears both ends; 1.26 clears neither.
+
+So the 60-second sentence is not bought back by tuning this constant. It is
+bought with seconds or with slides. 90s plans 102.
+
+Credit where due: nothing here was reasoned out in advance — the test caught it
+on the first run, which is the only reason this paragraph is not a bug.
 
 The finding and reasoning follow.
 
