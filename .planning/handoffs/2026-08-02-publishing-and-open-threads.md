@@ -88,13 +88,30 @@ minutes of audio.
 
 ### 3. The CJK width fallback over-charges Hangul by about 12%
 
-In `src/emit/svg.ts`. Any character the measured `ADVANCE` table does not carry
-costs a flat 1.02 em: Hangul, kana, Han, full-width forms and emoji alike. Noto
-Sans KR sets Hangul at roughly 0.92, so a Korean deck gets measured about 12%
-wider than it draws, and what that costs is beats refused for room they have.
+**Fixed in `fdbc60c` (#22), 2026-08-02.** `BLOCK_ADVANCE` in `src/emit/svg.ts`
+pins a measured advance per Unicode block — Hangul at 0.920 — derived
+exhaustively over every codepoint the four bundled Noto families declare.
+`test/svg.test.ts` lost the 1.13 bar with it; CJK now passes the same 1.07 as
+every other script. Two further things came out of doing it:
 
-It is safe, it is deliberate, and `test/svg.test.ts` pins it, allowing the Korean
-case its own 1.13 bar and saying why.
+- `weightFactor` was being applied to CJK, which charged bold Hangul 4.5% that
+  a face drawn on an em grid never spends. Weight now applies only to the pool
+  that answers to it.
+- Splitting the sum into two pools reassociates the multiply for Latin as well,
+  and `(u * f) * K * size` differs from `u * K * size * f` by about 1e-12px on
+  a third of inputs. That flipped `b06-stack:4` to a real label overprint.
+  Latin keeps the original bracketing exactly. **Only `npm run sweep` caught
+  it** — `check` was green throughout, which is the trap below about a green
+  `check` proving less than it looks like it does, in its sharpest form.
+
+Hangul jamo and half-width forms deliberately keep the blanket: no bundled
+family carries enough of either to measure. The reasoning below is kept because
+it is why the numbers are what they are.
+
+In `src/emit/svg.ts`. Any character the measured `ADVANCE` table did not carry
+cost a flat 1.02 em: Hangul, kana, Han, full-width forms and emoji alike. Noto
+Sans KR sets Hangul at roughly 0.92, so a Korean deck got measured about 12%
+wider than it drew, and what that cost is beats refused for room they have.
 
 Tighten it by measuring per script. Lowering the blanket is the wrong move, since
 the same 1.02 also covers emoji, which genuinely exceed one em.
