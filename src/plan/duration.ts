@@ -257,10 +257,27 @@ export const SHORT_FORM_CPS = 22;
  * IT COSTS A STEP, KNOWINGLY. The demo's real p95 cue at `+20%` is 21.321,
  * inside the ceiling of 22 — but this predicts 22.13 for that step and refuses
  * it, so the deck takes `+10%` and speaks slower than the artifact proves it
- * could. A central estimate of ~1.26 would admit `+20%` and track the artifact
- * to within 0.6%; it would also under-predict on about half of future runs. The
- * trade was made deliberately in favour of never being under, on a statistic
- * measured once over 39 cues.
+ * could. It also costs the 60-second case its full sentence: twelve slides at
+ * low density plan 66 characters against the 72 of `EXPLAINING_CHARS`, where
+ * ~1.26 would plan exactly 72.
+ *
+ * 1.26 IS NOT AVAILABLE, THOUGH, and it is worth writing down why because the
+ * arithmetic above makes it look free. **The floor is 1.2784**, which is this
+ * deck's own `DEMO_P95_CUE_CPS / SPEECH_CPS.latin` — 18.409 / 14.4 — and
+ * `test/duration.test.ts` fails anything under it, one-sided and on purpose.
+ * A constant below the anchor's measured ratio admits a step whose captions are
+ * over the ceiling, which is exactly the 1.17 bug this replaced.
+ *
+ * The five ratios in the table above centre on 1.2604 and tempt you under that
+ * floor. They are a DIFFERENT synthesis of the same text: edge-tts does not
+ * repeat itself, and the `+0%` re-run came back at 1.2467 where the artifact in
+ * `demo/audio` sits at 1.2784. The shipped artifact wins — it is the deck that
+ * actually exists. So the honest range is [1.2784, 1.2945], the second number
+ * being the highest ratio the re-run saw, and 1.30 clears both.
+ *
+ * The 60-second sentence is therefore not bought back by tuning this. It is
+ * bought with seconds or with slides, which is what the rest of this file has
+ * said all along, and 90s plans 102.
  *
  * `test/duration.test.ts` pins the `+0%` end against the artifact.
  */
