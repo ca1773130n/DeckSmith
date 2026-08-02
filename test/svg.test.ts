@@ -69,8 +69,15 @@ describe("textWidth", () => {
       ["Every part of the network, in the order it runs", 76, 700, -0.015, false, 1604.42],
       ["QUANTITATIVE COMPARISON · ×4", 42, 500, 0.14, false, 852.81],
       ["L1 0.0346 → 0.0235", 40, 400, 0, false, 370.17],
-      // Noto Sans KR, ahead of Inter in the stack, as a Korean deck composes it.
-      ["복원 파이프라인", 40, 400, 0, false, 266.55],
+      // The bundled Noto face, ahead of Inter in the stack, as a deck of that
+      // language composes it. Han and kana land on exactly 1.000em a character
+      // — 240.00 is six of them, 320.00 is eight — and Hangul on 0.920, which
+      // 238.97 says again at weight 700: six syllables plus two spaces, with
+      // nothing left over for a bold penalty a CJK face does not charge.
+      ["복원 파이프라인", 40, 400, 0, false, 266.55], // Noto Sans KR
+      ["영상 복원 결과", 40, 700, 0, false, 238.97], // Noto Sans KR, bold
+      ["重建管线对比", 40, 400, 0, false, 240.0], // Noto Sans SC
+      ["復元パイプライン", 40, 400, 0, false, 320.0], // Noto Sans JP
     ];
     for (const [text, size, weight, tracking, tabular, drawn] of CASES) {
       const w = textWidth(text, size, weight, tracking, tabular);
@@ -82,14 +89,14 @@ describe("textWidth", () => {
       // And not wastefully larger: room over-charged is room an archetype
       // refuses a beat for.
       //
-      // The Korean line gets its own bar because the CJK fallback is a BLANKET,
-      // unchanged by the Latin table below it: one 1.02em for Hangul, kana, Han,
-      // full-width forms and emoji alike. Noto Sans KR sets Hangul at about
-      // 0.92em, so a Korean deck is over-charged by ~12% — safe, deliberate, and
-      // the cost of not pinning per-script metrics for a face this suite cannot
-      // measure. Tighten it by measuring Hangul, not by lowering the blanket.
-      const bar = /[⺀-￿]/.test(text) ? 1.13 : 1.07;
-      expect(w / drawn, `${where} over-predicts`).toBeLessThanOrEqual(bar);
+      // ONE BAR FOR EVERY SCRIPT. The Korean line used to get its own 1.13,
+      // because everything outside the Latin table cost a flat 1.02em and Noto
+      // Sans KR draws Hangul at 0.920 — an 11% over-charge that no gate could
+      // see, since over-predicting is the safe direction. `BLOCK_ADVANCE` pins
+      // the measured value per block instead, and the exception went with it.
+      // A CJK line that needs a looser bar than a Latin one is the old blanket
+      // growing back.
+      expect(w / drawn, `${where} over-predicts`).toBeLessThanOrEqual(1.07);
     }
   });
 
@@ -98,14 +105,25 @@ describe("textWidth", () => {
     // A table's figures are wider than a headline's, which is the whole reason
     // `tabular` is a parameter rather than a single number for both.
     expect(textWidth("1.592", 40, 400, 0, true)).toBeGreaterThan(textWidth("1.592", 40));
-    // Every glyph the table does not carry falls back to a full em, never to
-    // something narrower than the widest thing it might be.
+    // A glyph neither table carries still costs a little over a full em, never
+    // something narrower than the widest thing it might be. Emoji measure
+    // 1.000em in Chrome, so the blanket covers them.
     expect(textWidth("\u{1F600}", 40)).toBeGreaterThanOrEqual(40);
+    // Hangul jamo and half-width forms are deliberately NOT in `BLOCK_ADVANCE`
+    // — no bundled family carries enough of either to measure — so they keep
+    // the blanket rather than borrowing a neighbouring block's number.
+    expect(textWidth("ᄀ", 40)).toBeGreaterThan(textWidth("가", 40));
   });
 
-  it("treats bold as wider and CJK as full width", () => {
+  it("treats bold as wider, but only where the face is", () => {
     expect(textWidth("Params", 40, 700)).toBeGreaterThan(textWidth("Params", 40, 400));
-    expect(textWidth("복원", 40)).toBeGreaterThanOrEqual(2 * 40);
+    // Han is full width; Hangul is not, and pretending otherwise is what cost a
+    // Korean deck 11% of its room.
+    expect(textWidth("重建", 40)).toBeGreaterThanOrEqual(2 * 40);
+    expect(textWidth("복원", 40)).toBeLessThan(2 * 40);
+    // A CJK face fills the em grid at every weight rather than widening it, so
+    // bold Hangul costs exactly what regular Hangul does.
+    expect(textWidth("복원", 40, 700)).toBe(textWidth("복원", 40, 400));
   });
 });
 
