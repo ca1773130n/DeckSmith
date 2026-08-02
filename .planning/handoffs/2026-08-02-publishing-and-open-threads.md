@@ -186,9 +186,12 @@ speedups are what covers that: together they land 1.9% to 10.7% ABOVE the
 artifact at every step, the safe direction for a ceiling. Lower these and the
 cover goes with them.
 
-Both constants carry the coupling in their own comments now. `npm run
-measure-cue-rate`, or rather `node scripts/measure-cue-rate.mjs`, produces every
-number for both in one run, which is the only way they should move.
+Both constants carry the coupling in their own comments now, and
+`node scripts/measure-cue-rate.mjs` produces every number for both in one run,
+which is the only way they should move. It needs edge-tts, ffprobe, a network
+and about ten minutes. There is no `npm run` alias, the same as
+`measure-type.mjs`: neither is a gate, and giving them one invites someone to
+put them in `check`, where they would fail on a plane.
 
 What it costs today: at `+20%` the artifact's p95 cue is 21.321 against a ceiling
 of 22, so that step is admissible — but the code predicts 23.077 for it and takes
