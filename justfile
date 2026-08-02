@@ -3,14 +3,34 @@
 # `just` with no arguments lists everything. Every setting below is also an
 # environment variable, so `PORT=9000 just serve` wins over the file for one run
 # without editing it.
+#
+# PUT YOUR OWN SETTINGS IN `.env`, WHICH IS GIT-IGNORED. It is read before the
+# block below, so a line there wins over the default without editing a tracked
+# file and without exporting anything in your shell:
+#
+#     DECKSMITH_HOST=0.0.0.0
+#     DECKSMITH_JOBS_PER_HOUR=1
+#
+# That separation is the point. The defaults here are what a stranger who clones
+# this repo gets, and they should be the safe answer; what YOU run is your call
+# and belongs in a file nobody else receives.
+
+set dotenv-load := true
 
 # ─────────────────────────────────────────────────────────────── settings ────
 
-# Interface the server binds. 127.0.0.1 keeps it on this machine; 0.0.0.0 puts
-# it on your network, where anyone who can reach it can queue jobs that SPEND
-# CODEX TOKENS ON YOUR ACCOUNT. There is no auth in this server — the only
-# brakes are the two rate limits below. Opening it is meant to be a decision.
-host := env("DECKSMITH_HOST", "0.0.0.0")
+# Interface the server binds.
+#
+# LOOPBACK, matching the default `src/server/main.ts` argues for at length, and
+# for its reason: there is NO AUTH in this server, and a job spends Codex tokens
+# on whoever's account it runs under. On 0.0.0.0 anyone who can reach the port
+# can queue that work. The only brakes are the two rate limits below.
+#
+# This file used to default to 0.0.0.0 because that is what one machine's owner
+# wanted, which made a tracked file quietly overrule the server's own stated
+# posture for every person who cloned the repo. Their choice now lives in their
+# `.env`, where it only affects them. Do the same rather than editing this line.
+host := env("DECKSMITH_HOST", "127.0.0.1")
 port := env("PORT", "8475")
 
 # Where jobs unpack, build and get swept from.
