@@ -140,6 +140,28 @@ are plan-gated:
     Please ensure the billing plan supports the required reviewers protection rule.
 ```
 
+**THE PREMISE ABOVE IS STALE, corrected 2026-08-02. The repository is public.**
+`gh repo view` says `"visibility":"PUBLIC"`. The 422 is from 2026-08-01, when it
+was not, and everything that error implied has changed:
+
+- **Required reviewers should now be free.** Environment protection rules are
+  available on public repositories on every plan. Nobody has retried the call,
+  so treat this as "should" until someone does — it is one `gh api` PUT away.
+- **Provenance should now appear by itself.** npm generates an attestation
+  automatically for a trusted publish when the package is public and the
+  REPOSITORY is public, with no `--provenance` flag; passing the flag is not the
+  missing piece and never was.
+
+0.1.0 through 0.1.3 carry no attestation, and that is the old state rather than
+a broken workflow: all four were published inside a hundred minutes on
+2026-08-01, while the repo was still private, and provenance is not supported
+from a private source however public the package is. **If 0.1.4 also lands
+without one, that is a real failure** — check it, rather than assuming this
+paragraph still holds.
+
+The original text follows, because the 422 is real and someone will hit it again
+if the repository is ever made private.
+
 Two ways out, and both are decisions rather than code: a paid plan, or making the
 repository public. Going public would also turn npm provenance back on. It is
 disabled for private sources, which is why `--provenance` is not in the release
@@ -150,8 +172,26 @@ workflow and why 0.1.x ships without attestations.
 Both declare `decksmith-mcp -> dist/mcp.js`; neither contains the file, so the
 bin resolves to a dangling link. Fixed in 0.1.2.
 
-Deprecating them needs the owner's one-time password. The account is
-`auth-and-writes`, and `npm deprecate` is a write:
+Deprecating them needs the owner's one-time password, and **the OIDC trusted
+publishing this repo already has does not help** — a reasonable thing to expect
+it to. npm's own limitation, quoted:
+
+> OIDC authentication supports the `npm publish` and `npm stage publish`
+> commands. [...] Other npm commands such as `install`, `view`, or `access` still
+> require traditional authentication methods.
+
+`npm deprecate` is none of those two. The credential npm mints inside the
+release workflow is scoped to that publish and expires with it, so there is no
+way to spend it on a deprecate — not from CI, and certainly not from a laptop,
+where no OIDC token exists at all.
+
+That leaves two paths. An OTP, below, because the account's 2FA level is
+`auth-and-writes` and a deprecate is a write. Or a granular access token with
+write permission on the package, which would not prompt — but that is a
+long-lived write credential of exactly the kind trusted publishing was adopted
+to get rid of, minted for two one-off commands. The OTP is the cheaper trade.
+
+The account is `auth-and-writes`, and `npm deprecate` is a write:
 
 ```sh
 npm deprecate "@jokerized/decksmith@0.1.0" "Broken decksmith-mcp binary — use 0.1.3 or later." --otp=<code>
