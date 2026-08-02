@@ -87,12 +87,27 @@ describe("durationPlan", () => {
     expect(high.chars).toBeLessThan(EXPLAINING_CHARS / 2);
     expect(high.warnings.join(" ")).toContain("fragment");
 
-    // Low density buys a real sentence out of the same 60 seconds — that is the
-    // whole trade this feature exists to make, and it still holds.
+    // Low density buys a much longer sentence out of the same 60 seconds — that
+    // is the whole trade this feature exists to make, and it still holds.
     const low = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
     expect(low.chars).toBeGreaterThan(MIN_SENTENCE_CHARS);
     expect(low.warnings.join(" ")).not.toContain("fragment");
-    expect(low.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
+    expect(high.chars).toBe(30);
+
+    // BUT IT NO LONGER REACHES `EXPLAINING_CHARS` AT 60s, and that is a real
+    // loss rather than a slipped expectation. It cleared by 0.2 of a character
+    // — 4.225s x 14.4cps x 1.187 = 72.2 against a bar of 72 — and the 1.187 was
+    // wrong. `--rate=+10%` buys 1.086 measured over 196 seconds of the anchor
+    // deck rather than over one 72-character sentence, which gives 66.
+    //
+    // So the answer to "too short sentences with lack of explanation" at 60s
+    // over twelve slides was resting entirely on a mis-measured speedup. Pinned
+    // at the honest number so the next person sees the gap instead of the
+    // promise: 90s reaches 102 and is where that configuration actually lives.
+    expect(low.chars).toBe(66);
+    expect(low.chars).toBeLessThan(EXPLAINING_CHARS);
+    const ninety = durationPlan(prefs({ duration: 90, slides: 12, narration: { density: "low" } }));
+    expect(ninety.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
   });
 
   /**
@@ -113,9 +128,16 @@ describe("durationPlan", () => {
   it("speaks faster to buy words, rather than asking for fewer slides", () => {
     const short = durationPlan(prefs({ duration: 60, slides: 12, narration: { density: "low" } }));
 
-    // All twelve slides, still 60 seconds, and a sentence that explains.
+    // All twelve slides, still 60 seconds, and a far longer sentence than the
+    // same target buys at high density — 66 against 30.
+    //
+    // NOT `EXPLAINING_CHARS`, THOUGH. It was 72 here only because `RATE_STEPS`
+    // claimed `+10%` bought 1.187 when it buys 1.086; the bar was cleared by
+    // 0.2 of a character on a number measured off one short sentence. The test
+    // above carries the full account. Speaking faster is still the mechanism,
+    // it just buys less than it was thought to.
     expect(short.rate).not.toBe("+0%");
-    expect(short.chars).toBeGreaterThanOrEqual(EXPLAINING_CHARS);
+    expect(short.chars).toBe(66);
 
     // The words are bought by SPEED, not by stealing from the animation or by
     // lengthening the deck: the seconds of speech per beat are what they were.
@@ -411,13 +433,24 @@ describe("the cue rate a fast-forward deck ships at", () => {
     const [rate, speedup] = fastEnough(0, SPEECH_CPS.latin, FF_BEAT_SECONDS);
     expect(rate).toBe("+10%");
     expect(DEMO_P95_CUE_CPS * speedup).toBeLessThanOrEqual(SHORT_FORM_CPS);
-    // Not vacuous at the other end: the next step up is genuinely over, so this
-    // is the FASTEST readable step and not merely a readable one.
+
+    // IT IS NO LONGER THE FASTEST READABLE STEP, and that is deliberate. This
+    // used to assert the opposite — that the next step up was genuinely over
+    // the ceiling, so the choice was tight rather than merely safe. With the
+    // speedups measured honestly it is not: `+20%` puts this deck's cues at
+    // 18.409 x 1.182 = 21.76, INSIDE the ceiling of 22, and `fastEnough`
+    // refuses it anyway because its model predicts 22.13.
+    //
+    // The gap is `CUE_OVERHEAD` at 1.30, chosen to sit above every ratio the
+    // measurement run observed rather than at their centre. ~1.26 would take
+    // this step and track the artifact to within 0.6%, at the cost of
+    // under-predicting on about half of future runs. Pinned as a KNOWN cost so
+    // that closing it is a decision someone makes, not a surprise.
     const next = RATE_STEPS[RATE_STEPS.findIndex(([r]) => r === rate) + 1];
     expect(next).toBeDefined();
-    expect(DEMO_P95_CUE_CPS * (next as readonly [string, number])[1]).toBeGreaterThan(
-      SHORT_FORM_CPS,
-    );
+    const nextSpeedup = (next as readonly [string, number])[1];
+    expect(DEMO_P95_CUE_CPS * nextSpeedup).toBeLessThanOrEqual(SHORT_FORM_CPS);
+    expect(SPEECH_CPS.latin * nextSpeedup * CUE_OVERHEAD).toBeGreaterThan(SHORT_FORM_CPS);
   });
 });
 
