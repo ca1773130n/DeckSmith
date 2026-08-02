@@ -129,7 +129,7 @@ the same 1.02 also covers emoji, which genuinely exceed one em.
 `scripts/measure-type.mjs` is the harness. It would need the bundled Noto faces
 in place of Inter, and a per-block table in place of one number.
 
-### 4. There is no human approval on a release
+### 4. There is no human approval on a release — RESOLVED 2026-08-02
 
 Anyone who can push a `v*` tag publishes to npm. The `release` environment is
 restricted to `v*` tags, so a branch push cannot reach it, but required reviewers
@@ -144,9 +144,21 @@ are plan-gated:
 `gh repo view` says `"visibility":"PUBLIC"`. The 422 is from 2026-08-01, when it
 was not, and everything that error implied has changed:
 
-- **Required reviewers should now be free.** Environment protection rules are
-  available on public repositories on every plan. Nobody has retried the call,
-  so treat this as "should" until someone does — it is one `gh api` PUT away.
+- **Required reviewers are ON.** Retried, and the call that returned 422 in
+  August now returns 200: protection rules are free on a public repository.
+  `ca1773130n` is the sole reviewer, rule `61535301`. A `v*` tag no longer
+  publishes on its own — the job waits at the `release` environment for a human
+  to approve it, which is the gate this item wanted.
+
+  `prevent_self_review` is deliberately `false`. There is one maintainer, so
+  requiring a second pair of eyes would mean nothing could ever be released.
+  Turn it on the day there are two.
+
+  The PUT replaces the environment, so it was sent carrying
+  `deployment_branch_policy` unchanged; the `v*` tag policy (`56226842`) is
+  still there and was checked afterwards, not assumed. Anyone editing this
+  environment through the API again has to do the same, or the tag restriction
+  goes silently and every branch can reach the release job.
 - **Provenance should now appear by itself.** npm generates an attestation
   automatically for a trusted publish when the package is public and the
   REPOSITORY is public, with no `--provenance` flag; passing the flag is not the
