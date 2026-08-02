@@ -39,9 +39,18 @@ that names none of them:
 
 ### 1. `dist/` is never cleaned, and a hand-publish already shipped the extras
 
+**Fixed in `14f4f6a` (#20), 2026-08-02.** The build empties `dist` before its
+first esbuild call, and `prepare` runs the build ahead of `npm pack` and
+`npm publish`, so the tarball is the build output whatever the local tree held.
+Checked by planting `dist/server/main.js` and `dist/stale.js`, building and
+packing: 71 entries, nothing under `dist/server`. Naming the four artifacts in
+`files` was not done — it is now a second lock on a door that closes by itself.
+The rest of this section is the reasoning, kept because the traps below lean on
+it.
+
 `files` is `["dist", "README.md"]`, which takes the whole directory, and
-`scripts/build.mjs` writes into it without emptying it first. The tarball's
-contents therefore depend on what happened to be built locally beforehand.
+`scripts/build.mjs` wrote into it without emptying it first. The tarball's
+contents therefore depended on what happened to be built locally beforehand.
 
 Not hypothetical. `npm run serve` builds `dist/server/`, and 0.1.0 went to npm
 carrying eight server files, 78 entries against 0.1.3's 71:
