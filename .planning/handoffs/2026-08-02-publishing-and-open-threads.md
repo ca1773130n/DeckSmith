@@ -179,7 +179,7 @@ repository public. Going public would also turn npm provenance back on. It is
 disabled for private sources, which is why `--provenance` is not in the release
 workflow and why 0.1.x ships without attestations.
 
-### 5. 0.1.0 and 0.1.1 are on npm with a broken binary
+### 5. 0.1.0 and 0.1.1 are on npm with a broken binary — DONE 2026-08-02
 
 Both declare `decksmith-mcp -> dist/mcp.js`; neither contains the file, so the
 bin resolves to a dangling link. Fixed in 0.1.2.
@@ -197,20 +197,39 @@ release workflow is scoped to that publish and expires with it, so there is no
 way to spend it on a deprecate — not from CI, and certainly not from a laptop,
 where no OIDC token exists at all.
 
-That leaves two paths. An OTP, below, because the account's 2FA level is
-`auth-and-writes` and a deprecate is a write. Or a granular access token with
-write permission on the package, which would not prompt — but that is a
-long-lived write credential of exactly the kind trusted publishing was adopted
-to get rid of, minted for two one-off commands. The OTP is the cheaper trade.
+**DONE 2026-08-02.** Both versions carry the flag; the registry reads:
 
-The account is `auth-and-writes`, and `npm deprecate` is a write:
-
-```sh
-npm deprecate "@jokerized/decksmith@0.1.0" "Broken decksmith-mcp binary — use 0.1.3 or later." --otp=<code>
-npm deprecate "@jokerized/decksmith@0.1.1" "Broken decksmith-mcp binary — use 0.1.3 or later." --otp=<code>
+```
+0.1.0: "Broken decksmith-mcp binary (missing dist/mcp.js) — use 0.1.4 or later."
+0.1.1: "Broken decksmith-mcp binary (missing dist/mcp.js) — use 0.1.4 or later."
 ```
 
-Low stakes. `latest` is 0.1.3, so nobody lands on them without pinning.
+**One command, not two — `deprecate` takes a range**, so both are one write and
+one authentication:
+
+```sh
+npm deprecate "@jokerized/decksmith@<0.1.2" "Broken decksmith-mcp binary (missing dist/mcp.js) — use 0.1.4 or later."
+```
+
+Quote the range or the shell reads `<` as a redirect.
+
+**NO `--otp` FLAG, and the OTP framing above was wrong.** This npm authenticates
+a write by opening a browser — `Authenticate your account at: https://npmjs.com/auth/cli/<uuid>` — rather than
+prompting for six digits, so there is no code to pass and `--otp` is not the
+thing that unblocks it. What is true is the part that matters: OIDC does not
+cover `deprecate`, so a human with the account has to be present either way.
+
+**Re-running a deprecate that is already exactly that string fails with
+`E422 Unprocessable Entity`,** which reads like a permission problem and is not
+one — it is npm refusing a no-op. Check the registry before believing a 422:
+
+```sh
+npm view "@jokerized/decksmith" versions --json
+npm view "@jokerized/decksmith@0.1.0" deprecated
+```
+
+Low stakes throughout. `latest` is 0.1.4, so nobody lands on the broken two
+without pinning to them deliberately.
 
 ### 6. `RATE_STEPS` overstates every speedup — FIXED `9d724d9` (#27), 2026-08-02
 
