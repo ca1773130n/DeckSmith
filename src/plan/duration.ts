@@ -243,20 +243,28 @@ export const SHORT_FORM_CPS = 22;
  * CUE, one window wide; `median/mean` is flat to within a percent, and it is the
  * honest read on whether the distribution's shape moves. It does not.
  *
- * IT AND `RATE_STEPS` ARE ONE UNIT — DO NOT FIX EITHER ALONE. The same run
- * measured what `--rate` actually buys over 37 segments rather than the one
- * sentence `RATE_STEPS` was taken on, and the table overstates every step:
- * 1.086 / 1.182 / 1.278 / 1.393 against its 1.187 / 1.252 / 1.394 / 1.533. That
- * error runs OPPOSITE to this one. `+10%` measures 1.2945 here, 1.1% above the
- * 1.28 below, which alone would under-predict a cue rate — but the inflated
- * speedup more than covers it, so what `fastEnough` computes lands 1.9% to 10.7%
- * ABOVE the artifact at every step, which is the safe direction for a ceiling.
- * Correcting `RATE_STEPS` on its own removes the cover and leaves this number
- * under-predicting at `+10%`. Re-measure both together, from the same run.
+ * IT AND `RATE_STEPS` ARE ONE UNIT, and they moved together — 2026-08-02, from
+ * the run above. Read that table's `speedup` note before changing either.
+ *
+ * WHY 1.30 AND NOT 1.2945. It has to sit above EVERY ratio the run observed,
+ * because the number it feeds is a ceiling on caption readability and being
+ * under it means shipping captions faster than `SHORT_FORM_CPS`. The old 1.28
+ * was below the `+10%` reading and got away with it only because the speedups
+ * beside it were inflated by more — two errors cancelling, which is not a margin
+ * anyone can reason about. Correcting the speedups removed that cover, so this
+ * had to rise with them.
+ *
+ * IT COSTS A STEP, KNOWINGLY. The demo's real p95 cue at `+20%` is 21.321,
+ * inside the ceiling of 22 — but this predicts 22.13 for that step and refuses
+ * it, so the deck takes `+10%` and speaks slower than the artifact proves it
+ * could. A central estimate of ~1.26 would admit `+20%` and track the artifact
+ * to within 0.6%; it would also under-predict on about half of future runs. The
+ * trade was made deliberately in favour of never being under, on a statistic
+ * measured once over 39 cues.
  *
  * `test/duration.test.ts` pins the `+0%` end against the artifact.
  */
-export const CUE_OVERHEAD = 1.28;
+export const CUE_OVERHEAD = 1.3;
 
 /** Broadcast subtitle practice. Past this the captions stop being readable. */
 export const COMFORTABLE_CPS = 17;
@@ -307,26 +315,38 @@ export const SPEAKING_STOPS: Record<Prefs["narration"]["density"], number> = {
  * `+60%` it is 28.5 and the caption is gone before it is read. `+50%` is
  * excluded for measuring slower than the step below it.
  *
- * THE SPEEDUPS ARE KNOWN TO BE HIGH, and are left alone deliberately. Measured
- * again over the anchor deck's 37 segments rather than this one sentence,
- * `--rate` buys 1.086 / 1.182 / 1.278 / 1.393 where this table claims 1.187 /
- * 1.252 / 1.394 / 1.533 — a short sentence carries proportionally more silence
- * at its ends, so timing one overstates what the prosody rate does to speech.
+ * THE SPEEDUPS BELOW ARE NOT FROM THAT TABLE. They were, and they were too high
+ * at every step. The table above times ONE 72-character sentence, and a short
+ * sentence carries proportionally more silence at its ends, so dividing its
+ * total duration overstates what the prosody rate does to speech itself.
+ * Re-measured over the anchor deck's 37 segments and 196 seconds:
  *
- * Lowering them here is NOT a safe edit on its own: `CUE_OVERHEAD` is 1.1% below
- * the cue ratio measured at `+10%`, and these inflated speedups are what covers
- * that. See the coupling paragraph on `CUE_OVERHEAD`. Both come out of one run
- * of `scripts/measure-cue-rate.mjs` and both have to move in it.
+ * ```
+ *   step    was      is    from
+ *   +10%  1.187   1.086    meanCps 15.752 / 14.509
+ *   +20%  1.252   1.182    meanCps 17.148 / 14.509
+ *   +30%  1.394   1.278    meanCps 18.540 / 14.509
+ *   +40%  1.533   1.393    meanCps 20.205 / 14.509
+ * ```
+ *
+ * `CUE_OVERHEAD` rose from 1.28 to 1.30 in the same commit and for this reason:
+ * it was below the cue ratio measured at `+10%` and only safe because these
+ * numbers were inflated by more. Neither is a safe edit alone — see the
+ * paragraph there. One run of `scripts/measure-cue-rate.mjs` produces both.
+ *
+ * THE TABLE ABOVE STILL EARNS ITS PLACE, because it is the only measurement of
+ * `+50%` and `+60%` anyone has taken, and what it says about them is why this
+ * list stops at `+40%`. The re-measurement covered these five steps only.
  *
  * Latin-measured. A CJK deck gets the same steps, which is a guess of the same
  * kind `SPEECH_CPS.cjk` already is — replace it the first time one is narrated.
  */
 export const RATE_STEPS: readonly (readonly [rate: string, speedup: number])[] = [
   ["+0%", 1.0],
-  ["+10%", 1.187],
-  ["+20%", 1.252],
-  ["+30%", 1.394],
-  ["+40%", 1.533],
+  ["+10%", 1.086],
+  ["+20%", 1.182],
+  ["+30%", 1.278],
+  ["+40%", 1.393],
 ];
 
 export interface DurationPlan {
