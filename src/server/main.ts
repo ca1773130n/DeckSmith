@@ -23,6 +23,10 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+// Through the bundle, never a deep path: `build:server` transpiles without
+// bundling, so `../narrate/tts.js` would survive into dist/server/ and resolve
+// to nothing. `test/server.test.ts` fails the build for it, and caught this.
+import { resolveProvider } from "../index.js";
 import { createDeckServer } from "./http.js";
 import { MAX_UPLOAD_BYTES } from "./upload.js";
 
@@ -104,8 +108,10 @@ server.listen(options.port, options.host, () => {
   options.log(
     `decksmith: no auth, no TLS. Bound to ${options.host}${options.host === "127.0.0.1" ? " — set DECKSMITH_HOST to open it, knowing that" : " — anyone who can reach this port can spend your Codex quota"}.`,
   );
-  // Said at startup rather than discovered a minute into the first job.
-  preflight();
+  // Said at startup rather than discovered a minute into the first job. Async
+  // because finding edge-tts means asking candidates whether they run; the
+  // banner above is already out, so the answer arrives a beat later.
+  void preflight();
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -125,17 +131,38 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
  * The point is that "Codex is not installed" should be legible before someone
  * uploads a paper and waits a minute to be told.
  */
-function preflight(): void {
+async function preflight(): Promise<void> {
   const runtime = fileURLToPath(new URL("../deck-runtime.js", import.meta.url));
   const missing: string[] = [];
   if (!existsSync(runtime)) missing.push(`the deck runtime (${runtime}) — run \`npm run build\``);
   for (const [bin, why] of [
     ["codex", "planning; every job needs it"],
-    ["edge-tts", "narration"],
     ["ffmpeg", "video"],
   ] as const) {
     if (!onPath(bin)) missing.push(`${bin} — needed for ${why}`);
   }
+
+  // NARRATION IS NOT A PATH LOOKUP. This asked PATH for `edge-tts` and reported
+  // a working install as missing: resolution tries five things — the
+  // DECKSMITH_EDGE_TTS override, PATH, the two directories a `pip --user`
+  // install actually lands in, and finally `python3 -m edge_tts` — because a
+  // console script that is nowhere on PATH is the NORMAL state of that install
+  // rather than an edge case. On the machine this was found on, PATH had
+  // nothing and `~/Library/Python/3.9/bin/edge-tts` answered, so the banner
+  // warned about narration the server could perfectly well synthesise. A
+  // warning that is wrong is worse than none: it teaches whoever reads this
+  // banner to skim past the ones that are right.
+  //
+  // Asked through `resolveProvider().check()` rather than by resolving edge-tts
+  // directly, so it follows DECKSMITH_TTS to whichever provider will actually
+  // be used, and so it cannot disagree with what synthesis does a minute later
+  // — which was the whole defect.
+  const tts = resolveProvider();
+  await tts
+    .check()
+    .then(() => options.log(`decksmith: narration via ${tts.id}`))
+    .catch(() => missing.push(`${tts.id} — needed for narration`));
+
   for (const line of missing) options.log(`decksmith: MISSING ${line}`);
   if (missing.length === 0) options.log("decksmith: codex, edge-tts and ffmpeg all found");
 }
