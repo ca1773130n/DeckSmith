@@ -124,6 +124,29 @@ export function id(sid: string, part: string, i?: number): string {
  * prints it ready to paste; `test/svg.test.ts` holds the result against ten
  * widths read out of the same browser. A pinned constant with no way to redo it
  * is folklore, and this file was eight of them.
+ *
+ * RE-DERIVED 2026-08-02 AND DELIBERATELY NOT RE-PASTED. Six of the 128 entries
+ * disagree with what the harness measures now, and every one of them is pinned
+ * WIDER than the truth — the safe direction, since this table's only promise is
+ * never to under-predict:
+ *
+ * ```
+ *   ( ) [ ]   0.391 pinned, 0.365 measured   -6.6%
+ *   *         0.649 pinned, 0.535 measured  -17.6%
+ *   -         0.649 pinned, 0.460 measured  -29.1%
+ * ```
+ *
+ * `*` and `-` are the interesting pair: 0.649 is exactly `TABULAR_FIGURE`, so
+ * those two were not measured proportionally at all — they carry a table's
+ * figure width, which is what Inter gives them under `tabular-nums` and not what
+ * a headline sets them at. A hyphen in a headline is therefore charged 29% more
+ * room than it takes.
+ *
+ * Left alone because re-pasting is not the small edit it looks like. Every
+ * `drawn` value in `test/svg.test.ts` was read out of the Inter of the day, so
+ * correcting the table without re-measuring those ten widths in a browser
+ * replaces a known over-prediction with an unknown pair of numbers being
+ * compared to each other. Do both together, or neither.
  */
 // biome-ignore format: a measured table reads as a grid. One entry per line is 190 lines in which no row of the alphabet is visible at once, and the thing a reader wants to do here is compare neighbours.
 const ADVANCE: Readonly<Record<string, number>> = {
