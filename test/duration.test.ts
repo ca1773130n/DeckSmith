@@ -48,9 +48,18 @@ const AUTHORED = [6, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8];
 /** The LAST usable hold each of those beats emits, at `animationSpeed: 1`. */
 const LAST_HOLD = [1.9, 7.8, 4.7, 4.8, 4.3, 3.9, 3.6, 4.5, 5.5, 3.8, 2.4, 3.3];
 
-/** `beatSeconds`, summed: what the composition's `data-duration` will say. */
-function deckSeconds(speed: number, spokenPerBeat: number): number {
-  return AUTHORED.reduce(
+/**
+ * `beatSeconds`, summed: what the composition's `data-duration` will say.
+ *
+ * `count` is how many of those beats the plan actually came back with. It exists
+ * for the re-derivation tests at the bottom, which are about a deck that HAS
+ * fewer beats than were asked for — summing all twelve there would measure a deck
+ * nobody built. The demo's own beats are the first `count` of them, which is what
+ * a planner returning fewer than it was asked for produces: the same kinds of
+ * beat, fewer of them.
+ */
+function deckSeconds(speed: number, spokenPerBeat: number, count = AUTHORED.length): number {
+  return AUTHORED.slice(0, count).reduce(
     (total, authored, i) =>
       total + Math.max(authored * speed, (LAST_HOLD[i] as number) * speed + spokenPerBeat),
     0,
@@ -296,6 +305,121 @@ describe("durationPlan", () => {
     // The point of the change, stated as a comparison: the beat now affords more
     // speech than the reveal schedule alone would have left it.
     expect(plan.speechSeconds).toBeGreaterThan(10 - LAST_HOLD_SECONDS * plan.speed);
+  });
+
+  /**
+   * THE COUNT THE BUDGET IS STRUCK AT.
+   *
+   * `prefs.slides` is what was ASKED FOR; the planner returns what it returns,
+   * and four of the last five real plans came back short. Every number in
+   * `durationPlan` is `duration / count`, so the two are not interchangeable —
+   * and the one that decides the video is the count the deck actually has.
+   */
+  it("is identical to the old behaviour when the planner hits its number", () => {
+    // THE TEST THAT PROTECTS THE OTHER TWENTY-THREE. Every pinned value in this
+    // file — 30, 66, 0.25, 10 — survives only because the argument defaults to
+    // the requested count. If that default ever moves, this fails first and says
+    // why, instead of twenty-three assertions failing as if the arithmetic broke.
+    for (const p of [
+      prefs(),
+      prefs({ duration: 60, slides: 12 }),
+      prefs({ duration: 60, slides: 12, narration: { density: "low" } }),
+      prefs({ duration: 170, slides: 20, narration: { density: "low" } }),
+    ]) {
+      expect(durationPlan(p)).toEqual(durationPlan(p, p.slides));
+    }
+    // Without a target there is nothing to divide, so the count cannot matter.
+    expect(durationPlan(prefs(), 3)).toEqual(durationPlan(prefs()));
+  });
+
+  it("fills the target when the plan comes back short of the slide count", () => {
+    // THE UNDERSHOOT, IN THE UNITS THAT CAUSE IT. Twelve slides were asked for
+    // and eight came back — the exact case the owner raised. The deck has eight
+    // beats either way; the only question is which count the budget was struck
+    // at, and that is `speed`, the one number `durationPlan` sends into the
+    // emitted timeline.
+    const p = prefs({ duration: 60, slides: 12, narration: { density: "low" } });
+    const GOT = 8;
+
+    // What shipped before: a budget for twelve five-second beats, spent on eight
+    // beats that are really seven and a half.
+    const asked = durationPlan(p);
+    expect((asked.beatSeconds as number) * GOT).toBeLessThan(60);
+    const short = deckSeconds(asked.speed, spokenSeconds(asked), GOT);
+    expect(short).toBeLessThan(60);
+    // AND NOTHING CLOSES THE GAP. `playbackFactor` never slows a video down to
+    // fill a duration, so a deck that lands short simply ships short — which is
+    // why no gate ever caught this.
+    expect(playbackFactor(short, 60)).toBe(1);
+
+    // Struck at the eight beats the plan came back with: the seconds the missing
+    // four would have had go to the eight that exist. THIS PAIR IS THE FIX, and
+    // it is the one assertion here that owes nothing to a model — `beatSeconds`
+    // times the count the deck HAS is the target, or it is not.
+    const has = durationPlan(p, GOT);
+    expect((has.beatSeconds as number) * GOT).toBeCloseTo(60, 3);
+    expect(has.speed).toBeGreaterThan(asked.speed);
+    expect(has.chars as number).toBeGreaterThan(asked.chars as number);
+
+    const filled = deckSeconds(has.speed, spokenSeconds(has), GOT);
+    expect(filled).toBeGreaterThanOrEqual(60);
+    // Overshooting is the retime's job to close, and it must stay inside the
+    // ceiling past which the captions are the problem — the same bar the
+    // twelve-beat case is held to above.
+    expect(playbackFactor(filled, 60)).toBeLessThanOrEqual(1.25);
+
+    // WHAT `deckSeconds` IS AND IS NOT. It models a beat as `lastHold·speed +
+    // spoken`, speech AFTER the build — the pre-§11 shape, kept because the
+    // whole file is pinned against it — and the emitter has overlapped the two
+    // since: `max(authored·speed, lastHold + SETTLE, openSeconds + spoken +
+    // SETTLE)`. So it runs about 20% long, and "≥ 60 and inside 1.25×" here is
+    // the retime's precondition rather than a claim about the artifact. The
+    // artifact was measured separately, through `emitDeck` on this same deck cut
+    // to n beats with the budget's own `speechSeconds` as its narration:
+    //
+    //     beats   struck at 12    struck at n
+    //      12        59.96s         59.96s
+    //      10        49.96s         59.95s
+    //       9        44.96s         59.94s
+    //       8        39.96s         59.95s
+    //       5        24.96s         59.90s
+    //
+    // against a 60-second target. That is the fix, in the units the owner asked
+    // in, and it is why the exact assertion above is the one to keep green.
+  });
+
+  it("crosses back into the LECTURE regime when the plan comes back very short", () => {
+    // A CONSEQUENCE WORTH PINNING RATHER THAN DISCOVERING. Re-deriving makes the
+    // beat longer, and past `FF_BEAT_SECONDS` `fastEnough` stops taking the
+    // fastest step the captions can carry and takes the slowest that clears a
+    // sentence. That changes `rate`, `rate` is part of the TTS cache key, and the
+    // audio is re-synthesised — an audible, minute-long consequence of a beat
+    // count. It is reachable from a plan the user did not choose, so it is here.
+    const p = prefs({ duration: 60, slides: 12, narration: { density: "low" } });
+    expect(durationPlan(p).rate).toBe("+10%");
+
+    const five = durationPlan(p, 5);
+    expect(five.beatSeconds).toBe(12);
+    expect(five.beatSeconds as number).toBeGreaterThan(FF_BEAT_SECONDS);
+    expect(five.rate).toBe("+0%");
+    // And the animation is back at its authored speed, because a twelve-second
+    // beat has all the room the reveal schedule wants.
+    expect(five.speed).toBe(1);
+  });
+
+  it("names the count it was struck at, and the one that was asked for", () => {
+    // A warning reading "60s over 9 slides" on a run that asked for twelve is a
+    // sentence the author spends ten minutes disbelieving. The budget is priced
+    // at what the deck has; the request is named beside it.
+    const said = durationPlan(prefs({ duration: 60, slides: 12 }), 9).warnings.join(" ");
+    expect(said).toContain("9 slides the plan came back with");
+    expect(said).toContain("12 were asked for");
+
+    // When the planner hit its number there is nothing to reconcile, and the
+    // sentence stays the one it always was.
+    const met = durationPlan(prefs({ duration: 60, slides: 12 })).warnings.join(" ");
+    expect(met).toContain("over 12 slides");
+    expect(met).not.toContain("were asked for");
   });
 });
 

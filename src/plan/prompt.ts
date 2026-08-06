@@ -395,6 +395,15 @@ ${REVEAL_COUNTS}`
   // characters" in the next, which is an instruction to write a 341-character
   // sentence. Now the beat gets a total and a sentence count, and dividing is
   // the model's business.
+  //
+  // AND IT IS THE BUDGET AT THE REQUESTED COUNT, because that is the only count
+  // that exists while the prompt is being written. The beat count and this
+  // character count are ONE budget, not two independent targets: `durationPlan`
+  // restrikes both at whatever the plan comes back with, so returning ten beats
+  // against a twelve-beat request does not shorten the video, it makes each of
+  // the ten owe more characters than the number printed here. The LENGTH block
+  // in `systemPrompt` is where that is said out loud, because it is the argument
+  // for writing every beat rather than a note about arithmetic.
   const floor = plan.chars === undefined ? 0 : Math.round(plan.chars * 0.85);
   const length =
     plan.chars === undefined
@@ -416,6 +425,12 @@ ${REVEAL_COUNTS}`
  * end of a prompt is the part it holds hardest.
  */
 export function systemPrompt(prefs: Prefs): string {
+  // THE REQUESTED COUNT, and it has to be — this builds the prompt, so the plan
+  // whose beat count would restrike the budget does not exist yet. Every other
+  // caller passes `storyboard.beats.length` (see `durationPlan`'s header) and
+  // someone will eventually try to "fix" this one to match. It cannot be fixed;
+  // what it can be is honest, which is why the LENGTH block below now says the
+  // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
   return `${rules(cadenceFor(prefs, plan))}
 
@@ -424,7 +439,7 @@ ${
   prefs.duration === undefined
     ? ""
     : `\nDURATION   The finished video runs about ${prefs.duration} seconds. That budget is already
-           spent below: it is where the ${prefs.slides}-beat target and the sentence length
+           spent below: it is where the ${prefs.slides}-beat floor and the sentence length
            come from. Do not restate it, and never mention it in a beat.
 ${
   (plan.beatSeconds ?? 99) > FF_BEAT_SECONDS
@@ -442,18 +457,26 @@ FORMAT     This is a CONFERENCE FAST-FORWARD TALK — the one-minute teaser an a
 `
 }`
 }
-LENGTH     Write ${prefs.slides} beats. Each one you leave out is ${
-    prefs.duration === undefined
-      ? "a piece of the explanation the viewer never gets"
-      : `about ${Math.round(prefs.duration / prefs.slides)} seconds the finished video does not use and roughly ${plan.chars ?? 0} characters it never says`
-  } — four
-           of the last five plans came back short and each one lost that much of
-           its explanation, so treat ${prefs.slides} as the number and not as a ceiling.
+LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR — not a ceiling, and not a target to
+           come close to. Four of the last five plans came back short of it, and a
+           plan that comes back short is now reported as having missed it.${
+             prefs.duration === undefined
+               ? `
+           Each beat you leave out is a piece of the explanation the viewer never
+           gets.`
+               : `
+           BEING SHORT DOES NOT MAKE THE VIDEO SHORTER. The ${prefs.duration}-second budget is
+           restruck on however many beats you return, so the seconds of a beat you
+           leave out are handed to the beats that survive — and each of those then
+           has to carry MORE than the ${plan.chars ?? 0} characters budgeted above, which is not
+           what you will have written. What a short plan costs is points, not
+           length: ${prefs.slides} slides' worth of explanation delivered as fewer.`
+}
            What is still forbidden is PADDING to reach it: a beat restating an
            earlier one, a divider nobody needed, a visual repeated to say one more
-           small thing. Those cost more than being short does. If the source
-           genuinely will not carry ${prefs.slides} distinct points, say fewer — but split a
-           point that has two halves before you drop one.
+           small thing. Those cost more than being short does. So when the source
+           looks as though it will not carry ${prefs.slides} distinct points, split a point that
+           has two halves — that is the way to the number, and dropping one is not.
 LANGUAGE   Write every word the audience sees or hears in ${languageName(prefs.lang)}:
            headlines, eyebrows, claims, labels, notes, and every narration
            sentence. Write it in that language rather than translating an English

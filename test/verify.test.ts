@@ -5,10 +5,11 @@
  */
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { type Storyboard, storyboardSchema } from "../src/types.js";
+import { prefsSchema, type Storyboard, storyboardSchema } from "../src/types.js";
 import { profilesFor, readCanvas, scanBudget } from "../src/verify/budget.js";
 import { check, parseCheckReport, sampleTimes } from "../src/verify/check.js";
 import {
+  scanBeatCount,
   scanDeterminism,
   scanDiagrammatic,
   scanHeadlines,
@@ -548,6 +549,60 @@ function deck(...archetypes: string[]): Storyboard {
     })),
   });
 }
+
+/**
+ * The floor. `--slides` is a number the owner asked to hold, and the planner
+ * routinely comes back under it — 8, 9, 9 and 10 against 12 on the last five real
+ * plans. Nothing in the codebase compared the two numbers before this.
+ */
+describe("scanBeatCount", () => {
+  const prefs = (over: Record<string, unknown> = {}) => prefsSchema.parse(over);
+
+  it("prices the shortfall in the numbers it moved", () => {
+    const findings = scanBeatCount(
+      deck("title", "pipeline", "grid", "bar-compare"),
+      prefs({ duration: 60, slides: 12, narration: { density: "low" } }),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe("warning");
+    expect(findings[0]?.gate).toBe("storyboard");
+    expect(findings[0]?.rule).toBe("beats_under_target");
+
+    const { message } = findings[0] ?? { message: "" };
+    expect(message).toContain("12 beats were asked for and the plan returned 4");
+    // NAMING THE NUMBERS IS THE VALUE. "the plan is short" changes nothing; the
+    // per-slide seconds and characters are what the author can act on, and they
+    // are the numbers the re-derivation actually moved.
+    expect(message).toContain("15s instead of 5s");
+    expect(message).toContain("characters where the prompt budgeted");
+    // Reported, never repaired — and it says which of the two repairs is worse.
+    expect(message).toContain("RULE 9");
+    expect(message).toContain("built for 4 beats, not 12");
+  });
+
+  it("says nothing when the plan met its floor, or beat it", () => {
+    const met = prefs({ duration: 60, slides: 4, narration: { density: "low" } });
+    expect(scanBeatCount(deck("title", "pipeline", "grid", "bar-compare"), met)).toEqual([]);
+    // Over the floor is not a defect: a floor is not a ceiling, and the prompt
+    // says so in those words.
+    expect(scanBeatCount(deck("title", "pipeline", "grid", "bar-compare", "stack"), met)).toEqual(
+      [],
+    );
+  });
+
+  it("still reports the miss with no duration target, in the terms that apply", () => {
+    // Without a target there are no seconds to redistribute and no character
+    // budget to miss, so the cost is the only one left — points the deck does not
+    // make. It must NOT quote `undefined` seconds at the author.
+    const findings = scanBeatCount(deck("title", "pipeline"), prefs({ slides: 5 }));
+    expect(findings).toHaveLength(1);
+    const { message } = findings[0] ?? { message: "" };
+    expect(message).toContain("5 beats were asked for and the plan returned 2");
+    expect(message).toContain("a point the deck never makes");
+    expect(message).not.toContain("undefined");
+  });
+});
 
 describe("scanDiagrammatic", () => {
   it("passes a deck that mostly draws", () => {

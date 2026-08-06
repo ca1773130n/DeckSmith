@@ -33,6 +33,7 @@ import {
   render,
   type Source,
   type Storyboard,
+  scanBeatCount,
   writePack,
 } from "../index.js";
 import type { JobOptions } from "./options.js";
@@ -124,6 +125,11 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
   assertRefsResolve(storyboard, source);
   await writeJson(join(job.dir, "storyboard.json"), storyboard);
   job.done("plan", `${storyboard.beats.length} beats`);
+  // `slides` is a FLOOR, and the planner can still come back under it. Said here
+  // rather than at the end, for the same reason the CLI says it at `plan`: the
+  // narrate stage below is about to spend a minute of TTS on whatever came back,
+  // and the number it came back with is what the rest of this job is budgeted at.
+  for (const f of scanBeatCount(storyboard, prefs)) warnings.push(f.message);
 
   /* --------------------------------------------------------------- narrate */
   let narration: DeckNarration | undefined;
@@ -150,7 +156,10 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
 
   /* ----------------------------------------------------------------- build */
   job.begin("build");
-  const paced = durationPlan(prefs);
+  // The same count `narrate` above was given — `narrate` reads `beats.length`
+  // off this storyboard too — so the rate the voice was spoken at and the speed
+  // the animation is paced at come from one budget. See `durationPlan`'s header.
+  const paced = durationPlan(prefs, storyboard.beats.length);
   for (const w of paced.warnings) warnings.push(w);
   const built = await buildDeck(storyboard, source, dirs.deck, {
     format: options.format,

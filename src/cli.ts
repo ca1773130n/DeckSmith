@@ -51,7 +51,14 @@ import {
   storyboardSchema,
   type Verdict,
 } from "./types.js";
-import { drift, FLOOR_DB, scanHeadlines, scanRepeatedObject, verify } from "./verify/index.js";
+import {
+  drift,
+  FLOOR_DB,
+  scanBeatCount,
+  scanHeadlines,
+  scanRepeatedObject,
+  verify,
+} from "./verify/index.js";
 import { VERSION } from "./version.js";
 
 type Narration = z.infer<typeof narrationSchema>;
@@ -182,10 +189,18 @@ function planFlags(cmd: Command): Command {
  * those is a deck whose three stages disagree about how long it is.
  *
  * `--slides` used to sit in `planFlags` alone, and that is exactly the failure the
- * paragraph above describes: every one of those three numbers is derived from
+ * paragraph above describes: every one of those three numbers was derived from
  * `duration / slides`, so a deck planned at five slides and narrated without the
  * flag was SPOKEN at the twelve-slide rate — a different voice from the one its
  * own budget was written for. Nothing reported it.
+ *
+ * THAT DIVERGENCE IS NOW STRUCTURAL RATHER THAN A MISSING FLAG. `narrate` and
+ * `build` both strike the budget at `storyboard.beats.length` — the count the
+ * deck actually has — so the two cannot disagree even when the flags do, and
+ * both are right when the planner came back short. `--slides` stays on all three
+ * because it is still the FLOOR the plan was asked for, which `build` reports
+ * against (`scanBeatCount`) and a pack records; after `plan` it no longer decides
+ * a single derived number.
  *
  * What is NOT here: words per sentence, and narration or animation speed. Those
  * are derived — see `durationPlan`. Exposing them as well would only be a way to
@@ -318,7 +333,16 @@ lookFlags(
   // Said HERE, not only at `verify`, because this is the moment the advice below
   // is about: the headline is one string in a file the author is being told to
   // open, and fixing it costs a keystroke now against a rebuild later.
-  for (const f of [...scanHeadlines(storyboard), ...scanRepeatedObject(storyboard)])
+  //
+  // `scanBeatCount` most of all. `--slides` is a floor, the prompt says so, and
+  // the planner can still come back under it — this is the only place that
+  // compares the two numbers, and it is the last moment before a minute of TTS
+  // is spent narrating a deck that is short of what was asked for.
+  for (const f of [
+    ...scanBeatCount(storyboard, prefs),
+    ...scanHeadlines(storyboard),
+    ...scanRepeatedObject(storyboard),
+  ])
     step(`plan:   ${f.message}`);
 
   // THE SCRIPT, END TO END, WITH THE SLIDE BOUNDARIES TAKEN OUT.
@@ -452,7 +476,20 @@ lookFlags(
     // by both the emitter and the timing manifest: the manifest indexes audio by
     // holds the emitter scaled, and two answers here put every sentence off its
     // reveal by the ratio.
-    const paced = durationPlan(prefs);
+    //
+    // STRUCK AT THE COUNT THIS DECK HAS, not the count that was asked for.
+    // `speed` is the only number `durationPlan` sends into the emitted timeline
+    // and it comes from `duration / count`, so a twelve-slide budget spent on an
+    // eight-beat storyboard paces every scene for a slide two thirds its real
+    // length and the video lands short. `storyboard.beats.length` and NOT
+    // `deck.cut.kept.length`: the cut is decided by `planCut`, which consumes
+    // `speed`, so reading it back would make the pace depend on a cut that
+    // depends on the pace. A beat the cut drops after this is a shortfall this
+    // cannot see, and `reportCut` below is what says so.
+    const paced = durationPlan(prefs, storyboard.beats.length);
+    // Before the budget advisories, because it is the reason they are struck at
+    // the number they are.
+    for (const f of scanBeatCount(storyboard, prefs)) step(`build: ${f.message}`);
     for (const w of paced.warnings) step(`build: ${w}`);
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {

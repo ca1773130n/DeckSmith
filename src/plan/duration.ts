@@ -23,6 +23,22 @@
  * else, so hitting 60s over 12 slides needs a shorter sentence AND a faster
  * animation. Neither alone gets there; that is the whole content of this file.
  *
+ * WHICH SLIDE COUNT THE BUDGET IS STRUCK AT. `prefs.slides` is what was ASKED
+ * FOR and `beats` is what the planner came back with, and they are routinely not
+ * the same number — four of the last five real plans came back short. Every
+ * derived number here is `duration / count`, so striking the budget at the
+ * request while the deck has fewer beats paces each scene for a slide shorter
+ * than the one it is: eight beats against a sixty-second target were paced for
+ * five-second beats that are really seven and a half, and the video came in
+ * under its target with every gate green and nothing anywhere saying so. So
+ * every caller holding a storyboard passes its `beats.length`. The two that
+ * cannot are `systemPrompt`, which builds the prompt before a plan exists, and
+ * the MCP `estimate`, which is a pre-flight with no plan at all; they get the
+ * request, which is the only number they have. The SHORTFALL itself is not this
+ * file's to report — `scanBeatCount` in src/verify/index.ts reports it, because
+ * a beat count is arithmetic rather than a judgement and a prompt rule alone can
+ * always be met cosmetically.
+ *
  * Everything here is pure arithmetic over preferences, so it is testable with no
  * planner, no TTS and no ffmpeg.
  */
@@ -386,7 +402,16 @@ export interface DurationPlan {
   chars?: number;
   /** Seconds of speech one beat can afford. Absent without a target. */
   speechSeconds?: number;
-  /** The per-beat length the target implies. Absent without a target. */
+  /**
+   * The per-beat length the target implies, at the count the plan was struck at.
+   * Absent without a target.
+   *
+   * A BUDGET, NOT THE ANSWER, and the name collides with the thing that IS the
+   * answer. `beatSeconds` in src/emit/composition.ts — `max(authored·speed,
+   * lastHold + SETTLE, speechEnd + SETTLE)` — is what actually sizes a scene,
+   * and it never sees this number. `speed` is the only value this file sends
+   * into the emitted timeline; everything else here is advice to the planner.
+   */
   beatSeconds?: number;
   /** Said, never fatal: what the target costs, or cannot buy. */
   warnings: string[];
@@ -402,8 +427,14 @@ export interface DurationPlan {
  * `duration` set OVERRIDES `animationSpeed`: the target owns the pace, because
  * the two cannot both be honoured and the target is the one the user stated a
  * number for. Said in a warning rather than silently.
+ *
+ * `beats` is the count the budget is struck at, and it defaults to the count
+ * that was asked for. Pass the storyboard's own `beats.length` wherever one is
+ * in hand — see the header for why, and for the two callers that structurally
+ * cannot. The default is not a convenience: it is the right answer for those
+ * two, and it is what keeps a run where the planner hit its number identical.
  */
-export function durationPlan(prefs: Prefs): DurationPlan {
+export function durationPlan(prefs: Prefs, beats: number = prefs.slides): DurationPlan {
   const speakingStops = SPEAKING_STOPS[prefs.narration.density];
   if (prefs.duration === undefined) {
     return {
@@ -425,8 +456,19 @@ export function durationPlan(prefs: Prefs): DurationPlan {
   // number, which is the point.
   const stops = Math.min(speakingStops, STOPS_PER_BEAT);
   const cps = charsPerSecond(prefs.lang);
-  const slow = budget(prefs.duration, prefs.slides, stops, cps);
+  const slow = budget(prefs.duration, beats, stops, cps);
   const { beatSeconds, speed, speechSeconds } = slow;
+
+  // HOW THE ADVISORIES NAME THE COUNT THEY WERE STRUCK AT. It is the count the
+  // deck ACTUALLY has, so quoting the requested one would price a deck nobody is
+  // building. When the two differ the request is named alongside it, because
+  // "60s over 8 slides" read off a run that asked for twelve is a sentence the
+  // author will spend ten minutes disbelieving. Naming the shortfall as a
+  // shortfall is `scanBeatCount`'s job, not this one's.
+  const over =
+    beats === prefs.slides
+      ? `${beats} slides`
+      : `the ${beats} slides the plan came back with (${prefs.slides} were asked for)`;
 
   // SPEAK FASTER BEFORE SAYING LESS. The seconds a beat can spend on speech are
   // fixed by the target; how many WORDS fit in them is not. So the smallest rate
@@ -474,7 +516,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
 
   if (chars < MIN_SENTENCE_CHARS) {
     warnings.push(
-      `${prefs.duration}s over ${prefs.slides} slides at ${prefs.narration.density} narration density leaves ${chars} characters per sentence, which is a fragment, not narration. Lower the density, cut the slide count, or raise the target.`,
+      `${prefs.duration}s over ${over} at ${prefs.narration.density} narration density leaves ${chars} characters per sentence, which is a fragment, not narration. Lower the density, cut the slide count, or raise the target.`,
     );
   } else if (sentences < SENTENCES_PER_BEAT && beatSeconds > FF_BEAT_SECONDS) {
     // THE FINDING THE OWNER RAISED, in the units that cause it. A beat with room
@@ -492,7 +534,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
       return Math.floor(Math.round(b.speechSeconds * cps * faster) / explainingChars(cps));
     };
     let roomier = 0;
-    for (let n = prefs.slides - 1; n >= 3; n--) {
+    for (let n = beats - 1; n >= 3; n--) {
       if (affords(n) >= SENTENCES_PER_BEAT) {
         roomier = n;
         break;
@@ -502,7 +544,7 @@ export function durationPlan(prefs: Prefs): DurationPlan {
     // seconds have to cover the quiet plus two sentences of speech.
     const longer =
       Math.ceil(
-        ((prefs.slides *
+        ((beats *
           (OPEN_SECONDS_AT_SPEED * speed +
             SETTLE_SECONDS +
             (SENTENCES_PER_BEAT * explainingChars(cps)) / (cps * speedup))) /
@@ -510,10 +552,10 @@ export function durationPlan(prefs: Prefs): DurationPlan {
           1.0,
       ) * 10;
     const advice = roomier
-      ? `${roomier} slides at the same target gives each one ${affords(roomier)} sentences, or keep all ${prefs.slides} and raise the target to about ${longer}s.`
+      ? `${roomier} slides at the same target gives each one ${affords(roomier)} sentences, or keep all ${beats} and raise the target to about ${longer}s.`
       : `no slide count at this target reaches two — raise the duration.`;
     warnings.push(
-      `${prefs.duration}s over ${prefs.slides} slides leaves ${beatChars} characters a slide, which is one sentence. A single sentence per slide cannot carry a story — the hand-written demo cut to one sentence a beat reads as captions too — so the deck will narrate slide by slide instead of explaining the paper: ${advice}`,
+      `${prefs.duration}s over ${over} leaves ${beatChars} characters a slide, which is one sentence. A single sentence per slide cannot carry a story — the hand-written demo cut to one sentence a beat reads as captions too — so the deck will narrate slide by slide instead of explaining the paper: ${advice}`,
     );
   }
   if (speed === 0.25) {

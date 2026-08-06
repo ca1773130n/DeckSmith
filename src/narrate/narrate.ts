@@ -140,7 +140,17 @@ export async function narrate(
   // functions of the duration target, and reading one from `durationPlan` while
   // looking the other up directly is how they drift apart. Without a target this
   // returns the preferences untouched, so an untargeted deck is unchanged.
-  const paced = durationPlan(prefs);
+  //
+  // STRUCK AT THE BEATS IN HAND, the same count `build` uses, because these are
+  // the words spoken over the scenes that count paces. A rate derived from the
+  // REQUESTED count and an animation speed derived from the returned one is the
+  // three-stages-disagree failure `lengthFlags` in src/cli.ts was written for.
+  //
+  // It is not free: `rate` is part of the TTS cache key (text, voice, rate,
+  // pitch), so a plan that came back short re-synthesises every segment — about
+  // 25-30s for a twelve-beat deck. Paid once, and only on the runs where the
+  // count moved.
+  const paced = durationPlan(prefs, storyboard.beats.length);
   const { pitch } = prefs.narration;
   const rate = paced.rate;
   const beats: Record<string, Segment[]> = {};
