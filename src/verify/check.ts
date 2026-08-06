@@ -31,7 +31,8 @@ const DEFAULT_TIMEOUT_MS = 240_000;
 /**
  * Upstream's grid when nothing else is asked for: nine midpoints across the
  * duration, `(i + 0.5) / 9 * duration` (`buildLayoutSampleTimes` in
- * hyperframes 0.7.71). Reproduced here because `--at` REPLACES that grid rather
+ * hyperframes, byte-identical from 0.7.71 through the current 0.7.90 pin —
+ * re-checked on the bump). Reproduced here because `--at` REPLACES that grid rather
  * than adding to it, and this module's job is to make sure passing stops can
  * only ever widen the sampling — see `sampleTimes`.
  */
