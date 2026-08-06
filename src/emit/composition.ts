@@ -124,8 +124,8 @@ export interface DeckOptions {
  * `render` consume. `page` is the navigable wrapper: it hosts the composition in
  * a player, carries the same island, and inlines our step layer. Two files
  * because they are genuinely two things — one is rendered, one is presented —
- * and because HyperFrames' own navigation is dead at 0.7.71/0.7.72
- * (EXPERIMENT-003), so the presented one has to be ours.
+ * and because HyperFrames' own navigation is dead at 0.7.71/0.7.72 and still
+ * dead at 0.7.90 (EXPERIMENT-003), so the presented one has to be ours.
  */
 export function emitDeck(
   storyboard: Storyboard,
