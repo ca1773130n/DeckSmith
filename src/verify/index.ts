@@ -563,9 +563,19 @@ const EMPHASISED = new Set(["equation-walk", "data-table"]);
  * CONSERVATIVE BY CONSTRUCTION, in three ways, because a warning that cries wolf
  * is a warning people learn to scroll past:
  *   - a part is assumed to appear at the EARLIEST hold that could be its own,
- *     `holds[min(j, last)]`. Where an archetype spends its first hold on a
- *     landing rather than a part, the real appearance is later than this and the
- *     finding is missed rather than invented.
+ *     `holds[j]`. Where an archetype spends its first hold on a landing rather
+ *     than a part, the real appearance is later than this and the finding is
+ *     missed rather than invented.
+ *
+ *     THIS PARAGRAPH USED TO SAY `holds[min(j, last)]`, AND IT WAS WRONG IN THE
+ *     ONE DIRECTION A DOCSTRING MUST NOT BE WRONG IN. Clamping to the last hold
+ *     does not under-report, it OVER-reports: an archetype that draws five bars
+ *     on two holds charges bars three through five to the final hold, so a word
+ *     spoken over a bar that is already on screen is read as a word spoken 1.05
+ *     to 2.25s early, against a 1.0s threshold. 86 of `bar-compare`'s 90 flagged
+ *     parts were that arithmetic and not a defect — 43% of every flagged part in
+ *     the committed corpus. The promise of under-reporting is exactly why nobody
+ *     checked. The scene is now skipped instead of clamped, see below.
  *   - only labels the narration actually names are considered, by the same
  *     five-character prefix match `scanHeadlines` uses — tuned on exactly this
  *     problem, where the headline said "encoding" and the stage was `Encoder`.
@@ -594,12 +604,27 @@ export function scanNarrationLead(
     if (EMPHASISED.has(beat.archetype)) continue;
     const labels = partLabels(beat.params as Record<string, unknown>);
     if (labels.length === 0) continue;
+    // ONE HOLD PER PART, OR NO OPINION. `holds[j]` is a sound map only where the
+    // emitter gave each part a hold of its own. `bar-compare` deliberately draws
+    // however many bars it has on two holds — the prompt's own reveal table says
+    // so — and the clamp this replaces charged every bar past the second to the
+    // final hold, inventing a lead of 1.05-2.25s against a 1.0s threshold.
+    //
+    // Skipping the scene rather than special-casing the archetype is the point:
+    // it is the archetype-agnostic form of "the map is unsound here", so the
+    // next emitter that batches its reveals is covered without touching this.
+    // Measured over the committed corpus: 86 of 90 `bar-compare` flags vanish,
+    // and `pipeline`, `annotated-figure`, `grid` and `stack` do not move at all.
+    if (scene.holds.length < labels.length) continue;
     const mine = timing.segments.filter((s) => s.scene === scene.id);
     if (mine.length === 0) continue;
 
     const early: string[] = [];
     for (const [j, label] of labels.entries()) {
-      const appears = scene.start + (scene.holds[Math.min(j, scene.holds.length - 1)] as number);
+      // A repeated label is charged to the first index that drew it: one
+      // utterance cannot be early for the second copy of something.
+      if (labels.indexOf(label) !== j) continue;
+      const appears = scene.start + (scene.holds[j] as number);
       const said = firstMention(mine, label);
       if (said !== undefined && said + LEAD_SECONDS < appears) {
         early.push(`"${label}" at ${said.toFixed(1)}s, drawn at ${appears.toFixed(1)}s`);

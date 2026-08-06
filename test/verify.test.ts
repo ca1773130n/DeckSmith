@@ -793,6 +793,53 @@ describe("scanNarrationLead", () => {
       ),
     ).toEqual([]);
   });
+
+  it("says nothing about bars, which land two holds at a time however many there are", () => {
+    // THE 86-OF-90 CORRECTION, and the exact sentence that used to be the
+    // prompt's worked example. `bar-compare` draws all its bars on TWO holds, so
+    // the `holds[min(j, last)]` this replaces charged the third bar onward to
+    // the final hold and read a word spoken over a bar already on screen as
+    // 1.05-2.25s early, against a 1.0s threshold. Measured over the committed
+    // corpus that arithmetic was 86 of the archetype's 90 flagged parts — 43% of
+    // every flagged part there is. Fewer holds than parts means the map is
+    // unsound, not that the narration is early.
+    expect(
+      scanNarrationLead(
+        beat("bar-compare", {
+          headline: "Four baselines and ours",
+          bars: [
+            { label: "CARN", value: 28.9 },
+            { label: "IMDN", value: 29.1 },
+            { label: "RFDN", value: 29.4 },
+            { label: "DQ-CTM-SR", value: 30.5 },
+          ],
+        }),
+        {
+          scenes: [{ id: "s1", start: 0, holds: [3.65, 4.45] }],
+          segments: [seg(0, "The reported averages put DQ-CTM-SR in the CNN baseline range.")],
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  it("charges a repeated label to the first thing that drew it", () => {
+    // One utterance cannot be early for the SECOND copy of a label. `Decoder` is
+    // drawn twice below and spoken once, over the first one, which is on screen
+    // by then — the index walk this replaces measured that word against the
+    // second draw at 6s and called it 2.7s early.
+    expect(
+      scanNarrationLead(
+        beat("pipeline", {
+          headline: "Two passes, one decoder",
+          stages: [{ label: "Decoder" }, { label: "Windows" }, { label: "Decoder" }],
+        }),
+        {
+          scenes: [scene],
+          segments: [seg(3, "The decoder runs, then windows, then it runs again.")],
+        },
+      ),
+    ).toEqual([]);
+  });
 });
 
 /**
