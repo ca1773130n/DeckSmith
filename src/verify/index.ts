@@ -9,6 +9,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { DECK_PAGE } from "../emit/composition.js";
+import { durationPlan } from "../plan/duration.js";
+import type { Prefs } from "../prefs.js";
 import { TIMING_FILE } from "../render/timing.js";
 import { type Beat, DIAGRAMMATIC, type Finding, type Storyboard, type Verdict } from "../types.js";
 import { scanBudget } from "./budget.js";
@@ -153,6 +155,11 @@ export async function verify(
     passed: verdict.passed && seen.every((f) => f.severity !== "error"),
     findings: [
       ...seen,
+      // `scanBeatCount` is deliberately NOT here. It needs the preferences the
+      // deck was asked for, and `verify <dir>` is handed a built directory and
+      // nothing else — the same gating `scanNarrationLead` gets above, and for
+      // the same reason: a check that cannot see its inputs must not report that
+      // it found nothing. It runs at `plan` and `build`, where prefs exist.
       ...(storyboard
         ? [
             ...scanDiagrammatic(storyboard),
@@ -450,6 +457,63 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
 }
 
 /**
+ * Warn when the plan came back with fewer beats than were asked for.
+ *
+ * `--slides` IS A FLOOR, and this is the half of that with teeth. The other half
+ * is the prompt's LENGTH block, which now says so in words — and words are not
+ * enough here for the reason `scanHeadlines` records two functions up: a real
+ * Codex run answered a sharpened RULE 8 by swapping one verb. Four of the last
+ * five plans came back short of their target (8, 9, 9 and 10 against 12) against
+ * a prompt that already asked for the number. Whether a source "genuinely will
+ * not carry twelve points" is a judgement the writer makes about their own
+ * output, so it can always be met cosmetically. A COUNT is not a judgement.
+ *
+ * REPORTED, NEVER REPAIRED, which is the same shape as `cut.dangling`. The two
+ * repairs available are both worse than the shortfall: truncating to what came
+ * back throws away slides the author asked for, and padding to reach the number
+ * is exactly what RULE 9 forbids — "a visual repeated to say one more small
+ * thing" costs more than being short does. Re-asking the planner is a fresh
+ * Codex round-trip on a single-shot planner with no retry machinery, spent on a
+ * rule it has already been given. So the deck is built at the count it has —
+ * `durationPlan` restrikes the whole budget there, which is what stops the
+ * shortfall becoming a video that quietly misses its duration — and the author
+ * is told what it cost, at `plan`, before a minute of TTS is spent on it.
+ *
+ * NAMING THE NUMBERS IS THE WHOLE VALUE, same argument as `INSTEAD` above: "the
+ * plan is short" changes nothing, "each surviving slide now runs 7.5s instead of
+ * 5.0s and has to carry 102 characters where the prompt budgeted 66" is a fact
+ * the author can act on — by adding the missing beat, or by accepting the deck
+ * they have.
+ *
+ * A warning, never an error. A source that honestly carries eight points is a
+ * real thing, and only the author can tell that from a planner that stopped
+ * early.
+ */
+export function scanBeatCount(storyboard: Storyboard, prefs: Prefs): Finding[] {
+  const got = storyboard.beats.length;
+  if (got >= prefs.slides) return [];
+
+  // Both budgets, so the message can price the shortfall rather than announce
+  // it. `asked` is the one the planner was WRITTEN to — it is what `systemPrompt`
+  // put in front of the model — and `has` is the one the deck is BUILT at.
+  const asked = durationPlan(prefs);
+  const has = durationPlan(prefs, got);
+  const cost =
+    prefs.duration === undefined
+      ? `Each missing beat is a point the deck never makes.`
+      : `The ${prefs.duration}s is not lost, it is redistributed: each surviving slide runs ${has.beatSeconds}s instead of ${asked.beatSeconds}s and has to carry ${has.chars} characters where the prompt budgeted ${asked.chars}. So what is short is the number of points, not the video.`;
+
+  return [
+    {
+      severity: "warning",
+      gate: "storyboard",
+      rule: "beats_under_target",
+      message: `${prefs.slides} beats were asked for and the plan returned ${got}. ${cost} Split a point that has two halves and write the missing beat by hand, or re-plan — padding to reach the number costs more than being short does (RULE 9). The deck is being built for ${got} beats, not ${prefs.slides}.`,
+    },
+  ];
+}
+
+/**
  * How far a name may precede the thing it names before a viewer notices.
  *
  * A second, which is generous on purpose. The word position inside a cue is
@@ -499,9 +563,19 @@ const EMPHASISED = new Set(["equation-walk", "data-table"]);
  * CONSERVATIVE BY CONSTRUCTION, in three ways, because a warning that cries wolf
  * is a warning people learn to scroll past:
  *   - a part is assumed to appear at the EARLIEST hold that could be its own,
- *     `holds[min(j, last)]`. Where an archetype spends its first hold on a
- *     landing rather than a part, the real appearance is later than this and the
- *     finding is missed rather than invented.
+ *     `holds[j]`. Where an archetype spends its first hold on a landing rather
+ *     than a part, the real appearance is later than this and the finding is
+ *     missed rather than invented.
+ *
+ *     THIS PARAGRAPH USED TO SAY `holds[min(j, last)]`, AND IT WAS WRONG IN THE
+ *     ONE DIRECTION A DOCSTRING MUST NOT BE WRONG IN. Clamping to the last hold
+ *     does not under-report, it OVER-reports: an archetype that draws five bars
+ *     on two holds charges bars three through five to the final hold, so a word
+ *     spoken over a bar that is already on screen is read as a word spoken 1.05
+ *     to 2.25s early, against a 1.0s threshold. 86 of `bar-compare`'s 90 flagged
+ *     parts were that arithmetic and not a defect — 43% of every flagged part in
+ *     the committed corpus. The promise of under-reporting is exactly why nobody
+ *     checked. The scene is now skipped instead of clamped, see below.
  *   - only labels the narration actually names are considered, by the same
  *     five-character prefix match `scanHeadlines` uses — tuned on exactly this
  *     problem, where the headline said "encoding" and the stage was `Encoder`.
@@ -530,12 +604,27 @@ export function scanNarrationLead(
     if (EMPHASISED.has(beat.archetype)) continue;
     const labels = partLabels(beat.params as Record<string, unknown>);
     if (labels.length === 0) continue;
+    // ONE HOLD PER PART, OR NO OPINION. `holds[j]` is a sound map only where the
+    // emitter gave each part a hold of its own. `bar-compare` deliberately draws
+    // however many bars it has on two holds — the prompt's own reveal table says
+    // so — and the clamp this replaces charged every bar past the second to the
+    // final hold, inventing a lead of 1.05-2.25s against a 1.0s threshold.
+    //
+    // Skipping the scene rather than special-casing the archetype is the point:
+    // it is the archetype-agnostic form of "the map is unsound here", so the
+    // next emitter that batches its reveals is covered without touching this.
+    // Measured over the committed corpus: 86 of 90 `bar-compare` flags vanish,
+    // and `pipeline`, `annotated-figure`, `grid` and `stack` do not move at all.
+    if (scene.holds.length < labels.length) continue;
     const mine = timing.segments.filter((s) => s.scene === scene.id);
     if (mine.length === 0) continue;
 
     const early: string[] = [];
     for (const [j, label] of labels.entries()) {
-      const appears = scene.start + (scene.holds[Math.min(j, scene.holds.length - 1)] as number);
+      // A repeated label is charged to the first index that drew it: one
+      // utterance cannot be early for the second copy of something.
+      if (labels.indexOf(label) !== j) continue;
+      const appears = scene.start + (scene.holds[j] as number);
       const said = firstMention(mine, label);
       if (said !== undefined && said + LEAD_SECONDS < appears) {
         early.push(`"${label}" at ${said.toFixed(1)}s, drawn at ${appears.toFixed(1)}s`);

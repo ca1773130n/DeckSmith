@@ -240,6 +240,14 @@ export function deckTools(opts: McpOptions) {
      * the author what their settings cost ("60s over 12 slides leaves 85
      * characters a slide, which is one sentence"), and an MCP that swallowed
      * them would ship the exact failure this project keeps having.
+     *
+     * EVERY NUMBER HERE IS AT THE REQUESTED SLIDE COUNT, which is the only one a
+     * pre-flight has — there is no plan yet, so there are no beats to strike the
+     * budget at. `create` below builds the deck at the count the planner returns
+     * (see `durationPlan`'s header), so a plan that comes back short reports
+     * different numbers than this did, and `scanBeatCount` says by how much. The
+     * field names carry it: `slides` is the request, and everything `_per_slide`
+     * is per requested slide.
      */
     estimate(input: z.infer<typeof estimateSchema>) {
       const options = parseOptions(fieldsFor(input.settings));

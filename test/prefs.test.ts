@@ -102,12 +102,23 @@ describe("systemPrompt", () => {
     // "Write 7 beats", not "about 7 beats". Four of the last five real plans came
     // back short of the target — 8, 9, 9 and 10 against 12 — and the prompt was
     // telling them that was fine ("a target to come close to, not a quota to
-    // fill"). It is not fine any more: `beatSeconds` derives from the REQUESTED
-    // count, so every missing beat is duration the finished video does not use.
+    // fill").
     expect(prompt).toMatch(/Write 7 beats/);
+    // A FLOOR, and the word is load-bearing. It used to say every missing beat
+    // was duration the finished video does not use, which stopped being true when
+    // `durationPlan` started restriking the budget on the count that actually
+    // comes back: a short plan now fills its target with fewer points in it. The
+    // cost is real and it is a different cost, so the prompt says the different
+    // thing — and `scanBeatCount` reports the miss, because a prompt rule about a
+    // count can be met cosmetically like any other.
+    expect(prompt).toContain("is a FLOOR");
     // The anti-padding half has to survive, or the cure is worse: RULE 9 exists
     // because a visual repeated to say one more small thing reads as padding.
     expect(prompt).toContain("PADDING");
+    // And the escape hatch is gone. "If the source genuinely will not carry N
+    // distinct points, say fewer" is permission to return a ceiling, which is
+    // exactly what a floor cannot have.
+    expect(prompt).not.toContain("say fewer");
     expect(prompt).toContain("Korean (ko)");
     expect(prompt).toMatch(/TONE\s+punchy/);
     expect(prompt).toMatch(/DENSITY\s+sparse/);

@@ -1,10 +1,13 @@
 /**
  * The browser step layer — the only runtime code DeckSmith owns.
  *
- * HyperFrames' own deck navigation is dead at 0.7.71/0.7.72: `player.scenes`
- * never populates, so `SlideshowController` has no slide→time map and every key
- * press is a no-op. EXPERIMENT-003 reproduced that on their own reference
- * example, and established that `player.seek(t)` works exactly as documented.
+ * HyperFrames' own deck navigation is dead at 0.7.71/0.7.72 and still dead at
+ * 0.7.90: `player.scenes` never populates, so `SlideshowController` has no
+ * slide→time map and every key press is a no-op. EXPERIMENT-003 reproduced that
+ * on their own reference example, and established that `player.seek(t)` works
+ * exactly as documented. Re-measured on the pin bump to 0.7.90 — `player.scenes`
+ * is still 0 and `dist/hyperframes-slideshow.global.js` is byte-identical to
+ * 0.7.71, so this layer is not redundant yet.
  * So we read the island ourselves, flatten it into stop times, and drive seek().
  * Because `paint()` is ours, a forward step is swept across a few frames rather
  * than cut, which is the whole difference between a deck that reveals and a deck

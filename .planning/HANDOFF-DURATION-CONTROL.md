@@ -1260,3 +1260,129 @@ The dangling-citation half needed no code: `cut.dangling` already reports it at
 `build`, correctly — a bar-compare draws numbers derived from a table, it does
 not SHOW the table, and the comment on `dangling()` is right that only the author
 can decide whether that matters.
+
+## 17. THE BUDGET WAS STRUCK AT A SLIDE COUNT THE DECK DID NOT HAVE
+
+There are two functions called `beatSeconds` and only one of them decides the
+video. `DurationPlan.beatSeconds` is a budget the planner is written to;
+`beatSeconds()` in `src/emit/composition.ts` is what actually sizes a scene. The
+only channel between them is `speed` — and `speed` came from
+`duration / prefs.slides`, the count that was ASKED FOR, not the count that came
+back.
+
+Four of the last five real plans came back short. So an eight-beat plan against a
+sixty-second target was paced for five-second beats that are really seven and a
+half, and the finished video came in at forty seconds with `lint`, `check`, the
+type floor and `drift` all green. `playbackFactor` never slows a video down to
+fill a duration, so nothing downstream closed the gap either. Nothing anywhere
+compared the two numbers.
+
+### (a) The budget is restruck on the beats that exist
+
+`durationPlan(prefs, beats = prefs.slides)`. Every caller holding a storyboard
+passes `storyboard.beats.length`: `build` (src/cli.ts), `narrate`
+(src/narrate/narrate.ts) and the server pipeline. Two callers structurally
+cannot and keep the request, which is the only number they have — `systemPrompt`,
+which builds the prompt before a plan exists, and the MCP `estimate`, which is a
+pre-flight with no plan at all. Both now say so in a comment, because they are
+the sites someone will otherwise "fix".
+
+The default is load-bearing. It is what keeps a run where the planner hit its
+number byte-identical, and `test/duration.test.ts` asserts the identity
+(`durationPlan(p)` deep-equals `durationPlan(p, p.slides)`) so that the twenty-odd
+pinned values in that file cannot fail as if the arithmetic broke.
+
+`build` passes `storyboard.beats.length` and NOT `deck.cut.kept.length`: the cut
+is decided by `planCut`, which consumes `speed`, so reading it back would make the
+pace depend on a cut that depends on the pace. A beat the CUT drops afterwards is
+still an undershoot this cannot see. That case is not fixed here.
+
+One consequence worth naming: `--slides` no longer decides a single derived number
+after `plan`. `narrate` and `build` both read the storyboard, so the
+three-stages-disagree failure `lengthFlags` was written for is now structurally
+impossible rather than a flag away. The flag stays because it is the floor.
+
+### (b) `--slides` is a floor, said twice
+
+The prompt's LENGTH block said `N` beats and then, four lines later, "if the
+source genuinely will not carry N distinct points, say fewer". That escape clause
+is gone, and the block now says what being short actually costs — which the
+re-derivation changed. It is no longer seconds the video does not use; the seconds
+are handed to the survivors, so a short plan fills its target with fewer points in
+it and each surviving beat owes MORE than the character budget the same prompt
+just printed. Beat count and sentence length are one budget, and the prompt now
+says so instead of stating them as two independent targets.
+
+A prompt rule alone was not enough, for the reason `scanHeadlines` records: a
+sharpened RULE 8 was answered by a real Codex run swapping one verb. So
+`scanBeatCount` ships beside it — `severity: "warning"`, `gate: "storyboard"`,
+`rule: "beats_under_target"` — and prices the shortfall in the numbers the
+re-derivation moved:
+
+```
+12 beats were asked for and the plan returned 8. The 60s is not lost, it is
+redistributed: each surviving slide runs 7.5s instead of 5s and has to carry 102
+characters where the prompt budgeted 66. ... The deck is being built for 8 beats,
+not 12.
+```
+
+Reported, never repaired, the same shape as `cut.dangling`. Truncating throws
+away slides the author asked for; padding to reach the number is what RULE 9
+forbids and costs more than being short does; re-asking is a fresh Codex
+round-trip on a single-shot planner. It runs at `plan` — the moment before a
+minute of TTS — at `build`, and in the server pipeline. It is NOT folded into
+`verify()`, which is handed a built directory and has no preferences to compare
+against.
+
+### Measured
+
+Through `emitDeck` on `demo/storyboard.json` cut to n beats, with the budget's own
+`speechSeconds` as each beat's narration, against a 60-second target. edge-tts is
+not on this machine, so the speech term is arithmetic rather than synthesised —
+but without a speech term at all a beat is bounded by `authored × speed` and no
+budget of any kind can reach a target, which is why the CLI build alone cannot
+show this.
+
+```
+  beats returned    struck at 12 (before)    struck at n (after)
+       12                 59.96s                  59.96s
+       10                 49.96s                  59.95s
+        9                 44.96s                  59.94s
+        8                 39.96s                  59.95s
+        5                 24.96s                  59.90s
+```
+
+The 12-beat row is the identity guarantee: a plan that hit its number does not
+move. The `demo` build itself is unchanged — no duration target, so `durationPlan`
+returns before it reads a count — and comes out at `data-duration="104"`, twelve
+beats, PASS with the one pre-existing `connector_detached` warning.
+
+Two CLI builds of the same eight-beat cut, no narration, read off `data-duration`:
+28.773s at `speed 0.417` (what the old code derived) against 43.125s at
+`speed 0.625` (what the new code derives). Same direction, and it is the whole
+visible effect of the change on a silent deck.
+
+`npm run check`: 1112 tests, 35 files, green — including the sweep receipt, which
+needed no re-pinning.
+
+### STILL OPEN after §17
+
+- **Nobody has watched this.** No mp4 was rendered and no audio was synthesised,
+  because edge-tts is not installed here. The measurement above is the emitter's
+  own `data-duration` against a synthetic narration of exactly the budgeted
+  length; a real run's segments are whatever edge-tts returns, and the deck
+  follows THOSE. §8 of this document is about precisely this gap.
+- **The regime flip is now reachable from a plan the user did not choose.** At a
+  60s target a plan returning 6 or fewer beats pushes the beat past
+  `FF_BEAT_SECONDS`, `fastEnough` leaves the fast-forward branch, and the rate
+  drops `+10%` → `+0%`. `rate` is part of the TTS cache key, so that
+  re-synthesises every segment (~25-30s for twelve beats) and it is audible.
+  Pinned in `test/duration.test.ts` rather than left to be discovered.
+- **The cut can still undershoot.** `planCut` drops beats below `minWeight`, over
+  a format's budget, or refused by an emitter, all AFTER `speed` is fixed. This
+  change closes the planner-consolidation case only.
+- **`fillFactor` / `stretchAfter` are in §13 and not in `src`.** `grep` finds one
+  hit, a comment at src/verify/index.ts:493 citing `fillFactor` as the reason
+  `scanNarrationLead` is reachable. `stageScene` only calls `pace`. Anyone
+  reasoning about how a re-derived speed interacts with the build filling its
+  sentence is reasoning about code that is not there.
