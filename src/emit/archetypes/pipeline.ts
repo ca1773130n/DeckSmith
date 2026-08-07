@@ -450,7 +450,13 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
       : { x: b.x, y: M, w: b.w, h: L.boxH };
   };
 
+  // What a camera aimed at `stageN` would land on. Written in the same loop that
+  // gives the group its id, so the label and the index it is filed under cannot
+  // drift apart. See `Scene.parts`.
+  const parts: Record<string, string> = {};
+
   const stages = p.stages.map((stage, i) => {
+    parts[`stage${i}`] = stage.label;
     const box = boxOf(i);
     const tone = stage.tone ? theme.tones[stage.tone] : undefined;
     // A toned stage is the slide's focal point, so it takes the only saturated
@@ -678,6 +684,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
 
   return {
     html,
+    parts,
     tl,
     holds: holdsWithin(holds, beat.seconds),
     css: [

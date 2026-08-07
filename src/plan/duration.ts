@@ -710,23 +710,81 @@ export function p95CueRate(cues: readonly { start: number; end: number; text: st
 }
 
 /**
- * Whether this deck's own captions survive being sped up this much.
+ * What is wrong with speeding this deck up this much — everything that is.
  *
- * Computed from the deck's MEASURED p95 cue rate against broadcast practice, not
- * from a hardcoded ceiling: a deck whose captions already run at 18 cps has no
- * headroom at all, and one written in short lines has plenty. Warns, never
- * refuses — how readable a caption has to be is the user's call, and they can
- * only make it if they are told the number.
+ * TWO CEILINGS, AND THEY ARE NOT THE SAME KIND OF THING. The caption one is
+ * computed from the deck's MEASURED p95 cue rate against broadcast practice
+ * rather than from a constant: a deck whose captions already run at 18 cps has
+ * no headroom at all, one written in short lines has plenty. That one stays
+ * pure advice — how readable a caption has to be is the user's call, and they
+ * can only make it if they are told the number. `MAX_PLAYBACK` is the other,
+ * and `playbackRefusal` below turns it into a refusal, because time-stretched
+ * audio is not a matter of taste.
+ *
+ * BOTH CLAUSES, NOT THE FIRST ONE. This used to `return` out of the caption
+ * branch, which meant a dense deck — every deck this tool plans is dense, by
+ * construction — could only ever be told about the ceiling that is advisory,
+ * and never about the one that is enforced. The measured shape: 2.14× on a
+ * 19.6 cps deck printed "readable captions cap out near 0.87×" and suppressed
+ * "past the 1.25× that reads comfortably", so the only line naming an
+ * enforceable limit was the one the user did not get.
  */
 export function playbackWarning(factor: number, p95: number): string | undefined {
   if (factor <= 1) return undefined;
+  const parts: string[] = [];
   if (p95 > 0 && p95 * factor > COMFORTABLE_CPS) {
-    return `at ${factor}× the subtitles run at ${(p95 * factor).toFixed(1)} characters per second (p95), over the ${COMFORTABLE_CPS} cps broadcast practice — readable captions cap out near ${(COMFORTABLE_CPS / p95).toFixed(2)}× on this deck`;
+    parts.push(
+      `at ${factor}× the subtitles run at ${(p95 * factor).toFixed(1)} characters per second (p95), over the ${COMFORTABLE_CPS} cps broadcast practice — readable captions cap out near ${(COMFORTABLE_CPS / p95).toFixed(2)}× on this deck`,
+    );
   }
   if (factor > MAX_PLAYBACK) {
-    return `${factor}× is past the ${MAX_PLAYBACK}× that reads comfortably; the audio is time-stretched, not re-spoken`;
+    parts.push(
+      `${factor}× is past the ${MAX_PLAYBACK}× that reads comfortably; the audio is time-stretched, not re-spoken`,
+    );
   }
-  return undefined;
+  // `, and ` rather than `; `: the playback clause already carries a semicolon
+  // of its own, and joining on one more put three at the same rank in a sentence
+  // where two of them are subordinate.
+  return parts.length > 0 ? parts.join(", and ") : undefined;
+}
+
+/**
+ * Why this target cannot be reached from this deck, when it cannot.
+ *
+ * `MAX_PLAYBACK` IS THE ONE THAT CAN BE ENFORCED. The caption ceiling cannot
+ * be, and the arithmetic is not close: `COMFORTABLE_CPS / DEMO_P95_CUE_CPS` is
+ * 17/18.409 = 0.92 on this project's own anchor deck, so a caption-derived
+ * limit is already breached at 1× and would refuse every speed-up there is —
+ * `--duration` would be dead on arrival. Every deck DeckSmith plans is denser
+ * than 17 cps by construction; see `CUE_OVERHEAD`. So the captions warn and
+ * the playback factor refuses, and `test/duration.test.ts` pins the reason.
+ *
+ * REFUSING IS NOT NEW POLICY, it is the policy the planner already keeps.
+ * `durationPlan` sizes a deck so the residual gap fits inside `MAX_PLAYBACK`,
+ * and `test/duration.test.ts` asserts exactly that at 60s, 120s, 180s and
+ * 240s. A 2.14× request is not a tight fit that slipped — it is 71% past a
+ * bound the rest of the file treats as arithmetic. What was shipping instead
+ * was a video nobody could follow, announced by a mid-render log line that 40
+ * lines of capture progress scrolled away.
+ *
+ * Both remedies are named because the honest one is not the flag: the length
+ * of a deck is decided at plan time by how much it says, so the fix is fewer
+ * words or more seconds, and `--allow-fast-playback` is for the person who has
+ * looked at the alternative and wants the fast video anyway.
+ */
+export function playbackRefusal(
+  actualSeconds: number,
+  targetSeconds: number,
+  p95: number,
+): string | undefined {
+  const factor = playbackFactor(actualSeconds, targetSeconds);
+  if (factor <= MAX_PLAYBACK) return undefined;
+  const floor = Math.ceil(actualSeconds / MAX_PLAYBACK);
+  const captions =
+    p95 > 0
+      ? `at ${factor}× the subtitles run at ${(p95 * factor).toFixed(1)} cps against the ${COMFORTABLE_CPS} cps broadcast practice, and the audio is time-stretched rather than re-spoken`
+      : "the audio is time-stretched rather than re-spoken";
+  return `--duration ${targetSeconds}s needs ${factor}× playback from this ${actualSeconds.toFixed(2)}s deck, past the ${MAX_PLAYBACK}× ceiling. The length of a deck is decided at plan time by how much it says: re-plan with \`plan --duration ${targetSeconds}\`, or ask render for ${floor}s or more. To override, pass --allow-fast-playback and watch the result: ${captions}.`;
 }
 
 /* ------------------------------------------------------------------ internals */

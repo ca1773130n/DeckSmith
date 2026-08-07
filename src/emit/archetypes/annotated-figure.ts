@@ -251,10 +251,27 @@ interface Measured {
   w: number;
   h: number;
   clipped: boolean;
+  /**
+   * A word too wide for the column, so `wrap` fell back to breaking it by
+   * character — "window partitioning" over 'partitionin' and a lone 'g'.
+   *
+   * LATIN ONLY, because that fallback is not a defect for every script. Korean
+   * and Chinese arrive as one unbroken "word" and are SUPPOSED to break by
+   * character; flagging them would make every CJK label unfittable and send the
+   * search off widening columns until it ran out.
+   */
+  splitWord: boolean;
 }
 
 function measure(content: string, col: number, maxLines: number): Measured {
   const all = wrap(content, LAB, col, LAB_WEIGHT);
+  // The exact condition that arms `wrap`'s per-character fallback, asked before
+  // it fires rather than inferred from its output — a broken word and a genuine
+  // two-word wrap are indistinguishable once they are both just lines.
+  const splitWord = content
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((word) => /\p{Script=Latin}/u.test(word) && textWidth(word, LAB, LAB_WEIGHT) > col);
   const clipped = all.length > maxLines;
   const lines = all.slice(0, maxLines);
   if (clipped) {
@@ -267,6 +284,7 @@ function measure(content: string, col: number, maxLines: number): Measured {
     w: Math.max(0, ...lines.map((l) => textWidth(l, LAB, LAB_WEIGHT))),
     h: (lines.length - 1) * LAB * LAB_LH + ASCENT + RULE_LIFT + RULE_W,
     clipped,
+    splitWord,
   };
 }
 
@@ -497,6 +515,20 @@ function attempt(
       // search calls that a fit and never falls back, and the label runs off the
       // stage: measured at 30px of text in 29.1px of column.
       !work.some((w) => w.w > col) &&
+      // AND NO WORD WAS BROKEN IN HALF. `columns` derives its FLOOR from the
+      // widest single word precisely so this cannot happen — but `col` is not
+      // one of those candidates, it is recomputed above from where the figure
+      // actually landed, and can come out under the floor. The guarantee was
+      // asserted in a comment and never enforced where it mattered: measured on
+      // a real deck, "window partitioning" emitted as 'partitionin' and a lone
+      // 'g', about one character short, with `layout` reporting nothing.
+      //
+      // Rejecting here rather than clamping `col` keeps the geometry honest —
+      // the search simply moves on to a wider column, which is what it is for.
+      // The cost is that a wider column shrinks the figure, and a Latin word
+      // too long for every candidate exhausts the search and travels out as
+      // `ok: false`. Mangled text that no gate can see is worse than either.
+      !work.some((w) => w.splitWord) &&
       !work.some((w) => w.clipped),
     boxes: work.map((w) => ({
       side: w.side,

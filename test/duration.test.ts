@@ -24,10 +24,12 @@ import {
   FF_BEAT_SECONDS,
   fastEnough,
   LAST_HOLD_SECONDS,
+  MAX_PLAYBACK,
   MIN_SENTENCE_CHARS,
   OPEN_SECONDS_AT_SPEED,
   p95CueRate,
   playbackFactor,
+  playbackRefusal,
   playbackWarning,
   RATE_STEPS,
   SENTENCES_PER_BEAT,
@@ -450,6 +452,57 @@ describe("playback", () => {
     // Past the comfortable ceiling it is said even when the captions are sparse.
     expect(playbackWarning(1.5, 8)).toContain("1.25×");
     expect(playbackWarning(1, 18.41)).toBeUndefined();
+  });
+
+  /**
+   * The measured failure, and the whole reason the two ceilings are separate.
+   *
+   * A 128.40s composition asked to reach 60s is 2.14×, on a deck whose captions
+   * measure 19.63 cps p95 — and the renderer printed only "readable captions cap
+   * out near 0.87×", never the line naming a bound anything could act on.
+   */
+  it("says both things at once when both are true", () => {
+    const said = playbackWarning(2.14, 19.63) as string;
+    // The caption clause, which is advice.
+    expect(said).toContain("characters per second");
+    expect(said).toContain("0.87×");
+    // And the playback clause, which is the enforced one. This is the assertion
+    // the old first-branch `return` swallowed on every dense deck — that is,
+    // every deck this tool plans.
+    expect(said).toContain("1.25×");
+  });
+
+  it("cannot use the caption ceiling as a gate: it is under 1× on this project's own deck", () => {
+    // `DEMO_P95_CUE_CPS` from the arithmetic block below — the anchor artifact in
+    // demo/audio, at rest, with no speed-up applied at all.
+    const ceiling = COMFORTABLE_CPS / 18.409;
+    expect(ceiling).toBeLessThan(1);
+    // So clamping to it degenerates: `playbackFactor` never slows a video down,
+    // so the clamp is `max(1, 0.92)` and buys exactly nothing — a `--duration`
+    // that silently ignores its argument. Refusing on it is worse still: it
+    // rejects every speed-up there is, including 1.01×.
+    expect(Math.max(1, ceiling)).toBe(1);
+    expect(playbackWarning(1.01, 18.409)).toContain("characters per second");
+  });
+
+  it("refuses past the playback ceiling, and names both ways out", () => {
+    const refusal = playbackRefusal(128.4, 60, 19.63) as string;
+    expect(refusal).toContain("2.14×");
+    expect(refusal).toContain(`${MAX_PLAYBACK}× ceiling`);
+    // Re-plan, or ask for a length this deck can actually reach: 128.40/1.25.
+    expect(refusal).toContain("plan --duration 60");
+    expect(refusal).toContain("103s or more");
+    // And the override, with the number it costs, so the flag is not a way to
+    // skip reading what it permits.
+    expect(refusal).toContain("--allow-fast-playback");
+    expect(refusal).toContain("42.0 cps");
+
+    // 103s is inside the ceiling, so nothing is refused there — the remedy the
+    // message names has to actually work.
+    expect(playbackRefusal(128.4, 103, 19.63)).toBeUndefined();
+    // Nor is a deck that is already short enough, or one inside 1.25×.
+    expect(playbackRefusal(50, 60, 19.63)).toBeUndefined();
+    expect(playbackRefusal(70, 60, 19.63)).toBeUndefined();
   });
 
   it("measures p95 cue rate over a cue list", () => {

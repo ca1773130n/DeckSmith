@@ -1,0 +1,515 @@
+{
+  "version": 1,
+  "width": 1920,
+  "height": 1080,
+  "duration": 128.385,
+  "lang": "en",
+  "audioDir": "audio",
+  "voice": "en-US-AndrewMultilingualNeural",
+  "scenes": [
+    {
+      "id": "s1",
+      "start": 0,
+      "duration": 8.028,
+      "holds": [1.188],
+      "open": 0.5
+    },
+    {
+      "id": "s2",
+      "start": 8.028,
+      "duration": 29.211,
+      "holds": [0.969, 1.844, 2.719, 3.594, 4.375, 4.844],
+      "open": 0.563
+    },
+    {
+      "id": "s3",
+      "start": 37.239,
+      "duration": 20.715,
+      "holds": [0.969, 1.75, 2.344, 2.938],
+      "open": 0.563
+    },
+    {
+      "id": "s4",
+      "start": 57.954,
+      "duration": 15.291,
+      "holds": [1, 1.656, 2.406, 3.031],
+      "open": 0.563
+    },
+    {
+      "id": "s5",
+      "start": 73.245,
+      "duration": 9.315,
+      "holds": [1.5, 2.688],
+      "open": 0.563
+    },
+    {
+      "id": "s6",
+      "start": 82.56,
+      "duration": 19.851,
+      "holds": [0.95, 1.45, 1.95, 2.45],
+      "open": 0.563
+    },
+    {
+      "id": "s7",
+      "start": 102.411,
+      "duration": 16.227,
+      "holds": [1.219, 1.781, 2.281],
+      "open": 0.563
+    },
+    {
+      "id": "s8",
+      "start": 118.638,
+      "duration": 9.747,
+      "holds": [2.281, 2.781],
+      "open": 0.563
+    }
+  ],
+  "segments": [
+    {
+      "id": "s1.0",
+      "scene": "s1",
+      "stop": 0,
+      "audio": "b385e1d276fcb7b5.mp3",
+      "hold": 1.188,
+      "start": 0.5,
+      "duration": 7.128,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 3.6413109243697477,
+          "text": "This paper puts a thought process that stays small up against"
+        },
+        {
+          "start": 3.6413109243697477,
+          "end": 7.056,
+          "text": "a task whose output has to stay large — every pixel of it."
+        }
+      ]
+    },
+    {
+      "id": "s2.0",
+      "scene": "s2",
+      "stop": 0,
+      "audio": "bde59578c0d2b847.mp3",
+      "hold": 8.997,
+      "start": 8.591,
+      "duration": 4.632,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.579,
+          "text": "The encoder does the heavy lifting first, in the style SwinIR established."
+        }
+      ]
+    },
+    {
+      "id": "s2.1",
+      "scene": "s2",
+      "stop": 1,
+      "audio": "589154b7760ec5f9.mp3",
+      "hold": 9.872,
+      "start": 13.223,
+      "duration": 4.8,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.7379999999999995,
+          "text": "Then the field is cut into windows, and nothing is pooled away on the way through."
+        }
+      ]
+    },
+    {
+      "id": "s2.2",
+      "scene": "s2",
+      "stop": 2,
+      "audio": "01f3a8a26f3794e2.mp3",
+      "hold": 10.747,
+      "start": 18.023,
+      "duration": 4.08,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.022,
+          "text": "The thought machine sits here in the middle, working on what the windows hold."
+        }
+      ]
+    },
+    {
+      "id": "s2.3",
+      "scene": "s2",
+      "stop": 3,
+      "audio": "7ba4b7b101df61e0.mp3",
+      "hold": 11.622,
+      "start": 22.103,
+      "duration": 4.392,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.329,
+          "text": "Only at the very end does the decoder upsample, four times over."
+        }
+      ]
+    },
+    {
+      "id": "s2.4",
+      "scene": "s2",
+      "stop": 4,
+      "audio": "51ffd7893607bacd.mp3",
+      "hold": 12.403,
+      "start": 26.495,
+      "duration": 5.064,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 2.467441860465116,
+          "text": "That loop is a single tick, and it runs in"
+        },
+        {
+          "start": 2.467441860465116,
+          "end": 5,
+          "text": "place rather than around the whole pipeline."
+        }
+      ]
+    },
+    {
+      "id": "s2.5",
+      "scene": "s2",
+      "stop": 5,
+      "audio": "0ea6bd0da4e01527.mp3",
+      "hold": 12.872,
+      "start": 31.559,
+      "duration": 5.28,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 2.3919761904761905,
+          "text": "Every tick reuses the same weights, so"
+        },
+        {
+          "start": 2.3919761904761905,
+          "end": 5.227,
+          "text": "thinking for longer costs time and not memory."
+        }
+      ]
+    },
+    {
+      "id": "s3.0",
+      "scene": "s3",
+      "stop": 0,
+      "audio": "b090da5abe089058.mp3",
+      "hold": 38.208,
+      "start": 37.802,
+      "duration": 5.472,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 2.83668,
+          "text": "The three approaches sit side by side here, and they"
+        },
+        {
+          "start": 2.83668,
+          "end": 5.409,
+          "text": "differ only in what they hand the thought block."
+        }
+      ]
+    },
+    {
+      "id": "s3.1",
+      "scene": "s3",
+      "stop": 1,
+      "audio": "fcb7f5f2ddc3d4e5.mp3",
+      "hold": 38.989,
+      "start": 43.274,
+      "duration": 5.424,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 2.3321428571428573,
+          "text": "The windows come first: the field is"
+        },
+        {
+          "start": 2.3321428571428573,
+          "end": 5.375,
+          "text": "partitioned, and each one is handled on its own."
+        }
+      ]
+    },
+    {
+      "id": "s3.2",
+      "scene": "s3",
+      "stop": 2,
+      "audio": "48dc650a722bc505.mp3",
+      "hold": 39.583,
+      "start": 48.698,
+      "duration": 4.128,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.079,
+          "text": "The block in the middle is shared, the same weights for every window."
+        }
+      ]
+    },
+    {
+      "id": "s3.3",
+      "scene": "s3",
+      "stop": 3,
+      "audio": "dc42d3b832427e3c.mp3",
+      "hold": 40.177,
+      "start": 52.826,
+      "duration": 4.728,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.681,
+          "text": "And what comes out is still a dense field, one query for every position in it."
+        }
+      ]
+    },
+    {
+      "id": "s4.0",
+      "scene": "s4",
+      "stop": 0,
+      "audio": "d41bd62363e7b18a.mp3",
+      "hold": 58.954,
+      "start": 58.517,
+      "duration": 2.616,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 2.545,
+          "text": "Picture the feature map as a grid of tokens."
+        }
+      ]
+    },
+    {
+      "id": "s4.1",
+      "scene": "s4",
+      "stop": 1,
+      "audio": "bb18b649a9d2385d.mp3",
+      "hold": 59.61,
+      "start": 61.133,
+      "duration": 3.072,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 3.011,
+          "text": "Attention runs inside one window at a time."
+        }
+      ]
+    },
+    {
+      "id": "s4.2",
+      "scene": "s4",
+      "stop": 2,
+      "audio": "d6b10042d264fa67.mp3",
+      "hold": 60.36,
+      "start": 64.205,
+      "duration": 5.016,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.954,
+          "text": "The next window does the same, and at this stage the two never mix."
+        }
+      ]
+    },
+    {
+      "id": "s4.3",
+      "scene": "s4",
+      "stop": 3,
+      "audio": "e5959f6b25dcfa9c.mp3",
+      "hold": 60.985,
+      "start": 69.221,
+      "duration": 3.624,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 3.556,
+          "text": "Count the tokens before a tick and after it and you get the same number."
+        }
+      ]
+    },
+    {
+      "id": "s5.0",
+      "scene": "s5",
+      "stop": 0,
+      "audio": "5aef0c44e2e8a540.mp3",
+      "hold": 74.745,
+      "start": 73.808,
+      "duration": 4.008,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 3.9539999999999997,
+          "text": "The encoder turns the low-resolution image into a dense feature field."
+        }
+      ]
+    },
+    {
+      "id": "s5.1",
+      "scene": "s5",
+      "stop": 1,
+      "audio": "3d950152400fd5fa.mp3",
+      "hold": 75.933,
+      "start": 77.816,
+      "duration": 4.344,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.295,
+          "text": "The partition then cuts that field into windows without throwing any of it away."
+        }
+      ]
+    },
+    {
+      "id": "s6.0",
+      "scene": "s6",
+      "stop": 0,
+      "audio": "93cdb2223d9cdb96.mp3",
+      "hold": 83.51,
+      "start": 83.123,
+      "duration": 4.128,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.056,
+          "text": "At the bottom is the carrier, and it keeps every token it started with."
+        }
+      ]
+    },
+    {
+      "id": "s6.1",
+      "scene": "s6",
+      "stop": 1,
+      "audio": "fbfc2b15375f8ca8.mp3",
+      "hold": 84.01,
+      "start": 87.251,
+      "duration": 5.376,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 5.306,
+          "text": "Above it sit the queries — one for each position, rather than one for each window."
+        }
+      ]
+    },
+    {
+      "id": "s6.2",
+      "scene": "s6",
+      "stop": 2,
+      "audio": "aade9a043e4507d9.mp3",
+      "hold": 84.51,
+      "start": 92.627,
+      "duration": 5.064,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 5.011,
+          "text": "Synchronisation is the part that remembers: every neuron carries its own history."
+        }
+      ]
+    },
+    {
+      "id": "s6.3",
+      "scene": "s6",
+      "stop": 3,
+      "audio": "2f56291fc485cfb8.mp3",
+      "hold": 85.01,
+      "start": 97.691,
+      "duration": 4.32,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.25,
+          "text": "The compact state on top is what actually changes from one tick to the next."
+        }
+      ]
+    },
+    {
+      "id": "s7.0",
+      "scene": "s7",
+      "stop": 0,
+      "audio": "e3f01900039ff224.mp3",
+      "hold": 103.63,
+      "start": 102.974,
+      "duration": 4.584,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 4.534,
+          "text": "The window-wise version collapses each window down to a single summary token."
+        }
+      ]
+    },
+    {
+      "id": "s7.1",
+      "scene": "s7",
+      "stop": 1,
+      "audio": "37d907af048153c5.mp3",
+      "hold": 104.192,
+      "start": 107.558,
+      "duration": 5.088,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 5.034,
+          "text": "This one asks a question at every position instead, and the token count survives it."
+        }
+      ]
+    },
+    {
+      "id": "s7.2",
+      "scene": "s7",
+      "stop": 2,
+      "audio": "c419c3144898581e.mp3",
+      "hold": 104.692,
+      "start": 112.646,
+      "duration": 5.592,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 2.261,
+          "text": "The partition is identical in both."
+        },
+        {
+          "start": 2.261,
+          "end": 5.522,
+          "text": "What differs is how much of it the thought state ever sees."
+        }
+      ]
+    },
+    {
+      "id": "s8.0",
+      "scene": "s8",
+      "stop": 0,
+      "audio": "bbf7f6c67ae9ae56.mp3",
+      "hold": 120.919,
+      "start": 119.201,
+      "duration": 5.064,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 5,
+          "text": "On parameters the method is the second largest here, at 1.13 million."
+        }
+      ]
+    },
+    {
+      "id": "s8.1",
+      "scene": "s8",
+      "stop": 1,
+      "audio": "c14951ac2ebf0e49.mp3",
+      "hold": 121.419,
+      "start": 124.265,
+      "duration": 3.72,
+      "cues": [
+        {
+          "start": 0.05,
+          "end": 3.67,
+          "text": "So this is not the cheap option, and the paper never claims it is."
+        }
+      ]
+    }
+  ]
+}

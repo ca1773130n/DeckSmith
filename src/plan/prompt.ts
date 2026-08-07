@@ -233,7 +233,7 @@ RULES
     apologising for it.
 
 11. Assert \`inside\` only where the SOURCE nests one thing in the other, never to
-    make the deck feel fancy. \`inside: { beat, element }\` says this beat is what
+    make the deck feel fancy. \`inside: { beat, element, label }\` says this beat is what
     happens inside one named part of the beat before it — "attention is computed
     within each window", where the beat before drew the stage that does the
     windowing. The deck then flies the camera into that part instead of cutting
@@ -242,15 +242,26 @@ RULES
     a decorated cut, which is worse than a plain cut and reads as motion
     sickness over a long deck.
 
-    Three hard constraints. \`beat\` must be the id of the beat IMMEDIATELY
+    Four hard constraints. \`beat\` must be the id of the beat IMMEDIATELY
     BEFORE this one — the planner is rejected outright otherwise, because no
     other beat is still on screen to move through. \`element\` must name a part
     the previous beat actually draws, and only three archetypes have interiors
     worth entering: a pipeline's \`stage0\`, \`stage1\`, ... (0-based, in the
     order you listed \`stages\`), a grid's \`rgn0\`, \`rgn1\`, ... and a stack's
     \`lay0\`, \`lay1\`, ... A bar chart, a line chart and a table have no
-    interior and cannot be entered. And the containing part must be big enough
-    to be a place rather than a dot.
+    interior and cannot be entered. The containing part must be big enough
+    to be a place rather than a dot. And \`label\` must be that part's own label,
+    copied VERBATIM from the beat you are entering: over stages listed Encode,
+    Window, Thought, Decode, entering the window is
+    \`{ element: "stage1", label: "Window" }\`.
+
+    WRITE \`label\` BY READING THE INDEX BACK, not by restating your intention.
+    \`element\` is a NUMBER, so naming the right kind of part and the wrong index
+    is not an error anyone can see — the camera flies smoothly into the wrong
+    box and the deck looks perfect. So count to your index in the list you
+    actually wrote, copy the label you land on, and if it is not the thing this
+    beat is about, the index is wrong. The build compares the two and rejects
+    the deck when they disagree.
 
     Expect at most one transition in five to qualify, and none at all in a deck
     whose beats are a list of separate findings. Leaving it off is always a

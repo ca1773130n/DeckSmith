@@ -624,6 +624,14 @@ program
   // no rebuild — which also makes it the cheap way to try three targets on one
   // capture (`--video`) instead of three captures.
   .option("--duration <s>", "speed the finished video up to land near this many seconds")
+  // The escape hatch for the ceiling `--duration` is now held to. The only flag
+  // of its kind in this CLI, and named for exactly what it permits rather than
+  // `--force`, because the thing being overridden is one bound and not a class
+  // of checks — the caption advisory stays advice either way.
+  .option(
+    "--allow-fast-playback",
+    "speed past the 1.25× ceiling; inspect the audio and captions before you ship it",
+  )
   .option("--keep", "leave the per-piece intermediates beside the output")
   .action(
     async (
@@ -637,6 +645,7 @@ program
         protocolTimeout: string;
         subtitles: SubtitleMode;
         duration?: string;
+        allowFastPlayback?: boolean;
         keep?: boolean;
       },
     ) => {
@@ -657,10 +666,23 @@ program
         ...(o.quality ? { quality: o.quality } : {}),
         ...(o.workers ? { workers: o.workers } : {}),
         ...(o.duration ? { targetSeconds: Number(o.duration) } : {}),
+        ...(o.allowFastPlayback ? { allowFastPlayback: true } : {}),
         ...(o.keep ? { keep: true } : {}),
       });
+      // THE COST TRAVELS WITH THE SUMMARY. The speed-up is announced mid-render,
+      // where forty lines of capture progress scroll it away, and this line then
+      // read like an unqualified success — a clean "60.00s" over a video the
+      // warning had just said was too fast to read. `src/server/pipeline.ts`
+      // already puts the factor in front of the user; this is the path that
+      // dropped it.
+      // The cue rate only when there are cues: a silent deck has no captions to
+      // be unreadable, and "captions 0.0 cps" reads as a bug rather than as the
+      // absence of a subtitle.
+      const captions =
+        result.captionCps > 0 ? `, captions ${result.captionCps.toFixed(1)} cps p95` : "";
+      const cost = result.playback > 1 ? `, ${result.playback}× playback${captions}` : "";
       step(
-        `render: ${result.frames} frames, ${result.seconds.toFixed(2)}s, ${result.segments} narration segment(s)${result.burned ? ", captions burned in" : ""} → ${result.out}`,
+        `render: ${result.frames} frames, ${result.seconds.toFixed(2)}s${cost}, ${result.segments} narration segment(s)${result.burned ? ", captions burned in" : ""} → ${result.out}`,
       );
       if (result.srt) step(`render: subtitles → ${result.srt}`);
     },

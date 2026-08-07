@@ -246,6 +246,42 @@ export interface Scene {
   /** The scene's inner HTML. The wrapper `<div class="scene clip">` is added by the shell. */
   html: string;
   /**
+   * For each id suffix this scene drew that CARRIES A LABEL, the label it drew
+   * there: `{ stage0: "Encode", stage1: "Window" }`. Only the archetypes with
+   * enterable interiors populate it, and only for the parts a camera can be
+   * aimed at.
+   *
+   * WHY IT EXISTS. `inside.element` is an INDEX — `stage2` is the third thing in
+   * `params.stages` — so a reference that names the right kind of part and the
+   * wrong number resolves to a real id, measures a real rect and hands GSAP
+   * valid numbers. The deck renders a smooth, convincing dive into the wrong
+   * box, and `lint`, `check`, the type floor and `drift` are all green over it.
+   * `insideSchema.label` is what the plan thought it was entering; this is what
+   * the archetype actually drew, and the two are compared before the camera is
+   * built. `experiments/015-decision/runs-n32/menu-20/plan.json` is a committed
+   * plan where they disagree.
+   *
+   * WHY NOT AN ATTRIBUTE IN THE HTML, and why not a table in `withCamera`. A
+   * `data-` attribute would move the bytes of every built deck, which is the one
+   * thing the camera is not allowed to do (`renders byte-identical output when
+   * nothing is annotated`). A table in the shell is what `assertInsideResolves`
+   * already rejected in its own words — it would drift from the emitter. `Scene`
+   * is in-memory and never serialised, so this is archetype-sourced and costs
+   * zero emitted bytes.
+   *
+   * IF YOU ARE WRITING AN ARCHETYPE WITH AN ENTERABLE INTERIOR, RETURN THIS.
+   * Omitting it does not merely leave the new archetype unchecked — a supplied
+   * `label` over a part reporting none is a build ERROR, not a skip
+   * (`partLabelProblem` says why), so an archetype that populates the map and
+   * forgets it in the return object REFUSES ITS OWN CORRECT REFERENCES with
+   * "does not label ... It labels: nothing". `stack` shipped that way for the
+   * length of one review: the map was filled in the layer loop and dropped at
+   * the return, and because every test for this was written against `pipeline`,
+   * `tsc` and `biome` both saw a merely-unused local. Test the archetype you
+   * added, not the one that already worked.
+   */
+  parts?: Readonly<Record<string, string>>;
+  /**
    * Tweens appended to this scene's own paused timeline, with times RELATIVE to
    * the scene's start. `Tween` is a `fromTo` by construction — `from()` records
    * its end state when the timeline is built and breaks under the arbitrary

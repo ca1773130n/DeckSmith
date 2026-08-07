@@ -311,6 +311,52 @@ describe("annotated-figure column solver", () => {
     for (const b of five.boxes) expect(b.top + b.h).toBeLessThanOrEqual(h);
   });
 
+  it("never breaks a Latin word in half to make a label fit", () => {
+    // THE EXACT BEAT THAT SHIPPED IT, read off a rendered frame rather than
+    // imagined: `fig-compare` at 1373x692 on a 1920-wide deck, under a
+    // two-line headline, emitted "window partitioning" as 'partitionin' over a
+    // lone 'g'. `columns` derives its floor from the widest single word so that
+    // `wrap` never has to break one, but the column handed to `wrap` is
+    // recomputed from where the figure landed and came out about a character
+    // under that floor. Nothing looked: `layout` passed with two info findings.
+    //
+    // The numbers are the real ones on purpose, and THE CROP IS THE POINT.
+    // Invented geometry does not reproduce this: solved against the whole
+    // 1373x692 figure the column comes out at 285px and every word fits. The
+    // beat crops to a 0.96x0.46 strip, so the layout solves a 1318x318 band
+    // instead — wide and short, eating the width and squeezing the margins to
+    // col=226.24, which is under the widest word. At 267.81 it fits.
+    const crop = { x: 0.02, y: 0.52, w: 0.96, h: 0.46 };
+    const view = { width: 1373 * crop.w, height: 692 * crop.h };
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
+    const notes = [
+      { x: 0.3, y: 0.78, text: "window partitioning" },
+      { x: 0.52, y: 0.78, text: "the shared DQ-CTM block" },
+      { x: 0.86, y: 0.78, text: "pixel-wise dense field" },
+    ].map((n) => ({ ...n, x: clamp((n.x - crop.x) / crop.w), y: clamp((n.y - crop.y) / crop.h) }));
+    const p = planFigure(
+      STAGE_W,
+      notes,
+      view,
+      stageBudget(
+        format,
+        "Architecture",
+        "Every window keeps its own position-wise query",
+        "Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compare",
+      ),
+    );
+    // Every line is whole words: each one must appear, space-delimited, in the
+    // note it came from. A mid-word break produces a line that does not.
+    const words = new Set(notes.flatMap((n) => n.text.split(/\s+/)));
+    for (const box of p.boxes) {
+      for (const line of box.lines) {
+        for (const w of line.split(/\s+/).filter(Boolean)) {
+          expect(words, `"${w}" is a fragment, not a word of any note`).toContain(w);
+        }
+      }
+    }
+  });
+
   it("refuses to blow a small figure up to fill the box", () => {
     const p = planFigure(STAGE_W, short, tiny, stageBudget(format, undefined, "H", tiny.caption));
     expect(p.img.w / tiny.width).toBeLessThanOrEqual(1.5);

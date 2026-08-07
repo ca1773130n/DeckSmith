@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildStops,
@@ -8,6 +10,7 @@ import {
   planTransition,
   type SlideSpec,
 } from "../src/deck/runtime.js";
+import { PLAYER_FILE } from "../src/emit/composition.js";
 
 /** Two placed slides, exactly as `emitIsland` writes them. */
 const s1: SlideSpec = { sceneId: "s1", startTime: 0, endTime: 6 };
@@ -24,6 +27,26 @@ describe("the bundle deck.html inlines", () => {
       const src = await readFile(new URL(`../src/deck/${file}`, import.meta.url), "utf8");
       expect(src).not.toContain("data-composition-id");
     }
+  });
+
+  it("ships a player whose CDN url names the hyperframes we pinned", async () => {
+    // THE ONE THING A PIN BUMP CHANGES THAT NO OTHER GATE SEES. The player bundle
+    // hardcodes a jsDelivr url for `@hyperframes/core` and injects it as a
+    // `<script>` when a PRESENTED deck opens — at the viewer's machine, over the
+    // network, long after every gate here has passed. `check`, `verify`, `drift`
+    // and `render` all work on `index.html`; NOTHING opens `deck.html`, so a pin
+    // that leaves decks fetching a different core than the one this repo tested
+    // against is invisible until a presenter's laptop finds out.
+    //
+    // Moving 0.7.71 -> 0.7.90 changed exactly two bytes of that bundle, and they
+    // were the version in this url. This asserts the two agree; it deliberately
+    // does NOT fetch, so the suite stays offline and deterministic.
+    const dir = dirname(createRequire(import.meta.url).resolve("hyperframes/package.json"));
+    const bundle = await readFile(join(dir, "dist", PLAYER_FILE), "utf8");
+    const url = bundle.match(/@hyperframes\/core@([0-9]+\.[0-9]+\.[0-9]+)/);
+    expect(url, "the player bundle no longer carries a @hyperframes/core url").not.toBeNull();
+    const installed = JSON.parse(await readFile(join(dir, "package.json"), "utf8")).version;
+    expect(url?.[1]).toBe(installed);
   });
 });
 

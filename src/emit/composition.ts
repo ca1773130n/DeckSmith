@@ -13,7 +13,7 @@
 import type { z } from "zod";
 import { type Cut, selectBeats } from "../plan/select.js";
 import { familyFor } from "../source/fonts.js";
-import type { Beat, Format, Source, Storyboard, segmentSchema } from "../types.js";
+import type { Beat, Format, Inside, Source, Storyboard, segmentSchema } from "../types.js";
 import { emitScene } from "./archetypes/index.js";
 import {
   assertStopsOutsideMove,
@@ -28,6 +28,7 @@ import {
   HANDOFF_SECONDS,
   handoffStatement,
   MOVE_SECONDS,
+  partLabelProblem,
   rigHtml,
   transitWindow,
 } from "./camera.js";
@@ -313,8 +314,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // happens inside a part of this one. The move is a TAIL on this scene's own
     // window — dive, land, dip — and the next scene's window begins where it
     // ends.
-    const part = entered[i];
-    const dive: Dive | undefined = part
+    const inside = entered[i];
+    const dive: Dive | undefined = inside
       ? { t0: rnd(seconds), dur: rnd(MOVE_SECONDS * speed), fade: rnd(FADE_SECONDS * speed) }
       : undefined;
     return {
@@ -322,7 +323,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
       sid,
       scene,
       segments,
-      part,
+      inside,
       dive,
       duration: dive ? seconds + diveTail(dive) : seconds,
     };
@@ -334,7 +335,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
   // with no builders to await would move bytes in every deck we have shipped.
   let builds = false;
   cuts.forEach((cut, i) => {
-    const { beat, sid, dive, part, duration } = cut;
+    const { beat, sid, dive, inside, duration } = cut;
     if (cut.segments?.length) spoken[sid] = cut.segments;
 
     // THE HANDOFF, and it is the whole of why this deck no longer cuts to black
@@ -361,8 +362,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     const over = next ? rnd(Math.min(HANDOFF_SECONDS * speed, next.duration)) : 0;
 
     let scene = cut.scene;
-    if (part && dive) {
-      scene = withCamera(sid, part, format, scene, dive, over);
+    if (inside && dive) {
+      scene = withCamera(sid, inside, format, scene, dive, over);
       archetypeCss.add(cameraCss());
     } else if (over > 0) {
       scene = { ...scene, tl: [...scene.tl, handoffStatement(sid, duration, over)] };
@@ -377,7 +378,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
         rnd(duration + over),
         beat.params.headline,
         scene,
-        dive && part ? transitWindow(start, dive, over) : undefined,
+        dive && inside ? transitWindow(start, dive, over) : undefined,
       ),
     );
     slides.push({
@@ -400,8 +401,12 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 type Layout = ReturnType<typeof layout>;
 
 /**
- * For each surviving beat, the part of its drawing the NEXT surviving beat
- * enters — or undefined, which is the answer for almost every beat.
+ * For each surviving beat, the relation the NEXT surviving beat asserts into it —
+ * or undefined, which is the answer for almost every beat.
+ *
+ * The whole `inside` rather than just its `element`, because the emitter checks
+ * two things about it: that the part exists, and that it is the part the plan
+ * says it is. See `partLabelProblem`.
  *
  * Read off the surviving list rather than the storyboard's, because a short
  * format drops low-weight beats: if the containing beat did not survive the cut
@@ -410,10 +415,10 @@ type Layout = ReturnType<typeof layout>;
  * between adjacent beats in the FULL storyboard; this is the same question asked
  * of what the format kept.
  */
-function enteredParts(beats: readonly Beat[]): Array<string | undefined> {
+function enteredParts(beats: readonly Beat[]): Array<Inside | undefined> {
   return beats.map((beat, i) => {
     const next = beats[i + 1];
-    return next?.inside?.beat === beat.id ? next.inside.element : undefined;
+    return next?.inside?.beat === beat.id ? next.inside : undefined;
   });
 }
 
@@ -422,25 +427,32 @@ function enteredParts(beats: readonly Beat[]): Array<string | undefined> {
  * eases and the deferred measurement in `measure`, the two `fromTo`s and the fade
  * at the end of its timeline.
  *
- * The element check is here rather than in the schema because only the emitted
- * HTML knows what the archetype actually drew. A camera aimed at a part that
- * does not exist would land on the neutral framing and read as a slow nothing,
- * which is precisely the shape of defect that ships with every gate green.
+ * BOTH CHECKS ARE HERE rather than in the schema because only the emitter knows
+ * what the archetype actually drew. A camera aimed at a part that does not exist
+ * would land on the neutral framing and read as a slow nothing; a camera aimed at
+ * a part that exists but is not the one the plan named renders a smooth,
+ * convincing dive into the wrong box. Both are precisely the shape of defect that
+ * ships with every gate green, and the second one already has.
  */
 function withCamera(
   sid: string,
-  part: string,
+  inside: Inside,
   format: Format,
   scene: Scene,
   dive: Dive,
   over: number,
 ): Scene {
+  const part = inside.element;
   if (!scene.html.includes(`id="${elementId(sid, part)}"`)) {
     const drawn = enterableIds(sid, scene.html);
     throw new Error(
       `${sid}: the next beat is inside "${part}", which this beat does not draw. ` +
         `It draws: ${drawn.length ? drawn.join(", ") : "nothing with an id"}.`,
     );
+  }
+  const mismatch = partLabelProblem(part, inside.label, scene.parts);
+  if (mismatch) {
+    throw new Error(`${sid}: the next beat is inside "${part}", which this beat ${mismatch}`);
   }
   assertStopsOutsideMove(sid, scene.holds, dive);
   return {

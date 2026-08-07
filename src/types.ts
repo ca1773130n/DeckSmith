@@ -291,12 +291,31 @@ export const splitCompareParamsSchema = z.object({
  * containing scene and refuses to emit a camera at a part that beat did not
  * draw, so a wrong name is a build error rather than a camera that lands on
  * nothing.
+ *
+ * WHICH LEAVES THE INDEX ITSELF UNCHECKED, and that is what `label` is for. Get
+ * the number wrong rather than the name and every one of those checks passes:
+ * `stage2` exists, it has a rect, and the deck dives smoothly into whichever
+ * stage happens to be third. `label` says what the plan believes is there, the
+ * archetype reports what it drew (`Scene.parts`), and the two are compared
+ * before the camera is built — at `plan` and again at `build`.
  */
 export const insideSchema = z.object({
   /** The id of the IMMEDIATELY PRECEDING beat. Anything else is rejected. */
   beat: z.string(),
   /** A part of that beat's drawing, e.g. "stage1". */
   element: z.string().regex(/^[a-z][a-z0-9-]*$/),
+  /**
+   * The label that part carries, verbatim — "Window" for the stage listed as
+   * `{ label: "Window" }`. Compared case- and spacing-insensitively at emit; a
+   * mismatch is a build error naming both.
+   *
+   * OPTIONAL, and that is load-bearing rather than lenient: 130 references were
+   * committed before this field existed, and requiring it would invalidate every
+   * one of them along with the sha256s in `experiments/score/scored.test.mjs`.
+   * The price is that those 130 are unchecked — including the one in
+   * `experiments/015-decision/runs-n32/menu-20/plan.json` that is wrong.
+   */
+  label: z.string().optional(),
 });
 
 const beatCore = {
@@ -518,10 +537,13 @@ export const prefsSchema = z.object({
    *
    * It is a TARGET, and it drives the two numbers a user should not have to
    * think about — how long a narration sentence may be, and how fast the
-   * animation runs — via `durationPlan` in src/plan/duration.ts. Whatever gap
-   * survives planning is closed by speeding up playback, bounded and warned
-   * about rather than silently. The floor is 10s because a deck of three slides
-   * cannot say anything in less.
+   * animation runs — via `durationPlan` in src/plan/duration.ts. A gap that
+   * survives planning is closed by speeding up playback, warned about rather
+   * than applied silently — but only up to `MAX_PLAYBACK`. Past that the render
+   * is REFUSED rather than clamped or quietly sped up, because the length of a
+   * deck is decided at plan time by how much it says: see `playbackRefusal`.
+   * `--allow-fast-playback` overrides it. The floor is 10s because a deck of
+   * three slides cannot say anything in less.
    */
   duration: z.number().min(10).max(1800).optional(),
 
@@ -1000,6 +1022,7 @@ export type Section = z.infer<typeof sectionSchema>;
 export type Source = z.infer<typeof sourceSchema>;
 export type Term = z.infer<typeof termSchema>;
 export type Beat = z.infer<typeof beatSchema>;
+export type Inside = z.infer<typeof insideSchema>;
 export type Archetype = Beat["archetype"];
 export type Storyboard = z.infer<typeof storyboardSchema>;
 

@@ -694,7 +694,9 @@ learns what a camera frustum or an orderbook is.
    surprise.
 2. Write `src/emit/archetypes/<name>.ts` as an `Emitter<"<name>">`. It returns a `Scene`:
    inner HTML, GSAP statements, hold points, and its own CSS. It owns one scene's insides
-   and nothing else.
+   and nothing else. If it draws labelled parts a camera could fly into, fill `Scene.parts`
+   in the same loop that gives them their ids — `inside.element` is an index, and that map
+   is the only thing that can tell the plan's third stage from the picture's.
 3. Register it in `src/emit/archetypes/index.ts`.
 
 Nothing else changes. The document shell, the deck runtime, the format profiles and the

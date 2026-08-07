@@ -13,6 +13,9 @@
  * this module must never do is disagree with the emitter about where a scene
  * starts.
  */
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Cue } from "../src/deck/subtitles.js";
 import { type DeckNarration, emitComposition, planCut } from "../src/emit/composition.js";
@@ -24,7 +27,7 @@ import {
   pieceArgs,
   pieceFilter,
 } from "../src/render/ffmpeg.js";
-import { subtitlePlan } from "../src/render/render.js";
+import { render, subtitlePlan } from "../src/render/render.js";
 import {
   assertFits,
   assertHoldsAgree,
@@ -835,6 +838,92 @@ describe("subtitlePlan", () => {
     // The old decision read timing.width <= timing.height. Nothing pure is left
     // that could: the plan is a function of one argument, which is the change.
     expect(subtitlePlan.length).toBe(1);
+  });
+});
+
+/* ---------------------------------------------------------- Playback ceiling */
+
+/**
+ * The measured case: a 128.40s composition asked to reach 60s, which is 2.14×.
+ *
+ * One cue at 59 characters over 3 seconds puts the p95 at 19.67 cps, which is
+ * what the deck this was found on actually measures — a deck already denser
+ * than broadcast practice at 1×, like every deck this tool plans.
+ */
+const overlong = (): Timing => ({
+  version: 1,
+  width: 1920,
+  height: 1080,
+  duration: 128.4,
+  lang: "en",
+  audioDir: "audio",
+  voice: "en-US-AndrewMultilingualNeural",
+  scenes: [{ id: "s1", start: 0, duration: 128.4, holds: [1], open: 0.9 }],
+  segments: [
+    {
+      id: "s1.0",
+      scene: "s1",
+      stop: 0,
+      audio: "s1.0.mp3",
+      hold: 1,
+      start: 1,
+      duration: 3,
+      cues: [{ start: 0, end: 3, text: "x".repeat(59) }],
+    },
+  ],
+});
+
+/** A deck directory holding nothing but the manifest, which is the point. */
+async function manifestOnly(timing: Timing): Promise<string> {
+  const deck = await mkdtemp(join(tmpdir(), "ds-playback-"));
+  await writeFile(join(deck, "timing.json"), JSON.stringify(timing));
+  return deck;
+}
+
+/**
+ * `--video` points at a file that is not there, so anything downstream of the
+ * check fails at `probe`. That is the assertion: the refusal has to be
+ * reachable with no capture, no browser and no video on disk — the old one sat
+ * after capture, retime AND mux, so it could only ever be delivered an hour
+ * late, on top of a file it had just spent that hour making.
+ */
+async function renderFailure(opts: { targetSeconds: number; allowFastPlayback?: boolean }) {
+  const deck = await manifestOnly(overlong());
+  const lines: string[] = [];
+  const message = await render({
+    deck,
+    out: join(deck, "out.mp4"),
+    video: join(deck, "never-captured.mp4"),
+    log: (line) => lines.push(line),
+    ...opts,
+  }).then(
+    () => "resolved, which it must not",
+    (err: Error) => err.message,
+  );
+  return { message, lines };
+}
+
+describe("the playback ceiling", () => {
+  it("refuses an unreachable --duration before a single frame is captured", async () => {
+    const { message, lines } = await renderFailure({ targetSeconds: 60 });
+    expect(message).toContain("2.14× playback");
+    expect(message).toContain("1.25× ceiling");
+    expect(message).toContain("plan --duration 60");
+    expect(message).toContain("103s or more");
+    // Nothing was logged, because nothing was done yet.
+    expect(lines).toEqual([]);
+  });
+
+  it("does not refuse a target this deck can actually reach", async () => {
+    // 103s is 1.247×, inside the ceiling. It gets as far as the missing video,
+    // which is exactly as far as it should.
+    const { message } = await renderFailure({ targetSeconds: 103 });
+    expect(message).not.toContain("1.25× ceiling");
+  });
+
+  it("lets --allow-fast-playback past, since the ceiling is a bar and not a wall", async () => {
+    const { message } = await renderFailure({ targetSeconds: 60, allowFastPlayback: true });
+    expect(message).not.toContain("1.25× ceiling");
   });
 });
 

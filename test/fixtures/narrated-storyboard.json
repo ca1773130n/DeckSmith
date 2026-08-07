@@ -1,0 +1,273 @@
+{
+  "sourceId": "thinksr",
+  "title": "ThinkSR: compact thought, dense output",
+  "lang": "en",
+  "theme": "ink",
+  "beats": [
+    {
+      "id": "b01",
+      "archetype": "title",
+      "params": {
+        "eyebrow": "Paper analysis · dense prediction × continuous thought",
+        "headline": "Compact thought collides with dense output",
+        "sub": "Dense-Query Continuous Thought Machine (DQ-CTM)"
+      },
+      "intent": "Name the tension the paper is about.",
+      "narration": "This paper puts a thought process that stays small up against a task whose output has to stay large — every pixel of it.",
+      "evidence": [],
+      "weight": 0.95,
+      "seconds": 6
+    },
+    {
+      "id": "b02",
+      "archetype": "pipeline",
+      "params": {
+        "eyebrow": "Method",
+        "headline": "One pass in, one pass out, and a loop in the middle",
+        "stages": [
+          {
+            "label": "Encode",
+            "note": "SwinIR-style"
+          },
+          {
+            "label": "Window",
+            "note": "no pooling",
+            "tone": "a"
+          },
+          {
+            "label": "DQ-CTM",
+            "note": "shared ticks",
+            "tone": "b"
+          },
+          {
+            "label": "Decode",
+            "note": "×4 upsample"
+          }
+        ],
+        "loop": {
+          "from": 2,
+          "to": 2,
+          "label": "one thought tick"
+        },
+        "note": "Parameters are shared across every tick."
+      },
+      "intent": "The recurrence sits after the encoder, not around it.",
+      "narration": "The encoder does the heavy lifting first, in the style SwinIR established. Then the field is cut into windows, and nothing is pooled away on the way through. The thought machine sits here in the middle, working on what the windows hold. Only at the very end does the decoder upsample, four times over. That loop is a single tick, and it runs in place rather than around the whole pipeline. Every tick reuses the same weights, so thinking for longer costs time and not memory.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
+      "weight": 0.95,
+      "seconds": 9
+    },
+    {
+      "id": "b03",
+      "archetype": "annotated-figure",
+      "params": {
+        "eyebrow": "Architecture",
+        "headline": "Every window keeps its own position-wise query",
+        "figureId": "fig-compare",
+        "crop": {
+          "x": 0.02,
+          "y": 0.52,
+          "w": 0.96,
+          "h": 0.46
+        },
+        "notes": [
+          {
+            "x": 0.3,
+            "y": 0.78,
+            "text": "window partitioning",
+            "tone": "a"
+          },
+          {
+            "x": 0.52,
+            "y": 0.78,
+            "text": "the shared DQ-CTM block",
+            "tone": "b"
+          },
+          {
+            "x": 0.86,
+            "y": 0.78,
+            "text": "pixel-wise dense field",
+            "tone": "c"
+          }
+        ]
+      },
+      "intent": "DQ-CTM produces one query per position, not one per window.",
+      "narration": "The three approaches sit side by side here, and they differ only in what they hand the thought block. The windows come first: the field is partitioned, and each one is handled on its own. The block in the middle is shared, the same weights for every window. And what comes out is still a dense field, one query for every position in it.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-compare"
+        }
+      ],
+      "weight": 0.9,
+      "seconds": 9
+    },
+    {
+      "id": "b04",
+      "archetype": "grid",
+      "params": {
+        "eyebrow": "Representation",
+        "headline": "Attention is computed inside windows, and no token is pooled away",
+        "cols": 12,
+        "rows": 8,
+        "regions": [
+          {
+            "x": 0,
+            "y": 0,
+            "w": 4,
+            "h": 4,
+            "label": "one window",
+            "tone": "a"
+          },
+          {
+            "x": 6,
+            "y": 3,
+            "w": 4,
+            "h": 4,
+            "label": "the next window",
+            "tone": "b"
+          }
+        ],
+        "note": "Token count is identical before and after the update."
+      },
+      "intent": "The carrier keeps every position across ticks.",
+      "narration": "Picture the feature map as a grid of tokens. Attention runs inside one window at a time. The next window does the same, and at this stage the two never mix. Count the tokens before a tick and after it and you get the same number.",
+      "evidence": [],
+      "weight": 0.85,
+      "seconds": 9
+    },
+    {
+      "id": "b05",
+      "archetype": "equation-walk",
+      "params": {
+        "eyebrow": "1 · Persistent dense carrier",
+        "headline": "The encoder makes the field; the partition keeps it",
+        "equationId": "eq-carrier",
+        "terms": [
+          {
+            "tex": "\\mathcal{E}",
+            "label": "SwinIR-style encoder — LR in, dense feature field out",
+            "tone": "a"
+          },
+          {
+            "tex": "\\mathcal{W}",
+            "label": "window partition — every token survives it",
+            "tone": "b"
+          }
+        ]
+      },
+      "intent": "Encoding and partitioning, with nothing discarded.",
+      "narration": "The encoder turns the low-resolution image into a dense feature field. The partition then cuts that field into windows without throwing any of it away.",
+      "evidence": [
+        {
+          "kind": "equation",
+          "id": "eq-carrier"
+        }
+      ],
+      "weight": 0.85,
+      "seconds": 9
+    },
+    {
+      "id": "b06",
+      "archetype": "stack",
+      "params": {
+        "eyebrow": "2 · Compact thought",
+        "headline": "The thought state is a stack the carrier is read through",
+        "layers": [
+          {
+            "label": "Dense carrier",
+            "note": "token count preserved"
+          },
+          {
+            "label": "Dense queries",
+            "note": "one per position"
+          },
+          {
+            "label": "Synchronisation",
+            "note": "neuron-level history"
+          },
+          {
+            "label": "Compact state",
+            "note": "evolves per tick"
+          }
+        ]
+      },
+      "intent": "The compact state never replaces the dense carrier.",
+      "narration": "At the bottom is the carrier, and it keeps every token it started with. Above it sit the queries — one for each position, rather than one for each window. Synchronisation is the part that remembers: every neuron carries its own history. The compact state on top is what actually changes from one tick to the next.",
+      "evidence": [],
+      "weight": 0.8,
+      "seconds": 9
+    },
+    {
+      "id": "b07",
+      "archetype": "split-compare",
+      "params": {
+        "eyebrow": "The difference",
+        "headline": "One summary token per window, or one query per pixel",
+        "left": {
+          "label": "Window-wise CTM",
+          "lines": ["one summary token", "window identity collapses", "positions are lost"]
+        },
+        "right": {
+          "label": "DQ-CTM (ours)",
+          "lines": ["one query per position", "token count preserved", "dense field survives"]
+        },
+        "note": "Same window partition; different interface to the thought state."
+      },
+      "intent": "The contrast that names the contribution.",
+      "narration": "The window-wise version collapses each window down to a single summary token. This one asks a question at every position instead, and the token count survives it. The partition is identical in both. What differs is how much of it the thought state ever sees.",
+      "evidence": [],
+      "weight": 0.9,
+      "seconds": 9
+    },
+    {
+      "id": "b08",
+      "archetype": "bar-compare",
+      "params": {
+        "eyebrow": "Cost",
+        "headline": "The method is mid-pack on parameters, not the smallest",
+        "unit": "M params",
+        "bars": [
+          {
+            "label": "CATANet",
+            "value": 0.535,
+            "tone": "a"
+          },
+          {
+            "label": "RFDN",
+            "value": 0.55
+          },
+          {
+            "label": "IMDN",
+            "value": 0.715
+          },
+          {
+            "label": "DQ-CTM-SR",
+            "value": 1.129,
+            "tone": "c"
+          },
+          {
+            "label": "CARN",
+            "value": 1.592
+          }
+        ],
+        "note": "Smaller is better; DQ-CTM-SR is second largest here."
+      },
+      "intent": "Where the method sits on cost.",
+      "narration": "On parameters the method is the second largest here, at 1.13 million. So this is not the cheap option, and the paper never claims it is.",
+      "evidence": [
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        }
+      ],
+      "weight": 0.8,
+      "seconds": 9
+    }
+  ]
+}

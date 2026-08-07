@@ -459,22 +459,57 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
 /**
  * Warn when the plan came back with fewer beats than were asked for.
  *
- * `--slides` IS A FLOOR, and this is the half of that with teeth. The other half
- * is the prompt's LENGTH block, which now says so in words — and words are not
- * enough here for the reason `scanHeadlines` records two functions up: a real
- * Codex run answered a sharpened RULE 8 by swapping one verb. Four of the last
- * five plans came back short of their target (8, 9, 9 and 10 against 12) against
- * a prompt that already asked for the number. Whether a source "genuinely will
- * not carry twelve points" is a judgement the writer makes about their own
- * output, so it can always be met cosmetically. A COUNT is not a judgement.
+ * `--slides` IS A FLOOR ON THE REQUEST, NOT ON THE ARTIFACT, and this is the half
+ * that MEASURES it. It has no teeth, and none are available — the door is closed
+ * three ways, so do not reopen it. Truncating to the count that came back throws
+ * away slides the author asked for. Padding to reach the number is what RULE 9
+ * forbids, and `scanRepeatedObject` above only fires on the same object drawn
+ * twice with the SAME archetype over identical part labels, so padding induced by
+ * a gate would mostly be invisible to the one scan that looks for it. Re-asking is
+ * a fresh multi-minute `codex exec` whose only possible second instruction is
+ * "return more" — a padding request with extra steps — and whose answer could only
+ * be preferred over the first by counting it.
  *
- * REPORTED, NEVER REPAIRED, which is the same shape as `cut.dangling`. The two
- * repairs available are both worse than the shortfall: truncating to what came
- * back throws away slides the author asked for, and padding to reach the number
- * is exactly what RULE 9 forbids — "a visual repeated to say one more small
- * thing" costs more than being short does. Re-asking the planner is a fresh
- * Codex round-trip on a single-shot planner with no retry machinery, spent on a
- * rule it has already been given. So the deck is built at the count it has —
+ * THE COUNT IS NOT DETERMINISTIC — which is a weaker argument than it first looks,
+ * and is written out here so the next reader does not have to re-derive that.
+ * Under ONE fixed configuration, the same command over the same source returned
+ * 9, 10 and 8 beats on three independent runs (the "rate + prompt floor" row of
+ * the table in .planning/HANDOFF-DURATION-CONTROL.md). So the number a gate would
+ * test is partly a draw rather than a property of the source. But all three of
+ * those are short of twelve, and NO configuration on record has produced both a
+ * twelve and a short count: the 12-beat run in the same table is a different
+ * prompt and a different character budget. So this is not evidence that a gate
+ * would flap between pass and fail on identical input — it would have failed all
+ * three of those runs alike. It is a reason to distrust the number, not a fourth
+ * reason the door is closed. The three above are that, and they stand on their
+ * own.
+ *
+ * The other half is the prompt's LENGTH block, which now says so in words — and
+ * words are not enough here for the reason `scanHeadlines` records two functions
+ * up: a real Codex run answered a sharpened RULE 8 by swapping one verb. Four of
+ * the last five plans came back short of their target (8, 9, 9 and 10 against 12)
+ * against a prompt that already asked for the number. Whether a source "genuinely
+ * will not carry twelve points" is a judgement the writer makes about their own
+ * output, so it can always be met cosmetically. A COUNT is not a judgement, which
+ * is what makes it worth MEASURING here — and measuring is the whole of what this
+ * is.
+ *
+ * THE FLOOR THE OWNER ASKED FOR IS ALREADY HELD, and it is a different floor: he
+ * asked that a short duration not be paid for in slides — a 12-slide deck under a
+ * minute, "keeping all twelve". That one holds structurally now. `slidesFor` is a
+ * DEFAULT that an explicit `--slides` overrides rather than the reverse (see
+ * `loadPrefs`), `durationPlan` raises the speaking rate before it says less, and
+ * the advisory that used to answer sixty seconds with "use nine slides" no longer
+ * fires there at all — under `FF_BEAT_SECONDS` the rate is what moves, and where
+ * it still fires it names keeping every slide beside the smaller count. A floor
+ * against the PLANNER'S judgement is a different object, and it is the one that
+ * cannot be built. What is held in its place is honesty about it: the budget is
+ * struck at the count that came back, the gap is priced in the numbers that moved,
+ * and `pack` writes `prefs.slides` and the storyboard into the same file — so a
+ * caller that really does want "N or nothing" compares those two numbers itself.
+ *
+ * REPORTED, NEVER REPAIRED, which is the same shape as `cut.dangling`. None of the
+ * three repairs above is available, so the deck is built at the count it has —
  * `durationPlan` restrikes the whole budget there, which is what stops the
  * shortfall becoming a video that quietly misses its duration — and the author
  * is told what it cost, at `plan`, before a minute of TTS is spent on it.
@@ -485,9 +520,16 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
  * the author can act on — by adding the missing beat, or by accepting the deck
  * they have.
  *
- * A warning, never an error. A source that honestly carries eight points is a
- * real thing, and only the author can tell that from a planner that stopped
- * early.
+ * A WARNING, NEVER AN ERROR, and that is a contract rather than an oversight. A
+ * source that honestly carries eight points is a real thing, and only the author
+ * can tell that from a planner that stopped early. `build` prints every content
+ * loss and fails on none of them: a beat the emitter refused (`onBeatError`), a
+ * beat the budget cut (`reportCut`), a beat the planner never wrote (this one).
+ * A beat written and then thrown away is a bigger loss than one never written, so
+ * making the smallest of the three fatal while the larger two stay advisory would
+ * be incoherent — promoting this to `severity: "error"` is a decision about all
+ * three, not about this scan. test/verify.test.ts asserts the severity so that
+ * decision cannot be made by accident.
  */
 export function scanBeatCount(storyboard: Storyboard, prefs: Prefs): Finding[] {
   const got = storyboard.beats.length;

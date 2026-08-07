@@ -33,7 +33,13 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Cue } from "../deck/subtitles.js";
-import { p95CueRate, playbackFactor, playbackWarning, tempoChain } from "../plan/duration.js";
+import {
+  p95CueRate,
+  playbackFactor,
+  playbackRefusal,
+  playbackWarning,
+  tempoChain,
+} from "../plan/duration.js";
 import { familyFor } from "../source/fonts.js";
 import { captionBlocker, overlayGraph, overlayInputs, renderCaptions } from "./captions.js";
 import {
@@ -162,8 +168,20 @@ export interface RenderOptions {
    * length is decided at plan time by how much it says, and this closes whatever
    * gap survived that. A video already inside the target is left alone rather
    * than padded — dead air is worse than eight seconds short.
+   *
+   * A gap wider than `MAX_PLAYBACK` is refused, not closed; see the check after
+   * `readTiming` and `playbackRefusal`.
    */
   targetSeconds?: number;
+  /**
+   * Speed past `MAX_PLAYBACK` anyway.
+   *
+   * For the person who has read the refusal, cannot re-plan, and wants the fast
+   * video regardless. It does not silence anything: both clauses of
+   * `playbackWarning` still print, and the summary still carries the factor and
+   * the caption rate it bought.
+   */
+  allowFastPlayback?: boolean;
   /** Leave the per-piece intermediates on disk. */
   keep?: boolean;
   /** Progress, one line at a time. */
@@ -179,6 +197,12 @@ export interface RenderResult {
   burned: boolean;
   /** What `targetSeconds` cost, if anything. 1 means the file was not respeeded. */
   playback: number;
+  /**
+   * p95 characters per second of the subtitles AS SHIPPED — measured off the
+   * cues that were written, so at `playback > 1` it is already the sped-up rate
+   * a viewer actually reads at rather than the deck's rate at rest.
+   */
+  captionCps: number;
 }
 
 export async function render(opts: RenderOptions): Promise<RenderResult> {
@@ -191,6 +215,29 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   const work = join(dirname(out), `.${basename(out)}.parts`);
 
   const timing = await readTiming(deck);
+  // ASKED BEFORE THE CAPTURE, for the same reason the burn blocker below is: an
+  // hour of Chrome and a mux is an expensive place to learn that the target was
+  // never reachable. Everything the decision needs is already in the manifest —
+  // `timing.duration` is the composition's length, and `assertCapture` further
+  // down asserts the capture matches it within half a second, so the factor
+  // derived here is the same number `playbackFactor` computes at frame accuracy
+  // once the picture exists. `timing.segments[].cues` are offsets into each
+  // segment's own audio, but `p95CueRate` reads SPANS and text lengths, and
+  // `framePlan` copies both verbatim onto the output clock — so the p95 here is
+  // bit-identical to the p95 over `plan.cues`.
+  //
+  // DELIBERATELY NOT RE-CHECKED after the mux. The half-second of slop
+  // `assertCapture` tolerates is ~0.8% of the factor at a 60s target, and it has
+  // to resolve in the user's favour: refusing on the cheap number costs
+  // milliseconds, refusing on the exact one costs the whole render.
+  if (opts.targetSeconds && !opts.allowFastPlayback) {
+    const refusal = playbackRefusal(
+      timing.duration,
+      opts.targetSeconds,
+      p95CueRate(timing.segments.flatMap((s) => s.cues)),
+    );
+    if (refusal) throw new Error(refusal);
+  }
   const plan0 = subtitlePlan(opts.subtitles ?? "sidecar");
   // Asked BEFORE the capture, because discovering it after is discovering it an
   // hour late. Burning is now only ever explicit, so a blocker is a refusal and
@@ -253,8 +300,11 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
     if (playback > 1) {
       log(`render: speeding playback ${playback}× to reach ${opts.targetSeconds}s`);
-      // Warned, never refused. The cue rate is measured off this deck's own
-      // captions, so the ceiling it names is this deck's rather than a guess.
+      // Reached only inside `MAX_PLAYBACK`, or under `--allow-fast-playback`
+      // where it is the whole point — the refusal above is what stands between
+      // this line and a 2.14× video. The cue rate is measured off this deck's
+      // own captions, so the ceiling it names is this deck's rather than a
+      // guess, and both clauses print when both are true.
       const warning = playbackWarning(playback, p95CueRate(plan.cues));
       if (warning) log(`render: ${warning}`);
       const fast = join(work, `fast.${basename(out)}`);
@@ -278,6 +328,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
       segments: plan.audio.length,
       burned: burn,
       playback,
+      // The cues as written, not `plan.cues` — at `playback > 1` these are the
+      // scaled ones, so the number the caller prints is the rate on the file it
+      // just got rather than the rate on a timeline that no longer exists.
+      captionCps: p95CueRate(cues),
     };
   } finally {
     if (!opts.keep) await rm(work, { recursive: true, force: true });
