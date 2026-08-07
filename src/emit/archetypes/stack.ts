@@ -283,8 +283,14 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
   const count = p.layers.length;
   const last = count - 1;
 
+  // What a camera aimed at `layN` would land on. Written in the same loop that
+  // gives the slab its id, so the label and the index it is filed under cannot
+  // drift apart. See `Scene.parts`.
+  const parts: Record<string, string> = {};
+
   const body = p.layers
     .map((layer, i) => {
+      parts[`lay${i}`] = layer.label;
       const y0 = L.yBase - i * L.rise;
       const mid = y0 - L.sy / 2;
       const top = i === last;
@@ -386,6 +392,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
 
   return {
     html,
+    parts,
     tl,
     holds: holdsWithin(holds, beat.seconds),
     css: [

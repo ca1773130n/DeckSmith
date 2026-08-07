@@ -22,6 +22,7 @@ import {
   transitWindow,
 } from "../src/emit/camera.js";
 import { emitComposition, planCut } from "../src/emit/composition.js";
+import { assertInsideResolves } from "../src/plan/refs.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 
 function format(id: string): Format {
@@ -280,6 +281,109 @@ describe("the shell, with a relation asserted", () => {
   it("refuses a part the containing beat does not draw, and lists what it does", () => {
     expect(() => emit(board({ inside: { beat: "b01", element: "stage9" } }))).toThrow(
       /does not draw.*stage0, stage1, stage2/s,
+    );
+  });
+
+  // THE CAMERA HAZARD, and the reason `label` exists. `element` is an INDEX, so
+  // a reference that names the right kind of part and the wrong NUMBER resolves
+  // to a real id, measures a real rect and hands GSAP valid numbers: the deck
+  // renders a smooth, convincing dive into the wrong box with every gate green.
+  // `experiments/015-decision/runs-n32/menu-20/plan.json` is a committed plan
+  // that does exactly this — a beat headlined "The dense carrier is encoded
+  // before it is windowed" enters `stage2`, the recurrent-thought block, where
+  // 22 other plans in the same sweep enter `stage1`, "Window". These four stages
+  // are that plan's.
+  const drifted = {
+    ...pipelineBeat,
+    params: {
+      ...pipelineBeat.params,
+      stages: [
+        { label: "Encode" },
+        { label: "Window", tone: "a" },
+        { label: "DQ-CTM thought" },
+        { label: "Decode" },
+      ],
+    },
+  };
+  const shifted = (inside: Record<string, unknown>) => ({
+    sourceId: "src-1",
+    title: "A method with a window in it",
+    beats: [drifted, { ...gridBeat, inside }],
+  });
+
+  it("refuses a part whose label is not the one the plan says it is entering", () => {
+    expect(() => emit(shifted({ beat: "b01", element: "stage2", label: "Window" }))).toThrow(
+      /stage2.*DQ-CTM thought.*Window/s,
+    );
+  });
+
+  it("catches the same drift at plan time, before narrate spends a minute on TTS", () => {
+    expect(() =>
+      assertInsideResolves(
+        storyboardSchema.parse(shifted({ beat: "b01", element: "stage2", label: "Window" })),
+        source,
+      ),
+    ).toThrow(/stage2.*DQ-CTM thought.*Window/s);
+  });
+
+  it("lets a re-typed label through, because case and spacing are not the defect", () => {
+    // Too strict and a correct camera fails the build over a capital letter; too
+    // loose — substring — and "Window" matches "window group", which this corpus
+    // has. Trim, collapse, lowercase, then require equality.
+    expect(() =>
+      emit(shifted({ beat: "b01", element: "stage1", label: " window " })),
+    ).not.toThrow();
+  });
+
+  it("still builds every reference written before `label` existed", () => {
+    // `label` is optional so the 130 committed references keep validating and no
+    // stored plan's bytes move. The price is that they get no check at all.
+    expect(() => emit(shifted({ beat: "b01", element: "stage2" }))).not.toThrow();
+  });
+
+  it("refuses a labelled dive into a part the archetype gives no label", () => {
+    // An arrow has no label to check against, so the comparison cannot run. It
+    // says so rather than passing silently — a check that quietly does nothing
+    // is how this project's six green-gate failures all started.
+    expect(() => emit(shifted({ beat: "b01", element: "arrow1", label: "Window" }))).toThrow(
+      /arrow1.*does not label.*stage0, stage1, stage2, stage3/s,
+    );
+  });
+
+  // EVERY ENTERABLE ARCHETYPE MUST REPORT `parts`, and the check above is why
+  // this cannot be left to the pipeline alone. Because a supplied `label` over a
+  // part carrying none FAILS rather than skipping, an archetype that builds the
+  // map and forgets to return it does not lose its check — it becomes
+  // UNBUILDABLE, refusing the correct reference with "does not label ... It
+  // labels: nothing". `stack` shipped exactly that way: the map was populated in
+  // the layer loop and dropped on the floor at the return. RULE 11 names
+  // `lay0, lay1, ...` as enterable and now tells the planner to always write
+  // `label`, so the first plan entering a stack layer would have been rejected.
+  // These two tests are per-archetype on purpose: `grid` and `pipeline` passing
+  // says nothing about `stack`.
+  const piled = {
+    id: "b01",
+    archetype: "stack",
+    intent: "The thought state is a pile.",
+    params: {
+      headline: "Three layers, bottom up",
+      layers: [{ label: "Carrier" }, { label: "Index" }, { label: "Thought" }],
+    },
+    seconds: 9,
+  };
+  const onStack = (inside: Record<string, unknown>) => ({
+    sourceId: "src-1",
+    title: "A method with a window in it",
+    beats: [piled, { ...gridBeat, inside }],
+  });
+
+  it("builds a CORRECT labelled dive into a stack layer", () => {
+    expect(() => emit(onStack({ beat: "b01", element: "lay1", label: "Index" }))).not.toThrow();
+  });
+
+  it("catches the index drift on a stack too, naming the label it really drew", () => {
+    expect(() => emit(onStack({ beat: "b01", element: "lay1", label: "Carrier" }))).toThrow(
+      /lay1.*Index.*Carrier/s,
     );
   });
 

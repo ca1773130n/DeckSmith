@@ -211,6 +211,15 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
         // The last of the three length levers, and the only one that acts on a
         // finished file. Plan time already spent the budget on what gets said;
         // this closes whatever gap survived it, and says what it cost.
+        //
+        // NO `allowFastPlayback`, ON PURPOSE. `render` refuses a gap wider than
+        // `MAX_PLAYBACK`, and on this path there should never be one: the same
+        // `prefs.duration` already sized the deck — `parseOptions` derives the
+        // slide count from it via `slidesFor` — so a residual past 1.25× means
+        // plan-time sizing broke, not that the caller asked for too much. A job
+        // that fails there is a bug report; a job that quietly ships a 2× video
+        // is a bug nobody files. The CLI has `--allow-fast-playback` because a
+        // human can look at the file and decide; a hosted job cannot.
         ...(prefs.duration ? { targetSeconds: prefs.duration } : {}),
       });
       videoUrl = url("video.mp4");

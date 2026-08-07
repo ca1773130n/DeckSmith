@@ -92,6 +92,7 @@ export {
   MOTION_SHARE,
   p95CueRate,
   playbackFactor,
+  playbackRefusal,
   playbackWarning,
   SPEAKING_STOPS,
   SPEECH_CPS,

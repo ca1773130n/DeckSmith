@@ -554,6 +554,23 @@ Stated plainly, because a gate passing is not evidence and neither is a report.
 - **I did not check whether any committed plan's `inside.element` already points
   at the wrong stage.** The mechanism is confirmed in source and the 130
   references are measured; whether the hazard has already fired is unknown.
+
+  **ANSWERED, 2026-08-07: it has fired.** All 162 committed `inside.element`
+  references were resolved against the params they index and grouped into 60
+  distinct (archetype, element, resolved label, headline) situations, each read
+  against the diving beat's headline, intent and narration. 59 are right. One is
+  not: `experiments/015-decision/runs-n32/menu-20/plan.json` has
+  `b02-carrier-equation` — headlined "The dense carrier is encoded before it is
+  windowed" — enter `stage2`, which is "DQ-CTM thought", where 22 other plans in
+  the same sweep pair the identical headline over the identical stage list with
+  `stage1`, "Window". Every gate is green on it, because the id exists. That is
+  1 of 60 situations, 2 of 162 references, 1 of ~26 plans, and it is experiment
+  output rather than the shipped demo — `demo/fixtures/camera.storyboard.json`
+  is correct. `inside.label` and `Scene.parts` were added because of it; the two
+  tests that pin it are in `test/camera.test.ts`. It is still a judgement from
+  headline, intent and narration against a 22-plan control, NOT a rendered
+  artifact check. The 130 pre-existing references stay unchecked, `label` being
+  optional, so rebuilding menu-20 today still dives into the wrong box.
 - **I did not look at a rendered video.** Nothing here is an artifact check, and
   by this project's own record that is where the next real defect will be found.
 

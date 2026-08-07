@@ -190,6 +190,54 @@ export function enterableIds(sid: string, html: string): string[] {
   return [...found].sort();
 }
 
+/** Same label, differently typed: trim, collapse runs of space, lowercase. */
+function sameLabel(a: string, b: string): boolean {
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * THE CAMERA HAZARD, checked. `inside.element` is an index, so naming the right
+ * kind of part and the wrong number is not a build error — `stage2` exists, it
+ * has a rect, and the deck dives smoothly into whatever happens to be third.
+ * That is this project's signature failure shape: correct-looking output that no
+ * gate can see is wrong. `inside.label` is what the plan says it is entering,
+ * `Scene.parts` is what the archetype drew, and this is the one place they meet.
+ *
+ * Returns the PREDICATE of a sentence whose subject is the containing beat, so
+ * that both callers can keep their own framing — the emitter says "this beat",
+ * `assertInsideResolves` names the beat and its archetype — over one comparison.
+ * Undefined means nothing to report.
+ *
+ * A plan that omits `label` is not checked: the field has to stay optional or
+ * the 130 committed references stop validating and every stored plan's sha256
+ * moves. A plan that SUPPLIES one for a part carrying no label is refused rather
+ * than skipped, because a check that silently does nothing is how the six
+ * green-gate failures in this repo all began — and by RULE 11 only a pipeline
+ * stage, a grid region and a stack layer are enterable anyway.
+ *
+ * The comparison is deliberately not exact and deliberately not fuzzy. Exact,
+ * and a re-typed or re-cased label fails a build over nothing; fuzzy — substring
+ * — and "Window" matches "window group", which occurs in this corpus.
+ */
+export function partLabelProblem(
+  part: string,
+  expected: string | undefined,
+  parts: Readonly<Record<string, string>> | undefined,
+): string | undefined {
+  if (expected === undefined) return undefined;
+  const labelled = Object.keys(parts ?? {}).sort();
+  const drawn = parts?.[part];
+  if (drawn === undefined) {
+    return (
+      `does not label, so "${expected}" cannot be checked against it. ` +
+      `It labels: ${labelled.length ? labelled.join(", ") : "nothing"}.`
+    );
+  }
+  if (sameLabel(drawn, expected)) return undefined;
+  return `draws as "${drawn}", not "${expected}".`;
+}
+
 /**
  * The camera rig, wrapped around one scene's content.
  *

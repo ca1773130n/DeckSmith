@@ -358,8 +358,13 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   const leads: string[] = [];
   const labels: string[] = [];
   const leadLen: number[] = [];
+  // What a camera aimed at `rgnN` would land on. Written in the same loop that
+  // gives the rect its id, so the label and the index it is filed under cannot
+  // drift apart. See `Scene.parts`.
+  const parts: Record<string, string> = {};
 
   p.regions.forEach((r, i) => {
+    parts[`rgn${i}`] = r.label;
     const b = boxes[i] ?? { x: fx, y: fy, w: f.cell, h: f.cell };
     const tone = theme.tones[r.tone];
     rects.push(
@@ -519,6 +524,7 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
 
   return {
     html,
+    parts,
     tl,
     holds: holdsWithin(holds, beat.seconds),
     css: [
