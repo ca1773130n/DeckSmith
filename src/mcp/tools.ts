@@ -32,7 +32,7 @@ import { catalog, parseOptions } from "../server/options.js";
 import { runPipeline, stagesFor } from "../server/pipeline.js";
 import { type JobView, Queue } from "../server/queue.js";
 import { MAX_UPLOAD_BYTES } from "../server/upload.js";
-import { missingFor, type Prereq, prereqs } from "./prereqs.js";
+import { imageBackend, missingFor, type Prereq, prereqs } from "./prereqs.js";
 
 const formatIds = Object.keys(FORMATS) as [string, ...string[]];
 const themeIds = [...THEME_NAMES] as [string, ...string[]];
@@ -112,6 +112,12 @@ export const settingsSchema = z.object({
     .describe(
       "Also render an mp4. Adds 1-2 minutes, needs ffmpeg and Chrome, and turns narrate on.",
     ),
+  images: z
+    .boolean()
+    .optional()
+    .describe(
+      "Let the plan ask for a picture where the document has no figure to show. Each brief is drawn through the configured image backend, else the Codex account's own image tool, else an SVG DeckSmith draws itself — so it never fails for lack of one. Adds about 30 seconds a picture; decksmith_capabilities says which backend is configured.",
+    ),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -136,6 +142,7 @@ function fieldsFor(s: Settings): Record<string, string> {
   put("pitch", s.pitch);
   put("narrationDensity", s.narration_density);
   put("video", s.video);
+  put("images", s.images);
   return f;
 }
 
@@ -188,6 +195,13 @@ export interface McpOptions {
    * probe, so the server itself is unchanged.
    */
   probe?: () => Promise<Prereq[]>;
+  /**
+   * The environment the image backend is resolved from, for `capabilities` and
+   * the refusal in `create`. Injected for the reason `probe` is. The pipeline
+   * itself still reads `process.env` when its `illustrate` stage runs — in a
+   * server the two are the same object, and a test never lets a job get there.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -229,7 +243,16 @@ export function deckTools(opts: McpOptions) {
   return {
     /** Formats, themes, every setting's range, and what is actually installed. */
     async capabilities() {
-      return { ...catalog(), prerequisites: await found(), root, work: opts.work };
+      return {
+        ...catalog(),
+        // Over the catalogue's `{ backend }`: the same id, plus whether it can
+        // be used and why not. The catalogue swallows that for the picker's
+        // sake; an agent deciding whether to ask for pictures needs it.
+        images: imageBackend(opts.env),
+        prerequisites: await found(),
+        root,
+        work: opts.work,
+      };
     },
 
     /**
@@ -289,6 +312,18 @@ export function deckTools(opts: McpOptions) {
         throw new Error(
           `Cannot run this job: ${missing.map((m) => `${m.name} is not installed (needed for ${m.neededFor}) — ${m.install}`).join("; ")}`,
         );
+      }
+      // Pictures need nothing installed, so there is no `Prereq` for them — but
+      // a backend the environment names and cannot use would fail this job a
+      // minute in, after the plan is paid for. Same rule as above: refuse now,
+      // and only a job that asked; a deck without pictures never meets this.
+      if (options.images) {
+        const images = imageBackend(opts.env);
+        if (!images.ok) {
+          throw new Error(
+            `Cannot run this job: the image backend is misconfigured — ${images.why}. Or omit images.`,
+          );
+        }
       }
 
       const filename = input.document_path ? input.document_path.split(sep).pop() : "document.md";

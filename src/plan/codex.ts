@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
 import { renderSource, systemPrompt } from "./prompt.js";
-import { assertRefsResolve } from "./refs.js";
+import { assertRefsResolve, pendingIllustrations } from "./refs.js";
 
 /** Planning a long source is minutes of work, not seconds. */
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -116,16 +116,27 @@ export interface CodexOptions {
   run?: Runner;
 }
 
-/** What the planner needs from the outside world: a prompt in, a final message out. */
-export type Runner = (args: {
+export interface RunnerArgs {
   prompt: string;
   schemaPath: string;
   outPath: string;
   model?: string;
   timeoutMs: number;
-}) => Promise<void>;
+  /** Where the agent runs. Absent means wherever this process is, which planning never cares about. */
+  cwd?: string;
+  /**
+   * `read-only` unless said otherwise. `workspace-write` exists for the one
+   * caller that needs a file back — `illustrate`'s Codex rung — and needs a
+   * `cwd` to fence the writes to.
+   */
+  sandbox?: "read-only" | "workspace-write";
+}
+
+/** What the planner needs from the outside world: a prompt in, a final message out. */
+export type Runner = (args: RunnerArgs) => Promise<void>;
 
 export async function codexPlanner(source: Source, opts: CodexOptions = {}): Promise<Storyboard> {
+  const prefs = opts.prefs ?? prefsSchema.parse({});
   const dir = await mkdtemp(join(tmpdir(), "decksmith-plan-"));
   try {
     const schemaPath = join(dir, "storyboard.schema.json");
@@ -133,7 +144,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     await writeFile(schemaPath, JSON.stringify(SCHEMA));
 
     await (opts.run ?? runCodex)({
-      prompt: buildPrompt(source, opts.prefs ?? prefsSchema.parse({})),
+      prompt: buildPrompt(source, prefs),
       schemaPath,
       outPath,
       ...(opts.model === undefined ? {} : { model: opts.model }),
@@ -162,7 +173,21 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       throw new Error(`Codex returned a storyboard that does not validate:\n${issues}`);
     }
 
-    assertRefsResolve(result.data, source);
+    // The schema always admits a brief — it is one schema, and `illustrate`
+    // reads the same field — so with images off the model can still write one
+    // it was never told about. That is not a plan to run `illustrate` on; it is
+    // a plan that asked for something the user did not, and the fix is the flag.
+    if (!prefs.images.enabled) {
+      const pending = pendingIllustrations(result.data);
+      if (pending.length) {
+        const beats = [...new Set(pending.map((p) => p.beatId))].join(", ");
+        throw new Error(
+          `Codex asked for ${pending.length} illustration${pending.length === 1 ? "" : "s"} (${beats}) with images off. ` +
+            "Pass --images to let the plan request pictures, or re-run without it.",
+        );
+      }
+    }
+    assertRefsResolve(result.data, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
     return result.data;
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -184,24 +209,44 @@ Return the storyboard as your final message, conforming to the supplied schema.
 ${renderSource(source)}`;
 }
 
-function runCodex(args: {
-  prompt: string;
-  schemaPath: string;
-  outPath: string;
-  model?: string;
-  timeoutMs: number;
-}): Promise<void> {
-  // read-only sandbox: planning is a pure text transform and has no business
-  // touching the workspace. --ephemeral keeps session files out of the user's
-  // Codex history for what is a library call, not a conversation.
+/**
+ * The `codex` command line for a run, and the environment it needs.
+ *
+ * Pure, and exported for that reason: the argv is a contract with a binary
+ * nothing in the test suite may spawn, so it is pinned by reading this rather
+ * than by running it.
+ */
+export function codexCommand(args: RunnerArgs): { argv: string[]; env?: NodeJS.ProcessEnv } {
+  const sandbox = args.sandbox ?? "read-only";
+  if (sandbox === "workspace-write" && args.cwd === undefined) {
+    throw new Error("codex workspace-write needs a cwd to fence the writes to.");
+  }
+  // read-only sandbox by default: planning is a pure text transform and has no
+  // business touching the workspace. --ephemeral keeps session files out of the
+  // user's Codex history for what is a library call, not a conversation.
+  //
+  // workspace-write is for a caller that wants a file back, and it is fenced to
+  // `cwd` three ways. The two overrides stop Codex from also opening `/tmp` and
+  // `$TMPDIR` for writing, which it does by default; the env pins `TMPDIR` to
+  // `cwd` because in agent sessions it points at the repo, and a sandbox that
+  // may write to `$TMPDIR` would be a sandbox that may write to the repo.
   const argv = [
     "exec",
     "--output-schema",
     args.schemaPath,
     "-o",
     args.outPath,
+    ...(args.cwd === undefined ? [] : ["-C", args.cwd]),
     "--sandbox",
-    "read-only",
+    sandbox,
+    ...(sandbox === "workspace-write"
+      ? [
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+        ]
+      : []),
     "--skip-git-repo-check",
     "--ephemeral",
     "--color",
@@ -209,9 +254,20 @@ function runCodex(args: {
     ...(args.model ? ["--model", args.model] : []),
     "-",
   ];
+  return sandbox === "workspace-write" && args.cwd !== undefined
+    ? { argv, env: { ...process.env, TMPDIR: args.cwd } }
+    : { argv };
+}
+
+/** The production `Runner`: `codex exec` on PATH, stdin in, a file out. */
+export function runCodex(args: RunnerArgs): Promise<void> {
+  const { argv, env } = codexCommand(args);
 
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", argv, { stdio: ["pipe", "ignore", "pipe"] });
+    const child = spawn("codex", argv, {
+      stdio: ["pipe", "ignore", "pipe"],
+      ...(env === undefined ? {} : { env }),
+    });
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill("SIGKILL");

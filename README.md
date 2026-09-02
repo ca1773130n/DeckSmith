@@ -20,8 +20,9 @@ source.
 - A Chromium build and ffmpeg to **render or check** one. `verify` drives the HyperFrames
   gates in a headless browser, and the MP4 encode is ffmpeg's. Both arrive with the
   hyperframes toolchain during `npm install`; there is nothing to install by hand.
-- Two commands reach outside for their own reasons: `plan` runs the Codex CLI, and
-  `narrate` runs edge-tts over the network.
+- Three commands reach outside for their own reasons: `plan` runs the Codex CLI, `narrate`
+  runs edge-tts over the network, and `illustrate` asks an image backend or that same Codex
+  account for pictures — and draws its own when neither will.
 
 ```sh
 npm install
@@ -37,6 +38,7 @@ hand-edit everything in between.
 ```sh
 decksmith ingest  analysis.md      -o source.json       # structure, figures, equations, provenance
 decksmith plan    source.json      -o storyboard.json   # beats — this is the one to read
+decksmith illustrate storyboard.json --source source.json              # optional, after plan --images
 decksmith narrate storyboard.json  --source source.json -o audio/       # optional
 decksmith build   storyboard.json  --source source.json --format deck-16x9 -o out/
 decksmith verify  out/
@@ -62,9 +64,13 @@ decksmith unpack  talk.deck        -o reopened/
 
   You can also skip it entirely. `storyboard.json` is just a file: hand-write it, or have
   any assistant write it, and `build` cannot tell the difference.
+- **illustrate** — the pictures the plan asked for. With `plan --images`, a beat that has
+  no figure to show may carry a brief instead of a `figureId`; this turns each brief into
+  a file under `assets/`, registers it as an ordinary figure in `source.json`, and points
+  the beat at it. Optional, and nothing downstream knows the picture was generated. See
+  "Illustrations" below.
 - **narrate** — each beat's `narration` text, spoken by edge-tts, one audio file and one
-  set of subtitle cues per *stop*. Optional, and the only command that needs the network.
-  See "Narration" below.
+  set of subtitle cues per *stop*. Optional, and needs the network. See "Narration" below.
 - **build** — `Storyboard` to a composition, per format profile. Beats become scenes,
   scenes become their own paused GSAP timelines, hold points become slideshow fragments.
   Narration sitting beside the storyboard is picked up automatically.
@@ -94,7 +100,9 @@ out/
   index.html                    the composition — what check, snapshot and render consume
   deck.html                     open this: the navigable deck
   hyperframes-player.global.js  copied from the hyperframes package, so nothing needs a CDN
-  hyperframes.json  assets/
+  hyperframes.json
+  assets/                       every figure a beat cites — generated ones included, under
+                                the same name source.json records
   audio/                        only when the deck is narrated
 ```
 
@@ -239,7 +247,12 @@ decksmith: http://127.0.0.1:8475
 decksmith: work /tmp/decksmith-server, one job at a time, 8 may wait
 decksmith: no auth, no TLS. Bound to 127.0.0.1 — set DECKSMITH_HOST to open it, knowing that.
 decksmith: codex, edge-tts and ffmpeg all found
+decksmith: images via codex, then svg
 ```
+
+The last line is where `illustrate` would get its pictures — `via openai` when a backend
+is configured, or the reason it cannot be used. Reported, never fatal: a job that asks
+for pictures still finishes, on the tool's own SVG if it has to.
 
 ### The HTTP surface
 
@@ -252,7 +265,8 @@ decksmith: codex, edge-tts and ffmpeg all found
 | `GET /d/:id/...` | the built deck, served statically; `/d/:id/deck.html` is the player |
 
 Options on `POST`, all optional, all defaulted server-side: `format`, `width`+`height`,
-`theme`, `slides`, `lang`, `tone`, `density`, `speed`, `narrate`, `voice`, `video`.
+`theme`, `slides`, `lang`, `tone`, `density`, `speed`, `narrate`, `voice`, `images`,
+`video`. `images` lets the plan ask for pictures and runs the `illustrate` stage after it.
 
 `width`/`height` override the named preset's canvas and **keep its pacing but not its
 name** — `--format short-9x16 --width 1080 --height 1350` builds `custom-1080x1350` with
@@ -281,6 +295,10 @@ generous one.
 | `DECKSMITH_REQS_PER_MIN` | `240` | Per IP. |
 | `DECKSMITH_FETCH_FIGURES` | off | See below. |
 | `DECKSMITH_DECK_SANDBOX` | on | Serves decks under `CSP: sandbox`. |
+| `DECKSMITH_IMAGES` | unset | `openai` names a separate image backend for `illustrate`. Unset, pictures come from the Codex account, then the tool's own SVG. |
+| `DECKSMITH_IMAGES_API_KEY` | | The backend's key. Environment only — never a preference, a config file, a `.deck`, or an error message. |
+| `DECKSMITH_IMAGES_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible `images/generations` endpoint. |
+| `DECKSMITH_IMAGES_MODEL` | `gpt-image-2` | The backend's model. The Codex rung draws with the account's own. |
 
 **Remote figures are off by default, and that is a security decision.** `fetchFigures`
 does `readFile(src)` on anything that is not an http URL, so an uploaded document
@@ -345,7 +363,7 @@ Four tools:
 
 | tool | what it does |
 |---|---|
-| `decksmith_capabilities` | formats, themes, every setting's range, and which of Codex, edge-tts, ffmpeg and Chrome are installed |
+| `decksmith_capabilities` | formats, themes, every setting's range, which of Codex, edge-tts, ffmpeg and Chrome are installed, and where `illustrate` would get its pictures (`images: { backend, ok, why }`) |
 | `decksmith_estimate_length` | what a duration/slides/density combination costs, and what it cannot buy — instant, no job |
 | `decksmith_create_deck` | document + settings → a deck, and optionally an mp4 |
 | `decksmith_job_status` | where a job got to |
@@ -363,7 +381,9 @@ they are the product telling you what your settings cost.
 
 No setting has a default in the tool schema. Absence is the signal: a theme you did not
 mention loses to the storyboard's own, and a language you did not mention loses to the
-document's.
+document's. `images: true` lets the plan ask for pictures and draws them before the build;
+it is refused only when a backend is named in the environment and broken, because the
+tool's own SVG means a request never fails for lack of one.
 
 ## Using it as a library
 
@@ -469,6 +489,7 @@ for it; call `verify` yourself when you want it.
 |---|---|
 | ingest | `parseMarkdown`, `fetchFigures`, `bundleFont` |
 | plan | `codexPlanner` with its `Runner` type, `assertRefsResolve`, `systemPrompt`, `renderSource` |
+| images | `illustrate`, `imageChain`, `resolveImageBackend`, `hasIllustrations`, with `ImageProvider`, `ImageRequest`, `ImageResult`, `IllustrateOpts` |
 | narrate | `narrate`, `pickVoice`, `narratableLangs` |
 | emit | `buildDeck`, `emitDeck`, `emitComposition`, `resolveTheme`, `THEMES`, `THEME_NAMES` |
 | verify | `verify`, `check`, `parseCheckReport` |
@@ -481,6 +502,9 @@ an SDK instead of a subprocess, which is what a server actually wants — `codex
 shells to the Codex CLI only because that is the right default at a terminal. And
 `emitDeck` sits underneath `buildDeck` for callers writing to object storage or a response
 body rather than a filesystem: it is pure, taking strings in and returning strings out.
+`ImageProvider` is the same kind of seam as `Runner`: `illustrate` takes a `chain` of them,
+so a server's tests draw with a fake instead of spawning Codex, and a deployment can add a
+backend this package does not ship.
 
 Anything not listed is deliberately absent, and adding to the list is a promise we cannot
 quietly take back. `prefsFromFlags` is the clearest example: it translates commander's flag
@@ -505,6 +529,11 @@ invalidates a storyboard you have already edited.
 | `narration.rate` | `+0%` | narrate | edge-tts prosody |
 | `narration.pitch` | `+0Hz` | narrate | edge-tts prosody |
 | `narration.subtitles` | `true` | narrate | write subtitle cues alongside the audio |
+| `images.enabled` | `false` | plan, illustrate | the planner may ask for a picture where no figure fits |
+| `images.provider` | `auto` | illustrate | `auto` · `codex` · `svg` — where the chain of rungs starts |
+| `images.model` | unset | illustrate | model for the separate backend only; the Codex rung uses the account's own |
+| `images.style` | `flat vector illustration` | illustrate | one phrase folded into every picture prompt |
+| `images.max` | `4` | illustrate | most pictures drawn through the chain; the rest are the tool's SVG |
 
 Three layers, in increasing precedence: these defaults, then the nearest
 `decksmith.config.json` found by walking up from the working directory, then flags.
@@ -524,6 +553,12 @@ governs a deck built from a subdirectory without anyone naming a path.
     "voice": "ko-KR-HyunsuMultilingualNeural",
     "rate": "+8%",
     "subtitles": true
+  },
+  "images": {
+    "enabled": true,
+    "provider": "auto",
+    "style": "woodcut, two colours",
+    "max": 4
   }
 }
 ```
@@ -537,8 +572,11 @@ decksmith.config.json: unknown preference "narration.speed". Valid: enabled, voi
 ```
 
 On the command line: `--slides --lang --tone --density` on `plan`, `--theme --speed` on
-`build`, `--voice --rate --pitch --no-subtitles` on `narrate`, and all of them on `pack`,
-which records the preferences the deck was made under.
+`build`, `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
+--image-model --image-style --image-max` on `plan` and `illustrate`, and all but the image
+flags on `pack`, which records the preferences the deck was made under — whether it was
+illustrated is read off the storyboard itself, the way `narration.enabled` is read off the
+narration beside it.
 
 A preference sitting at its default says nothing, so a stored artifact wins over it and
 loses to anything you type. `plan` stamps `lang` and `theme` into the storyboard it
@@ -597,8 +635,66 @@ directory; nothing else notices, because a missing file looks identical to a bro
 declined to play.
 
 `edge-tts` must be on your PATH, or installable as `python3 -m edge_tts`; set
-`DECKSMITH_EDGE_TTS` to point at it directly. It is the only part of DeckSmith that needs
-the network, which is why it is its own command and not a step inside `build`.
+`DECKSMITH_EDGE_TTS` to point at it directly. Narration and illustration are the two parts
+of DeckSmith that need the network, which is why each is its own command and not a step
+inside `build`.
+
+## Illustrations
+
+```sh
+decksmith plan       source.json     -o storyboard.json --images
+decksmith illustrate storyboard.json --source source.json
+decksmith build      storyboard.json --source source.json -o out/
+```
+
+With `--images`, a beat that has nothing in the inventory to show — a `claim-figure`, or
+either side of a `split-compare` — may carry an `illustration: { prompt, caption }` in
+place of a `figureId`. The prompt describes a scene, never text, labels, numbers or charts:
+nothing inside a picture can be read or checked, so the picture illustrates and the beat's
+`evidence` still points at the section. `plan` says how many pictures the storyboard asks
+for and the command to run; `build` and `pack` refuse the file until they exist.
+
+`illustrate` turns each brief into a file under `assets/` beside `source.json`, registers
+it as an ordinary figure, and sets the beat's `figureId`; the brief stays on the beat as
+provenance. From there nothing downstream knows the picture was generated — `build`,
+`pack`, `verify` and the server see a figure like any other. A deck that never asks for a
+picture builds exactly as it always did, byte for byte.
+
+Three rungs, tried in order, and every hop down is printed rather than swallowed:
+
+1. **A separate image backend**, if you configured one. `DECKSMITH_IMAGES=openai` names
+   any OpenAI-compatible `images/generations` endpoint (`DECKSMITH_IMAGES_BASE_URL`,
+   default `https://api.openai.com/v1` — LocalAI and gateways speak it too),
+   `DECKSMITH_IMAGES_API_KEY` is the key, and `DECKSMITH_IMAGES_MODEL` overrides the model
+   (default `gpt-image-2`). Environment only, like edge-tts: the key is never a preference,
+   never in a config file, never in a `.deck`, and never part of an error message. Naming
+   a backend without its key is an error where the backend is resolved — at `illustrate`,
+   in the server's startup banner, in `decksmith_capabilities` — and nowhere at import.
+2. **The Codex account that planned the deck.** Codex 0.149 ships `image_generation` as a
+   stable feature, so the same `codex exec` that wrote the storyboard can draw a PNG.
+   `illustrate` runs it in a scratch directory it cannot write outside of and reads the
+   picture back. An account without the tool says so, once, and the run falls through.
+3. **An SVG the tool draws itself**: a deterministic, text-free composition seeded from
+   the brief. It cannot fail, so `illustrate` always finishes.
+
+`images.provider` says where the chain starts: `auto` is all three, `codex` skips the
+backend, and `svg` is the tool alone — no network, no spend, and a deck whose every
+picture is reproducible. A rung that fails is not asked again in the same run, so an
+account with no image tool pays one `codex exec` to find out, not one per picture.
+
+Pictures are content-addressed on the rung, model, aspect, style and prompt, the way
+narration is on its text and voice: re-running after an edit redraws only the briefs that
+moved, and a second run over a finished storyboard calls nothing at all. `images.max` caps
+how many pictures go through the chain — a `split-compare` with two briefs spends two —
+and the rest are the tool's SVG. **Pictures cost what narration does not**: a backend
+bills per image and the Codex rung spends the account's own usage, so the cap is there
+to bound a plan that asks for twelve. `--image-provider svg` is the way to try the layout
+for free.
+
+Not a rung, on purpose: asking the model to write SVG. An SVG shown through `<img>` can
+carry SMIL or CSS animation, which runs on wall-clock time under capture — a
+nondeterministic render that every gate passes. The tool's own SVG has no text, no
+animation and no external references, and the same brief always draws the same bytes.
 
 ## The `.deck` container
 
@@ -771,16 +867,17 @@ mechanically rather than free-hand.
 
 ```
 src/index.ts          the library surface — the only file consumers import
-src/cli.ts            the nine verbs, argv and stderr
+src/cli.ts            the ten verbs, argv and stderr
 src/types.ts          the contract: Source, Storyboard, Beat, Format, Verdict
 src/prefs.ts          the three-layer preference resolver
 src/emit/kit.ts       the seam between the deck shell and the archetype emitters
 src/emit/archetypes/  one emitter per archetype
 src/emit/themes/      one palette per file; the registry is the extension point
+src/images/           the three rungs a brief is drawn through, and the illustrate step
 src/narrate/          edge-tts, one segment per stop
 src/pack/             the .deck container and its bake/link/embed policy
 src/deck/             our step layer over player.seek(), and the subtitle reader
-src/server/           `npm run serve` — routes, queue, the five stages, and the one page
+src/server/           `npm run serve` — routes, queue, the six stages, and the one page
                       (ui.ts). Everything here reaches the library through ../index.js
                       only; see the note at the top of ui.ts for what breaks otherwise.
 .planning/            the design sketch and the experiment writeups

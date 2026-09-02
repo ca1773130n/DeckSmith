@@ -681,6 +681,10 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
           <span><span class="lbl">Video</span><span class="sub">Render an mp4 as well &middot; adds ~2 min</span></span>
           <span class="track"><input type="checkbox" id="video" name="video"></span>
         </label>
+        <label class="sws">
+          <span><span class="lbl">Illustrations</span><span class="sub">Pictures where the document has none &middot; spends image credits, ~30s</span></span>
+          <span class="track"><input type="checkbox" id="images" name="images"></span>
+        </label>
       </div>
     </div>
 
@@ -830,10 +834,11 @@ var CANVAS = {
    next to a step that has not started, and never as a bar: the point is to set
    an expectation, not to imply knowledge of progress the server has not sent.
    The one thing worse than a slow build is a slow build you think has hung. */
-var TYPICAL = { ingest: 3, plan: 60, narrate: 25, build: 8, render: 120 };
+var TYPICAL = { ingest: 3, plan: 60, illustrate: 30, narrate: 25, build: 8, render: 120 };
 var STAGE_WORDS = {
   ingest: "Reading the document",
   plan: "Planning the story",
+  illustrate: "Drawing the illustrations",
   narrate: "Recording the narration",
   build: "Building the deck",
   render: "Rendering the video"
@@ -1199,9 +1204,10 @@ function submit(){
   }
 
   // 3. Checkboxes. An unticked box is ABSENT from a form, which the server
-  //    cannot tell from "the user said nothing" — so both are stated outright.
+  //    cannot tell from "the user said nothing" — so all three are stated outright.
   fd.set("narrate", $("narrate").checked ? "true" : "false");
   fd.set("video", $("video").checked ? "true" : "false");
+  fd.set("images", $("images").checked ? "true" : "false");
 
   // 4. Language may come from the free-text box behind "Other…", and an empty
   //    voice means "pick one", which is the server's default, not a value.
@@ -1258,6 +1264,7 @@ function langValue(){
 /** The steps we expect, used only until the server sends its own list. */
 function plannedSteps(){
   var names = ["ingest", "plan"];
+  if ($("images").checked) names.push("illustrate");
   if ($("narrate").checked) names.push("narrate");
   names.push("build");
   if ($("video").checked) names.push("render");
@@ -1703,6 +1710,7 @@ on($("narrate"), "change", function(){
   refreshAction();
 });
 on($("video"), "change", refreshAction);
+on($("images"), "change", refreshAction);
 /* The form, not the button: this also catches Enter pressed in the custom-size
    or voice field, which is what a person expects a form to do. */
 on($("compose"), "submit", function(e){ e.preventDefault(); submit(); });

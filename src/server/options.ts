@@ -24,6 +24,7 @@ import {
   type Prefs,
   prefsSchema,
   resizeFormat,
+  resolveImageBackend,
   slidesFor,
   THEME_NAMES,
 } from "../index.js";
@@ -83,6 +84,13 @@ export interface JobOptions {
   narrate: boolean;
   video: boolean;
   /**
+   * Run the `illustrate` stage between `plan` and `build`. The same bit lands in
+   * `prefs.images.enabled`, which is what lets the planner write a brief; this
+   * copy is what `stagesFor` reads, the way `narrate` is read beside
+   * `prefs.narration.enabled`.
+   */
+  images: boolean;
+  /**
    * Whether the REQUEST said so, as opposed to the schema defaulting.
    *
    * `prefs` comes back fully populated, so a theme sitting at "ink" is
@@ -138,8 +146,33 @@ export function catalog(): Record<string, unknown> {
       /** Below this a deck lays out but is not legible. A warning, never a refusal. */
       legibleWidth: LEGIBLE_W,
     },
-    defaults: { format: "deck-16x9", narrate: false, video: false },
+    defaults: { format: "deck-16x9", narrate: false, video: false, images: false },
+    /**
+     * Where a generated picture would come from, by id. `null` means no separate
+     * backend is configured and pictures go through the Codex account and the
+     * tool's own SVG — a request for illustrations never fails for lack of one.
+     */
+    images: { backend: imageBackend() },
   };
+}
+
+/**
+ * The backend the environment names, as an id and nothing else.
+ *
+ * Resolution throws on a backend that is named and cannot be used — no key, an
+ * unknown name — and the catalogue is the wrong place to say so: it is read by
+ * the picker before anyone has asked for a picture, and a 500 from
+ * `GET /api/formats` over a missing key would take the whole page down.
+ * Reported as absent here; the preflight banner carries the sentence, and the
+ * `illustrate` stage fails the one job that actually asked. The key itself is
+ * in `process.env` and nowhere else, this payload included.
+ */
+function imageBackend(): string | null {
+  try {
+    return resolveImageBackend()?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function parseOptions(fields: Record<string, string>): JobOptions {
@@ -195,6 +228,13 @@ export function parseOptions(fields: Record<string, string>): JobOptions {
   if (str(fields.pitch) !== undefined) narration.pitch = str(fields.pitch);
   patch.narration = narration;
 
+  // One field, one bit: the planner is told it may write a brief, and the
+  // pipeline runs the stage that turns briefs into pictures. Provider, style and
+  // model stay the schema's — those are a deployment's choice, set beside the
+  // env vars that name the backend, not something a stranger's form picks.
+  const images = bool(fields.images) ?? false;
+  patch.images = { enabled: images };
+
   const parsed = prefsSchema.safeParse(patch);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -226,6 +266,7 @@ export function parseOptions(fields: Record<string, string>): JobOptions {
     prefs,
     narrate,
     video,
+    images,
     stated: { theme: patch.theme !== undefined, lang: patch.lang !== undefined },
     warnings,
   };
