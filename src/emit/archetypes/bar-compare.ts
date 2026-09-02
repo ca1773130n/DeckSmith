@@ -27,7 +27,7 @@
  * and width it does not.
  */
 import type { Emitter } from "../kit.js";
-import { contentH, contentW, esc } from "../kit.js";
+import { contentH, contentW, esc, spotlighter } from "../kit.js";
 import { group, id, line, MIN_FONT, nv, roundRect, svg, text, textWidth, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
@@ -327,6 +327,10 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     ...rows.map((r) =>
       roundRect({ x: r.x, y: r.top, w: r.len, h: bar }, bar / 2, {
         id: id(sid, "bar", r.i),
+        // Classed as well as identified: the spotlight needs a scope to say
+        // "every bar but this one", and `:not()` on a class is the only way to
+        // write that once however many bars there are.
+        class: "bc-bar",
         fill: fillOf(r.tone),
       }),
     ),
@@ -436,6 +440,16 @@ ${svg(id(sid, "chart"), W, H, body)}
   const settled = barsAt + (count - 1) * step + grow + 0.05;
   const holds = [settled + 0.2];
 
+  // The longest bar is the slide's focal point whatever the tones say.
+  const focal = rows.reduce((best, r) => (Math.abs(r.value) > Math.abs(best.value) ? r : best));
+
+  // Every bar is drawn before anything is claimed about them, and THEN the
+  // claim: the chart settles, and the bar the sentence is about stays at full
+  // weight while the rest step back. Before this, a row of eight bars said
+  // nothing about which one the beat was for.
+  const spot = spotlighter(sid, ".bc-bar");
+  if (count > 1) tl.push(...spot.lit(`#${id(sid, "bar", focal.i)}`, settled));
+
   const tailAt = settled + 0.3;
   if (p.unit) {
     tl.push(tween(`#${id(sid, "unit")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, tailAt));
@@ -451,9 +465,11 @@ ${svg(id(sid, "chart"), W, H, body)}
     );
   }
   if (p.unit || p.note) holds.push(tailAt + 0.7);
-
-  // The longest bar is the slide's focal point whatever the tones say.
-  const focal = rows.reduce((best, r) => (Math.abs(r.value) > Math.abs(best.value) ? r : best));
+  // NO RESTORE HERE, deliberately. The other archetypes bring their parts back
+  // for the last hold because the beat ends on the whole diagram; a comparison
+  // ends on its answer, and the tail is 0.3s after the settle — a restore there
+  // would undo the dim before anyone had read it. 0.62 is legible by
+  // construction, so the losing bars are still there to be compared against.
 
   return {
     html,

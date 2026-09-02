@@ -216,6 +216,20 @@ export function fromTo(target: string, from: Vars, to: Vars, at: number): Tween 
 }
 
 /**
+ * Invariant 10 at the vocabulary's two places.
+ *
+ * Positions are sums of authored beat times and accumulate float tails —
+ * `7.199999999999999` — and a position that prints differently between two
+ * builds of one storyboard moves a byte in the composition. `title.ts`'s
+ * `tween()` rounds an archetype's positions this way; the verbs at the end of
+ * this file need the same rounding and cannot reach it, because `title.ts`
+ * imports this file and not the other way round.
+ */
+export function sec(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
  * THE ONE PLACE A TWEEN BECOMES GSAP TEXT.
  *
  * Byte-for-byte what fifty-eight call sites used to build by hand: one space
@@ -379,4 +393,185 @@ export const TEX_MARK = "ds-tex";
 /** Escape a string for embedding inside a single-quoted JS literal. */
 export function js(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
+}
+
+/* --------------------------------------------------------- the reveal verbs */
+
+/**
+ * Where a dimmed element rests. Exactly this and never lower: the contrast
+ * gate and the type floor were both cleared with text at this opacity, and
+ * nothing here can express a darker one. The headline and the eyebrow are
+ * never dimmed at all — that is the archetype's promise, kept by never naming
+ * `-h` or `-e` to a spotlight.
+ */
+export const DIM = 0.62;
+
+const DIM_SECONDS = 0.45;
+const RESTORE_SECONDS = 0.4;
+
+/**
+ * A spotlight over one scene's parts. Built by `spotlighter`, which is the
+ * only constructor, because the thing being enforced is a HISTORY: which parts
+ * are at `DIM` right now, and which are lit.
+ *
+ * WHY STATEFUL. Two rules govern every dim: at most one immediate-render
+ * `fromTo` per (element, property), and a later tween's `from` equals the
+ * earlier tween's `to`. Break the first and a part shows at full opacity
+ * before its own reveal; break the second and a part already at 0.62 snaps to
+ * 1 and eases back down — a blink, at every gate green. Both are facts about
+ * what was emitted BEFORE, so a helper that takes a `first: false` flag from
+ * the caller is a helper that trusts the caller to remember. This one
+ * remembers.
+ *
+ * Every tween it emits carries `immediateRender: false`. The elements a
+ * spotlight touches enter through their own `opacity: 0 → 1` reveal, and that
+ * reveal is the one immediate render opacity gets; a second one would apply
+ * `opacity: 1` at build time, on top of the reveal's 0, and the part would be
+ * on screen from frame one. An element with no reveal is at 1 already, so
+ * withholding the immediate render costs it nothing.
+ *
+ * Two idioms, and one spotlighter is one or the other (mixing throws):
+ *
+ * - `lit(keep, at)` — the whole scope is on screen. The first call dims
+ *   everything in scope but `keep` (`#sid .term:not(#sid-t0)`); later calls
+ *   move the light: what was kept dims, what is newly kept comes back. For
+ *   terms, bars, rows, cells.
+ * - `dim(target, at)` — parts arrive one at a time and the light stays on the
+ *   newest, so only the part it just left dims. For stages, layers, panels,
+ *   notes. `target` is a part suffix or an exact `#sid…` selector.
+ *
+ * `restore(at)` brings everything dimmed back to 1 in one tween, at a scene's
+ * last hold. In `lit` mode that is the scope minus what is lit, so it assumes
+ * the whole scope is on screen by then — true at a last hold by construction.
+ */
+export interface Spotlight {
+  lit(keep: string | readonly string[], at: number): Tween[];
+  dim(target: string, at: number): Tween[];
+  restore(at: number): Tween[];
+}
+
+/**
+ * `scope` is a selector fragment inside the scene — `.term`, `.stage` — and is
+ * required by `lit()` only; `dim()` names its targets outright. Every selector
+ * this emits begins with `#sid` (`unscoped_gsap_selector`, invariant 3).
+ */
+export function spotlighter(sid: string, scope?: string): Spotlight {
+  const prefix = `#${sid}`;
+  const who = `spotlight ${prefix}`;
+  let mode: "lit" | "dim" | undefined;
+  /** `lit` mode: the parts currently at 1, as tween selectors and as `:not()` forms. */
+  let kept: string[] = [];
+  let keptNots: string[] = [];
+  /** `dim` mode: every selector currently at DIM. */
+  const dimmed: string[] = [];
+
+  const enter = (m: "lit" | "dim"): void => {
+    if (mode !== undefined && mode !== m) {
+      throw new Error(`${who}: lit() and dim() on one spotlighter — its history would be wrong`);
+    }
+    mode = m;
+  };
+  /**
+   * A part suffix becomes its id; an exact selector must already be scoped; a
+   * bare class is scoped for the tween and left bare for `:not()`.
+   *
+   * The class case exists because some archetypes have no id per part —
+   * `equation-walk`'s terms are KaTeX spans carrying `.t-<tone>`, and the
+   * light moves between classes. `:not()` takes ONE compound selector, so the
+   * keeper goes in bare; the tween that moves it has to be scoped or lint
+   * rejects it, so that one is prefixed. Two forms of one keeper, and this is
+   * the only place that knows they are the same thing.
+   */
+  const forms = (target: string): { not: string; tween: string } => {
+    if (target.startsWith(".")) {
+      if (/[\s,#]/.test(target.slice(1))) {
+        throw new Error(`${who}: keep "${target}" must be one class`);
+      }
+      return { not: target, tween: `${prefix} ${target}` };
+    }
+    if (target.startsWith("#")) {
+      if (!target.startsWith(prefix)) {
+        throw new Error(`${who}: "${target}" is not inside the scene`);
+      }
+      return { not: target, tween: target };
+    }
+    return { not: `${prefix}-${target}`, tween: `${prefix}-${target}` };
+  };
+  const selector = (target: string): string => forms(target).tween;
+  const ease = (target: string, from: number, to: number, seconds: number, at: number): Tween =>
+    fromTo(
+      target,
+      { opacity: from },
+      { opacity: to, duration: seconds, ease: "power2.out", immediateRender: false },
+      sec(at),
+    );
+  /** The scope minus the kept parts. `:not()` takes one compound selector each. */
+  const others = (keepers: readonly string[]): string => {
+    if (scope === undefined) throw new Error(`${who}: lit() needs a scope`);
+    for (const k of keepers) {
+      if (/[\s,]/.test(k)) throw new Error(`${who}: keep "${k}" must be one part or one id`);
+    }
+    return `${prefix} ${scope}${keepers.map((k) => `:not(${k})`).join("")}`;
+  };
+  /** Each keeper as its `:not()` form, in the order given, deduped. */
+  const notForms = (keep: string | readonly string[]): string[] => [
+    ...new Set((typeof keep === "string" ? [keep] : keep).map((k) => forms(k).not)),
+  ];
+
+  return {
+    lit(keep, at) {
+      enter("lit");
+      const nots = notForms(keep);
+      const next = [...new Set((typeof keep === "string" ? [keep] : keep).map(selector))];
+      if (next.length === 0) throw new Error(`${who}: lit() keeps nothing`);
+      const out: Tween[] = [];
+      if (kept.length === 0) {
+        out.push(ease(others(nots), 1, DIM, DIM_SECONDS, at));
+      } else {
+        const leaving = kept.filter((s) => !next.includes(s));
+        const arriving = next.filter((s) => !kept.includes(s));
+        if (leaving.length > 0) out.push(ease(leaving.join(", "), 1, DIM, DIM_SECONDS, at));
+        if (arriving.length > 0) out.push(ease(arriving.join(", "), DIM, 1, DIM_SECONDS, at));
+      }
+      kept = next;
+      keptNots = nots;
+      return out;
+    },
+    dim(target, at) {
+      enter("dim");
+      const sel = selector(target);
+      if (dimmed.includes(sel)) throw new Error(`${who}: "${sel}" is already dim`);
+      dimmed.push(sel);
+      return [ease(sel, 1, DIM, DIM_SECONDS, at)];
+    },
+    restore(at) {
+      let target: string;
+      if (mode === "lit") target = others(keptNots);
+      else if (dimmed.length > 0) target = dimmed.join(", ");
+      else throw new Error(`${who}: nothing is dim`);
+      mode = undefined;
+      kept = [];
+      keptNots = [];
+      dimmed.length = 0;
+      return [ease(target, DIM, 1, RESTORE_SECONDS, at)];
+    },
+  };
+}
+
+/**
+ * One `<span class="w">` per word, for a headline that rises word by word
+ * (`#sid-t .w`, staggered). Words are `esc()`ed one at a time and rejoined
+ * with single spaces, so the line sets exactly as the plain string did and
+ * the type floor sees the same size. No ids: the stagger addresses the class.
+ *
+ * The archetype's CSS must give the class `display: inline-block` — a
+ * transform on an inline box is a no-op, and the rise would render as a plain
+ * fade with every gate green.
+ */
+export function words(text: string, cls = "w"): string {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => `<span class="${cls}">${esc(w)}</span>`)
+    .join(" ");
 }

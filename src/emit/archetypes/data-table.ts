@@ -18,7 +18,7 @@
  * whoever reads the error instead of being buried in this file.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc, mathy, PAD_Y } from "../kit.js";
+import { contentW, esc, mathy, PAD_Y, spotlighter } from "../kit.js";
 import { MIN_FONT, textWidth } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
@@ -233,6 +233,12 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   // The row the argument lands on, and so the row a presenter holds on.
   let focus: number | undefined;
 
+  // A table is a wall of numbers and the recolour alone asks the eye to find
+  // the one that changed. Dimming the rest says it instead: the row under
+  // discussion is the only one at full weight, and the light moves row to row
+  // with the argument. `lit` mode — every row is on screen by now.
+  const spot = spotlighter(sid, ".trow");
+
   p.highlight.forEach((h, i) => {
     const index = table.rows.findIndex((row) => row[0] === h.row);
     if (index < 0) {
@@ -247,6 +253,7 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
         { color: theme.tones[h.tone], fontWeight: 600, duration: 0.5 },
         at,
       ),
+      ...spot.lit(`#${sid}-r${index}`, at),
     );
     focus = index;
     holds.push(at + 0.6);
@@ -256,6 +263,12 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
     const at = settled + 0.3 + p.highlight.length * step;
     tl.push(tween(`#${sid}-note`, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.6 }, at));
     holds.push(at + 0.7);
+  }
+  // The table is whole again for the last hold: the highlighted rows keep their
+  // colour, which is what ties them to the claim, and the rest come back to
+  // full weight so the numbers around them can still be read.
+  if (p.highlight.length > 0) {
+    tl.push(...spot.restore(settled + 0.3 + p.highlight.length * step));
   }
 
   return {

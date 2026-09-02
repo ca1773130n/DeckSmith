@@ -4,7 +4,7 @@
  * was actually tested. Panels appear one at a time so each can be spoken to.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc } from "../kit.js";
+import { contentW, esc, spotlighter } from "../kit.js";
 import { wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
@@ -126,11 +126,26 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const tl = [...chromeIn(sid, p.eyebrow !== undefined)];
   const holds: number[] = [];
 
+  // Panels are read one at a time, so the one being read is the one at full
+  // weight; the ones already made step back to DIM rather than competing.
+  const spot = spotlighter(sid);
+
   p.panels.forEach((_, i) => {
     const at = first + i * step;
     tl.push(
       tween(`#${sid}-p${i}`, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.55 }, at),
+      // The panel's own contents arrive in reading order rather than as one
+      // block: the label, then its lines a frame apart. A stagger inside the
+      // panel costs no hold and is the difference between a card appearing and
+      // a point being made.
+      tween(
+        `#${sid}-p${i} .pline`,
+        { opacity: 0, y: 10 },
+        { opacity: 1, y: 0, duration: 0.4, stagger: 0.06, immediateRender: false },
+        at + 0.18,
+      ),
     );
+    if (i > 0) tl.push(...spot.dim(`p${i - 1}`, at + 0.15));
     holds.push(at + 0.65);
   });
 
@@ -139,6 +154,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     tl.push(tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at));
     holds.push(at + 0.7);
   }
+  if (p.panels.length > 1) tl.push(...spot.restore(first + p.panels.length * step));
 
   return {
     html,

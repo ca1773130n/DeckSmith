@@ -6,7 +6,7 @@
  * caption 200px off-canvas. Only a genuine strip earns the full width.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc } from "../kit.js";
+import { contentW, esc, words } from "../kit.js";
 import { wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
 import {
@@ -121,7 +121,10 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     );
   }
 
-  const claim = `<div class="claim" id="${sid}-c">${esc(p.claim)}</div>`;
+  // The claim is the sentence the slide is FOR, so it arrives as a sentence:
+  // word by word, in reading order, instead of as a block sliding in from the
+  // left. Same words, same measure, same size.
+  const claim = `<div class="claim" id="${sid}-c">${words(p.claim)}</div>`;
   // `figure.src` is relative to the deck's asset directory.
   const figure = `<div class="figwrap" id="${sid}-f"><img src="assets/${esc(fig.src)}" alt="${esc(fig.caption)}" /></div>`;
   const caption = `<div class="caption" id="${sid}-cap">${esc(fig.caption)}</div>`;
@@ -140,9 +143,31 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
-    tween(`#${sid}-c`, { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.6 }, 0.7),
+    tween(
+      `#${sid}-c .w`,
+      { opacity: 0, y: 14 },
+      { opacity: 1, y: 0, duration: 0.5, stagger: 0.05, ease: "power2.out" },
+      0.7,
+    ),
     tween(`#${sid}-f`, { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, 1.0),
     tween(`#${sid}-cap`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, 1.7),
+    // And then the picture keeps moving, barely: 3.5% over the whole beat, from
+    // where its entrance left it. A figure that is still being looked at while
+    // a claim is read should not be a frozen JPEG. `immediateRender: false` and
+    // a `from` of exactly 1 because the entrance above owns this element's
+    // first `scale` render — the invariant that cost this project a frozen
+    // video once already.
+    tween(
+      `#${sid}-f`,
+      { scale: 1 },
+      {
+        scale: 1.035,
+        duration: Math.max(2, beat.seconds - 2.2),
+        ease: "none",
+        immediateRender: false,
+      },
+      1.8,
+    ),
   ];
 
   return {
@@ -168,6 +193,9 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // caption. Evenly divided, the same slack reads as three equal margins.
       ".cf-stack{display:flex;flex-direction:column;justify-content:space-evenly;flex:1;min-height:0;margin-top:34px}",
       `.claim{font-size:${CLAIM_SIZE}px;line-height:${CLAIM_LH};color:${theme.fg};border-left:${CLAIM_RULE - 32}px solid ${theme.accent};padding-left:32px}`,
+      // The words rise, so they have to be blocks; `inline-block` on an inline
+      // run is what makes a transform apply at all.
+      ".claim .w{display:inline-block}",
       `.figwrap{background:#fff;border:1px solid ${theme.rule};border-radius:12px;padding:16px;display:flex;align-items:center;justify-content:center;margin-top:26px}`,
       // Height-capped rather than width-driven: a square figure in the beside
       // layout would otherwise be ~970px tall and run off the canvas. The cap is

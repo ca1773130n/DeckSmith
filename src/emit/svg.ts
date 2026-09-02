@@ -13,7 +13,7 @@
  * that composes these primitives, and putting it here is how a primitive layer
  * turns into six hand-rolled one-offs wearing a shared import.
  */
-import { esc, type Vars } from "./kit.js";
+import { esc, fromTo, sec, type Tween, type Vars } from "./kit.js";
 
 export interface Pt {
   x: number;
@@ -72,6 +72,75 @@ export function nv(v: number): number {
 export function drawFrom(length: number): Vars {
   const l = Math.ceil(length) + 1;
   return { strokeDasharray: l, strokeDashoffset: l };
+}
+
+/**
+ * Something travels a polyline — a pulse along an arrow, a marker ring along a
+ * curve, a highlight down a divider: one `x`/`y` `fromTo` per leg, each leg's
+ * share of `seconds` proportional to its length, `ease: "none"` until the last
+ * leg, which settles with `power2.out`. Only the first leg renders
+ * immediately; every later one is `immediateRender: false` and starts exactly
+ * where the leg before it ended, so the route reads as one motion under any
+ * seek. `x`/`y` are TRANSLATIONS, so author the traveller at the origin —
+ * `<circle r="6">` — and give the route in the same user space as the parts it
+ * passes. A transform rather than `attr: { cx, cy }` so one verb moves an SVG
+ * dot and an HTML rule alike; not MotionPath, which is not loaded.
+ *
+ * ONE CALL PER ELEMENT. The first leg's immediate render is the one that
+ * (element, x/y) gets; a second route on the same element would need
+ * `immediateRender: false` and a `from` equal to the first route's end, which
+ * is not where a second route starts. A pulse per arrow, not one pulse reused.
+ *
+ * Every leg starts where the last one ended, printed at two places, and lint
+ * reads `at + duration` back in floating point: 0.1 + 0.2 is 0.30000000000000004,
+ * which `overlapping_gsap_tweens` reports as a 4e-17s overlap with the leg at
+ * 0.3 (measured on 0.7.90). So a leg whose float sum overshoots its successor
+ * is shortened by a hundredth — a rest at the corner under one frame long —
+ * and the corner itself, and the arrival at `at + seconds`, stay where they
+ * were scheduled.
+ */
+export function travel(target: string, route: readonly Pt[], at: number, seconds: number): Tween[] {
+  if (!(seconds > 0)) throw new Error(`travel ${target}: ${seconds}s is no time to travel in`);
+  const legs: { from: Pt; to: Pt; length: number }[] = [];
+  let prev: Pt | undefined;
+  for (const p of route) {
+    const q = { x: nv(p.x), y: nv(p.y) };
+    if (prev === undefined) {
+      prev = q;
+      continue;
+    }
+    const length = Math.hypot(q.x - prev.x, q.y - prev.y);
+    // A repeated corner is not a leg: a zero-length tween would be a snap.
+    if (length === 0) continue;
+    legs.push({ from: prev, to: q, length });
+    prev = q;
+  }
+  if (legs.length === 0) throw new Error(`travel ${target}: a route needs two distinct points`);
+  const total = legs.reduce((sum, leg) => sum + leg.length, 0);
+  const end = sec(at + seconds);
+  let start = sec(at);
+  let run = 0;
+  return legs.map((leg, i) => {
+    run += leg.length;
+    const last = i === legs.length - 1;
+    const next = last ? end : sec(at + (seconds * run) / total);
+    let duration = sec(next - start);
+    if (!last && start + duration > next) duration = sec(duration - 0.01);
+    const tween = fromTo(
+      target,
+      { x: leg.from.x, y: leg.from.y },
+      {
+        x: leg.to.x,
+        y: leg.to.y,
+        duration,
+        ease: last ? "power2.out" : "none",
+        ...(i > 0 ? { immediateRender: false } : {}),
+      },
+      start,
+    );
+    start = next;
+    return tween;
+  });
 }
 
 /** Scene-scoped element id. Every timeline selector is built from one of these. */

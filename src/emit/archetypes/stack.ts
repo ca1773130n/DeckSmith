@@ -23,8 +23,22 @@
  */
 import type { BeatOf, Format } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentH, contentW, esc } from "../kit.js";
-import { circle, group, id, line, MIN_FONT, n, path, svg, text, textWidth, wrap } from "../svg.js";
+import { contentH, contentW, esc, spotlighter } from "../kit.js";
+import {
+  circle,
+  group,
+  id,
+  line,
+  MIN_FONT,
+  n,
+  nv,
+  path,
+  svg,
+  text,
+  textWidth,
+  travel,
+  wrap,
+} from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   chrome,
@@ -45,6 +59,10 @@ type Params = BeatOf<"stack">["params"];
 const GAP = 44;
 /** The index numerals get their own left spine; `NUM_X` is their right edge. */
 const NUM_X = 48;
+
+/** The probe's spine, left of the numerals, and how tall its rule stands. */
+const PROBE_X = 16;
+const PROBE_H = 46;
 const NUM_W = 70;
 
 const LABEL_SIZE = 46;
@@ -288,11 +306,15 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
   // drift apart. See `Scene.parts`.
   const parts: Record<string, string> = {};
 
+  /** Each slab's middle, in the order they are built, for the probe to visit. */
+  const mids: number[] = [];
+
   const body = p.layers
     .map((layer, i) => {
       parts[`lay${i}`] = layer.label;
       const y0 = L.yBase - i * L.rise;
       const mid = y0 - L.sy / 2;
+      mids.push(mid);
       const top = i === last;
       const tint = top ? theme.tones.b : theme.accent;
       const stroke = top ? theme.tones.b : theme.rule;
@@ -359,14 +381,49 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
     })
     .join("");
 
+  /**
+   * The probe: a short rule with a dot at its tip, parked in the numeral spine
+   * and stepping down to each slab as that slab arrives.
+   *
+   * It is drawn at the FIRST slab's height, so the identity transform is where
+   * the reveal starts and a build whose timeline never runs still has it in a
+   * sane place. It reads as the thing doing the reading — the stack is a
+   * structure the carrier is walked through, and until now nothing on the
+   * slide walked.
+   */
+  // Drawn where it starts, in the diagram's own coordinates — not at the origin
+  // with a transform. The geometry test reads the coordinates in the markup and
+  // an element parked off-canvas until GSAP moves it is, to that test and to a
+  // build whose timeline never ran, an element off-canvas.
+  const probeY = mids[0] ?? 0;
+  const probe =
+    mids.length > 1
+      ? group(
+          // THE DOT IS THE ANCHOR, with the rule hanging above it: the walk
+          // translates the group by `mid - probeY`, so whatever sits at `probeY`
+          // is what lands on the slab. Centring the group instead left the dot
+          // half a rule below every slab it was pointing at — visible only by
+          // looking at a frame, which is how it was found.
+          line(
+            { x: PROBE_X, y: probeY - PROBE_H },
+            { x: PROBE_X, y: probeY },
+            { stroke: theme.tones.b, "stroke-width": 3, "stroke-linecap": "round" },
+          ) + circle({ x: PROBE_X, y: probeY }, 7, { fill: theme.tones.b }),
+          { id: id(sid, "probe"), opacity: "0" },
+        )
+      : "";
+
   const noteHtml = p.note ? `\n<div class="stnote" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html = `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format))}
-<div class="stackwrap">${svg(id(sid, "stack"), L.width, L.height, body)}</div>${noteHtml}`;
+<div class="stackwrap">${svg(id(sid, "stack"), L.width, L.height, body + probe)}</div>${noteHtml}`;
 
   const first = 0.9;
   const step = Math.min(0.8, Math.max(0.4, (beat.seconds - first - 1.5) / count));
   const tl = [...chromeIn(sid, p.eyebrow !== undefined)];
   const holds: number[] = [];
+
+  // One light on the slab being spoken about; the pile below it steps back.
+  const spot = spotlighter(sid);
 
   p.layers.forEach((_, i) => {
     const at = first + i * step;
@@ -381,14 +438,32 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
       ),
     );
     tl.push(tween(`#${sid}-cap${i}`, { opacity: 0 }, { opacity: 1, duration: 0.4 }, at + 0.2));
+    if (i > 0) tl.push(...spot.dim(`lay${i - 1}`, at + 0.15));
     holds.push(at + 0.62);
   });
+
+  // The probe walks the pile in one continuous move, arriving at each slab as
+  // that slab settles. ONE `travel` for the whole route: a second route on the
+  // same element would have to start where the first ended, which is the rule
+  // `travel` exists to keep. It fades in with the second slab, because a probe
+  // pointing at a one-slab stack is pointing at nothing.
+  if (mids.length > 1) {
+    const route = mids.map((mid) => ({ x: 0, y: nv(mid - probeY) }));
+    const walkFrom = first + 0.3;
+    const walkTo = first + (mids.length - 1) * step + 0.55;
+    tl.push(
+      tween(`#${sid}-probe`, { opacity: 0 }, { opacity: 1, duration: 0.3 }, walkFrom),
+      ...travel(`#${sid}-probe`, route, walkFrom, Math.max(0.4, walkTo - walkFrom)),
+    );
+  }
 
   if (p.note) {
     const at = first + count * step;
     tl.push(tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at));
     holds.push(at + 0.7);
   }
+  // The pile is one object again at the last hold.
+  if (count > 1) tl.push(...spot.restore(first + count * step));
 
   return {
     html,

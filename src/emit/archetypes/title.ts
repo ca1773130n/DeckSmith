@@ -8,7 +8,7 @@
  */
 import type { Format } from "../../types.js";
 import type { Emitter, Theme, Tween, Vars } from "../kit.js";
-import { contentH, contentW, esc, fromTo } from "../kit.js";
+import { contentH, contentW, esc, fromTo, words } from "../kit.js";
 import { textWidth, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 
@@ -380,15 +380,28 @@ export const title: Emitter<"title"> = (beat, ctx) => {
   const head = unwidow(p.headline, width, size);
   const brow = p.eyebrow ? `<div class="eyebrow" id="${sid}-e">${esc(p.eyebrow)}</div>\n  ` : "";
   const sub = p.sub ? `\n  <div class="sub" id="${sid}-s">${esc(p.sub)}</div>` : "";
+  // The headline is set word by word so it can RISE word by word. `words()`
+  // escapes each one and rejoins with single spaces, so the line breaks exactly
+  // where `unwidow` decided it would and the type floor measures the same size.
   const html = `<div class="titleslide">
-  ${brow}<h1 class="bighead" id="${sid}-t" style="font-size:${size}px">${esc(head)}</h1>${sub}
+  ${brow}<h1 class="bighead" id="${sid}-t" style="font-size:${size}px">${words(head)}</h1>${sub}
 </div>`;
 
   const tl: Tween[] = [];
   if (p.eyebrow) {
     tl.push(tween(`#${sid}-e`, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6 }, 0.2));
   }
-  tl.push(tween(`#${sid}-t`, { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.9 }, 0.4));
+  // The first thing anyone sees in the deck, and until now it was a block of
+  // text fading up. A headline that arrives word by word reads as a sentence
+  // being said; the stagger is the whole difference and it costs no hold.
+  tl.push(
+    tween(
+      `#${sid}-t .w`,
+      { opacity: 0, y: 38 },
+      { opacity: 1, y: 0, duration: 0.9, stagger: 0.06, ease: "power3.out" },
+      0.4,
+    ),
+  );
   let end = 1.3;
   if (p.sub) {
     tl.push(tween(`#${sid}-s`, { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 1.0));
@@ -408,6 +421,10 @@ export const title: Emitter<"title"> = (beat, ctx) => {
       // the canvas — the block cannot grow past the box it is already filling.
       ".titleslide{display:flex;flex-direction:column;justify-content:space-between;height:100%}",
       `.bighead{line-height:1.06;font-weight:700;letter-spacing:-.025em;color:${theme.fg}}`,
+      // `inline-block`, or the per-word rise is a no-op: a transform on an
+      // inline box does nothing, and the headline would fade in place with
+      // every gate green.
+      ".bighead .w{display:inline-block}",
       // The rule is the sub's, not the headline's: it reads as the deck's spine
       // rather than as an underline someone drew under the title.
       `.sub{font-size:48px;line-height:1.5;color:${theme.muted};margin-top:44px;padding-top:36px;max-width:1500px;border-top:3px solid ${theme.rule}}`,

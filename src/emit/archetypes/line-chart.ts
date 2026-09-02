@@ -8,7 +8,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc } from "../kit.js";
-import { drawFrom, textWidth, wrap } from "../svg.js";
+import { drawFrom, nv, textWidth, travel, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -318,6 +318,22 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     })
     .join("");
 
+  /**
+   * The reader: a hollow ring that walks the curve while it draws, sitting on
+   * each point as that point's value appears.
+   *
+   * Drawn AT the first point in the chart's own coordinates, so the identity
+   * transform is the start of the walk and a build whose timeline never runs
+   * leaves it somewhere sane. It is what turns "a line appears" into "each tick
+   * buys less than the one before it" — the eye is taken along the curve
+   * instead of being handed the finished shape.
+   */
+  const first = { x: x(0), y: y(p.points[0]?.y ?? 0) };
+  const ring =
+    p.points.length > 1
+      ? `<circle id="${sid}-ring" cx="${n(first.x)}" cy="${n(first.y)}" r="20" fill="none" stroke="${theme.tones.b}" stroke-width="5" opacity="0" />`
+      : "";
+
   const readout = p.readout
     ? `\n  <div class="readout" id="${sid}-read">${esc(p.readout)}</div>`
     : "";
@@ -333,6 +349,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     <text class="axname" x="${n(PAD.l + plotW / 2)}" y="${H - 16}" text-anchor="middle">${esc(p.xLabel)}</text>
     <path class="chartline" id="${sid}-line" d="${path}" fill="none" stroke="${theme.accent}" />
     <g>${dots}</g>
+    ${ring}
     <g class="ptlab" text-anchor="middle">${values}</g>
     <g class="delta" text-anchor="middle">${deltas}</g>
   </svg>${readout}
@@ -366,6 +383,24 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
         { opacity: 0, y: -10 },
         { opacity: 1, y: 0, duration: 0.35, stagger: step },
         draw + 0.6,
+      ),
+    );
+  }
+
+  // The ring rides the same 1.8s the line takes to draw, point by point, so it
+  // is always at the head of the stroke rather than racing it or trailing it.
+  if (p.points.length > 1) {
+    const route = p.points.map((pt, i) => ({ x: nv(x(i) - first.x), y: nv(y(pt.y) - first.y) }));
+    tl.push(
+      tween(`#${sid}-ring`, { opacity: 0 }, { opacity: 1, duration: 0.25 }, draw),
+      ...travel(`#${sid}-ring`, route, draw, 1.8),
+      // And it leaves once the curve is whole: a marker parked on the last
+      // point for the rest of the beat reads as a defect, not as emphasis.
+      tween(
+        `#${sid}-ring`,
+        { opacity: 1 },
+        { opacity: 0, duration: 0.4, immediateRender: false },
+        draw + 1.8,
       ),
     );
   }
