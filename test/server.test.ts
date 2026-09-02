@@ -18,7 +18,8 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
-import { FORMATS, LEGIBLE_W, MAX_ASPECT, MIN_EDGE } from "../src/index.js";
+import { toolSvg } from "../src/images/providers.js";
+import { FORMATS, LEGIBLE_W, MAX_ASPECT, MIN_EDGE, parseMarkdown } from "../src/index.js";
 import { explain } from "../src/server/errors.js";
 import { createDeckServer, parseRange, RateLimiter, safeUrlPath } from "../src/server/http.js";
 import { catalog, MAX_PIXELS, parseOptions } from "../src/server/options.js";
@@ -275,8 +276,34 @@ describe("parseOptions", () => {
     expect(o.format.width).toBe(1920);
     expect(o.narrate).toBe(false);
     expect(o.video).toBe(false);
+    expect(o.images).toBe(false);
     expect(o.prefs.theme).toBe("ink");
     expect(o.stated).toEqual({ theme: false, lang: false });
+  });
+
+  /**
+   * One bit, two readers. `stagesFor` decides whether the `illustrate` row
+   * exists from the copy on the options; the planner decides whether it may
+   * write a brief from the copy in the preferences. A request that set only one
+   * would either plan pictures nobody draws or run a stage with nothing to do.
+   */
+  it("reads illustrations into both the stage list and the planner's preferences", () => {
+    const on = parseOptions({ images: "on" });
+    expect(on.images).toBe(true);
+    expect(on.prefs.images.enabled).toBe(true);
+    // Provider, style and model are the deployment's, never the form's.
+    expect(on.prefs.images.provider).toBe("auto");
+    expect(parseOptions({ images: "false" }).prefs.images.enabled).toBe(false);
+    expect(() => parseOptions({ images: "maybe" })).toThrow(/yes or no/);
+  });
+
+  it("publishes the illustration default and names the backend by id only", () => {
+    const c = catalog() as { defaults: Record<string, unknown>; images: { backend: unknown } };
+    expect(c.defaults.images).toBe(false);
+    // `null` or an id — whatever this machine's environment names. Never a key,
+    // and never a throw: the picker reads this before anyone asks for a picture.
+    expect(c.images.backend === null || typeof c.images.backend === "string").toBe(true);
+    expect(JSON.stringify(c)).not.toMatch(/API_KEY|sk-/);
   });
 
   it("records that a preference was actually chosen", () => {
@@ -388,6 +415,22 @@ describe("parseOptions", () => {
       "plan",
       "narrate",
       "build",
+    ]);
+    // Illustrations sit between the plan that asks for them and the narration
+    // that may describe them; the row is there only when the box was ticked.
+    expect(stagesFor(parseOptions({ images: "on" }))).toEqual([
+      "ingest",
+      "plan",
+      "illustrate",
+      "build",
+    ]);
+    expect(stagesFor(parseOptions({ images: "on", video: "on" }))).toEqual([
+      "ingest",
+      "plan",
+      "illustrate",
+      "narrate",
+      "build",
+      "render",
     ]);
   });
 
@@ -569,6 +612,17 @@ describe("explain", () => {
     ["timing.json is missing. `render` needs the timing manifest", /narration on/],
     ["run `npx puppeteer browsers install chrome`", /DECKSMITH_CHROME/],
     ["spawn ffprobe ENOENT", /install ffmpeg/i],
+    // The image backend's failures, as src/images/providers.ts shapes them.
+    ["openai images: HTTP 401 (invalid_api_key)", /DECKSMITH_IMAGES_API_KEY/],
+    ["openai images: HTTP 403 (forbidden)", /DECKSMITH_IMAGES_API_KEY/],
+    ["openai images: HTTP 429 (rate_limit_exceeded)", /quota/],
+    ["codex could not generate a picture: no image tool on this account", /SVG/],
+    [
+      "DECKSMITH_IMAGES=openai needs DECKSMITH_IMAGES_API_KEY. Set it, or unset",
+      /illustrations off/,
+    ],
+    ['Unknown image backend "dalle". DECKSMITH_IMAGES accepts: openai.', /illustrations off/],
+    ["Codex asked for 2 illustrations (b01, b03) with images off.", /Illustrations/],
   ];
   for (const [message, hint] of cases) {
     it(`hints at the fix for "${message.slice(0, 32)}…"`, () => {
@@ -960,6 +1014,115 @@ describe("ingest, against real documents", () => {
   });
 });
 
+describe("illustrate, between plan and build", () => {
+  /**
+   * The one run in this file that gets PAST `plan`, and it does so without a
+   * Codex: the planner's `Runner` is the recorded-answer seam plan.test.ts
+   * drives, and the chain is the tool's own SVG — the rung that cannot fail, so
+   * nothing here opens a socket. `build` is where it stops: `buildDeck` reads
+   * dist/deck-runtime.js beside the bundle, which a source-tree test does not
+   * have, and by then everything `illustrate` promises is on disk and in the
+   * log. The assertions are those promises: the figure registered in the source
+   * the pipeline wrote, the slot pointing at it in the storyboard it wrote, the
+   * file itself under src/assets, and the objects handed on — which is what a
+   * `build` reached at all is evidence of, since `assertRefsResolve` would have
+   * refused a slot that still had no figure.
+   */
+  const text = "# Title\n\nProse.\n\n## Two\n\nMore.\n";
+  const planWithABrief = () => ({
+    // `ingest` derives the id from the bytes the same way; a mismatch is a
+    // dangling reference and the plan is refused.
+    sourceId: parseMarkdown(text).id,
+    title: "Title",
+    beats: [
+      {
+        id: "b01",
+        intent: "Refinement is a loop.",
+        weight: 0.8,
+        archetype: "claim-figure",
+        params: {
+          headline: "One loop, four steps",
+          claim: "Refinement is a loop.",
+          illustration: { prompt: "four gears in a ring", caption: "The loop" },
+        },
+      },
+    ],
+  });
+
+  async function run(fields: Record<string, string>) {
+    const { runPipeline } = await import("../src/server/pipeline.js");
+    const dir = await scratch();
+    const log: string[] = [];
+    const steps: string[] = [];
+    const handle: JobHandle = {
+      id: "test",
+      dir,
+      begin: (s) => {
+        steps.push(`${s}: begin`);
+        if (s === "build") throw new Error("STOP: reached build");
+      },
+      done: (s, detail) => steps.push(`${s}: done — ${detail ?? ""}`),
+      skip: (s, why) => steps.push(`${s}: skipped — ${why}`),
+      log: (l) => log.push(l),
+    };
+    const error = await runPipeline(handle, {
+      upload: { filename: "paper.md", bytes: bytes(text), fields: {} },
+      options: parseOptions(fields),
+      fetchRemoteFigures: false,
+      imageChain: [toolSvg()],
+      run: async ({ outPath }) => {
+        await writeFile(outPath, JSON.stringify(planWithABrief()));
+      },
+    }).then(
+      () => undefined,
+      (e: Error) => e,
+    );
+    return { dir, log, steps, error };
+  }
+
+  it("draws the plan's briefs, registers them as figures, and hands build the new objects", async () => {
+    const out = await run({ images: "true" });
+    expect(out.error?.message).toBe("STOP: reached build");
+    expect(out.steps).toEqual([
+      "ingest: begin",
+      "ingest: done — 2 sections, 0 figures",
+      "plan: begin",
+      "plan: done — 1 beats",
+      "illustrate: begin",
+      "illustrate: done — 1 pictures via svg",
+      "build: begin",
+    ]);
+
+    const storyboard = JSON.parse(await readFile(join(out.dir, "storyboard.json"), "utf8")) as {
+      beats: { params: { figureId?: string; illustration?: unknown } }[];
+    };
+    const slot = storyboard.beats[0]?.params;
+    expect(slot?.figureId).toBe("gen-b01");
+    // The brief stays as provenance; a re-run finds the slot done and draws nothing.
+    expect(slot?.illustration).toEqual({ prompt: "four gears in a ring", caption: "The loop" });
+
+    const source = JSON.parse(await readFile(join(out.dir, "src", "source.json"), "utf8")) as {
+      figures: { id: string; src: string; caption: string; width: number; height: number }[];
+    };
+    expect(source.figures).toHaveLength(1);
+    const figure = source.figures[0];
+    expect(figure).toMatchObject({ id: "gen-b01", caption: "The loop", width: 1536, height: 1024 });
+    // Content-addressed in the file name, like every other asset under src/.
+    expect(figure?.src).toMatch(/^gen-b01-[0-9a-f]{8}\.svg$/);
+    const picture = await readFile(join(out.dir, "src", "assets", figure?.src ?? ""), "utf8");
+    expect(picture.startsWith("<svg")).toBe(true);
+
+    expect(out.log).toContainEqual(`illustrate: b01 → assets/${figure?.src} via svg`);
+  });
+
+  it("refuses a brief when illustrations are off, at plan, before anything is drawn", async () => {
+    const out = await run({});
+    expect(out.error?.message).toMatch(/b01.*with images off/s);
+    expect(out.steps).not.toContain("illustrate: begin");
+    expect(out.steps).not.toContain("build: begin");
+  });
+});
+
 /* ------------------------------------------------------------------------ ui */
 
 /**
@@ -1004,6 +1167,12 @@ describe("the server's imports survive the build", () => {
     expect(html).toContain('id="compose"');
     // The format radios are built by script; the container is in the markup.
     expect(html).toContain('id="formats"');
+    // The three switches `submit()` states outright, so an unticked box is a
+    // "false" the server can read rather than an absence it cannot.
+    for (const name of ["narrate", "video", "images"]) {
+      expect(html).toContain(`id="${name}" name="${name}"`);
+      expect(html).toContain(`fd.set("${name}"`);
+    }
     // The stand-in is ~5 KB; the real page is ~59 KB. A page that fell back to
     // the stand-in would still be valid HTML and still answer 200.
     expect(html.length).toBeGreaterThan(20_000);

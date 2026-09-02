@@ -371,6 +371,24 @@ describe("archetypes", () => {
     expect(layout("f3")).toContain("cf-under");
   });
 
+  it("claim-figure refuses a brief that has not been drawn, by name and with the command", () => {
+    // `emitDeck` is public, so a pending slot can arrive without
+    // `assertRefsResolve` having run; `no figure "undefined"` is not an answer.
+    const pending: Beat = {
+      ...core,
+      id: "b2",
+      archetype: "claim-figure",
+      params: {
+        headline: "H",
+        claim: "The claim",
+        illustration: { prompt: "a lighthouse at dusk", caption: "c" },
+      },
+    };
+    expect(() => emitScene(pending, ctx("s2"))).toThrow(
+      "claim-figure b2: illustration not generated — run `decksmith illustrate`",
+    );
+  });
+
   it("equation-walk highlights each term through KaTeX-emitted classes", () => {
     const scene = emitScene(beats[2] as Beat, ctx("s3"));
     const setup = (scene.setup ?? []).join("\n");

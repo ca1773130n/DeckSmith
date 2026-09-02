@@ -225,7 +225,7 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
         }),
     });
     opts.log(
-      `job ${id}: ${upload.filename} (${Math.round(upload.bytes.length / 1024)} KB) → ${options.formatId}${options.narrate ? " +narration" : ""}${options.video ? " +video" : ""}, position ${view.queuePosition ?? 0}`,
+      `job ${id}: ${upload.filename} (${Math.round(upload.bytes.length / 1024)} KB) → ${options.formatId}${options.narrate ? " +narration" : ""}${options.video ? " +video" : ""}${options.images ? " +illustrations" : ""}, position ${view.queuePosition ?? 0}`,
     );
     send(res, 202, { id, queuePosition: view.queuePosition ?? 0 });
   }
@@ -666,6 +666,7 @@ const FALLBACK_PAGE = `<!doctype html>
     <label>Slides <input type="number" name="slides" min="3" max="40" value="12" style="width:5rem"></label>
     <label><input type="checkbox" name="narrate" value="true"> Narrate</label>
     <label><input type="checkbox" name="video" value="true"> Video</label>
+    <label><input type="checkbox" name="images" value="true"> Illustrations</label>
   </fieldset>
   <button>Make the deck</button>
 </form>

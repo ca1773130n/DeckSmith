@@ -21,18 +21,23 @@ import { prefsSchema } from "./types.js";
 export type Prefs = z.infer<typeof prefsSchema>;
 
 /**
- * A partial Prefs. `narration` is the one nested object, so it is the one place
- * a patch merges rather than replaces: `--voice` must not wipe a `rate` the
- * config file set.
+ * A partial Prefs. `narration` and `images` are the two nested objects, so they
+ * are the two places a patch merges rather than replaces: `--voice` must not
+ * wipe a `rate` the config file set, and `--image-style` must not wipe its
+ * `provider`.
  */
-export type PrefsPatch = Partial<Omit<Prefs, "narration">> & {
+export type PrefsPatch = Partial<Omit<Prefs, "narration" | "images">> & {
   narration?: Partial<Prefs["narration"]>;
+  images?: Partial<Prefs["images"]>;
 };
 
 export const CONFIG_FILE = "decksmith.config.json";
 
 const PREF_KEYS = Object.keys(prefsSchema.shape);
 const NARRATION_KEYS = Object.keys(prefsSchema.shape.narration.unwrap().shape);
+const IMAGES_KEYS = Object.keys(prefsSchema.shape.images.unwrap().shape);
+/** The nested blocks, with the keys each one admits. `checkKeys` and `merge` walk this. */
+const NESTED = { narration: NARRATION_KEYS, images: IMAGES_KEYS } as const;
 
 /**
  * Resolve the preferences that govern one run.
@@ -91,6 +96,17 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   // for the default narration block" and outranks the config file's.
   if (Object.keys(narration).length) patch.narration = narration;
 
+  const images: Partial<Prefs["images"]> = {};
+  if (flags.images !== undefined) images.enabled = flags.images;
+  if (flags.imageProvider !== undefined)
+    images.provider = flags.imageProvider as Prefs["images"]["provider"];
+  if (flags.imageModel !== undefined) images.model = flags.imageModel;
+  if (flags.imageStyle !== undefined) images.style = flags.imageStyle;
+  // A number here, an integer in the schema — the same split `--slides` uses, so
+  // "four" and "2.5" each get one message from the one place that owns it.
+  if (flags.imageMax !== undefined) images.max = number("--image-max", flags.imageMax);
+  if (Object.keys(images).length) patch.images = images;
+
   return patch;
 }
 
@@ -110,6 +126,12 @@ export interface PrefFlags {
   subtitles?: boolean;
   /** `--narration-density`. Spelled apart from `density`, which is a slide's. */
   narrationDensity?: string;
+  /** `--images`. A boolean like `narrate`, so `flags()` in cli.ts reads it beside `--no-subtitles`. */
+  images?: boolean;
+  imageProvider?: string;
+  imageModel?: string;
+  imageStyle?: string;
+  imageMax?: string | number;
 }
 
 /* ------------------------------------------------------------------ internals */
@@ -134,8 +156,8 @@ async function findConfig(from: string): Promise<{ path: string; value: unknown 
 
 /**
  * Reject keys the schema does not have, by name. Zod's own strict mode would
- * catch the top level, but it cannot see inside `narration` without restating
- * the shape, and `narration.speed` is exactly the typo worth catching.
+ * catch the top level, but it cannot see inside `narration` or `images` without
+ * restating the shape, and `narration.speed` is exactly the typo worth catching.
  */
 function checkKeys(value: unknown, path: string): PrefsPatch {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -146,30 +168,29 @@ function checkKeys(value: unknown, path: string): PrefsPatch {
       throw new Error(`${path}: unknown preference "${key}". Valid: ${PREF_KEYS.join(", ")}.`);
   }
 
-  const narration = (value as PrefsPatch).narration;
-  if (narration !== undefined) {
-    if (typeof narration !== "object" || narration === null || Array.isArray(narration))
-      throw new Error(
-        `${path}: "narration" must be an object. Valid: ${NARRATION_KEYS.join(", ")}.`,
-      );
-    for (const key of Object.keys(narration)) {
-      if (!NARRATION_KEYS.includes(key))
-        throw new Error(
-          `${path}: unknown preference "narration.${key}". Valid: ${NARRATION_KEYS.join(", ")}.`,
-        );
+  for (const [name, keys] of Object.entries(NESTED)) {
+    const block = (value as Record<string, unknown>)[name];
+    if (block === undefined) continue;
+    if (typeof block !== "object" || block === null || Array.isArray(block))
+      throw new Error(`${path}: "${name}" must be an object. Valid: ${keys.join(", ")}.`);
+    for (const key of Object.keys(block)) {
+      if (!keys.includes(key))
+        throw new Error(`${path}: unknown preference "${name}.${key}". Valid: ${keys.join(", ")}.`);
     }
   }
 
   return value as PrefsPatch;
 }
 
-/** Shallow, except for the one nested object, which merges field by field. */
+/** Shallow, except for the two nested objects, which merge field by field. */
 function merge(base: PrefsPatch, patch: PrefsPatch): PrefsPatch {
   const narration = { ...base.narration, ...patch.narration };
+  const images = { ...base.images, ...patch.images };
   return {
     ...base,
     ...patch,
     ...(Object.keys(narration).length ? { narration } : {}),
+    ...(Object.keys(images).length ? { images } : {}),
   };
 }
 

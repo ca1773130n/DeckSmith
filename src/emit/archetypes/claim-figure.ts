@@ -53,6 +53,13 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
 
+  // `emitDeck` is public, so `assertRefsResolve` is not the only way here: a
+  // pending brief has to be refused by name rather than as `no figure "undefined"`.
+  if (p.figureId === undefined) {
+    throw new Error(
+      `claim-figure ${beat.id}: illustration not generated — run \`decksmith illustrate\``,
+    );
+  }
   const fig = ctx.source.figures.find((f) => f.id === p.figureId);
   if (!fig) {
     throw new Error(

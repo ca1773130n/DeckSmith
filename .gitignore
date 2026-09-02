@@ -48,10 +48,12 @@ demo/audio/
 # files out of four of them into four separate commits — an MCP upload fixture,
 # a storyboard schema and two pairs of verify frames, none of which anything
 # reads. Every prefix any of these mkdtemp calls uses belongs here.
+decksmith-image-*/
 decksmith-narrate-*/
 decksmith-pack-*/
 decksmith-plan-*/
 decksmith-server-*/
+ds-images-*/
 ds-mcp-*/
 ds-prov-*/
 hf-*/

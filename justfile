@@ -54,6 +54,18 @@ fetch_figures := env("DECKSMITH_FETCH_FIGURES", "1")
 # Job records and their files are dropped this many minutes after finishing.
 job_ttl_min := env("DECKSMITH_JOB_TTL_MIN", "120")
 
+# Where `illustrate` gets its pictures. The CLI, the server and the MCP server
+# read these straight from the environment, and `set dotenv-load` above is what
+# carries them from `.env` into every recipe — so there is no `:=` setting to
+# edit here, and the key gets NO DEFAULT in a tracked file, ever. Unset,
+# pictures come from the Codex account and then the tool's own SVG; a backend
+# named without its key fails at `illustrate` time, not at start-up.
+#
+#     DECKSMITH_IMAGES=openai                                # the one backend this build knows
+#     DECKSMITH_IMAGES_API_KEY=...                           # environment only; never echoed
+#     DECKSMITH_IMAGES_MODEL=gpt-image-2                     # optional
+#     DECKSMITH_IMAGES_BASE_URL=https://api.openai.com/v1    # any compatible endpoint
+
 _default:
     @just --list --unsorted
 

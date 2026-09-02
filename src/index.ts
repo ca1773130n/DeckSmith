@@ -18,7 +18,8 @@
  * there must be no way to get it from what is already exported.
  *
  * Generating a deck is pure Node. Only `check`/`verify` and the video render
- * reach outside for Chrome, and only `narrate` for edge-tts — see README.
+ * reach outside for Chrome, only `narrate` for edge-tts, and only `illustrate`
+ * for an image backend or the Codex account — see README.
  */
 
 import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -72,7 +73,7 @@ export type { CodexOptions, Runner } from "./plan/codex.js";
  * not contain. `buildDeck` does not call it — a caller assembling a storyboard
  * by hand wants this before it spends a render on a dangling ref.
  */
-export { assertInsideResolves, assertRefsResolve } from "./plan/refs.js";
+export { assertInsideResolves, assertRefsResolve, hasIllustrations } from "./plan/refs.js";
 
 /** The prompt, so a consumer driving its own model can reproduce our planning. */
 export { renderSource, systemPrompt } from "./plan/prompt.js";
@@ -100,6 +101,28 @@ export {
   tempoChain,
 } from "./plan/duration.js";
 export type { DurationPlan } from "./plan/duration.js";
+
+/* ------------------------------------------------------------------ images */
+
+/**
+ * Pictures for the beats that asked for one. `illustrate` is a plan-time step
+ * like `narrate` — it writes files beside the source and rewrites both
+ * documents — so a server runs it between `plan` and `build` and hands the
+ * returned objects on; nothing after it knows a figure was generated.
+ * `resolveImageBackend` and `imageChain` are the two halves of "where the
+ * pictures come from": the environment names a backend, the preference says
+ * where the chain starts, and a caller that wants neither injects its own
+ * `ImageProvider[]` — which is how a server's tests never spawn Codex.
+ */
+export { illustrate } from "./images/illustrate.js";
+export type { Illustrated, IllustrateOpts } from "./images/illustrate.js";
+export { imageChain, resolveImageBackend } from "./images/providers.js";
+export type {
+  ImageAspect,
+  ImageProvider,
+  ImageRequest,
+  ImageResult,
+} from "./images/providers.js";
 
 /* ----------------------------------------------------------------- narrate */
 

@@ -1,5 +1,5 @@
 /**
- * The five verbs, run against the LIBRARY rather than the CLI.
+ * The six verbs, run against the LIBRARY rather than the CLI.
  *
  * Everything here is a call into src/index.ts: no argv round-trip for a 200 KB
  * source document, errors arrive as exceptions instead of exit codes, and the
@@ -10,7 +10,7 @@
  * Layout under the job directory. Only `deck/` is ever served:
  *
  *   upload/   what arrived, unpacked. Never served, never on a URL.
- *   src/      source.json and its assets/
+ *   src/      source.json and its assets/, generated pictures included
  *   audio/    narration.json and the mp3s
  *   deck/     the built deck, plus video.mp4, video.srt and deck.deck
  */
@@ -24,12 +24,16 @@ import {
   type DeckNarration,
   durationPlan,
   fetchFigures,
+  hasIllustrations,
+  type ImageProvider,
+  illustrate,
   narrate,
   PACK_VERSION,
   type Pack,
   type PackFiles,
   parseMarkdown,
   planMedia,
+  type Runner,
   render,
   type Source,
   type Storyboard,
@@ -74,11 +78,25 @@ export interface PipelineInput {
    * owner's own box, own papers), it is fetched with a count and a timeout.
    */
   fetchRemoteFigures: boolean;
+  /**
+   * The rungs `illustrate` draws through. A test injects the tool's own SVG and
+   * nothing else; absent, the stage resolves its providers from the environment
+   * at call time, like `narrate` does — so there is no server option to plumb
+   * and nothing to configure but the env vars.
+   */
+  imageChain?: ImageProvider[];
+  /**
+   * The planner's `Runner`, handed straight to `codexPlanner`. The seam
+   * test/plan.test.ts already drives the parse path through; here it is what
+   * lets a test carry a job PAST `plan` — into `illustrate` — without a Codex.
+   */
+  run?: Runner;
 }
 
 /** Which rows the step list should have, decided before anything runs. */
 export function stagesFor(options: JobOptions): Stage[] {
   const stages: Stage[] = ["ingest", "plan"];
+  if (options.images) stages.push("illustrate");
   if (options.narrate) stages.push("narrate");
   stages.push("build");
   if (options.video) stages.push("render");
@@ -98,7 +116,9 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
 
   /* ---------------------------------------------------------------- ingest */
   job.begin("ingest");
-  const source = await ingest(job, input, dirs, warnings);
+  // `let`, both of these: `illustrate` hands back new objects and everything
+  // after it — build, pack — must read those, not what the planner returned.
+  let source = await ingest(job, input, dirs, warnings);
   // `source.figures` is the post-guard list, and the log line inside `ingest`
   // reports the pre-guard one. Saying only the first put "0 figures" in the step
   // row twelve pixels above a log line reading "4 figures" — both true, and no
@@ -116,13 +136,19 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
   // The document knows what language it is in; only an explicit request outranks
   // it, or the planner translates the paper by accident.
   const prefs = options.stated.lang ? options.prefs : { ...options.prefs, lang: source.lang };
-  const planned = await codexPlanner(source, { prefs });
-  const storyboard: Storyboard = {
+  const planned = await codexPlanner(source, {
+    prefs,
+    ...(input.run ? { run: input.run } : {}),
+  });
+  let storyboard: Storyboard = {
     ...planned,
     lang: prefs.lang,
     theme: options.stated.theme ? prefs.theme : planned.theme,
   };
-  assertRefsResolve(storyboard, source);
+  // A brief without a figure is what `illustrate` exists to fill, so it is only
+  // a plan this job can build when that stage is going to run. Everywhere else
+  // it is refused by name, as `build` and `pack` refuse it on the CLI.
+  assertRefsResolve(storyboard, source, { pending: options.images ? "allow" : "refuse" });
   await writeJson(join(job.dir, "storyboard.json"), storyboard);
   job.done("plan", `${storyboard.beats.length} beats`);
   // `slides` is a FLOOR, and the planner can still come back under it. Said here
@@ -130,6 +156,36 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
   // narrate stage below is about to spend a minute of TTS on whatever came back,
   // and the number it came back with is what the rest of this job is budgeted at.
   for (const f of scanBeatCount(storyboard, prefs)) warnings.push(f.message);
+
+  /* ------------------------------------------------------------ illustrate */
+  if (options.images) {
+    job.begin("illustrate");
+    const drawn = await illustrate(storyboard, source, {
+      prefs,
+      assetsDir: join(dirs.src, "assets"),
+      ...(input.imageChain ? { chain: input.imageChain } : {}),
+      onStep: (line) => job.log(line),
+    });
+    // REASSIGNED, not merely written to disk: build and pack below read the
+    // objects in hand, and these are the ones with the pictures registered and
+    // the slots pointing at them. The files are rewritten for the same reason
+    // `ingest` and `plan` write theirs — a retry, and a person, can read them.
+    storyboard = drawn.storyboard;
+    source = drawn.source;
+    await writeJson(join(dirs.src, "source.json"), source);
+    await writeJson(join(job.dir, "storyboard.json"), storyboard);
+    for (const p of drawn.illustrated) {
+      job.log(
+        `illustrate: ${p.beatId} → assets/${p.src} via ${p.provider}${p.cached ? " (cached)" : ""}`,
+      );
+    }
+    if (drawn.illustrated.length === 0) {
+      job.skip("illustrate", "the plan found a figure for every beat and asked for no pictures");
+    } else {
+      const rungs = [...new Set(drawn.illustrated.map((p) => p.provider))].join(", ");
+      job.done("illustrate", `${drawn.illustrated.length} pictures via ${rungs}`);
+    }
+  }
 
   /* --------------------------------------------------------------- narrate */
   let narration: DeckNarration | undefined;
@@ -499,6 +555,10 @@ async function pack(
       prefs: {
         ...ctx.prefs,
         narration: { ...ctx.prefs.narration, enabled: ctx.narration !== undefined },
+        // Same rule as the line above: what the pack CARRIES, not what the
+        // request ticked. A job that asked for pictures and got a plan with no
+        // briefs has none to carry.
+        images: { ...ctx.prefs.images, enabled: hasIllustrations(ctx.storyboard, ctx.source) },
       },
       source: ctx.source,
       storyboard: ctx.storyboard,

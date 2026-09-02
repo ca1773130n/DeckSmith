@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   canvasProblem,
   canvasWarnings,
+  claimFigureParamsSchema,
   FORMATS,
   type Format,
   isCustom,
@@ -17,7 +18,9 @@ import {
   MAX_ASPECT,
   MAX_EDGE,
   MIN_EDGE,
+  prefsSchema,
   resizeFormat,
+  splitCompareParamsSchema,
 } from "../src/types.js";
 import { VERSION } from "../src/version.js";
 
@@ -225,6 +228,64 @@ describe("canvasWarnings", () => {
     // "silent" is exactly where a bad canvas hides.
     const [warning] = canvasWarnings(5000, 1000);
     expect(warning).toMatch(/height to draw in/);
+  });
+});
+
+/**
+ * A slot that can hold a picture can hold a brief for one instead. Both fields
+ * are optional so every stored plan still validates; the one thing the schema
+ * must refuse is a claim-figure with nothing to show at all.
+ */
+describe("illustration slots", () => {
+  const base = { headline: "H", claim: "c" };
+  const brief = { prompt: "a lighthouse on a headland at dusk", caption: "The lighthouse" };
+
+  it("lets a claim-figure carry a figure, a brief, or both", () => {
+    expect(claimFigureParamsSchema.safeParse({ ...base, figureId: "f" }).success).toBe(true);
+    expect(claimFigureParamsSchema.safeParse({ ...base, illustration: brief }).success).toBe(true);
+    // Both is what `illustrate` leaves behind: the brief stays as provenance.
+    expect(
+      claimFigureParamsSchema.safeParse({ ...base, figureId: "f", illustration: brief }).success,
+    ).toBe(true);
+  });
+
+  it("refuses a claim-figure with neither, at figureId", () => {
+    const result = claimFigureParamsSchema.safeParse(base);
+    expect(result.success).toBe(false);
+    expect(result.success ? [] : result.error.issues.map((i) => i.path)).toEqual([["figureId"]]);
+  });
+
+  it("lets a split-compare side carry a brief, and still lets a side be a list", () => {
+    const side = (extra: Record<string, unknown>) =>
+      splitCompareParamsSchema.safeParse({
+        headline: "H",
+        left: { label: "A", ...extra },
+        right: { label: "B", lines: ["x"] },
+      }).success;
+    expect(side({ illustration: brief })).toBe(true);
+    expect(side({ lines: ["y"] })).toBe(true);
+    expect(side({ figureId: "f", illustration: brief })).toBe(true);
+  });
+});
+
+describe("prefsSchema.images", () => {
+  it("resolves every field when the block is omitted, like narration", () => {
+    // A `.deck` manifest carries every preference, so an omitted block has to
+    // read fully populated rather than as `{}`.
+    expect(prefsSchema.parse({}).images).toEqual({
+      enabled: false,
+      provider: "auto",
+      style: "flat vector illustration",
+      max: 4,
+    });
+  });
+
+  it("refuses a provider it does not have and a fractional cap, and allows zero", () => {
+    expect(prefsSchema.safeParse({ images: { provider: "dalle" } }).success).toBe(false);
+    expect(prefsSchema.safeParse({ images: { max: 2.5 } }).success).toBe(false);
+    expect(prefsSchema.safeParse({ images: { max: -1 } }).success).toBe(false);
+    // Zero is "every picture by the tool", which is a legal way to spend nothing.
+    expect(prefsSchema.safeParse({ images: { max: 0 } }).success).toBe(true);
   });
 });
 
