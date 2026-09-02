@@ -16,7 +16,7 @@
 import { explain, type JobError } from "./errors.js";
 
 export type JobState = "queued" | "running" | "done" | "error";
-export type Stage = "ingest" | "plan" | "narrate" | "build" | "render";
+export type Stage = "ingest" | "plan" | "illustrate" | "narrate" | "build" | "render";
 export type StepState = "pending" | "running" | "done" | "skipped" | "error";
 
 export interface StepView {

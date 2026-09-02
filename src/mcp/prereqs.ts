@@ -19,6 +19,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolveImageBackend } from "../index.js";
 
 const run = promisify(execFile);
 
@@ -68,6 +69,35 @@ export function prereqs(): Promise<Prereq[]> {
       ["-e", "process.stdout.write(require('puppeteer-core/package.json').version)"],
     ]),
   ]);
+}
+
+/**
+ * Where pictures would come from, asked the same way and for the same reason.
+ *
+ * Not a `Prereq`, because nothing has to be installed: the last rung is an SVG
+ * the tool draws itself, so a request for illustrations never fails for lack of
+ * a backend. What CAN be wrong is a backend the environment names and cannot
+ * use — DECKSMITH_IMAGES set, the key not — and that is a misconfiguration to
+ * report before the plan is paid for, not a stage to skip. `why` is the
+ * library's own sentence, which names the variable and never carries the key.
+ *
+ * `env` is injected in tests, like `probe`: which backend this machine happens
+ * to name is not what a test is about.
+ */
+export function imageBackend(env: NodeJS.ProcessEnv = process.env): {
+  backend: string | null;
+  ok: boolean;
+  why?: string;
+} {
+  try {
+    return { backend: resolveImageBackend(env)?.id ?? null, ok: true };
+  } catch (err) {
+    return {
+      backend: env.DECKSMITH_IMAGES?.trim() || null,
+      ok: false,
+      why: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /** The ones a job with these options actually needs, and which are missing. */

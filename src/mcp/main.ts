@@ -63,7 +63,7 @@ const TOOLS = [
   {
     name: "decksmith_capabilities",
     description:
-      "Formats, themes, every setting's range, and which of Codex, edge-tts, ffmpeg and Chrome are actually installed. Call this first.",
+      "Formats, themes, every setting's range, which of Codex, edge-tts, ffmpeg and Chrome are actually installed, and where generated illustrations would come from. Call this first.",
     inputSchema: schema(capabilitiesSchema),
   },
   {

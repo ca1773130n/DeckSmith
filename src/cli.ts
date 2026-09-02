@@ -1,13 +1,13 @@
 /**
- * Seven verbs, one pipeline: ingest → plan → narrate → build → verify, with
- * pack/unpack hanging off the side as the container the user actually keeps.
+ * Ten verbs, one pipeline: ingest → plan → illustrate → narrate → build → verify,
+ * with pack/unpack hanging off the side as the container the user actually keeps.
  *
  * `plan` deliberately stops and writes a file rather than flowing into `build`.
  * The storyboard is the human checkpoint — fixing a plan is cheap, fixing twelve
  * realized slides is not (INITIAL_DESIGN §2) — so there is no `decksmith run`
- * that quietly skips it. `narrate` is separate for the same reason plus one
- * more: it is the only verb that needs the network, and a build that silently
- * required it would be a build you cannot run on a plane.
+ * that quietly skips it. `narrate` and `illustrate` are separate for the same
+ * reason plus one more: they are the verbs that need the network, and a build
+ * that silently required it would be a build you cannot run on a plane.
  *
  * Progress goes to stderr, findings go to stdout, and nothing ever prints a
  * stack trace: a failure here is a bad document or a bad path, not a bug the
@@ -21,12 +21,18 @@ import { Command } from "commander";
 import type { z } from "zod";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { THEME_NAMES } from "./emit/theme.js";
+import { illustrate } from "./images/illustrate.js";
 import { narrate } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
 import { codexPlanner } from "./plan/codex.js";
 import { durationPlan } from "./plan/duration.js";
-import { assertInsideResolves, assertRefsResolve } from "./plan/refs.js";
+import {
+  assertInsideResolves,
+  assertRefsResolve,
+  hasIllustrations,
+  pendingIllustrations,
+} from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
 import { loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
 import { render, type SubtitleMode } from "./render/render.js";
@@ -233,10 +239,29 @@ function voiceFlags(cmd: Command): Command {
 }
 
 /**
+ * Flags that decide whether the deck may ask for PICTURES, and where they come
+ * from. On `plan`, because the planner is what writes the briefs, and on
+ * `illustrate`, which draws them — that verb implies `--images` by itself.
+ */
+function imageFlags(cmd: Command): Command {
+  return cmd
+    .option("--images", "let the planner ask for an illustration where no figure fits")
+    .option("--image-provider <name>", "auto (backend, then Codex, then SVG) | codex | svg")
+    .option("--image-model <id>", "model for the separate backend named by DECKSMITH_IMAGES")
+    .option("--image-style <phrase>", 'folded into every picture prompt, e.g. "woodcut"')
+    .option(
+      "--image-max <n>",
+      "most pictures drawn through the chain; the rest are the tool's SVG",
+    );
+}
+
+/**
  * Commander gives a plain `--flag` `undefined` until it is passed, which is
  * exactly the "unstated" that `prefsFromFlags` needs — except for `--no-x`,
  * which defaults to `true` and would therefore outrank the config file on every
- * run. So the negation is read as a negation and nothing else.
+ * run. So the negation is read as a negation and nothing else. `--images` is
+ * the other one read by hand: it is a boolean, and the loop below only knows
+ * strings.
  */
 function flags(o: Record<string, unknown>): PrefFlags {
   const patch: PrefFlags = {};
@@ -252,11 +277,16 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "voice",
     "rate",
     "pitch",
+    "imageProvider",
+    "imageModel",
+    "imageStyle",
+    "imageMax",
   ] as const) {
     const value = o[key];
     if (value !== undefined) patch[key] = value as string;
   }
   if (o.subtitles === false) patch.subtitles = false;
+  if (o.images === true) patch.images = true;
   return patch;
 }
 
@@ -304,12 +334,14 @@ program
     step(`ingest: wrote ${o.out}`);
   });
 
-lookFlags(
-  planFlags(
-    lengthFlags(program.command("plan"))
-      .description("Ask Codex for a storyboard. Read and edit the result before building.")
-      .argument("<source>", "source.json from ingest")
-      .requiredOption("-o, --out <file>", "where to write storyboard.json"),
+imageFlags(
+  lookFlags(
+    planFlags(
+      lengthFlags(program.command("plan"))
+        .description("Ask Codex for a storyboard. Read and edit the result before building.")
+        .argument("<source>", "source.json from ingest")
+        .requiredOption("-o, --out <file>", "where to write storyboard.json"),
+    ),
   ),
 ).action(async (src: string, o: { out: string } & Record<string, unknown>) => {
   const source = await readValidated(src, sourceSchema, "source");
@@ -326,10 +358,21 @@ lookFlags(
     lang: prefs.lang,
     theme: stated(prefs, "theme") ?? planned.theme,
   };
-  assertRefsResolve(storyboard, source);
+  // A brief with no picture yet is what `--images` asked for; without the flag
+  // it is a hole `build` would refuse, and better refused here.
+  assertRefsResolve(storyboard, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
   assertInsideResolves(storyboard, source);
   await writeJson(o.out, storyboard);
   step(`plan: ${storyboard.beats.length} beats → ${o.out}`);
+  // The pictures do not exist yet and `build` will not run until they do. Said
+  // with the command to type, because this is the one moment between the plan
+  // and the build when the author is looking at the terminal.
+  const briefs = pendingIllustrations(storyboard).length;
+  if (briefs > 0) {
+    step(
+      `plan: ${briefs} picture(s) requested — run \`decksmith illustrate ${o.out} --source ${src}\` before building`,
+    );
+  }
   // Said HERE, not only at `verify`, because this is the moment the advice below
   // is about: the headline is one string in a file the author is being told to
   // open, and fixing it costs a keystroke now against a rebuild later.
@@ -367,6 +410,51 @@ lookFlags(
     for (const line of wrapScript(script, 76)) step(`plan:   ${line}`);
   }
   step("plan: read it and edit it before building. This is where the quality is won.");
+});
+
+imageFlags(
+  program
+    .command("illustrate")
+    .description("Draw the pictures the plan asked for, and point the storyboard at them.")
+    .argument("<storyboard>", "storyboard.json carrying illustration briefs")
+    .requiredOption("--source <file>", "source.json the storyboard was planned from"),
+).action(async (sbPath: string, o: { source: string } & Record<string, unknown>) => {
+  const storyboard = await readValidated(sbPath, storyboardSchema, "storyboard");
+  const sourcePath = resolve(String(o.source));
+  const source = await readValidated(sourcePath, sourceSchema, "source");
+  // A dangling id is found before a picture is paid for. The pending briefs
+  // are the reason this verb exists, so they are the one thing let through.
+  assertRefsResolve(storyboard, source, { pending: "allow" });
+  // Running the verb is asking for pictures: `--images` is implied, so the
+  // config file's `false` cannot make it a no-op.
+  const prefs = await loadPrefs(prefsFromFlags({ ...flags(o), images: true }));
+
+  const briefs = pendingIllustrations(storyboard).length;
+  if (briefs === 0) {
+    step(`illustrate: every figure slot in ${sbPath} is already filled, nothing to draw`);
+    return;
+  }
+  step(
+    `illustrate: ${briefs} picture(s) to draw${prefs.images.provider === "svg" ? "" : ", this can take a few minutes"}`,
+  );
+  const drawn = await illustrate(storyboard, source, {
+    prefs,
+    assetsDir: join(dirname(sourcePath), "assets"),
+    onStep: step,
+  });
+  for (const p of drawn.illustrated) {
+    step(
+      `illustrate: ${p.beatId} → assets/${p.src}${p.cached ? " (cached)" : ` via ${p.provider}`}`,
+    );
+  }
+  // Both files, in place: the storyboard now names figures the source now has,
+  // and either one written without the other is a pair `build` refuses.
+  await writeJson(sourcePath, drawn.source);
+  await writeJson(sbPath, drawn.storyboard);
+  const cached = drawn.illustrated.filter((p) => p.cached).length;
+  step(
+    `illustrate: ${drawn.illustrated.length} picture(s)${cached ? `, ${cached} cached` : ""} → ${o.source}, ${sbPath}`,
+  );
 });
 
 voiceFlags(
@@ -730,7 +818,11 @@ voiceFlags(
     version: PACK_VERSION,
     createdAt: new Date().toISOString(),
     title: storyboard.title,
-    prefs: { ...prefs, narration: { ...prefs.narration, enabled: narration !== undefined } },
+    prefs: {
+      ...prefs,
+      narration: { ...prefs.narration, enabled: narration !== undefined },
+      images: { ...prefs.images, enabled: hasIllustrations(storyboard, source) },
+    },
     source,
     storyboard,
     ...(narration ? { narration } : {}),

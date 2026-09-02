@@ -171,3 +171,35 @@ describe("the prompt's reveal counts", () => {
     expect(text).not.toContain("four stages wants five sentences");
   });
 });
+
+/**
+ * The block is an exception to RULE 2 and to the inventory's "(none — no
+ * claim-figure beat is possible)". An exception that is sent when it does not
+ * apply is a prompt with two answers, so presence is gated and pinned here.
+ */
+describe("the prompt's illustrations block", () => {
+  it("is absent unless images are on, and leaves the prompt byte-identical", () => {
+    const off = systemPrompt(prefsSchema.parse({}));
+    expect(off).not.toContain("ILLUSTRATIONS");
+    // Every other image preference is inert while the switch is off: a style or
+    // a cap in the config file must not change what a deck without pictures says.
+    expect(
+      systemPrompt(prefsSchema.parse({ images: { enabled: false, style: "woodcut", max: 9 } })),
+    ).toBe(off);
+    expect(systemPrompt(prefsSchema.parse({ images: { enabled: true } }))).toContain(
+      "ILLUSTRATIONS",
+    );
+  });
+
+  it("states the cap from the preference, and what a brief may and may not ask for", () => {
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true, max: 3 } }));
+    expect(on).toMatch(/At most 3 pictures/);
+    expect(on).toContain("illustration: { prompt, caption }");
+    // The two slots that can carry one, and the case the inventory line denies.
+    expect(on).toMatch(/claim-figure, or either side of a split-compare/);
+    expect(on).toMatch(/no figures at\s+all/);
+    // A picture is a scene, never something to read; and it is never evidence.
+    expect(on).toMatch(/text, labels, numbers, charts or diagrams/);
+    expect(on).toMatch(/not evidence/);
+  });
+});

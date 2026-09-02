@@ -86,12 +86,48 @@ export const titleParamsSchema = z.object({
   sub: z.string().optional(),
 });
 
-export const claimFigureParamsSchema = z.object({
-  eyebrow: z.string().optional(),
-  headline: z.string(),
-  claim: z.string(),
-  figureId: z.string(),
+/**
+ * A brief for a picture that does not exist yet.
+ *
+ * The planner writes it where no inventory figure fits; `illustrate` turns it
+ * into a file under `assets/`, registers that as an ordinary `Figure`, and
+ * points the slot's `figureId` at it. The brief stays on the beat afterwards as
+ * provenance — the figure's file name carries the hash of what produced it,
+ * and this is the thing it hashes.
+ */
+export const illustrationSchema = z.object({
+  /** The scene: objects, arrangement, mood. Never text, labels, numbers, charts. */
+  prompt: z.string(),
+  /** claim-figure prints it under the picture; a split-compare side keeps it as the figure's title. */
+  caption: z.string(),
 });
+
+export const claimFigureParamsSchema = z
+  .object({
+    eyebrow: z.string().optional(),
+    headline: z.string(),
+    claim: z.string(),
+    /**
+     * A figure in the inventory. Optional only because `illustration` is the
+     * alternative; it comes FIRST in key order because structured output decodes
+     * in that order, and the model should look for a real figure before it
+     * writes a brief for an invented one.
+     */
+    figureId: z.string().optional(),
+    /**
+     * Requested instead of `figureId` when nothing in the inventory fits. A slot
+     * with a brief and no `figureId` is PENDING: `assertRefsResolve` refuses it
+     * everywhere but the planner, and the emitter refuses it by name.
+     */
+    illustration: illustrationSchema.optional(),
+  })
+  // A refinement rather than a union of two shapes: `z.toJSONSchema` drops the
+  // check and keeps one flat object, which is what structured output needs, and
+  // `storyboardSchema.parse` enforces it on the way back.
+  .refine((p) => p.figureId !== undefined || p.illustration !== undefined, {
+    message: "claim-figure needs a figureId or an illustration",
+    path: ["figureId"],
+  });
 
 export const equationWalkParamsSchema = z.object({
   eyebrow: z.string().optional(),
@@ -257,19 +293,24 @@ export const stackParamsSchema = z.object({
   note: z.string().optional(),
 });
 
+/**
+ * One half of a split-compare: a figure, a list, or both. `illustration` sits
+ * beside `figureId` for the same reason it does on claim-figure — a side with a
+ * brief and no figure is pending until `illustrate` has run. Unlike claim-figure
+ * nothing is required, because a side may be a list alone.
+ */
+const splitSideSchema = z.object({
+  label: z.string(),
+  figureId: z.string().optional(),
+  illustration: illustrationSchema.optional(),
+  lines: z.array(z.string()).optional(),
+});
+
 export const splitCompareParamsSchema = z.object({
   eyebrow: z.string().optional(),
   headline: z.string(),
-  left: z.object({
-    label: z.string(),
-    figureId: z.string().optional(),
-    lines: z.array(z.string()).optional(),
-  }),
-  right: z.object({
-    label: z.string(),
-    figureId: z.string().optional(),
-    lines: z.array(z.string()).optional(),
-  }),
+  left: splitSideSchema,
+  right: splitSideSchema,
   note: z.string().optional(),
 });
 
@@ -582,6 +623,36 @@ export const prefsSchema = z.object({
     // Zod 4 wants the resolved shape, not `{}` — spell the defaults once here so
     // an omitted `narration` block still yields a fully-populated object.
     .default({ enabled: false, rate: "+0%", pitch: "+0Hz", subtitles: true, density: "high" }),
+
+  /* --- illustrations --- */
+  images: z
+    .object({
+      /** The planner may ask for pictures, and the server runs the `illustrate` stage. */
+      enabled: z.boolean().default(false),
+      /**
+       * Where the provider chain starts. `auto` tries a configured backend, then
+       * the Codex account, then the tool's own SVG; `codex` skips the backend;
+       * `svg` is the tool alone — no network, no spend, fully deterministic.
+       */
+      provider: z.enum(["auto", "codex", "svg"]).default("auto"),
+      /**
+       * Model for the separate backend only. The Codex rung draws with the
+       * account's own model — `--model` there selects the agent, not the picture
+       * — so there is no default to spell here.
+       */
+      model: z.string().optional(),
+      /** One phrase folded into every picture prompt. */
+      style: z.string().default("flat vector illustration"),
+      /**
+       * Most PICTURES drawn through the chain — a split-compare beat with two
+       * briefs spends two. Briefs past it are drawn by the tool, which is free.
+       * Zero is legal and means "every picture by the tool".
+       */
+      max: z.int().min(0).default(4),
+    })
+    // Same reason as `narration`: the resolved shape, spelled once, so an omitted
+    // block reads fully populated and a `.deck` manifest carries every field.
+    .default({ enabled: false, provider: "auto", style: "flat vector illustration", max: 4 }),
 });
 
 /* -------------------------------------------------------------- Narration */
@@ -1021,6 +1092,9 @@ export type Table = z.infer<typeof tableSchema>;
 export type Section = z.infer<typeof sectionSchema>;
 export type Source = z.infer<typeof sourceSchema>;
 export type Term = z.infer<typeof termSchema>;
+export type Illustration = z.infer<typeof illustrationSchema>;
+/** The `images` block of the preferences, resolved. What `illustrate` reads. */
+export type ImagesPrefs = z.infer<typeof prefsSchema>["images"];
 export type Beat = z.infer<typeof beatSchema>;
 export type Inside = z.infer<typeof insideSchema>;
 export type Archetype = Beat["archetype"];

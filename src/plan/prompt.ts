@@ -435,6 +435,41 @@ ${REVEAL_COUNTS}`
 }
 
 /**
+ * Sent only when images are on, and nothing above changes when they are off:
+ * RULE 2 still says a dangling id fails the build, and the inventory still says
+ * a figure-less source allows no claim-figure. This block is the one exception
+ * to both, stated once, so it must be absent whenever the exception does not
+ * apply — a deck that never asked for a picture is planned from the same prompt
+ * it always was.
+ */
+function illustrations(images: Prefs["images"]): string {
+  return `
+
+ILLUSTRATIONS
+
+A claim-figure, or either side of a split-compare, may carry
+\`illustration: { prompt, caption }\` INSTEAD of \`figureId\` when no figure in
+the inventory fits the point — including when the inventory has no figures at
+all. A picture is generated from the brief after planning and shown where the
+figure would have been. This is the one exception to RULE 2: a brief cites
+nothing, so it can never dangle.
+
+  - \`prompt\` describes a SCENE — the objects, their arrangement, the mood — and
+    never asks for text, labels, numbers, charts or diagrams. Nothing inside a
+    picture can be read or checked: the 40px floor sees DOM text only, so a
+    number in a picture is one nobody can verify and nobody can read from the
+    back of the room. Anything that must be read goes in the caption, the
+    claim or the lines.
+  - \`caption\` is the line the audience reads with the picture.
+  - The picture ILLUSTRATES; it is not evidence. \`evidence\` still cites the
+    section the beat is accountable to, never the picture.
+  - Write \`figureId\` OR \`illustration\`, never both. A figure in the
+    inventory always wins over a brief for one.
+  - At most ${images.max} pictures in the whole deck; a split-compare with two
+    briefs spends two. Past that, find the point's shape and draw it.`;
+}
+
+/**
  * The rules, then the preferences the person asking for the deck chose. They go
  * last because they are the part the model is most likely to drift from, and the
  * end of a prompt is the part it holds hardest.
@@ -447,7 +482,7 @@ export function systemPrompt(prefs: Prefs): string {
   // what it can be is honest, which is why the LENGTH block below now says the
   // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
-  return `${rules(cadenceFor(prefs, plan))}
+  return `${rules(cadenceFor(prefs, plan))}${prefs.images.enabled ? illustrations(prefs.images) : ""}
 
 PREFERENCES — chosen by the person who asked for this deck.
 ${

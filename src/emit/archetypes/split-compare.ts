@@ -102,8 +102,18 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   const sides = [p.left, p.right];
   const tones = [theme.tones.a, theme.tones.b];
 
-  const figs = sides.map((side) => {
-    if (side.figureId === undefined) return undefined;
+  const figs = sides.map((side, i) => {
+    if (side.figureId === undefined) {
+      // A brief with no figure is a side `illustrate` has not reached. Named here
+      // because `emitDeck` is public and `assertRefsResolve` need not have run;
+      // without the brief the side is a list, handled below.
+      if (side.illustration !== undefined) {
+        throw new Error(
+          `split-compare ${beat.id}: ${NAME[i]} illustration not generated — run \`decksmith illustrate\``,
+        );
+      }
+      return undefined;
+    }
     const fig = ctx.source.figures.find((f) => f.id === side.figureId);
     if (!fig) {
       throw new Error(

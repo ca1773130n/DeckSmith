@@ -58,6 +58,13 @@ describe("loadPrefs", () => {
     });
   });
 
+  it("merges the images block field by field, the same way", async () => {
+    const root = await project({ images: { enabled: true, style: "woodcut" } });
+    const prefs = await loadPrefs({ images: { max: 2 } }, root);
+
+    expect(prefs.images).toEqual({ enabled: true, provider: "auto", style: "woodcut", max: 2 });
+  });
+
   it("rejects an unknown config key by name, and lists the real ones", async () => {
     const root = await project({ slideCount: 9 });
     await expect(loadPrefs({}, root)).rejects.toThrow(/unknown preference "slideCount"/);
@@ -67,6 +74,21 @@ describe("loadPrefs", () => {
   it("rejects an unknown key inside narration by its dotted name", async () => {
     const root = await project({ narration: { speed: "+10%" } });
     await expect(loadPrefs({}, root)).rejects.toThrow(/unknown preference "narration.speed"/);
+  });
+
+  it("rejects an unknown key inside images by its dotted name, and a block that is not one", async () => {
+    await expect(loadPrefs({}, await project({ images: { size: "big" } }))).rejects.toThrow(
+      /unknown preference "images.size".*provider/,
+    );
+    await expect(loadPrefs({}, await project({ images: true }))).rejects.toThrow(
+      /"images" must be an object/,
+    );
+  });
+
+  it("holds the picture cap to a whole number, naming the field", async () => {
+    await expect(loadPrefs({ images: { max: 2.5 } }, await project())).rejects.toThrow(
+      /images\.max/,
+    );
   });
 
   it("rejects a value the schema does not allow, naming the file", async () => {
@@ -90,6 +112,19 @@ describe("prefsFromFlags", () => {
 
   it("refuses a non-numeric slide count", () => {
     expect(() => prefsFromFlags({ slides: "lots" })).toThrow(/--slides expects a number/);
+  });
+
+  it("groups the image flags into their block and parses the cap", () => {
+    expect(
+      prefsFromFlags({ images: true, imageProvider: "svg", imageStyle: "woodcut", imageMax: "2" }),
+    ).toEqual({ images: { enabled: true, provider: "svg", style: "woodcut", max: 2 } });
+    // One image flag alone must not drag the block's other defaults in over the
+    // config file's — the same rule the narration block follows.
+    expect(prefsFromFlags({ imageModel: "m" })).toEqual({ images: { model: "m" } });
+  });
+
+  it("refuses a non-numeric picture cap by its flag", () => {
+    expect(() => prefsFromFlags({ imageMax: "some" })).toThrow(/--image-max expects a number/);
   });
 });
 

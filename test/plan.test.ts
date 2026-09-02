@@ -1,10 +1,10 @@
 import { readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { codexPlanner, SCHEMA } from "../src/plan/codex.js";
+import { codexCommand, codexPlanner, SCHEMA } from "../src/plan/codex.js";
 import { renderSource } from "../src/plan/prompt.js";
-import { assertRefsResolve } from "../src/plan/refs.js";
-import { sourceSchema, storyboardSchema } from "../src/types.js";
+import { assertRefsResolve, pendingIllustrations } from "../src/plan/refs.js";
+import { prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
 
 const source = sourceSchema.parse({
   id: "thinksr",
@@ -77,6 +77,66 @@ describe("assertRefsResolve", () => {
     const broken = plan({ ...beat, evidence: [{ kind: "equation", id: "eq-psnr" }] });
 
     expect(() => assertRefsResolve(broken, source)).toThrow(/evidence.*eq-psnr/s);
+  });
+});
+
+/**
+ * A brief with no figure beside it is a slot `illustrate` has not reached. Every
+ * reader that needs the figure refuses it; only the planner is allowed to keep
+ * it, and only when it was asked to produce one.
+ */
+describe("assertRefsResolve with a pending illustration", () => {
+  const brief = { prompt: "a lighthouse on a headland at dusk", caption: "The lighthouse" };
+  const { figureId: _resolved, ...unresolved } = beat.params;
+  const pendingBeat = { ...beat, params: { ...unresolved, illustration: brief } };
+  const split = {
+    ...beat,
+    id: "b02-split",
+    archetype: "split-compare",
+    params: {
+      headline: "Before and after",
+      left: { label: "Before", illustration: brief },
+      right: { label: "After", lines: ["sharper"] },
+    },
+  };
+
+  it("refuses it by default, naming the slot and the command that fills it", () => {
+    expect(() => assertRefsResolve(plan(pendingBeat), source)).toThrow(
+      'beat "b01-arch" params.figureId: asks for an illustration that has not been generated — run `decksmith illustrate`',
+    );
+    expect(() => assertRefsResolve(plan(pendingBeat), source, { pending: "refuse" })).toThrow(
+      /decksmith illustrate/,
+    );
+  });
+
+  it("keeps it when the caller says so", () => {
+    expect(() => assertRefsResolve(plan(pendingBeat), source, { pending: "allow" })).not.toThrow();
+  });
+
+  it("treats a split-compare side with a brief as pending, and a bare side as a list", () => {
+    expect(() => assertRefsResolve(plan(split), source)).toThrow(
+      /params\.left\.figureId: asks for an illustration/,
+    );
+    const listed = {
+      ...split,
+      params: { ...split.params, left: { label: "Before", lines: ["x"] } },
+    };
+    expect(() => assertRefsResolve(plan(listed), source)).not.toThrow();
+    expect(pendingIllustrations(plan(split))).toEqual([
+      { beatId: "b02-split", where: "params.left.figureId" },
+    ]);
+  });
+
+  it("stops being pending once the brief has a figure beside it", () => {
+    // What `illustrate` leaves behind: both fields, the figure registered.
+    const drawn = plan({ ...beat, params: { ...beat.params, illustration: brief } });
+    expect(pendingIllustrations(drawn)).toEqual([]);
+    expect(() => assertRefsResolve(drawn, source)).not.toThrow();
+  });
+
+  it("reports a dangling id before a pending brief, since no command fixes the former", () => {
+    const both = plan({ ...pendingBeat, evidence: [{ kind: "equation", id: "eq-psnr" }] });
+    expect(() => assertRefsResolve(both, source)).toThrow(/do not exist.*eq-psnr/s);
   });
 });
 
@@ -192,6 +252,103 @@ describe("codexPlanner response path", () => {
       before.filter((d) => d.startsWith("decksmith-plan-")).length,
     );
   });
+
+  // The schema always admits a brief, so the model can write one it was never
+  // invited to. That is not a plan to run `illustrate` on — the user did not ask
+  // for pictures — and the message has to name the flag, not the next command.
+  const asksForAPicture = RECORDED.replace(
+    '"figureId":"fig-arch"',
+    '"illustration":{"prompt":"a refinement loop as gears","caption":"The loop"}',
+  );
+
+  it("refuses a brief the prompt never invited, and names the flag that would", async () => {
+    await expect(replay(asksForAPicture)).rejects.toThrow(/b01-arch.*--images/s);
+    await expect(replay(asksForAPicture)).rejects.not.toThrow(/decksmith illustrate/);
+  });
+
+  it("keeps a pending brief when images are on, and tells the model it may write one", async () => {
+    let sent = "";
+    const result = await codexPlanner(source, {
+      prefs: prefsSchema.parse({ images: { enabled: true } }),
+      run: async ({ prompt, outPath }) => {
+        sent = prompt;
+        await writeFile(outPath, asksForAPicture);
+      },
+    });
+    expect(sent).toContain("ILLUSTRATIONS");
+    const [first] = result.beats;
+    expect(first?.archetype).toBe("claim-figure");
+    expect(first?.archetype === "claim-figure" ? first.params.figureId : "x").toBeUndefined();
+    expect(pendingIllustrations(result)).toEqual([
+      { beatId: "b01-arch", where: "params.figureId" },
+    ]);
+  });
+});
+
+/**
+ * The argv is a contract with a binary the suite may never spawn, so it is
+ * pinned by reading it. The read-only line is what the planner has always sent;
+ * the workspace-write line is what `illustrate`'s Codex rung sends, fenced to its
+ * scratch directory three ways.
+ */
+describe("codexCommand", () => {
+  const args = { prompt: "p", schemaPath: "/s.json", outPath: "/o.json", timeoutMs: 1 };
+
+  it("sends the read-only planner line unchanged when nothing extra is asked", () => {
+    expect(codexCommand(args)).toEqual({
+      argv: [
+        "exec",
+        "--output-schema",
+        "/s.json",
+        "-o",
+        "/o.json",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "--color",
+        "never",
+        "-",
+      ],
+    });
+    expect(codexCommand({ ...args, model: "m" }).argv).toContain("--model");
+  });
+
+  it("adds -C for a cwd and nothing else under read-only", () => {
+    const { argv, env } = codexCommand({ ...args, cwd: "/work" });
+    expect(argv.slice(5, 9)).toEqual(["-C", "/work", "--sandbox", "read-only"]);
+    expect(argv).not.toContain("-c");
+    expect(env).toBeUndefined();
+  });
+
+  it("fences workspace-write to the cwd: the flag, the two overrides, and TMPDIR", () => {
+    const { argv, env } = codexCommand({ ...args, cwd: "/work", sandbox: "workspace-write" });
+    expect(argv.slice(5, 13)).toEqual([
+      "-C",
+      "/work",
+      "--sandbox",
+      "workspace-write",
+      "-c",
+      "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+      "-c",
+      "sandbox_workspace_write.exclude_slash_tmp=true",
+    ]);
+    expect(argv.slice(-5)).toEqual([
+      "--skip-git-repo-check",
+      "--ephemeral",
+      "--color",
+      "never",
+      "-",
+    ]);
+    // The process environment comes along — `codex` needs its PATH and its
+    // login — with only TMPDIR moved.
+    expect(env?.TMPDIR).toBe("/work");
+    expect(env?.PATH).toBe(process.env.PATH);
+  });
+
+  it("refuses workspace-write with nowhere to fence it to", () => {
+    expect(() => codexCommand({ ...args, sandbox: "workspace-write" })).toThrow(/needs a cwd/);
+  });
 });
 
 describe("the schema handed to Codex", () => {
@@ -242,6 +399,26 @@ describe("the schema handed to Codex", () => {
     const title = (SCHEMA as { properties: Record<string, { anyOf?: unknown[] }> }).properties
       .theme;
     expect(JSON.stringify(title)).toContain('"null"');
+  });
+
+  it("offers claim-figure both a figureId and a brief, each declinable with null", () => {
+    // The "at least one" rule is a refinement, which `z.toJSONSchema` drops on
+    // purpose: the model sees one flat object and `storyboardSchema.parse`
+    // enforces the rule on the way back. What has to survive is that both keys
+    // are present, required, and nullable — strict mode admits nothing else.
+    type Node = { properties?: Record<string, Node>; required?: string[]; const?: unknown };
+    const find = (node: unknown): Node | undefined => {
+      if (Array.isArray(node)) return node.map(find).find(Boolean);
+      if (node === null || typeof node !== "object") return undefined;
+      const o = node as Node;
+      if (o.properties?.archetype?.const === "claim-figure") return o;
+      return Object.values(o).map(find).find(Boolean);
+    };
+    const params = find(SCHEMA)?.properties?.params;
+    expect(params?.required).toEqual(expect.arrayContaining(["figureId", "illustration"]));
+    expect(JSON.stringify(params?.properties?.figureId)).toContain('"null"');
+    expect(JSON.stringify(params?.properties?.illustration)).toContain('"null"');
+    expect(JSON.stringify(params?.properties?.illustration)).toContain('"caption"');
   });
 
   it("turns the nulls back into absent fields before validating", async () => {

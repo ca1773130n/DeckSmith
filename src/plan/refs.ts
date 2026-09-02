@@ -14,7 +14,71 @@ import { ink } from "../emit/theme.js";
 import type { Beat, Format, Source, Storyboard } from "../types.js";
 import { FORMATS } from "../types.js";
 
-export function assertRefsResolve(storyboard: Storyboard, source: Source): void {
+/** A slot that asks for a picture nobody has drawn yet: a brief with no `figureId` beside it. */
+export interface PendingIllustration {
+  beatId: string;
+  /** The field the figure id will land in, e.g. `params.left.figureId`. */
+  where: string;
+}
+
+/**
+ * Every pending slot, in beat order. A claim-figure without a `figureId` is
+ * pending by construction — the schema insists on one of the two — and a
+ * split-compare side is pending only when it carries a brief, because a side
+ * with neither is a list.
+ */
+export function pendingIllustrations(storyboard: Storyboard): PendingIllustration[] {
+  const out: PendingIllustration[] = [];
+  for (const beat of storyboard.beats) {
+    if (beat.archetype === "claim-figure") {
+      if (beat.params.figureId === undefined)
+        out.push({ beatId: beat.id, where: "params.figureId" });
+    } else if (beat.archetype === "split-compare") {
+      for (const side of ["left", "right"] as const) {
+        const { figureId, illustration } = beat.params[side];
+        if (figureId === undefined && illustration !== undefined) {
+          out.push({ beatId: beat.id, where: `params.${side}.figureId` });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether this deck was illustrated — the fact a pack records as
+ * `images.enabled`, the way `narration.enabled` records whether it was spoken.
+ * A brief with a figure the source really has is the trace `illustrate` leaves;
+ * a brief alone is a picture still owed, which `assertRefsResolve` refuses
+ * before anyone asks this; a figure alone is an ordinary figure.
+ */
+export function hasIllustrations(storyboard: Storyboard, source: Source): boolean {
+  const known = new Set(source.figures.map((f) => f.id));
+  const drawn = (slot: { figureId?: string; illustration?: unknown }) =>
+    slot.illustration !== undefined && slot.figureId !== undefined && known.has(slot.figureId);
+  return storyboard.beats.some((b) => {
+    if (b.archetype === "claim-figure") return drawn(b.params);
+    if (b.archetype === "split-compare") return drawn(b.params.left) || drawn(b.params.right);
+    return false;
+  });
+}
+
+export interface RefsOptions {
+  /**
+   * What a pending illustration means here. `refuse`, the default, is right for
+   * every reader that needs the figure — `build` would otherwise emit a slide
+   * around a picture that does not exist. Only the planner and the `plan` verb
+   * say `allow`, and only when images are on: a brief is what they were asked
+   * to produce, and `illustrate` is the step that makes it resolve.
+   */
+  pending?: "allow" | "refuse";
+}
+
+export function assertRefsResolve(
+  storyboard: Storyboard,
+  source: Source,
+  opts: RefsOptions = {},
+): void {
   const known = {
     figure: new Set(source.figures.map((f) => f.id)),
     equation: new Set(source.equations.map((e) => e.id)),
@@ -37,7 +101,10 @@ export function assertRefsResolve(storyboard: Storyboard, source: Source): void 
     for (const ref of beat.evidence) check(beat, ref.kind, ref.id, "evidence");
     switch (beat.archetype) {
       case "claim-figure":
-        check(beat, "figure", beat.params.figureId, "params.figureId");
+        // Absent means a brief stands in for it; `pendingIllustrations` reports that below.
+        if (beat.params.figureId !== undefined) {
+          check(beat, "figure", beat.params.figureId, "params.figureId");
+        }
         break;
       case "equation-walk":
         check(beat, "equation", beat.params.equationId, "params.equationId");
@@ -60,6 +127,18 @@ export function assertRefsResolve(storyboard: Storyboard, source: Source): void 
 
   if (dangling.length) {
     throw new Error(`Storyboard cites ids that do not exist:\n  ${dangling.join("\n  ")}`);
+  }
+
+  // Checked after the ids, so a plan that is wrong in both ways hears about the
+  // one no command can fix first.
+  if (opts.pending !== "allow") {
+    const pending = pendingIllustrations(storyboard).map(
+      ({ beatId, where }) =>
+        `beat "${beatId}" ${where}: asks for an illustration that has not been generated — run \`decksmith illustrate\``,
+    );
+    if (pending.length) {
+      throw new Error(`Storyboard is not ready to build:\n  ${pending.join("\n  ")}`);
+    }
   }
 }
 

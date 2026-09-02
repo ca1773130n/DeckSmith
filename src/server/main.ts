@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 // Through the bundle, never a deep path: `build:server` transpiles without
 // bundling, so `../narrate/tts.js` would survive into dist/server/ and resolve
 // to nothing. `test/server.test.ts` fails the build for it, and caught this.
-import { resolveProvider } from "../index.js";
+import { imageChain, prefsSchema, resolveImageBackend, resolveProvider } from "../index.js";
 import { createDeckServer } from "./http.js";
 import { MAX_UPLOAD_BYTES } from "./upload.js";
 
@@ -162,6 +162,21 @@ async function preflight(): Promise<void> {
     .check()
     .then(() => options.log(`decksmith: narration via ${tts.id}`))
     .catch(() => missing.push(`${tts.id} — needed for narration`));
+
+  // PICTURES NEVER GO MISSING. The last rung is an SVG the tool draws itself, so
+  // a job that asks for illustrations always finishes, whatever is installed —
+  // this line says where they would come from, not whether they can. The one
+  // thing that can be wrong is a backend the environment names and cannot use
+  // (DECKSMITH_IMAGES set, the key not), and that is reported here, at startup,
+  // rather than by the first job that asks for a picture. Reported, never
+  // thrown: a deck with no pictures in it needs none of this.
+  try {
+    const backend = resolveImageBackend();
+    const rungs = imageChain(prefsSchema.parse({}).images, backend).map((p) => p.id);
+    options.log(`decksmith: images via ${backend ? backend.id : rungs.join(", then ")}`);
+  } catch (err) {
+    missing.push(`the image backend — ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   for (const line of missing) options.log(`decksmith: MISSING ${line}`);
   if (missing.length === 0) options.log("decksmith: codex, edge-tts and ffmpeg all found");

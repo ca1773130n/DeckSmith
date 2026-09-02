@@ -355,6 +355,21 @@ describe("split-compare", () => {
     ).toThrow(/no figure "nope"/);
   });
 
+  it("refuses a side whose brief has not been drawn, by name and with the command", () => {
+    // `emitDeck` is public, so this can arrive without `assertRefsResolve` having
+    // run. It must say what to do, not `neither a figure nor lines`.
+    expect(() =>
+      splitCompare(
+        beat("bad", {
+          headline: "H",
+          left: { label: "A", illustration: { prompt: "a lighthouse at dusk", caption: "c" } },
+          right: { label: "B", lines: ["x"] },
+        }),
+        ctx("s5"),
+      ),
+    ).toThrow("split-compare bad: left illustration not generated — run `decksmith illustrate`");
+  });
+
   it("refuses a list too deep to set at the floor rather than shrinking past it", () => {
     const lines = Array.from({ length: 12 }, (_, i) => `A line of evidence number ${i}`);
     expect(() =>

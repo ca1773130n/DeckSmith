@@ -9,8 +9,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { imageBackend } from "../src/mcp/prereqs.js";
 import { deckTools, settingsSchema } from "../src/mcp/tools.js";
 import { parseOptions } from "../src/server/options.js";
+import { MAX_UPLOAD_BYTES } from "../src/server/upload.js";
 
 const work = () => mkdtemp(join(tmpdir(), "ds-mcp-"));
 const tools = async () => deckTools({ root: await work(), work: await work() });
@@ -77,6 +79,7 @@ describe("the settings schema", () => {
       pitch: "-5Hz",
       narration_density: "medium",
       video: true,
+      images: true,
     };
     const base = JSON.stringify(parseOptions({}));
     for (const [key, value] of Object.entries(samples)) {
@@ -90,6 +93,51 @@ describe("the settings schema", () => {
       for (const [k, v] of Object.entries(settings)) fields[map[k] ?? k] = String(v);
       expect(JSON.stringify(parseOptions(fields)), `${key} was swallowed`).not.toBe(base);
     }
+  });
+});
+
+describe("decksmith_capabilities", () => {
+  /**
+   * Pictures are the one thing a job never lacks a way to make — the tool's own
+   * SVG is the last rung — so what an agent needs to know is not "can it" but
+   * "through what", and whether the thing the environment names actually works.
+   * By id and sentence only: the key is in the environment and nowhere else.
+   */
+  it("says where pictures would come from, by id and never by key", async () => {
+    const dir = await work();
+    const bare = deckTools({ root: dir, work: dir, probe: installed(), env: {} });
+    expect((await bare.capabilities()).images).toEqual({ backend: null, ok: true });
+
+    const keyed = deckTools({
+      root: dir,
+      work: dir,
+      probe: installed(),
+      env: { DECKSMITH_IMAGES: "openai", DECKSMITH_IMAGES_API_KEY: "sk-test-not-a-real-key" },
+    });
+    const caps = await keyed.capabilities();
+    expect(caps.images).toEqual({ backend: "openai", ok: true });
+    expect(JSON.stringify(caps)).not.toContain("sk-test-not-a-real-key");
+
+    const broken = deckTools({
+      root: dir,
+      work: dir,
+      probe: installed(),
+      env: { DECKSMITH_IMAGES: "openai" },
+    });
+    expect((await broken.capabilities()).images).toEqual({
+      backend: "openai",
+      ok: false,
+      why: expect.stringMatching(/DECKSMITH_IMAGES_API_KEY/),
+    });
+  });
+
+  it("names an unknown backend as the thing that is wrong", () => {
+    expect(imageBackend({ DECKSMITH_IMAGES: "dalle" })).toMatchObject({
+      backend: "dalle",
+      ok: false,
+      why: expect.stringMatching(/Unknown image backend "dalle"/),
+    });
+    expect(imageBackend({})).toEqual({ backend: null, ok: true });
   });
 });
 
@@ -147,6 +195,33 @@ describe("decksmith_create_deck", () => {
     await expect(t.create({ document_path: "../../etc/passwd" })).rejects.toThrow(/absolute/);
     // …and the probe still speaks for a request the fence has nothing to say about.
     await expect(t.create({ document_text: "# x" })).rejects.toThrow(/codex is not installed/);
+  });
+
+  /**
+   * Refused only when a backend is NAMED AND BROKEN, and only for a job that
+   * asked for pictures. The second half is shown without submitting a job — a
+   * submitted job spawns the real planner — by handing in a document over the
+   * size cap: that refusal comes after the backend check, so reaching it proves
+   * the check stayed out of a request that never mentioned images.
+   */
+  it("refuses illustrations only when the named backend cannot be used", async () => {
+    const dir = await work();
+    const broken = deckTools({
+      root: dir,
+      work: dir,
+      probe: installed(),
+      env: { DECKSMITH_IMAGES: "openai" },
+    });
+    await expect(
+      broken.create({ document_text: "# x", settings: { images: true } }),
+    ).rejects.toThrow(/image backend is misconfigured.*DECKSMITH_IMAGES_API_KEY/);
+    const tooBig = "#".repeat(MAX_UPLOAD_BYTES + 1);
+    await expect(broken.create({ document_text: tooBig, settings: {} })).rejects.toThrow(/MB cap/);
+    // Nothing named is not a problem: the Codex account and the tool's SVG remain.
+    const bare = deckTools({ root: dir, work: dir, probe: installed(), env: {} });
+    await expect(
+      bare.create({ document_text: tooBig, settings: { images: true } }),
+    ).rejects.toThrow(/MB cap/);
   });
 });
 

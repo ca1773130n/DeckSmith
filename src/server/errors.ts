@@ -76,6 +76,33 @@ const HINTS: { when: RegExp; hint: string }[] = [
     when: /unrecognised image header/i,
     hint: "One of the figures is not a PNG, JPEG or GIF. SVG and PDF figures are not read; export them to PNG first.",
   },
+  // The image backend's own failures are shaped by src/images/providers.ts as
+  // `openai images: HTTP <status> (<code>)` — status and code only, never the
+  // body or a URL — so they are safe to match and safe to show.
+  {
+    when: /openai images: HTTP 40[13]\b/,
+    hint: "The image backend refused the server's key. Whoever runs it should check DECKSMITH_IMAGES_API_KEY, or unset DECKSMITH_IMAGES to draw through the Codex account and the tool's own SVG.",
+  },
+  {
+    when: /openai images: HTTP 429\b/,
+    hint: "The image backend is out of quota or rate-limiting this key. Wait and retry, or submit with illustrations off — the deck itself needs no pictures.",
+  },
+  {
+    when: /could not generate a picture/i,
+    hint: "The Codex account has no image tool. Normally the tool's own SVG stands in and the job goes on; for real pictures whoever runs the server sets DECKSMITH_IMAGES=openai and a key.",
+  },
+  {
+    // `resolveImageBackend`'s two sentences: a named backend with no key, or a
+    // name it does not know. A deployment problem, met by the first job to ask.
+    when: /DECKSMITH_IMAGES=openai needs|Unknown image backend/i,
+    hint: "The server names an image backend it cannot use. Submit with illustrations off, or have whoever runs it set DECKSMITH_IMAGES_API_KEY or unset DECKSMITH_IMAGES.",
+  },
+  {
+    // `codexPlanner`'s refusal when the model wrote a brief nobody invited. Its
+    // sentence names the CLI flag; over HTTP the flag is a checkbox.
+    when: /illustrations? \(.*\) with images off/i,
+    hint: "The planner asked for a picture this request did not allow. Tick Illustrations and submit again — or submit as is; the planner usually finds a figure the second time.",
+  },
   {
     when: /ENOSPC|no space left/i,
     hint: "The server is out of disk. Nothing you can do from here — tell whoever runs it.",
