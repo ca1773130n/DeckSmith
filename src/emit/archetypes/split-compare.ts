@@ -23,7 +23,7 @@
  */
 import type { Figure } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc } from "../kit.js";
+import { contentW, esc, spotlighter } from "../kit.js";
 import type { Box } from "../svg.js";
 import {
   drawFrom,
@@ -345,6 +345,10 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     ),
   ];
   const holds: number[] = [];
+  // The comparison is sequential — this side, then that one — so the light is
+  // too: when the second side lands, the first steps back to DIM and the slide
+  // says which half is being spoken about. `dim` mode: the sides arrive.
+  const spot = spotlighter(sid);
   sides.forEach((_, i) => {
     const t = at[i] ?? 0;
     // Each side enters from its own outer edge and settles against the divider —
@@ -364,6 +368,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
         t,
       ),
     );
+    if (i > 0) tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
     holds.push(t + 0.8);
   });
 
@@ -372,6 +377,10 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     tl.push(tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t));
     holds.push(t + 0.7);
   }
+  // Both halves back at full weight for the last hold: the note is about the
+  // PAIR, and a comparison whose left half is dimmed while it is read is a
+  // comparison with one side missing.
+  if (sides.length > 1) tl.push(...spot.restore((at[1] ?? 0) + (p.note ? 0.9 : 0.5)));
 
   return {
     html,

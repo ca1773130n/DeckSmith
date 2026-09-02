@@ -13,7 +13,7 @@
  * twenty-three, and nobody would ever find out which.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc } from "../kit.js";
+import { contentW, DIM, esc } from "../kit.js";
 import type { Box } from "../svg.js";
 import {
   drawFrom,
@@ -477,6 +477,22 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
 
   const first = drawn + 0.15;
   const step = Math.min(1.2, Math.max(0.6, (beat.seconds - first - 1.3) / p.regions.length));
+  // The field is the context and the region is the point, so once the first
+  // region is outlined the cells behind it step back. One tween for the whole
+  // field, on the class — this dims CELLS, not regions, so it is a plain pair
+  // rather than a moving spotlight.
+  const dimCells =
+    p.regions.length > 0
+      ? [
+          tween(
+            `#${sid} .gcell`,
+            { opacity: 1 },
+            { opacity: DIM, duration: 0.45, ease: "power2.out", immediateRender: false },
+            first,
+          ),
+        ]
+      : [];
+  tl.push(...dimCells);
   p.regions.forEach((_, i) => {
     const at = first + i * step;
     const len = perimeter(boxes[i] ?? { x: 0, y: 0, w: 0, h: 0 });
@@ -520,6 +536,18 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     const at = first + p.regions.length * step;
     tl.push(tween(`#${id(sid, "note")}`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at));
     holds.push(at + 0.7);
+  }
+  // …and the field comes back for the last hold: the note is about the whole
+  // grid, and the regions keep their outlines and fills whatever the cells do.
+  if (dimCells.length > 0) {
+    tl.push(
+      tween(
+        `#${sid} .gcell`,
+        { opacity: DIM },
+        { opacity: 1, duration: 0.4, ease: "power2.out", immediateRender: false },
+        first + p.regions.length * step,
+      ),
+    );
   }
 
   return {

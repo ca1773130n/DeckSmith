@@ -187,7 +187,10 @@ describe("ink", () => {
     // the whole seam is checked against.
     expect(s.tl.map(tweenText)).toEqual([
       'tl.fromTo("#s1-e", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6 }, 0.2);',
-      'tl.fromTo("#s1-t", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.9 }, 0.4);',
+      // The headline rises word by word — `.w` spans, one stagger — so this line
+      // names the class rather than the element. Changed with the reveal it
+      // pins, not around it.
+      'tl.fromTo("#s1-t .w", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.9, stagger: 0.06, ease: "power3.out" }, 0.4);',
       'tl.fromTo("#s1-s", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 1);',
     ]);
     expect(s.holds).toEqual([1.9]);
@@ -285,9 +288,11 @@ describe("pace", () => {
   it("doubles them the same way", () => {
     const doubled = pace(scene(ink), 2);
     expect(doubled.tl[1]).toEqual({
-      target: "#s1-t",
+      target: "#s1-t .w",
       from: { opacity: 0, y: 38 },
-      to: { opacity: 1, y: 0, duration: 1.8 },
+      // `stagger` is paced with `duration`: the words keep their rhythm
+      // relative to the tween they belong to.
+      to: { opacity: 1, y: 0, duration: 1.8, stagger: 0.12, ease: "power3.out" },
       at: 0.8,
     });
     expect(doubled.holds).toEqual([3.8]);

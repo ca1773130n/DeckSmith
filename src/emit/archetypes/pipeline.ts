@@ -33,10 +33,11 @@
  */
 import type { BeatOf } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc } from "../kit.js";
+import { contentW, esc, spotlighter } from "../kit.js";
 import {
   arrow,
   arrowDefs,
+  circle,
   elbow,
   fitBoxes,
   group,
@@ -49,6 +50,7 @@ import {
   type Track,
   text,
   textWidth,
+  travel,
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
@@ -71,6 +73,12 @@ type Loop = { from: number; to: number; label: string };
 /** A box edge sits on the viewBox edge otherwise, and half its stroke is clipped. */
 const M = 2;
 const R = 18;
+
+/** The dot that rides an arrow. Half the arrowhead, so it reads as cargo, not a second head. */
+const PULSE_R = 13;
+/** The return path's dash, and therefore the distance one flow cycle travels. */
+const LOOP_DASH = "16 12";
+const LOOP_PERIOD = 28;
 
 /** Preferred label size. Reduced only after the gaps have already been spent. */
 const LABEL = 52;
@@ -502,21 +510,50 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     return group([shell, label, note], { id: id(sid, "stage", i) });
   });
 
-  const connectors = p.stages.slice(1).map((_, i) => {
+  /**
+   * Each connector, and the route the pulse rides along it.
+   *
+   * Kept as one list rather than two maps because the pulse's route IS the
+   * arrow's geometry: computing it twice is how a pulse ends up travelling
+   * beside its own arrow after someone edits the inset.
+   */
+  const links = p.stages.slice(1).flatMap((_, i) => {
     const a = L.boxes[i];
     const b = L.boxes[i + 1];
-    if (!a || !b) return "";
+    if (!a || !b) return [];
     // `inset` pulls the shaft back so the head stops short of the next box
     // instead of sitting on its stroke.
     const from = L.vertical ? { x: spine, y: a.x + a.w } : { x: a.x + a.w, y: spine };
     const to = L.vertical ? { x: spine, y: b.x } : { x: b.x, y: spine };
-    return arrow(sid, from, to, {
+    return [{ i, from, to }];
+  });
+
+  const connectors = links.map((l) =>
+    arrow(sid, l.from, l.to, {
       stroke: theme.muted,
       width: 5,
       inset: 8,
-      id: id(sid, "arrow", i),
-    });
-  });
+      id: id(sid, "arrow", l.i),
+    }),
+  );
+
+  /**
+   * What travels the arrow: one dot per connector, parked at the arrow's tail
+   * and invisible until its own leg of the reveal.
+   *
+   * ONE PER ARROW, because `travel` writes the element's `x`/`y` from a single
+   * immediate render and a second route on the same dot would start from the
+   * first route's end. The dot is drawn at the tail in document coordinates,
+   * so its `from` transform is the identity and a build that never runs the
+   * tween still has it in the right place.
+   */
+  const pulses = links.map((l) =>
+    circle(l.from, PULSE_R, {
+      id: id(sid, "pulse", l.i),
+      fill: theme.tones.a ?? theme.fg,
+      opacity: "0",
+    }),
+  );
 
   // The return path is the one thing on the slide that moves against the read
   // direction, so it gets the one warm colour and a dashed stroke.
@@ -567,9 +604,10 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
       {
         stroke: loopColour,
         width: 4,
-        dash: "16 12",
+        dash: LOOP_DASH,
         inset: 10,
         via,
+        id: id(sid, "loop"),
         // "h" leaves and arrives horizontally, so the long leg runs down the
         // channel at `via`; "v" is the landscape shape, under the row.
         axis: L.vertical ? "h" : "v",
@@ -615,6 +653,9 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     loopSvg,
     ...connectors,
     ...stages,
+    // After the stages: the dot rides OVER the boxes it is arriving at, which
+    // is what makes it read as the thing being handed along.
+    ...pulses,
   ].join("");
 
   const note = p.note ? `\n<div class="pipenote" id="${sid}-note">${esc(p.note)}</div>` : "";
@@ -630,8 +671,15 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   const tl = [...chromeIn(sid, p.eyebrow !== undefined)];
   const holds: number[] = [];
 
+  // The light follows the flow: as each stage lands, the one behind it steps
+  // back to DIM, so the box being spoken about is the only one at full weight.
+  // `dim` mode, not `lit`: the stages arrive one at a time, and dimming a
+  // stage that has not entered yet would fight its own entrance.
+  const spot = spotlighter(sid);
+
   p.stages.forEach((_, i) => {
     const at = t0 + i * step;
+    const link = links.find((l) => l.i === i - 1);
     if (i > 0) {
       tl.push(
         tween(
@@ -642,14 +690,52 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
         ),
       );
     }
+    if (link) {
+      // The dot leaves the box behind as the arrow finishes arriving and lands
+      // exactly when the next box pops, so the pop reads as the arrival of the
+      // thing that travelled rather than as a second, unrelated entrance.
+      const rides = 0.28;
+      const leaves = at - rides;
+      tl.push(
+        tween(
+          `#${id(sid, "pulse", link.i)}`,
+          { opacity: 0 },
+          { opacity: 1, duration: 0.1 },
+          leaves,
+        ),
+        // RELATIVE to where the dot is drawn. `travel` writes `x`/`y`, which on
+        // an SVG element is a TRANSFORM and adds to the `cx`/`cy` already in the
+        // markup: handing it the arrow's absolute endpoints put the dot at twice
+        // its own offset, 159px below the arrow it was supposed to ride, with
+        // every gate green and every test passing. Found by looking at a frame.
+        ...travel(
+          `#${id(sid, "pulse", link.i)}`,
+          [
+            { x: 0, y: 0 },
+            { x: link.to.x - link.from.x, y: link.to.y - link.from.y },
+          ],
+          leaves,
+          rides,
+        ),
+        tween(
+          `#${id(sid, "pulse", link.i)}`,
+          { opacity: 1 },
+          { opacity: 0, duration: 0.18, immediateRender: false },
+          at,
+        ),
+      );
+    }
+    const box = boxOf(i);
+    const origin = `${nv(box.x + box.w / 2)} ${nv(box.y + box.h / 2)}`;
     tl.push(
       tween(
         `#${id(sid, "stage", i)}`,
-        { opacity: 0, y: 24 },
-        { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" },
+        { opacity: 0, y: 24, scale: 0.92, svgOrigin: origin },
+        { opacity: 1, y: 0, scale: 1, svgOrigin: origin, duration: 0.5, ease: "power2.out" },
         at,
       ),
     );
+    if (i > 0) tl.push(...spot.dim(`stage${i - 1}`, at + 0.1));
     holds.push(at + 0.55);
   });
 
@@ -667,6 +753,16 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
         { [axis]: 0, duration: 0.9, ease: "power2.inOut" },
         at,
       ),
+      // And the dashes run while it is revealed. Exactly ONE period, linearly:
+      // the pattern at the end is the pattern at the start, so the tween can
+      // stop dead at a hold without a visible jump, and `ease: "none"` is what
+      // makes a flow read as a flow rather than as a nudge.
+      tween(
+        `#${id(sid, "loop")}`,
+        { strokeDashoffset: LOOP_PERIOD },
+        { strokeDashoffset: 0, duration: 0.9, ease: "none" },
+        at,
+      ),
     );
     end = at + 1.0;
     holds.push(end);
@@ -676,6 +772,10 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     tl.push(tween(`#${sid}-note`, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5 }, at));
     holds.push(at + 0.6);
   }
+  // The whole row comes back for the last hold: the beat ends on the pipeline
+  // as one thing, and a deck that leaves five of six boxes at 0.62 has spent
+  // its final seconds saying "look here" about a slide nobody is reading.
+  if (p.stages.length > 1) tl.push(...spot.restore(end + (p.note ? 0.15 : 0)));
 
   // The last toned stage if there is one, else the stage the flow ends on —
   // either way the box still being spoken to at the final hold. Its entrance

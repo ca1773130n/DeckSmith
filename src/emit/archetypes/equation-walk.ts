@@ -8,7 +8,7 @@
  */
 import type { Term } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc, js } from "../kit.js";
+import { contentW, esc, js, spotlighter } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import { chrome, chromeCss, chromeIn, holdsWithin, isPortrait, tween } from "./title.js";
@@ -318,6 +318,12 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   );
   const holds: number[] = [];
 
+  // The walk is a reading order, so the light walks with it: the term under
+  // discussion is at full weight and the rest of the equation steps back to
+  // DIM. `lit` mode, because every term is on screen from the equation's own
+  // entrance — this moves a light over a settled line rather than revealing it.
+  const spot = spotlighter(sid, ".term");
+
   terms.forEach((term, i) => {
     const at = first + i * step;
     const colour = theme.tones[term.tone];
@@ -328,6 +334,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
         { opacity: 1, x: 0, duration: 0.5 },
         at,
       ),
+      ...spot.lit(`.t-${term.tone}`, at),
       // The tint stays for the rest of the slide — it is what ties the symbol to
       // its legend chip. Only the swell is taken back, on the next term's cue.
       tween(
@@ -347,7 +354,12 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   const last = terms[terms.length - 1];
   if (last) {
     const at = first + terms.length * step;
-    tl.push(tween(`#${sid} .t-${last.tone}`, { scale: 1.16 }, { scale: 1, duration: 0.4 }, at));
+    tl.push(
+      tween(`#${sid} .t-${last.tone}`, { scale: 1.16 }, { scale: 1, duration: 0.4 }, at),
+      // The equation is one statement again before the beat ends: the walk was
+      // the argument, and what it leaves behind is the whole line, readable.
+      ...spot.restore(at),
+    );
   }
 
   return {

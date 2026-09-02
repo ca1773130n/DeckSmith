@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitComposition, planCut } from "../src/emit/composition.js";
+import { DIM, spotlighter, type Tween, tweenText, words } from "../src/emit/kit.js";
+import { travel } from "../src/emit/svg.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 
 /** `FORMATS` is keyed by string, so every lookup is `Format | undefined`. */
@@ -354,5 +356,186 @@ describe("emitComposition", () => {
       format("deck-16x9"),
     );
     expect(tw).toContain('"Noto Sans TC"');
+  });
+});
+
+/**
+ * The reveal verbs. Each rule here is a failure the gate stack cannot see: a
+ * part on screen before its reveal, a blink where a part already at 0.62 is
+ * told to start from 1, a route that jumps between legs. They are checked on
+ * the `Tween` objects, which is where the promise is made.
+ */
+describe("the reveal verbs", () => {
+  const sid = "s3";
+  const scoped = (tweens: Tween[]) => {
+    for (const t of tweens) expect(t.target.startsWith(`#${sid}`)).toBe(true);
+  };
+
+  describe("spotlighter", () => {
+    it("dims to exactly DIM, never renders immediately, and rounds its position", () => {
+      const [dim, ...rest] = spotlighter(sid, ".term").lit("t0", 0.1 + 0.2);
+      expect(rest).toHaveLength(0);
+      // The complement selector: everything in scope but the kept part.
+      expect(tweenText(dim as Tween)).toBe(
+        `tl.fromTo("#s3 .term:not(#s3-t0)", { opacity: 1 }, { opacity: ${DIM}, duration: 0.45, ease: "power2.out", immediateRender: false }, 0.3);`,
+      );
+      expect(DIM).toBe(0.62);
+    });
+
+    it("moves the light: the old keep dims from 1, the new keep returns from DIM", () => {
+      const spot = spotlighter(sid, ".term");
+      const first = spot.lit("t0", 1);
+      const second = spot.lit("t1", 2);
+      expect(second.map((t) => [t.target, t.from.opacity, t.to.opacity])).toEqual([
+        ["#s3-t0", 1, DIM],
+        ["#s3-t1", DIM, 1],
+      ]);
+      for (const t of [...first, ...second]) expect(t.to.immediateRender).toBe(false);
+      scoped([...first, ...second]);
+      // Keeping the same part again is not a change, so it is not a tween.
+      expect(spot.lit("t1", 3)).toEqual([]);
+    });
+
+    it("keeps a set, and only tweens the difference between sets", () => {
+      const spot = spotlighter(sid, ".row");
+      const [dim] = spot.lit(["row2", "row4"], 1);
+      expect(dim?.target).toBe("#s3 .row:not(#s3-row2):not(#s3-row4)");
+      const swap = spot.lit(["row4", "row5"], 2);
+      expect(swap.map((t) => t.target)).toEqual(["#s3-row2", "#s3-row5"]);
+    });
+
+    it("restores the scope minus what is lit, from DIM, over 0.4s", () => {
+      const spot = spotlighter(sid, ".term");
+      spot.lit("t0", 1);
+      spot.lit("t1", 2);
+      const [back, ...rest] = spot.restore(3.005);
+      expect(rest).toHaveLength(0);
+      expect(back?.target).toBe("#s3 .term:not(#s3-t1)");
+      expect(back?.from).toEqual({ opacity: DIM });
+      expect(back?.to).toEqual({
+        opacity: 1,
+        duration: 0.4,
+        ease: "power2.out",
+        immediateRender: false,
+      });
+      expect(back?.at).toBe(3.01);
+      // Everything is lit again, so there is nothing a second restore could do.
+      expect(() => spot.restore(4)).toThrow(/nothing is dim/);
+    });
+
+    it("dims arriving parts one at a time and restores exactly those", () => {
+      const spot = spotlighter(sid);
+      const a = spot.dim("stage0", 1);
+      const b = spot.dim("stage1", 2);
+      const c = spot.dim("#s3 .cell:not(.in)", 3);
+      expect([...a, ...b, ...c].map((t) => t.target)).toEqual([
+        "#s3-stage0",
+        "#s3-stage1",
+        "#s3 .cell:not(.in)",
+      ]);
+      for (const t of [...a, ...b, ...c]) {
+        expect(t.from).toEqual({ opacity: 1 });
+        expect(t.to.opacity).toBe(DIM);
+        expect(t.to.immediateRender).toBe(false);
+      }
+      const [back] = spot.restore(4);
+      expect(back?.target).toBe("#s3-stage0, #s3-stage1, #s3 .cell:not(.in)");
+      expect(back?.from).toEqual({ opacity: DIM });
+    });
+
+    it("refuses the histories that would blink or leak", () => {
+      // Dimming twice would start the second tween from 1 over a part at DIM.
+      const twice = spotlighter(sid);
+      twice.dim("stage0", 1);
+      expect(() => twice.dim("stage0", 2)).toThrow(/already dim/);
+      // A selector outside the scene is invariant 3's failure.
+      expect(() => spotlighter(sid).dim("#s4-stage0", 1)).toThrow(/not inside the scene/);
+      // The two idioms keep different histories; one object cannot keep both.
+      const mixed = spotlighter(sid, ".stage");
+      mixed.lit("stage0", 1);
+      expect(() => mixed.dim("stage1", 2)).toThrow(/lit\(\) and dim\(\)/);
+      // `lit` needs a scope to take the complement of.
+      expect(() => spotlighter(sid).lit("t0", 1)).toThrow(/needs a scope/);
+      // `:not()` takes one compound selector, so a keep is one part or one id.
+      expect(() => spotlighter(sid, ".term").lit("#s3 .term.a", 1)).toThrow(/one part or one id/);
+    });
+  });
+
+  describe("travel", () => {
+    const o = { x: 0, y: 0 };
+    const corner = { x: 300, y: 0 };
+    const down = { x: 300, y: 100 };
+    const elbow = [o, corner, down];
+
+    /** Legs abut, or the earlier one rests for the one hundredth it gave up. */
+    const abutting = (route: Tween[]) => {
+      for (let i = 1; i < route.length; i++) {
+        const prev = route[i - 1];
+        const leg = route[i];
+        const gap = (leg?.at ?? 0) - ((prev?.at ?? 0) + Number(prev?.to.duration));
+        expect(gap).toBeGreaterThanOrEqual(0);
+        expect(gap).toBeLessThanOrEqual(0.01 + 1e-9);
+      }
+    };
+
+    it("is one x/y leg per segment, timed by length, none then power2.out", () => {
+      const legs = travel("#s3-pulse", elbow, 0, 0.8);
+      expect(legs).toHaveLength(2);
+      scoped(legs);
+      expect(legs.map((t) => [t.at, t.to.duration, t.to.ease])).toEqual([
+        [0, 0.6, "none"],
+        [0.6, 0.2, "power2.out"],
+      ]);
+      expect(legs[0]?.from).toEqual({ x: 0, y: 0 });
+      expect(legs[0]?.to).toMatchObject({ x: 300, y: 0 });
+      expect(legs[1]?.to).toMatchObject({ x: 300, y: 100 });
+      // Arrival is `at + seconds`, so a pop can be scheduled against it.
+      expect((legs[1]?.at ?? 0) + Number(legs[1]?.to.duration)).toBeCloseTo(0.8, 12);
+    });
+
+    it("renders the first leg immediately and no other, each from where the last ended", () => {
+      const legs = travel("#s3-ring", [...elbow, { x: 500, y: 100 }], 2, 1);
+      expect(legs).toHaveLength(3);
+      expect(legs[0]?.to.immediateRender).toBeUndefined();
+      for (let i = 1; i < legs.length; i++) {
+        const prev = legs[i - 1];
+        const leg = legs[i];
+        expect(leg?.to.immediateRender).toBe(false);
+        expect([leg?.from.x, leg?.from.y]).toEqual([prev?.to.x, prev?.to.y]);
+      }
+      abutting(legs);
+    });
+
+    it("never lets a leg's float end overshoot the next leg's start", () => {
+      // 0.1 + 0.2 is 0.30000000000000004, which lint reads as an overlap with
+      // the leg at 0.3 (`overlapping_gsap_tweens`, 0.7.90). The corner and the
+      // arrival stay put; the leg before the corner gives up one hundredth.
+      const square = travel("#s3-pulse", [o, corner, { x: 300, y: 300 }], 0.1, 0.4);
+      abutting(square);
+      expect(square.map((t) => [t.at, t.to.duration])).toEqual([
+        [0.1, 0.19],
+        [0.3, 0.2],
+      ]);
+      abutting(travel("#s3-pulse", elbow, 0.1, 0.4 / 3));
+    });
+
+    it("drops a repeated corner and refuses a route that goes nowhere", () => {
+      const legs = travel("#s3-pulse", [o, corner, corner, down], 0, 1);
+      expect(legs).toHaveLength(2);
+      expect(() => travel("#s3-pulse", [o, o], 0, 1)).toThrow(/two distinct points/);
+      expect(() => travel("#s3-pulse", elbow, 0, 0)).toThrow(/no time/);
+    });
+  });
+
+  describe("words", () => {
+    it("wraps each word in a span, escaped, rejoined with single spaces", () => {
+      expect(words("Attention  <is>\nall you\tneed ")).toBe(
+        '<span class="w">Attention</span> <span class="w">&lt;is&gt;</span> <span class="w">all</span> <span class="w">you</span> <span class="w">need</span>',
+      );
+      expect(words("Q & A", "cw")).toBe(
+        '<span class="cw">Q</span> <span class="cw">&amp;</span> <span class="cw">A</span>',
+      );
+      expect(words("   ")).toBe("");
+    });
   });
 });

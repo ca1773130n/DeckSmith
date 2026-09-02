@@ -23,7 +23,7 @@
  */
 import type { BeatOf, Format } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentH, contentW, esc } from "../kit.js";
+import { contentH, contentW, esc, spotlighter } from "../kit.js";
 import type { Box, Pt } from "../svg.js";
 import {
   circle,
@@ -772,6 +772,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     ),
   ];
   const holds = [FIG_IN];
+  const spot = spotlighter(sid);
   plan.boxes.forEach((b, i) => {
     const at = NOTE_0 + i * STEP;
     tl.push(
@@ -805,8 +806,17 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         at + 0.45,
       ),
     );
+    // The note being spoken about is the one at full weight. A figure with five
+    // labels around it and no light on any of them is a diagram the viewer has
+    // to search; this is the archetype where that costs the most.
+    if (i > 0) tl.push(...spot.dim(`lab${i - 1}`, at + 0.5));
     holds.push(at + 0.9);
   });
+  // Every label back for the last hold: the figure is read as a whole once its
+  // parts have been named.
+  if (plan.boxes.length > 1) {
+    tl.push(...spot.restore(NOTE_0 + (plan.boxes.length - 1) * STEP + 0.9));
+  }
   // Settled before the first hold, not landing on it — a caption still fading up
   // when navigation stops is a half-built frame.
   tl.push(tween(`#${sid}-cap`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1.0));
