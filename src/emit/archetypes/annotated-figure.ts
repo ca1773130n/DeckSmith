@@ -770,6 +770,24 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
       { opacity: 1, scale: 1, duration: 0.8 },
       0.7,
     ),
+    // And then it keeps moving, barely, for the rest of the beat: 3% across the
+    // whole window, linear, from exactly where the entrance left it. This is the
+    // archetype a viewer spends the longest LOOKING at — notes are read one by
+    // one against the same picture — and a picture being studied should not be a
+    // frozen JPEG. `immediateRender: false` and a `from` of exactly 1 because
+    // the entrance above owns this element's first `scale` render; a second
+    // immediate one would apply 1 at build time over the entrance's 0.97.
+    tween(
+      `#${sid}-plate`,
+      { scale: 1 },
+      {
+        scale: 1.03,
+        duration: Math.max(2.5, beat.seconds - 2),
+        ease: "none",
+        immediateRender: false,
+      },
+      1.5,
+    ),
   ];
   const holds = [FIG_IN];
   const spot = spotlighter(sid);
