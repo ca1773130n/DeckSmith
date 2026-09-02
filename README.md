@@ -674,6 +674,12 @@ Three rungs, tried in order, and every hop down is printed rather than swallowed
    stable feature, so the same `codex exec` that wrote the storyboard can draw a PNG.
    `illustrate` runs it in a scratch directory it cannot write outside of and reads the
    picture back. An account without the tool says so, once, and the run falls through.
+   Which ACCOUNT is the shell's business, not the deck's: `codex exec` inherits the
+   environment, so `CODEX_HOME=~/.codex-other decksmith illustrate …` draws on that home.
+   Note that Codex keeps its own copy of every picture it makes, under
+   `$CODEX_HOME/generated_images/<session>/`, and `--ephemeral` does not remove it — the
+   deck's own copy is the one under `assets/`, and that directory grows by roughly a
+   megabyte per picture until you empty it.
 3. **An SVG the tool draws itself**: a deterministic, text-free composition seeded from
    the brief. It cannot fail, so `illustrate` always finishes.
 
