@@ -35,6 +35,7 @@ import {
   text,
   textWidth,
   tracks,
+  travel,
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
@@ -318,9 +319,32 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       line({ x: mid, y: 0 }, { x: mid, y: hairY }, { stroke: theme.muted, "stroke-width": 3 }) +
       "</g>";
 
+  /**
+   * A short bright stretch that runs the length of the divider when the second
+   * side lands.
+   *
+   * The divider is the archetype's claim — "these two are one question answered
+   * twice" — and it was the one part of the slide that never moved after it
+   * grew. Travelling it at the moment the comparison completes is the visual
+   * form of that sentence. Drawn at the divider's start and moved by `travel`,
+   * whose route is RELATIVE for the reason `pipeline` records at length.
+   */
+  const HIGHLIGHT = 180;
+  const highlight = tall
+    ? line(
+        { x: 0, y: mid },
+        { x: HIGHLIGHT, y: mid },
+        { id: `${sid}-divhi`, stroke: tones[1], "stroke-width": 5, "stroke-linecap": "round" },
+      )
+    : line(
+        { x: mid, y: 0 },
+        { x: mid, y: HIGHLIGHT },
+        { id: `${sid}-divhi`, stroke: tones[1], "stroke-width": 5, "stroke-linecap": "round" },
+      );
+
   const note = p.note ? `\n<div class="sc-note" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html = `${chrome(sid, p.eyebrow, p.headline, W)}
-<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join(""))}</div>${note}`;
+<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`;
 
   const at = [1.15, 2.05];
   const tl = [
@@ -378,7 +402,36 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
         t,
       ),
     );
-    if (i > 0) tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
+    if (i > 0) {
+      tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
+      // The comparison exists once both halves are there, so the divider runs
+      // exactly then: it is the only element on the slide that belongs to
+      // neither side.
+      const span = (tall ? W : H) - HIGHLIGHT;
+      tl.push(
+        tween(`#${sid}-divhi`, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t),
+        ...travel(
+          `#${sid}-divhi`,
+          tall
+            ? [
+                { x: 0, y: 0 },
+                { x: span, y: 0 },
+              ]
+            : [
+                { x: 0, y: 0 },
+                { x: 0, y: span },
+              ],
+          t,
+          0.9,
+        ),
+        tween(
+          `#${sid}-divhi`,
+          { opacity: 1 },
+          { opacity: 0, duration: 0.3, immediateRender: false },
+          t + 0.9,
+        ),
+      );
+    }
     holds.push(t + 0.8);
   });
 

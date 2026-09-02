@@ -54,6 +54,8 @@ decksmith-pack-*/
 decksmith-plan-*/
 decksmith-server-*/
 ds-images-*/
+# render.test.ts writes a playback dir per case and does not clean up after itself
+ds-playback-*/
 ds-mcp-*/
 ds-prov-*/
 hf-*/

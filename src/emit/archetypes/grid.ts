@@ -21,6 +21,8 @@ import {
   id,
   line,
   n,
+  nv,
+  rect,
   roundRect,
   svg,
   text,
@@ -367,11 +369,26 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     parts[`rgn${i}`] = r.label;
     const b = boxes[i] ?? { x: fx, y: fy, w: f.cell, h: f.cell };
     const tone = theme.tones[r.tone];
+    // TWO elements per region, not one: the outline is stroked and draws
+    // itself, and the tint is a SECOND rect clipped by a slot that opens across
+    // the region. One element cannot do both — `fill-opacity` fades the whole
+    // area at once, which says "this area is special" without saying anything
+    // about the direction it was read in. The window sweeping the field is the
+    // archetype's own verb, and until now only its outline moved.
     rects.push(
+      `<defs><clipPath id="${id(sid, "rgnclip", i)}">` +
+        `${rect({ x: b.x, y: b.y, w: 0, h: b.h }, { id: id(sid, "sweep", i) })}` +
+        `</clipPath></defs>` +
+        roundRect(b, corner, {
+          class: "gfill",
+          id: id(sid, "fill", i),
+          fill: tone,
+          "clip-path": `url(#${id(sid, "rgnclip", i)})`,
+        }),
       roundRect(b, corner, {
         class: "grgn",
         id: id(sid, "rgn", i),
-        fill: tone,
+        fill: "none",
         stroke: tone,
         "stroke-width": n(stroke),
       }),
@@ -495,7 +512,8 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   tl.push(...dimCells);
   p.regions.forEach((_, i) => {
     const at = first + i * step;
-    const len = perimeter(boxes[i] ?? { x: 0, y: 0, w: 0, h: 0 });
+    const b = boxes[i] ?? { x: 0, y: 0, w: 0, h: 0 };
+    const len = perimeter(b);
     tl.push(
       tween(
         `#${id(sid, "rgn", i)}`,
@@ -503,10 +521,14 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
         { strokeDashoffset: 0, duration: 0.6, ease: "power2.inOut" },
         at,
       ),
+      // The tint arrives as a slot opening left to right across the region,
+      // which is what a window moving over a field looks like. `attr.width` on
+      // the clip rect: a transform would scale the tint's own geometry, and a
+      // clip moves what is VISIBLE without moving anything drawn.
       tween(
-        `#${id(sid, "rgn", i)}`,
-        { fillOpacity: 0 },
-        { fillOpacity: 0.18, duration: 0.45 },
+        `#${id(sid, "sweep", i)}`,
+        { attr: { width: 0 } },
+        { attr: { width: nv(b.w) }, duration: 0.5, ease: "power2.out" },
         at + 0.35,
       ),
     );
@@ -572,6 +594,9 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
       // `fill-opacity` and the dash offset are what the reveal animates; the
       // stylesheet holds the pre-reveal state so a still render is a bare field.
       ".grgn{fill-opacity:0;stroke-linejoin:round}",
+      // The tint sits at its final strength from the start; what animates is how
+      // much of it the clip lets through.
+      ".gfill{fill-opacity:0.18}",
       // Subordinate to both the region it leaves and the label it arrives at: a
       // leader that competes with them is a line across the diagram for nothing.
       ".glead{stroke-width:3;stroke-linecap:round;opacity:.62}",
