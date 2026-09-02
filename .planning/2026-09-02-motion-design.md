@@ -137,55 +137,43 @@ over wrong output. Routes are now relative, and the probe's dot is its anchor.
   title's word-by-word reveal; the `pace` test proves the stagger scales with
   `animationSpeed`.
 
-## PR 2 — focus camera per hold (shell + kit + check)
+## PR 2 — focus camera per hold: TRIED, AND REFUSED ON EVIDENCE
 
-**What:** at each hold whose reveal named a part, the content region glides so
-that part fills more of the frame, then rests; the next reveal glides on. The
-headline and eyebrow never move (ARCHITECTURE-CANVAS: content region only,
-landing k 1.55–1.75; here capped at **1.6**).
+**Status: not built, and should not be built as specified.** A working prototype
+was written and measured on 2026-09-02; what it measured is why it was reverted.
 
-**Where the target comes from:** the SVG archetypes (pipeline, grid, stack,
-bar-compare, line-chart, split-compare) know every part's rect at emit time in
-reference px, so they return `Scene.focus?: { hold: number; rect: Rect }[]` —
-no SEAM B measurement. HTML archetypes return none in this PR.
+The design above proposed gliding the content region so the part being spoken
+about fills more of the frame. Built as `focusOn` in `kit.ts` and wired into
+`pipeline`, it produced two findings:
 
-**Shell:** when a scene has `focus`, `composition.ts` wraps the content region
-(the emitter's `#<sid>-<svg>` root) in `<div class="ds-focus">`
-(`transform-origin: 50% 50%`, `position: relative`) and appends, per focus
-entry, two `fromTo`s on `#<sid> .ds-focus` — `scale` and `x,y` — starting
-0.8 s before the hold (or at the reveal's `at`, whichever is later) and landing
-at the hold, `immediateRender: false` after the first, each `from` equal to the
-previous `to`. `k = clamp(0.55 · min(W/w, H/h), 1, 1.6)`; below 1.12 the entry
-is skipped (a glide that small reads as jitter). Eases: `power2.inOut` (k ≤ 1.6
-does not need the log-space ease the dive uses). Times are pre-multiplied by
-`speed` like the dive's.
+1. **A "fill both axes" rule never fires on the diagrams that need it.** A
+   pipeline's row is exactly as tall as its boxes, so the largest zoom that keeps
+   the box inside the frame is `k = 1.01` — no move at all. Every archetype sizes
+   its diagram to `contentW` by construction, so the same is true of most of them.
+2. **A width-driven rule fires, and turns the layout gate red.** At `k = 1.45`
+   the demo's pipeline reported six `canvas_overflow` errors — stage labels
+   pushed outside the canvas at `t=10.35s` and `t=11.75s`. The deck went from
+   PASS to FAIL.
 
-**Gates:** `check.ts` regrades `canvas_overflow` / `panel_out_of_canvas` /
-`text_occluded` to error unless inside a `data-ds-transit` window; a focused
-scene declares `data-ds-focus="t0-t1"` for the span from its first glide to its
-end, and those three findings inside it become `info`, the same mechanism as
-transit. The type floor still checks declared sizes at every stop; the fidelity
-ink floor still looks at frames.
+The second is the real objection, and it is not a tuning problem. `check.ts`
+regrades `canvas_overflow` to an error unless the sample lies inside a
+`data-ds-transit` window, and that exemption exists for the DIVE, whose flight is
+transient and whose landing is a full frame. A focus glide is different in kind:
+it holds at zoom, so the exempted frames are **settled frames with content
+cropped**, which is the thing the gate is for. Buying this feature costs the
+project its most valuable layout check, on the archetypes where diagrams are
+densest.
 
-**Interplay with the dive:** a scene that is dived into already carries the
-`.ds-zoom > .ds-pan` rig; the focus wrapper sits inside the plate, and the last
-focus entry restores to k = 1 before the dive's `t0` so the two never overlap
-in time (no `overlapping_gsap_tweens`).
+`.planning/ARCHITECTURE-CANVAS.md` records a zoom ceiling of 1.127 for a
+cropping camera and treats "elements not under discussion may leave the frame"
+as a decision to be made deliberately, not a side effect of a feature.
 
-**Deck page:** glides are inside steps ≤ 2.5 s, so stepping plays them;
-backward steps cut, as today; reduced motion cuts, as today.
-
-### Tests (PR 2)
-
-- `focus` rects inside the content box; k within [1.12, 1.6]; glide never
-  overlaps another tween on the wrapper; last glide restores before a dive;
-  `data-ds-focus` window covers every glide; `check` regrade unit test.
-
-### Verification (PR 2)
-
-- Filmstrip again; a two-render `drift` on the demo (psnr mode) to prove the
-  glide is deterministic; `verify` clean on three themes; look at a seam where a
-  focused scene hands off to a dive.
+**What to do instead, if this is wanted:** make the crop a decision rather than
+an exemption — an explicit safe box the archetype guarantees (a diagram that
+draws itself into 80% of the content box has 1.25x of camera for free, with
+nothing to crop), or emphasis without a camera (the focused part holds its size
+while its neighbours ease down). Both are additive to PR 1 and neither needs the
+gate to look away.
 
 ## Not in scope
 
