@@ -291,8 +291,10 @@ describe("parseOptions", () => {
     const on = parseOptions({ images: "on" });
     expect(on.images).toBe(true);
     expect(on.prefs.images.enabled).toBe(true);
-    // Provider, style and model are the deployment's, never the form's.
-    expect(on.prefs.images.provider).toBe("auto");
+    // Provider, style and model are the deployment's, never the form's — and the
+    // deployment's default is the Codex account, so a form that ticks the box
+    // cannot reach a metered backend without someone naming it on the server.
+    expect(on.prefs.images.provider).toBe("codex");
     expect(parseOptions({ images: "false" }).prefs.images.enabled).toBe(false);
     expect(() => parseOptions({ images: "maybe" })).toThrow(/yes or no/);
   });

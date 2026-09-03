@@ -274,7 +274,7 @@ describe("prefsSchema.images", () => {
     // read fully populated rather than as `{}`.
     expect(prefsSchema.parse({}).images).toEqual({
       enabled: false,
-      provider: "auto",
+      provider: "codex",
       style: "flat vector illustration",
       max: 4,
     });

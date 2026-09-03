@@ -530,7 +530,7 @@ invalidates a storyboard you have already edited.
 | `narration.pitch` | `+0Hz` | narrate | edge-tts prosody |
 | `narration.subtitles` | `true` | narrate | write subtitle cues alongside the audio |
 | `images.enabled` | `false` | plan, illustrate | the planner may ask for a picture where no figure fits |
-| `images.provider` | `auto` | illustrate | `auto` · `codex` · `svg` — where the chain of rungs starts |
+| `images.provider` | `codex` | illustrate | `auto` · `codex` · `svg` — where the chain of rungs starts |
 | `images.model` | unset | illustrate | model for the separate backend only; the Codex rung uses the account's own |
 | `images.style` | `flat vector illustration` | illustrate | one phrase folded into every picture prompt |
 | `images.max` | `4` | illustrate | most pictures drawn through the chain; the rest are the tool's SVG |
@@ -556,7 +556,7 @@ governs a deck built from a subdirectory without anyone naming a path.
   },
   "images": {
     "enabled": true,
-    "provider": "auto",
+    "provider": "codex",
     "style": "woodcut, two colours",
     "max": 4
   }
@@ -662,7 +662,8 @@ picture builds exactly as it always did, byte for byte.
 
 Three rungs, tried in order, and every hop down is printed rather than swallowed:
 
-1. **A separate image backend**, if you configured one. `DECKSMITH_IMAGES=openai` names
+1. **A separate image backend**, if you configured one AND asked for it with
+   `--image-provider auto`. `DECKSMITH_IMAGES=openai` names
    any OpenAI-compatible `images/generations` endpoint (`DECKSMITH_IMAGES_BASE_URL`,
    default `https://api.openai.com/v1` — LocalAI and gateways speak it too),
    `DECKSMITH_IMAGES_API_KEY` is the key, and `DECKSMITH_IMAGES_MODEL` overrides the model
@@ -673,7 +674,12 @@ Three rungs, tried in order, and every hop down is printed rather than swallowed
 2. **The Codex account that planned the deck.** Codex 0.149 ships `image_generation` as a
    stable feature, so the same `codex exec` that wrote the storyboard can draw a PNG.
    `illustrate` runs it in a scratch directory it cannot write outside of and reads the
-   picture back. An account without the tool says so, once, and the run falls through.
+   picture back — and checks it: the agent looks at what it drew, redraws once if the
+   picture has letters, words or numbers in it, and refuses rather than handing back a
+   picture with text. **Nothing downstream can see text inside a picture** — the 40px
+   audience floor measures the document's own text — so the check happens where the
+   image and an eye are in the same place, and a refusal simply falls to the next rung.
+   An account without the image tool says so, once, and the run falls through too.
    Which ACCOUNT is the shell's business, not the deck's: `codex exec` inherits the
    environment, so `CODEX_HOME=~/.codex-other decksmith illustrate …` draws on that home.
    Note that Codex keeps its own copy of every picture it makes, under
@@ -683,8 +689,11 @@ Three rungs, tried in order, and every hop down is printed rather than swallowed
 3. **An SVG the tool draws itself**: a deterministic, text-free composition seeded from
    the brief. It cannot fail, so `illustrate` always finishes.
 
-`images.provider` says where the chain starts: `auto` is all three, `codex` skips the
-backend, and `svg` is the tool alone — no network, no spend, and a deck whose every
+`images.provider` says where the chain starts. **`codex` is the default** — the account
+that planned the deck draws the picture, and falls through to the tool's SVG; a metered
+backend is never reached unless you ask for it, because a default should not be the
+branch that spends money. `auto` puts a configured backend in front, and `svg` is the
+tool alone — no network, no spend, and a deck whose every
 picture is reproducible. A rung that fails is not asked again in the same run, so an
 account with no image tool pays one `codex exec` to find out, not one per picture.
 
