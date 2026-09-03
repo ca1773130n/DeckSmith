@@ -272,6 +272,28 @@ describe("codexImages", () => {
     expect(existsSync(args?.cwd as string)).toBe(false);
   });
 
+  it("tells the agent to check its own picture for text and to refuse one that has it", async () => {
+    const { run, seen } = account({ ok: true, file: "picture.png", reason: null }, TINY_PNG);
+    await codexImages({ run }).generate(req);
+    const prompt = seen[0]?.prompt ?? "";
+    // The instruction that closes the gap nothing downstream can see: a raster's
+    // text is invisible to the 40px floor, so the agent is the gate.
+    expect(prompt).toContain("LOOK at ./picture.png");
+    expect(prompt).toContain("words, numbers, labels, captions, watermarks or signage");
+    expect(prompt).toContain("generate it once more with the");
+    expect(prompt).toContain('"text in picture"');
+  });
+
+  it("lets a picture that keeps coming back with text fall through to the next rung", async () => {
+    // What the agent answers when its second attempt still has words in it. The
+    // rung fails, which is the point: `illustrate` moves on, and the tool's own
+    // SVG has no text by construction.
+    const { run } = account({ ok: false, file: null, reason: "text in picture" });
+    await expect(codexImages({ run }).generate(req)).rejects.toThrow(
+      "codex could not generate a picture: text in picture",
+    );
+  });
+
   it("reports the account's own reason when it has no image tool", async () => {
     const { run, seen } = account({
       ok: false,
