@@ -109,9 +109,31 @@ export function assertRefsResolve(
       case "equation-walk":
         check(beat, "equation", beat.params.equationId, "params.equationId");
         break;
-      case "data-table":
+      case "data-table": {
         check(beat, "table", beat.params.tableId, "params.tableId");
+        // `rows` and `highlight[].row` are references too — they name rows of
+        // that table by their first-column value, exactly as `figureId` names a
+        // figure. A mistyped label used to pass every plan-time gate and surface
+        // as an emitter throw at BUILD, which drops the beat: the deck loses a
+        // slide and the author is told by a line in a build log. A dangling id
+        // belongs here, with the others, before anything is spent on it.
+        const table = source.tables.find((t) => t.id === beat.params.tableId);
+        if (table) {
+          const labels = new Set(table.rows.map((row) => row[0]));
+          const named = [
+            ...(beat.params.rows ?? []).map((row, i) => [row, `params.rows[${i}]`] as const),
+            ...beat.params.highlight.map((h, i) => [h.row, `params.highlight[${i}].row`] as const),
+          ];
+          for (const [row, where] of named) {
+            if (!labels.has(row)) {
+              dangling.push(
+                `beat "${beat.id}" ${where}: no row labelled "${row}" in table "${table.id}"`,
+              );
+            }
+          }
+        }
         break;
+      }
       case "annotated-figure":
         check(beat, "figure", beat.params.figureId, "params.figureId");
         break;

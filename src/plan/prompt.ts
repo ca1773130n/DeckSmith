@@ -136,11 +136,11 @@ DRAWING ARCHETYPES — reach here first
 
   bar-compare    Two to eight bars grown from zero in order. The tell: NAMED
                  THINGS MEASURED IN ONE UNIT — speedups, parameter counts, scores,
-                 latencies, costs. Whenever the numbers share a unit, use this
-                 rather than data-table: a length the eye compares lands faster
-                 than a figure it has to read. If the labels are steps along an
-                 axis rather than names — epochs, sizes, sequence lengths — that
-                 is line-chart.
+                 latencies, costs. It is for MAGNITUDES THE EYE COMPARES: the
+                 point of the beat is which one is bigger and by how much, and a
+                 length carries that where a figure has to be read. If the labels
+                 are steps along an axis rather than names — epochs, sizes,
+                 sequence lengths — that is line-chart.
 
   stack          Two to seven layers drawn bottom-up as offset planes. The tell:
                  SOMETHING BUILT ON SOMETHING — a layered architecture, a protocol,
@@ -196,19 +196,25 @@ DESCRIBING ARCHETYPES — the fallbacks
                  to the part that matters it says more still. params.figureId
                  must name a figure in the inventory.
 
-  data-table     A table with up to four rows revealed and toned. The tell: CELLS
-                 THAT MUST BE READ RATHER THAN COMPARED — mixed units, text
-                 values, a matrix the reader must scan. If it is one column of
-                 numbers in one unit, that is bar-compare. It draws EVERY row of
-                 the table it names and cannot show a subset. Five to seven rows
-                 is what a 16:9 slide holds — fewer under a long headline or a
-                 two-line note, more in portrait or where wider columns set the
-                 type smaller — and a table that does not fit is refused rather
-                 than shrunk, which fails the build. For a longer one, take the
-                 column that carries the argument to bar-compare, or cite it
-                 under another archetype. params.tableId must name a table, and
-                 each highlight[].row must match one of that table's first-column
-                 values exactly.
+  data-table     A table from the source, with up to four of its rows toned and
+                 held in turn. The tell: CELLS THAT MUST BE READ RATHER THAN
+                 COMPARED — mixed units, text values, a decision matrix, an
+                 ablation whose columns are not one quantity. The viewer READS a
+                 cell here rather than measuring it against the cell beside it,
+                 and a table of text values is this archetype however long the
+                 table is.
+                 SO NAME THE ROWS THAT CARRY THE ARGUMENT, in \`rows\` —
+                 first-column values, the same way highlight names them. The
+                 slide then draws those rows and states on itself how many it
+                 left out, which is what lets a twenty-row table be cited as the
+                 four rows it is being cited for. Without \`rows\` every row is
+                 drawn, which a 16:9 slide holds five to seven of: fewer under a
+                 long headline or a two-line note, more in portrait or where
+                 wider columns set the type smaller. A table that fits neither
+                 whole nor as the rows you named is refused rather than shrunk,
+                 which fails the build. params.tableId must name a table, and
+                 each rows[] and highlight[].row must match one of that table's
+                 first-column values exactly.
 
   callout        One to three short panels. The tell: STRUCTURE WITH NO SHAPE AT
                  ALL — a definition, the limitations the source admits to. The
@@ -702,8 +708,11 @@ export function renderSource(source: Source): string {
   for (const t of source.tables) {
     out.push(`[table ${t.id}] ${t.caption ?? "(no caption)"}`);
     out.push(`  columns: ${t.columns.join(" | ")}`);
-    // Rows are rendered in full: `data-table.highlight[].row` must match a
-    // first-column value verbatim, so the model has to see them to cite them.
+    // Rows are rendered in full: `data-table.rows` and `highlight[].row` both
+    // match a first-column value verbatim, so the model has to see every row in
+    // order to name the ones its beat draws. Printing all of them is what makes
+    // a table longer than a slide usable rather than merely visible — the subset
+    // is chosen from what is listed here.
     for (const row of t.rows) out.push(`  row: ${row.join(" | ")}`);
   }
   if (!source.tables.length) out.push("(none — no data-table beat is possible)");

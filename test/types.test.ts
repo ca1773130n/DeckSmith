@@ -11,6 +11,7 @@ import {
   canvasProblem,
   canvasWarnings,
   claimFigureParamsSchema,
+  dataTableParamsSchema,
   FORMATS,
   type Format,
   isCustom,
@@ -265,6 +266,35 @@ describe("illustration slots", () => {
     expect(side({ illustration: brief })).toBe(true);
     expect(side({ lines: ["y"] })).toBe(true);
     expect(side({ figureId: "f", illustration: brief })).toBe(true);
+  });
+});
+
+/**
+ * `data-table.rows` is a subset, and like the illustration slots it is OPTIONAL
+ * because every plan under `experiments/` predates it. A field that a stored
+ * plan has to grow in order to keep validating is a field that invalidates the
+ * archive, and the archive is what `drift` compares against.
+ */
+describe("data-table row selection", () => {
+  const base = { headline: "H", tableId: "t", highlight: [] };
+
+  it("validates a beat that names no subset, exactly as before", () => {
+    const parsed = dataTableParamsSchema.safeParse(base);
+    expect(parsed.success).toBe(true);
+    // Absent, not defaulted to every row or to none: the emitter reads the
+    // difference between "not asked" and "asked for nothing".
+    expect(parsed.success ? "rows" in parsed.data : true).toBe(false);
+  });
+
+  it("takes row labels, and refuses a subset that names nothing", () => {
+    expect(dataTableParamsSchema.safeParse({ ...base, rows: ["EDSR", "SwinIR"] }).success).toBe(
+      true,
+    );
+    // An empty array is a beat asking for a table with no rows in it, which is
+    // a mistake rather than a whole table.
+    const empty = dataTableParamsSchema.safeParse({ ...base, rows: [] });
+    expect(empty.success).toBe(false);
+    expect(empty.success ? [] : empty.error.issues.map((i) => i.path)).toEqual([["rows"]]);
   });
 });
 

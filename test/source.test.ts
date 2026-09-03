@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { imageSize } from "../src/source/assets.js";
 import { familyFor } from "../src/source/fonts.js";
@@ -97,56 +99,86 @@ describe("parseMarkdown", () => {
  * knows about what a picture is FOR. The failure they close was measured: shown
  * only "1373x381 — Figure 2", a real run redrew the paper's architecture as a
  * synthetic pipeline and left the architecture figure unused.
+ *
+ * One document rather than a string per case, because every answer here depends
+ * on what SURROUNDS the figure — the heading above it, the paragraphs either
+ * side of it, and the numbers in every other caption, any of which can capture a
+ * mention that belongs to its neighbour. Five positions in one file is the only
+ * shape of this test that can go wrong the way a real ingest does.
  */
 describe("parseMarkdown and the prose around a figure", () => {
-  const REFERENCED = `# Method
+  const src = parseMarkdown(
+    readFileSync(fileURLToPath(new URL("./fixtures/figure-mentions.md", import.meta.url)), "utf8"),
+  );
 
-Figure 1 shows the encoder and the decoder either side of the loop.
+  /** A figure's two placement fields, with the heading its section id resolves to
+   *  — the id alone would pass while pointing at the wrong part of the argument. */
+  const placed = (id: string) => {
+    const figure = src.figures.find((f) => f.id === id);
+    return {
+      sectionId: figure?.sectionId,
+      heading: src.sections.find((s) => s.id === figure?.sectionId)?.heading,
+      mention: figure?.mention,
+    };
+  };
 
-![arch](arch.png)
-
-*Figure 1 — The architecture end to end.*
-
-Nothing after this refers to it.
-
-## Results
-
-The error concentrates on edges, which the map below makes obvious.
-
-![err](err.png)
-
-*Absolute error maps.*
-`;
-  const src = parseMarkdown(REFERENCED);
-
-  it("takes the paragraph that names the figure, wherever it sits", () => {
-    expect(src.figures[0]?.sectionId).toBe("sec1");
-    expect(src.figures[0]?.mention).toBe(
-      "Figure 1 shows the encoder and the decoder either side of the loop.",
-    );
+  it("lifts every image in document order", () => {
+    expect(src.figures.map((f) => f.id)).toEqual(["fig1", "fig2", "fig3", "fig4", "fig5"]);
   });
 
-  it("falls back to the paragraph in front of an unnamed figure", () => {
-    // No number in "Absolute error maps.", so there is nothing to match on and
-    // position is all that is left.
-    expect(src.figures[1]?.sectionId).toBe("sec2");
-    expect(src.figures[1]?.mention).toBe(
-      "The error concentrates on edges, which the map below makes obvious.",
-    );
+  it("puts a figure that opens the document into the preamble section", () => {
+    // Nothing is open when the image is lifted, so its section cannot be named
+    // then — the flush at the first heading creates the headingless preamble and
+    // the second pass names it. A document that opens with its hero figure used
+    // to lose that figure's placement entirely.
+    expect(src.sections[0]).toMatchObject({ id: "sec1", heading: "" });
+    expect(placed("fig1")).toEqual({
+      sectionId: "sec1",
+      heading: "",
+      mention: "Figure 1 is the map for everything the rest of this document says.",
+    });
   });
 
   it("reads a reference that only appears after the image", () => {
-    const after = parseMarkdown(`# Method
+    expect(placed("fig2")).toEqual({
+      sectionId: "sec3",
+      heading: "Method",
+      mention: "Figure 2 shows the compact state above and the dense carrier below.",
+    });
+  });
 
-![arch](arch.png)
+  it("prefers the naming paragraph in front, and reads longhand off an abbreviated caption", () => {
+    // Caption "Fig. 3", prose "Figure 3": the name is expanded to match either
+    // spelling, because a paper abbreviates in one place and not the other.
+    expect(placed("fig3")).toEqual({
+      sectionId: "sec4",
+      heading: "Results",
+      mention: "Figure 3 is the sweep, and it is why training stopped at four ticks.",
+    });
+  });
 
-*Fig. 3 — The architecture.*
+  it("falls back to the paragraph in front of an unnamed figure", () => {
+    // No number in "Absolute-error maps on three crops.", so there is nothing to
+    // match on and position is all that is left. It shares a section with fig3
+    // and must take the nearer paragraph, not that figure's.
+    expect(placed("fig4")).toEqual({
+      sectionId: "sec4",
+      heading: "Results",
+      mention: "The error concentrates on edges, which the maps below make obvious.",
+    });
+  });
 
-The loop in Figure 3 runs in place rather than around the pipeline.
-`);
-    expect(after.figures[0]?.mention).toBe(
-      "The loop in Figure 3 runs in place rather than around the pipeline.",
-    );
+  it("says nothing about a figure the document never refers to", () => {
+    // It opens its section, so the positional fallback has nothing to offer
+    // WITHIN that section — and the paragraphs above the heading are about
+    // something else, which is why the fallback is bounded by the section at
+    // all. Absent is the honest answer; borrowing a neighbour's sentence would
+    // tell the planner a picture is for something it is not.
+    expect(placed("fig5")).toEqual({
+      sectionId: "sec5",
+      heading: "Appendix",
+      mention: undefined,
+    });
   });
 });
 
