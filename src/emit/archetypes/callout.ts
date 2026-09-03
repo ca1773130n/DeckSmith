@@ -4,7 +4,7 @@
  * was actually tested. Panels appear one at a time so each can be spoken to.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc, spotlighter } from "../kit.js";
+import { contentW, esc, lift, settle, spotlighter } from "../kit.js";
 import { wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
@@ -145,7 +145,11 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
         at + 0.18,
       ),
     );
-    if (i > 0) tl.push(...spot.dim(`p${i - 1}`, at + 0.15));
+    const emph = Math.min(0.4, step / 2);
+    if (i > 0) {
+      tl.push(...spot.dim(`p${i - 1}`, at + 0.15), settle(`#${sid}-p${i - 1}`, at, emph));
+    }
+    tl.push(lift(`#${sid}-p${i}`, at, emph));
     holds.push(at + 0.65);
   });
 

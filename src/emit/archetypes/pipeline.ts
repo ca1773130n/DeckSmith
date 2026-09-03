@@ -735,6 +735,10 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
         at,
       ),
     );
+    // NO LIFT HERE, and it was tried: `pipeLayout` solves the boxes to fill the
+    // content width, so there is no room to grow one — 3% of a 383px box is
+    // 11px past an edge with 2px of margin, and `container_overflow` reported
+    // exactly that on the last stage. The dim carries the emphasis instead.
     if (i > 0) tl.push(...spot.dim(`stage${i - 1}`, at + 0.1));
     holds.push(at + 0.55);
   });
