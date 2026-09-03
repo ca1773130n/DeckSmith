@@ -60,6 +60,35 @@ const GAP = 44;
 /** The index numerals get their own left spine; `NUM_X` is their right edge. */
 const NUM_X = 48;
 
+/**
+ * How much of the label column is left unmeasured, for the difference between
+ * the width model and the font the browser actually draws.
+ *
+ * MEASURED, and it is a symptom rather than the disease. "크기·대비·선택·자막·번역
+ * 검사" at the 40px floor: `textWidth` says 507.6px, Chrome draws 522 — 2.8%
+ * light. The model charges a Hangul syllable 0.927em, which was measured against
+ * a full em and is closer than it was, and is still short for a run carrying
+ * middle dots. So a note the layout believed fit its 520px column drew past the
+ * svg's edge, and `container_overflow` reported it at a hold.
+ *
+ * 24px is that error at this column with room to spare, and it is spent ONLY on
+ * text that actually contains the script the model is light on — an English
+ * stack pays nothing, keeps its column, and stays byte-identical. Spending it
+ * unconditionally cost the seven-layer English fixture its fit and refused a
+ * slide that draws perfectly well.
+ *
+ * THE REAL FIX IS THE
+ * METRIC, not this constant: `textWidth`'s Hangul advance is shared by every
+ * archetype, and every one of them that measures to the edge of its own box has
+ * this bug waiting. Correcting it makes every CJK line measure ~3% wider, which
+ * only ever wraps sooner or refuses sooner — never overflows — but it re-flows
+ * every CJK deck, so it is its own change with its own before-and-after.
+ */
+const GLYPH_SLACK = 24;
+
+/** Hangul, kana, and the CJK ideographs — the ranges `textWidth` reads light on. */
+const CJK = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
+
 /** The probe's spine, left of the numerals, and how tall its rule stands. */
 const PROBE_X = 16;
 const PROBE_H = 46;
@@ -96,8 +125,21 @@ export interface StackLayout {
    * fitted and the caller is looking at the least-bad one.
    */
   fits: boolean;
+  /**
+   * Whether the label column is as wide as its content needs.
+   *
+   * `fits` is a HEIGHT test and was the only test: `colW` is clamped to
+   * `colCap`, so a column whose content wants more simply overflows, and an
+   * inline note is drawn with no `maxWidth` at all — one unwrapped line that
+   * runs off the slide. A Korean note did exactly that ("크기·대비·선택·자막·번역
+   * 검사" at the 40px floor), and the only thing that noticed was
+   * `container_overflow` at a hold, after a browser had laid the deck out.
+   */
+  wide: boolean;
   /** Notes set beside their label rather than beneath it. See `stackLayout`. */
   inline: boolean;
+  /** Width held back from the column for the metric's CJK error. See `GLYPH_SLACK`. */
+  slack: number;
   /** The svg's own box. `width` is the full content column. */
   width: number;
   height: number;
@@ -152,7 +194,12 @@ export function stackLayout(p: Params, format: Format): StackLayout {
   const stacked = solve(p, format, false);
   if (stacked.fits || !p.layers.some((l) => l.note)) return stacked;
   const inline = solve(p, format, true);
-  return inline.fits || inline.blockH < stacked.blockH ? inline : stacked;
+  if (inline.fits) return inline;
+  // Neither composition fits. Prefer the shorter one — but only if its width is
+  // honest: an inline layout is often shorter precisely BECAUSE its note is a
+  // single unwrapped line, and choosing it then trades a vertical overflow the
+  // reader can see for a horizontal one that leaves the canvas.
+  return inline.wide && inline.blockH < stacked.blockH ? inline : stacked;
 }
 
 /**
@@ -190,6 +237,13 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
   );
   const colCap = inline ? width * 0.56 : width * 0.5;
   const colW = clamp(Math.ceil(want) + 12, Math.min(520, width * 0.34), colCap);
+  // STACKED always fits its width: both label and note are wrapped to `colW`,
+  // and `wrap` breaks per character when a run has no spaces — which is most
+  // Korean. INLINE cannot: its note is one line, drawn with no maxWidth, so the
+  // column has to be genuinely wide enough or the note leaves the slide.
+  const wide = !inline || Math.ceil(want) + 12 <= colCap;
+  // Paid only by the script that needs it. See `GLYPH_SLACK`.
+  const slack = p.layers.some((l) => CJK.test(l.label) || CJK.test(l.note ?? "")) ? GLYPH_SLACK : 0;
   const labelX = width - colW;
 
   // Notes are set at the floor and never shrink; the label gives way first,
@@ -203,12 +257,24 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
 
   const lines = p.layers.map((l, i) => {
     const nw = noteW(l);
-    const labelMaxW = Math.max(labelSize, colW - nw);
+    // Same GLYPH_SLACK as the note below, and for the same 2px: the label is the
+    // wider of the two and is what actually ran past the edge.
+    const labelMaxW = Math.max(labelSize, colW - nw - slack);
     return {
       label: wrap(l.label, labelSize, labelMaxW, labelWeight(i, count)),
       // Inline notes stay on one line by contract — the schema calls a note "one
       // short line" — and wrapping one would put its second line under the label.
-      note: l.note === undefined ? [] : inline ? [l.note] : wrap(l.note, MIN_FONT, colW, 400),
+      note:
+        l.note === undefined
+          ? []
+          : inline
+            ? [l.note]
+            : // GLYPH_SLACK, not `colW`: `textWidth` is a model, and for Korean it
+              // reads a shade narrow — a note wrapped to exactly `colW` drew 2px
+              // past the svg's right edge and `container_overflow` reported it at
+              // a hold. Two pixels is not worth a wider column; it is worth not
+              // measuring right up to the edge.
+              wrap(l.note, MIN_FONT, colW - slack, 400),
       noteW: nw,
       labelMaxW,
     };
@@ -250,8 +316,12 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
 
   return {
     // A rise shorter than a label block prints the note through the label below.
-    fits: room >= blockH + 10 && height <= free,
+    // BOTH directions. A layout that fits the height and not the width is not a
+    // layout that fits; it is one whose overflow is in the axis nothing measured.
+    fits: room >= blockH + 10 && height <= free && wide,
+    wide,
     inline,
+    slack,
     width,
     height,
     avail,
@@ -300,6 +370,31 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
   const L = stackLayout(p, ctx.format);
   const count = p.layers.length;
   const last = count - 1;
+
+  // REFUSED RATHER THAN DRAWN OVERLAPPING.
+  //
+  // `stackLayout` has always computed `fits` and, until now, only ever used it
+  // to choose between the two compositions. When NEITHER fits it returned the
+  // better of two bad layouts and this emitter drew it: the rise is clamped, and
+  // the notes print through the label below — which is the failure the layout
+  // comment at the top of this file describes in those exact words, arriving
+  // anyway because nothing acted on the flag.
+  //
+  // It reached a real deck the moment a Korean document was planned: five layers
+  // each carrying a note, `svg_text_overprint` reporting four overlapping pairs
+  // on one slide. Every other archetype here already refuses rather than overflow
+  // — data-table, callout, split-compare, claim-figure — and `onBeatError` turns
+  // a refusal into one dropped slide with a printed reason instead of a deck
+  // that ships text through text.
+  if (!L.fits) {
+    throw new Error(
+      `stack ${beat.id}: ${count} layers with ${p.layers.filter((l) => l.note).length} note(s) ` +
+        `need ${Math.round(L.blockH)}px of label block against ${Math.round(L.avail)}px of room, ` +
+        `at the ${MIN_FONT}px floor and with the notes already moved beside their labels. ` +
+        `Nothing here may be set smaller, so the lever is upstream of this beat: ` +
+        `drop a layer, or shorten the notes.`,
+    );
+  }
 
   // What a camera aimed at `layN` would land on. Written in the same loop that
   // gives the slab its id, so the label and the index it is filed under cannot
@@ -363,7 +458,12 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
                 size: MIN_FONT,
                 fill: theme.muted,
                 anchor: L.inline ? "end" : "start",
-                maxWidth: L.inline ? undefined : L.colW,
+                // The SAME width the layout wrapped this note to. Passing
+                // `L.colW` here re-wrapped it a shade wider than the layout had
+                // measured, so the slack the layout left went unused and the
+                // last line still ran past the box — the layout and the drawing
+                // must agree about the measure or only one of them is real.
+                maxWidth: L.inline ? undefined : L.colW - L.slack,
                 lineHeight: 1.16,
                 vAlign: "middle",
               },

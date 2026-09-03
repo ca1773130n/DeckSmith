@@ -215,6 +215,16 @@ DESCRIBING ARCHETYPES — the fallbacks
                  which fails the build. params.tableId must name a table, and
                  each rows[] and highlight[].row must match one of that table's
                  first-column values exactly.
+                 THE CELLS MUST BE SHORT, and this is the constraint that
+                 actually decides whether a table can be drawn. Cells do not
+                 wrap — a table whose cells wrap has stopped being scannable —
+                 and nothing is set below the 40px floor, so ONE ROW's
+                 cells together have about 80 characters across four columns,
+                 fewer across more. \`rows\` buys height, never width: naming four
+                 rows of a table whose cells are sentences refuses just as the
+                 whole table does. A matrix of phrases is this archetype; a
+                 matrix of sentences is callout panels, or split-compare, or a
+                 claim in the words the row would have used.
 
   callout        One to three short panels. The tell: STRUCTURE WITH NO SHAPE AT
                  ALL — a definition, the limitations the source admits to. The

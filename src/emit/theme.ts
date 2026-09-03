@@ -37,7 +37,8 @@ export {
 } from "./themes/index.js";
 
 /** Where `ingest` writes the subsetted font bundle, relative to the deck. */
-export const FONT_BUNDLE_HREF = "assets/fonts/fonts.css";
+export const FONT_BUNDLE_DIR = "assets/fonts";
+export const FONT_BUNDLE_HREF = `${FONT_BUNDLE_DIR}/fonts.css`;
 
 /**
  * The two ambient motions, and the gate that keeps them out of a render.
