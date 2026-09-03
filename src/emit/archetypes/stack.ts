@@ -23,7 +23,7 @@
  */
 import type { BeatOf, Format } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentH, contentW, esc, spotlighter } from "../kit.js";
+import { contentH, contentW, esc, lift, settle, spotlighter } from "../kit.js";
 import {
   circle,
   group,
@@ -438,7 +438,14 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
       ),
     );
     tl.push(tween(`#${sid}-cap${i}`, { opacity: 0 }, { opacity: 1, duration: 0.4 }, at + 0.2));
-    if (i > 0) tl.push(...spot.dim(`lay${i - 1}`, at + 0.15));
+    // Both halves of the emphasis ride the arrival and last half a step, so the
+    // lift on one slab has finished long before the settle on it begins.
+    const emph = Math.min(0.4, step / 2);
+    if (i > 0) {
+      tl.push(...spot.dim(`lay${i - 1}`, at + 0.15), settle(`#${sid}-lay${i - 1}`, at, emph));
+    }
+    // The slab being read stands proud of the pile under it.
+    tl.push(lift(`#${sid}-lay${i}`, at, emph));
     holds.push(at + 0.62);
   });
 

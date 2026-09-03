@@ -406,7 +406,35 @@ export function js(s: string): string {
  */
 export const DIM = 0.62;
 
+/**
+ * How much bigger the part under discussion stands than its neighbours.
+ *
+ * UP, AND ONLY UP. The obvious way to say "this one matters" is to shrink the
+ * others, and it is the one way this project may not: `verify/typefloor.ts`
+ * reads DECLARED type sizes and says so in its own header — "text shrunk by a
+ * `scale` below 1 at a hold reads as its unscaled size" — so a 0.94 on a panel
+ * of 40px text draws 37.6px that the audience floor scores as 40. That is the
+ * exact shape of the failure this project keeps writing experiments about: a
+ * gate green over output that is wrong. Growing the focus has no such blind
+ * spot, and against neighbours already at `DIM` it reads the same.
+ *
+ * 3%, not 8%: the parts stand in gaps of their own — a pipeline's 120px, a
+ * callout's 44 — and a lift big enough to close one would be caught by
+ * `content_overlap`, which is not exempted here and should not be.
+ */
+export const LIFT = 1.03;
+
 const DIM_SECONDS = 0.45;
+/**
+ * Default, and a ceiling a caller shortens against its own spacing.
+ *
+ * `lift` and `settle` write the SAME property on the SAME element, so a pair
+ * that runs longer than the gap between two reveals overlaps itself —
+ * `overlapping_gsap_tweens`, reported by lint and correctly: GSAP resolves the
+ * overlap by last-write-wins per frame, which is a race a seek reproduces
+ * differently at different times. Callers pass `min(LIFT_SECONDS, step / 2)`.
+ */
+const LIFT_SECONDS = 0.4;
 const RESTORE_SECONDS = 0.4;
 
 /**
@@ -556,6 +584,41 @@ export function spotlighter(sid: string, scope?: string): Spotlight {
       return [ease(target, DIM, 1, RESTORE_SECONDS, at)];
     },
   };
+}
+
+/**
+ * The part under discussion stands a little closer.
+ *
+ * A pair, always used as a pair: `lift` when the part arrives, `settle` when the
+ * next one takes over, so nothing is left standing proud at the beat's end. Both
+ * carry `immediateRender: false` and start from where the other left off,
+ * because an archetype's entrance usually owns this element's first `scale`
+ * render already (`pipeline` pops its boxes in) and a second immediate one would
+ * apply the end value at build time, over the entrance's start value.
+ *
+ * `svgOrigin` for an SVG part, named in BOTH halves or GSAP treats the second
+ * mention as an origin CHANGE and compensates it with a translate that never
+ * unwinds — the defect `grid` and `annotated-figure` each record in their own
+ * words.
+ */
+export function lift(target: string, at: number, seconds = LIFT_SECONDS, origin?: string): Tween {
+  const o: Vars = origin === undefined ? {} : { svgOrigin: origin };
+  return fromTo(
+    target,
+    { scale: 1, ...o },
+    { scale: LIFT, ...o, duration: sec(seconds), ease: "power2.out", immediateRender: false },
+    sec(at),
+  );
+}
+
+export function settle(target: string, at: number, seconds = LIFT_SECONDS, origin?: string): Tween {
+  const o: Vars = origin === undefined ? {} : { svgOrigin: origin };
+  return fromTo(
+    target,
+    { scale: LIFT, ...o },
+    { scale: 1, ...o, duration: sec(seconds), ease: "power2.out", immediateRender: false },
+    sec(at),
+  );
 }
 
 /**
