@@ -5,7 +5,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { prefsSchema, type Storyboard, storyboardSchema } from "../src/types.js";
+import { prefsSchema, type Storyboard, sourceSchema, storyboardSchema } from "../src/types.js";
 import { profilesFor, readCanvas, scanBudget } from "../src/verify/budget.js";
 import { check, parseCheckReport, sampleTimes } from "../src/verify/check.js";
 import {
@@ -15,6 +15,7 @@ import {
   scanHeadlines,
   scanNarrationLead,
   scanRepeatedObject,
+  scanUnusedFigures,
 } from "../src/verify/index.js";
 import {
   collectSvgTextRuns,
@@ -613,10 +614,15 @@ describe("scanDiagrammatic", () => {
     expect(scanDiagrammatic(deck("title", "callout", "pipeline", "stack"))).toEqual([]);
   });
 
+  it("counts a beat carrying the source's own figure as drawing", () => {
+    // The test is whether the audience sees a picture, not who drew it. Counting
+    // `claim-figure` as text scored the deck that USES the paper's figures worse
+    // than the one that redraws every idea as a synthetic diagram.
+    expect(scanDiagrammatic(deck("claim-figure", "callout"))).toEqual([]);
+  });
+
   it("warns on a deck of headlines and panels, naming each beat and what it could have drawn", () => {
-    const findings = scanDiagrammatic(
-      deck("title", "callout", "data-table", "claim-figure", "pipeline"),
-    );
+    const findings = scanDiagrammatic(deck("title", "callout", "data-table", "title", "pipeline"));
 
     expect(findings).toHaveLength(1);
     expect(findings[0]?.severity).toBe("warning");
@@ -628,11 +634,113 @@ describe("scanDiagrammatic", () => {
     // Every text-only beat is named, and the one that draws is not accused.
     expect(message).toContain("b02-callout");
     expect(message).toContain("b03-data-table");
-    expect(message).toContain("b04-claim-figure");
+    expect(message).toContain("b04-title");
     expect(message).not.toContain("b05-pipeline");
     // The teaching half: a specific alternative, not "be more visual".
     expect(message).toContain("bar-compare, if the numbers share a unit");
-    expect(message).toContain("annotated-figure");
+    expect(message).toContain("a divider draws nothing");
+  });
+});
+
+/**
+ * The figure the deck never used, which nothing else in the pipeline can see.
+ * `assertRefsResolve` checks that every id a beat writes exists; no gate checked
+ * the other direction until this one, and the shipped demo went out citing two
+ * of its four figures with every gate green.
+ */
+describe("scanUnusedFigures", () => {
+  const source = (...figures: Array<[string, string]>) =>
+    sourceSchema.parse({
+      id: "s1",
+      title: "A paper",
+      sections: [{ id: "sec1", depth: 1, heading: "Method", text: "It works." }],
+      figures: figures.map(([id, caption]) => ({
+        id,
+        src: `${id}.jpg`,
+        caption,
+        width: 1200,
+        height: 700,
+      })),
+      equations: [],
+      tables: [],
+    });
+
+  const deck = (...beats: object[]): Storyboard =>
+    storyboardSchema.parse({
+      sourceId: "s1",
+      title: "A deck",
+      beats: beats.map((b) => ({ intent: "The viewer sees the picture.", ...b })),
+    });
+
+  const shows = (id: string, figureId: string) => ({
+    id,
+    archetype: "claim-figure",
+    params: { headline: "It works", claim: "It works.", figureId },
+    evidence: [{ kind: "figure", id: figureId }],
+  });
+
+  it("says nothing when every figure is used", () => {
+    expect(
+      scanUnusedFigures(
+        deck(shows("b01", "fig1"), {
+          id: "b02",
+          archetype: "callout",
+          params: { headline: "Caveats", panels: [{ label: "One", lines: ["Small"] }] },
+          // Cited without being drawn, which is still a use: the beat is
+          // accountable to the figure even where another beat shows it.
+          evidence: [{ kind: "figure", id: "fig2" }],
+        }),
+        source(["fig1", "Figure 1 — The architecture."], ["fig2", "Figure 2 — The error maps."]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names the unused ids and their captions", () => {
+    const findings = scanUnusedFigures(
+      deck(shows("b01", "fig1")),
+      source(
+        ["fig1", "Figure 1 — The architecture."],
+        ["fig2", "Figure 2 — The error maps."],
+        ["fig3", "Figure 3 — The sweep."],
+      ),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe("warning");
+    expect(findings[0]?.gate).toBe("storyboard");
+    expect(findings[0]?.rule).toBe("figure_unused");
+
+    const { message } = findings[0] ?? { message: "" };
+    expect(message).toContain("2 of 3 source figures are never cited");
+    // The caption travels with the id, or the author has to open the source to
+    // find out what was left out.
+    expect(message).toContain('fig2 ("Figure 2 — The error maps.")');
+    expect(message).toContain('fig3 ("Figure 3 — The sweep.")');
+    expect(message).not.toContain("fig1");
+  });
+
+  it("sees a figure a split-compare carries on one of its sides", () => {
+    expect(
+      scanUnusedFigures(
+        deck({
+          id: "b01",
+          archetype: "split-compare",
+          params: {
+            headline: "Before and after",
+            left: { label: "Bicubic", figureId: "fig1" },
+            right: { label: "Ours", lines: ["sharper"] },
+          },
+          evidence: [],
+        }),
+        source(["fig1", "Figure 1 — The architecture."]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("says nothing about a source with no figures", () => {
+    // Silence, not "0 of 0": a deck of a figure-less paper has nothing to answer
+    // for, and a finding here would be noise on every such build.
+    expect(scanUnusedFigures(deck(shows("b01", "fig1")), source())).toEqual([]);
   });
 });
 

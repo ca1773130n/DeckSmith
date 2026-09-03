@@ -14,7 +14,7 @@ const source = {
   ],
   figures: [
     { id: "fig-compare", src: "fig-compare.jpg", caption: "Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.", width: 1373, height: 692 },
-    { id: "fig-arch", src: "fig-arch.jpg", caption: "Figure 2 — ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.", width: 1373, height: 381 },
+    { id: "fig-arch", src: "fig-arch.jpg", caption: "Figure 2 — One DQ-CTM tick: the compact thought path above, the dense key-value path below.", width: 1373, height: 381 },
     { id: "fig-progress", src: "fig-progress.jpg", caption: "Figure 4 — Reconstruction at T=0 through T=4 against bicubic and ground truth.", width: 1298, height: 578 },
     { id: "fig-error", src: "fig-error.jpg", caption: "Figure 5 — Absolute-error maps on the same crops, one shared colour scale.", width: 1298, height: 915 },
   ],
@@ -78,9 +78,11 @@ const script = {
     "The compact state on top is what actually changes from one tick to the next.",
   ].join(" "),
   b07: [
-    "The window-wise version collapses each window down to a single summary token.",
-    "This one asks a question at every position instead, and the token count survives it.",
-    "The partition is identical in both. What differs is how much of it the thought state ever sees.",
+    // The authors' own drawing of a tick, so the narration may point only at
+    // what that drawing shows — two rows, and what each of them does to the
+    // carrier. Same rule as b03: never at the source figure it was taken from.
+    "This is the authors' own drawing of one tick, and the two rows are the two halves of it.",
+    "The compact state runs along the top and ends in a dense query projection; underneath, the carrier is read as dense keys and values and comes back updated, added to what arrived.",
   ].join(" "),
   b08: [
     // "second from the top" was wrong AND unknowable: the bars are drawn in the
@@ -101,8 +103,8 @@ const script = {
     "The fourth is worth under a tenth, and training stopped there, so nothing past it is demonstrated.",
   ].join(" "),
   b11: [
-    "The claim is that reconstruction improves at every tick, on all one hundred validation images.",
-    "The figure is the evidence — each column is one more tick, and the detail keeps arriving.",
+    "On the left each column is one more tick, and in the top two rows the detail keeps arriving.",
+    "On the right is what is still wrong, on the same three crops — and the bottom row stays bright at every tick.",
   ].join(" "),
   b12: [
     "One warning to carry into the paper itself.",
@@ -189,13 +191,16 @@ const storyboard = {
       ],
     }, { intent: "The compact state never replaces the dense carrier.", weight: 0.8 }),
 
-    beat("b07", "split-compare", {
-      eyebrow: "The difference",
-      headline: "One summary token per window, or one query per pixel",
-      left: { label: "Window-wise CTM", lines: ["one summary token", "window identity collapses", "positions are lost"] },
-      right: { label: "DQ-CTM (ours)", lines: ["one query per position", "token count preserved", "dense field survives"] },
-      note: "Same window partition; different interface to the thought state.",
-    }, { intent: "The contrast that names the contribution.", weight: 0.9 }),
+    // THE PAPER'S OWN TICK DIAGRAM, not a redrawing of it. This beat used to be
+    // a split-compare of two lists whose content b03, b04 and b06 already make,
+    // while Figure 2 — the one picture that shows a whole tick — went unused in
+    // a deck built from the paper it came out of.
+    beat("b07", "claim-figure", {
+      eyebrow: "3 · One dense tick",
+      headline: "One tick reads the carrier and adds its update back",
+      claim: "A persistent dense carrier, read and updated by a compact thought process.",
+      figureId: "fig-arch",
+    }, { intent: "What one tick does to the carrier.", evidence: [{ kind: "figure", id: "fig-arch" }, { kind: "section", id: "sec2" }], weight: 0.9 }),
 
     beat("b08", "bar-compare", {
       eyebrow: "Cost",
@@ -234,12 +239,30 @@ const storyboard = {
       readout: "Trained to T=4. Nothing beyond it is demonstrated.",
     }, { intent: "Progressive refinement, with diminishing returns.", weight: 0.95 }),
 
-    beat("b11", "claim-figure", {
+    // Two figures the paper draws over the SAME three crops, which is what makes
+    // them a pair rather than two beats: the reconstruction says what arrived,
+    // the error map says what did not.
+    // ONE figure and a list, not two figures. Both of these are multi-panel
+    // grids — seven columns and three rows — and side by side each got 770px of
+    // a 1920 canvas, which drew every internal label at around 11px. The slide
+    // passed every gate: the labels are inside a JPEG, so the type floor cannot
+    // see them, and nothing else measures whether a picture is legible. It was
+    // found by opening the frame. The error map is what the right-hand list is
+    // ABOUT, so it stays as evidence and the paper keeps it.
+    beat("b11", "split-compare", {
       eyebrow: "Qualitative",
-      headline: "The trajectory is visible, not just measurable",
-      claim: "Reconstruction improves monotonically across ticks on all 100 validation images.",
-      figureId: "fig-progress",
-    }, { intent: "The improvement is visible frame to frame.", evidence: [{ kind: "figure", id: "fig-progress" }], weight: 0.75 }),
+      headline: "Where the ticks help, and where they do not",
+      left: { label: "Reconstruction, T=1 → T=4", figureId: "fig-progress" },
+      right: {
+        label: "Absolute error, same crops",
+        lines: [
+          "typical crop — error fades by T=2",
+          "strong improvement — texture arrives late",
+          "difficult crop — stays bright at every tick",
+        ],
+      },
+      note: "Rows are the same three crops in both: typical, strong improvement, difficult.",
+    }, { intent: "The improvement is visible, and so is what is left over.", evidence: [{ kind: "figure", id: "fig-progress" }, { kind: "figure", id: "fig-error" }], weight: 0.75 }),
 
     beat("b12", "callout", {
       eyebrow: "Read it with care",

@@ -27,6 +27,22 @@ export const figureSchema = z.object({
   caption: z.string(),
   width: z.int().positive(),
   height: z.int().positive(),
+  /**
+   * WHERE THE FIGURE LIVES IN THE ARGUMENT, which a caption does not say.
+   *
+   * The planner never sees the image. All it had was "1373x381 — Figure 2", and
+   * from that it cannot tell whether the picture belongs to the method or to the
+   * results, so it redraws the method as a synthetic diagram and leaves the
+   * authors' own figure unused. The section it sat under and the prose that
+   * refers to it are the two facts a reader uses to answer the same question,
+   * and they cost nothing to carry.
+   *
+   * Both are OPTIONAL: every source stored before they existed still parses, and
+   * a document may genuinely drop an image in with nothing said about it.
+   */
+  sectionId: z.string().optional(),
+  /** The sentence or paragraph that refers to it, verbatim from the document. */
+  mention: z.string().optional(),
 });
 
 export const equationSchema = z.object({
@@ -459,10 +475,18 @@ export const beatSchema = z.discriminatedUnion("archetype", [
  * Archetypes that draw rather than describe. `verify` warns when a deck leans on
  * the others — a deck of headlines and bullet panels is the thing every slide
  * generator already makes, and is not what this tool is for.
+ *
+ * `claim-figure` IS in the set, because the test is whether the beat draws and
+ * not whether we drew it: a slide carrying the paper's own figure puts a picture
+ * in front of the audience exactly as `annotated-figure` does, minus the leader
+ * lines. Counting it as text made the deck that USES the authors' figures score
+ * worse than the deck that redraws each one as a synthetic diagram, which is the
+ * opposite of what this warning is for.
  */
 export const DIAGRAMMATIC: ReadonlySet<string> = new Set([
   "pipeline",
   "annotated-figure",
+  "claim-figure",
   "grid",
   "bar-compare",
   "stack",

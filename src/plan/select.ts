@@ -208,6 +208,20 @@ export function selectBeats(
  * can BE (see `ARCHETYPE_FAMILY`), and one of each is the least a cut can keep
  * and still be the same argument.
  *
+ * A PICTURE THE AUTHORS DREW, which family coverage does not imply. The beats
+ * that carry a source figure are spread across families — `claim-figure` is
+ * `frame`, `annotated-figure` and a two-figure `split-compare` are `structure` —
+ * and the cheapest representative of a family is regularly the beat without the
+ * picture in it: the title is what `frame` usually elects, and a grid outruns a
+ * full-plate figure on weight per second every time. So a cut can satisfy every
+ * rule above and still come back with no image of the source anywhere in it,
+ * which is the one thing a deck cannot get back by rewording. One carrier is
+ * protected, chosen exactly as a family representative is and released exactly
+ * as one. On the demo at its narrated lengths — the only lengths a cut is ever
+ * struck on — it costs nothing at all: the split-compare of the two result
+ * figures is already `structure`'s representative. That is what this protection
+ * looks like on a deck that used its figures in the first place.
+ *
  * If the protected core does not fit, protections are released back to the
  * optimiser worst-value-per-second first, in ONE list rather than in tiers — a
  * tiered release gives up a whole family before it gives up one expensive
@@ -233,22 +247,32 @@ function protect(live: Beat[], len: (b: Beat) => number, cap: number): Set<strin
   // then cannot afford the equation walk, which is how a 90-second cut ended up
   // with no `formal` beat in it at all. Ties: higher weight, then earlier.
   const rate = (b: Beat) => b.weight / len(b);
+  const better = (b: Beat, held: Beat) =>
+    rate(b) > rate(held) || (rate(b) === rate(held) && b.weight > held.weight);
   const reps = new Map<ArchetypeFamily, Beat>();
   for (const b of live) {
     const fam = ARCHETYPE_FAMILY[b.archetype];
     const held = reps.get(fam);
-    if (!held || rate(b) > rate(held) || (rate(b) === rate(held) && b.weight > held.weight)) {
-      reps.set(fam, b);
-    }
+    if (!held || better(b, held)) reps.set(fam, b);
   }
   const coverage = [...reps.values()].filter((b) => !ids.has(b.id));
   for (const b of coverage) ids.add(b.id);
+
+  // The cheapest beat that carries a figure the source really has, chosen the
+  // same way and for the same reason: presence, at the least cost to the rest.
+  let cheapest: Beat | undefined;
+  for (const b of live) {
+    if (!figuresShown(b.params as Record<string, unknown>).length) continue;
+    if (!cheapest || better(b, cheapest)) cheapest = b;
+  }
+  const picture = cheapest && !ids.has(cheapest.id) ? [cheapest] : [];
+  for (const b of picture) ids.add(b.id);
 
   // A protection that cannot be honoured is not a protection: pretending
   // otherwise makes the optimiser infeasible instead of making the cut worse in
   // a stated way. Terminals are excluded from the list, so they survive it.
   const ends = new Set([first?.id, last?.id]);
-  const releasable = [...tier, ...coverage]
+  const releasable = [...tier, ...coverage, ...picture]
     .filter((b) => !ends.has(b.id))
     .sort((a, b) => rate(a) - rate(b) || len(b) - len(a));
   const cost = () => live.filter((b) => ids.has(b.id)).reduce((s, b) => s + len(b), 0);
@@ -423,12 +447,6 @@ function finish(
  * so out loud. That is a sentence to re-read, not a beat to delete.
  */
 function dangling(kept: Beat[]): Dangling[] {
-  const shows = (b: Beat): string[] => {
-    const p = b.params as Record<string, unknown>;
-    return ["figureId", "tableId", "equationId"]
-      .map((k) => p[k])
-      .filter((v): v is string => typeof v === "string");
-  };
   const shown = new Set(kept.flatMap(shows));
   const here = new Set(kept.map((b) => b.id));
   const out: Dangling[] = [];
@@ -456,6 +474,30 @@ function dangling(kept: Beat[]): Dangling[] {
     }
   }
   return out;
+}
+
+/**
+ * What a beat PUTS ON SCREEN, as source ids — params, never `evidence`. The two
+ * differ exactly where `dangling` is interesting: b08 is accountable to the
+ * benchmark table and shows bars.
+ */
+function shows(beat: Beat): string[] {
+  const p = beat.params as Record<string, unknown>;
+  return [...figuresShown(p), p.tableId, p.equationId].filter(
+    (v): v is string => typeof v === "string",
+  );
+}
+
+/**
+ * The figure ids alone, which is the question `protect` asks. A split-compare
+ * keeps its figures one level down, one per side, so this is not a flat field
+ * read — and a side is as often a list as a picture, hence the filter.
+ */
+function figuresShown(params: Record<string, unknown>): string[] {
+  const sides = ["left", "right"].map(
+    (side) => (params[side] as { figureId?: unknown } | undefined)?.figureId,
+  );
+  return [params.figureId, ...sides].filter((v): v is string => typeof v === "string");
 }
 
 /** Seconds as a platform quotes them. Ceiling, so a cut over the cap reads over. */

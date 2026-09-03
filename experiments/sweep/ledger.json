@@ -1,5 +1,5 @@
 {
-  "tool": "19ccde208ae78291",
+  "tool": "a67716983da3b881",
   "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
   "corpus": {
     "b04-grid:0": {
@@ -71,7 +71,7 @@
   },
   "open": {},
   "format": "deck-16x9",
-  "updated": "2026-09-03T06:07:35.613Z",
+  "updated": "2026-09-03T12:28:27.286Z",
   "levels": [],
   "cells": {
     "b01-title:0": {
@@ -382,7 +382,7 @@
       "verdict": "refused",
       "axis": "row and column count",
       "rules": [],
-      "reason": "data-table b09: table \"tbl-b09-data-table-3\" has 9 rows, which with the header stand 864px tall at 52px type on 12px of row padding, and this slide has 698px. E",
+      "reason": "data-table b09: table \"tbl-b09-data-table-3\" has 9 rows, which with the header stand 864px tall at 52px type on 12px of row padding, and this slide has 730px. E",
       "deck": null,
       "scene": null
     },
@@ -390,7 +390,7 @@
       "verdict": "refused",
       "axis": "row and column count",
       "rules": [],
-      "reason": "data-table b09: table \"tbl-b09-data-table-4\" has 10 rows, which with the header stand 950px tall at 52px type on 12px of row padding, and this slide has 698px. ",
+      "reason": "data-table b09: table \"tbl-b09-data-table-4\" has 10 rows, which with the header stand 950px tall at 52px type on 12px of row padding, and this slide has 730px. ",
       "deck": null,
       "scene": null
     },
@@ -486,7 +486,7 @@
       "verdict": "refused",
       "axis": "panels and lines per panel",
       "rules": [],
-      "reason": "callout b12: 894px of panel in a 606px box — shorten the lines or split the beat",
+      "reason": "callout b12: 720px of panel in a 638px box — shorten the lines or split the beat",
       "deck": null,
       "scene": null
     },
@@ -494,7 +494,7 @@
       "verdict": "refused",
       "axis": "panels and lines per panel",
       "rules": [],
-      "reason": "callout b12: 1572px of panel in a 606px box — shorten the lines or split the beat",
+      "reason": "callout b12: 1224px of panel in a 638px box — shorten the lines or split the beat",
       "deck": null,
       "scene": null
     }

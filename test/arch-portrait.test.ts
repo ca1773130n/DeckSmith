@@ -70,6 +70,14 @@ describe("isPortrait", () => {
 });
 
 describe("unwidow", () => {
+  /**
+   * A size chosen so the samples below WRAP, not the deck's headline scale.
+   * `unwidow` has nothing to do with a headline that sets on one line, and these
+   * samples only wrap at 1700 above ~60px — so this stays at 76 where
+   * `HEADLINE_SIZE` came down to 64. Pinned to the live constant instead, every
+   * assertion here would go vacuous the moment the scale moved under the sample,
+   * silently and with the suite green.
+   */
   const HEAD = 76;
 
   it("binds the tail so the last line cannot be one word", () => {

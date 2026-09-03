@@ -191,18 +191,20 @@ export { verify } from "./verify/index.js";
 /**
  * The storyboard advisories `plan` prints: a headline that recites the visual's
  * own labels as a list, one object drawn twice, a name spoken before it is drawn,
- * and a plan that came back under the slide count it was asked for. Exported
- * because they are pure over a storyboard — no browser, no built deck — so a
- * caller can run them on a plan before spending anything on it, which is the only
- * moment they are worth acting on. All but `scanBeatCount` also fold into
- * `verify`; that one needs the preferences the deck was asked for, which a built
- * directory does not carry.
+ * a source figure the deck never uses, and a plan that came back under the slide
+ * count it was asked for. Exported because they are pure over a storyboard — no
+ * browser, no built deck — so a caller can run them on a plan before spending
+ * anything on it, which is the only moment they are worth acting on. All but
+ * `scanBeatCount` also fold into `verify`; that one needs the preferences the
+ * deck was asked for, which a built directory does not carry — and
+ * `scanUnusedFigures` folds in only where the source was passed alongside.
  */
 export {
   scanBeatCount,
   scanHeadlines,
   scanNarrationLead,
   scanRepeatedObject,
+  scanUnusedFigures,
 } from "./verify/index.js";
 export { check, parseCheckReport, sampleTimes } from "./verify/check.js";
 export type { CheckOptions } from "./verify/check.js";

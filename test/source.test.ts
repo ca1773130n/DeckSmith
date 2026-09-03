@@ -45,8 +45,13 @@ describe("parseMarkdown", () => {
         caption: "그림 1. 파이프라인 개요.",
         width: 1,
         height: 1,
+        // The image opens 방법, so it belongs to it — and there is no paragraph
+        // under that heading to refer to it. The abstract above is under a
+        // different heading and is about something else, so it is not borrowed.
+        sectionId: "sec2",
       },
     ]);
+    expect(src.figures[0]?.mention).toBeUndefined();
   });
 
   it("keeps TeX verbatim and marks display math", () => {
@@ -82,6 +87,66 @@ describe("parseMarkdown", () => {
 
   it("assigns the same ids on a second run", () => {
     expect(parseMarkdown(MD)).toEqual(src);
+  });
+});
+
+/**
+ * Where a figure sits and what the document says about it.
+ *
+ * The planner never sees the image, so these two fields are the whole of what it
+ * knows about what a picture is FOR. The failure they close was measured: shown
+ * only "1373x381 — Figure 2", a real run redrew the paper's architecture as a
+ * synthetic pipeline and left the architecture figure unused.
+ */
+describe("parseMarkdown and the prose around a figure", () => {
+  const REFERENCED = `# Method
+
+Figure 1 shows the encoder and the decoder either side of the loop.
+
+![arch](arch.png)
+
+*Figure 1 — The architecture end to end.*
+
+Nothing after this refers to it.
+
+## Results
+
+The error concentrates on edges, which the map below makes obvious.
+
+![err](err.png)
+
+*Absolute error maps.*
+`;
+  const src = parseMarkdown(REFERENCED);
+
+  it("takes the paragraph that names the figure, wherever it sits", () => {
+    expect(src.figures[0]?.sectionId).toBe("sec1");
+    expect(src.figures[0]?.mention).toBe(
+      "Figure 1 shows the encoder and the decoder either side of the loop.",
+    );
+  });
+
+  it("falls back to the paragraph in front of an unnamed figure", () => {
+    // No number in "Absolute error maps.", so there is nothing to match on and
+    // position is all that is left.
+    expect(src.figures[1]?.sectionId).toBe("sec2");
+    expect(src.figures[1]?.mention).toBe(
+      "The error concentrates on edges, which the map below makes obvious.",
+    );
+  });
+
+  it("reads a reference that only appears after the image", () => {
+    const after = parseMarkdown(`# Method
+
+![arch](arch.png)
+
+*Fig. 3 — The architecture.*
+
+The loop in Figure 3 runs in place rather than around the pipeline.
+`);
+    expect(after.figures[0]?.mention).toBe(
+      "The loop in Figure 3 runs in place rather than around the pipeline.",
+    );
   });
 });
 

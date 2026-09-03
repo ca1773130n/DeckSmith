@@ -11,6 +11,13 @@
  * scene timing moves every one of them by a few tenths, and a selection test that
  * flips because a camera grew a tail teaches nothing about selection. What is
  * asserted is the RULE; the live cut is checked by running the build.
+ *
+ * b07 and b11 swapped archetypes when the demo took up the two figures it had
+ * been ignoring, and their narration was rewritten at the length it already had
+ * (+9 and +18 characters). Their two seconds are therefore the last measurement
+ * plus a second either way — the hold each beat ends on moved when the archetype
+ * did — and are left as they were rather than guessed at: the next narrated
+ * build re-measures them, and what is asserted below is the RULE.
  */
 import { describe, expect, it } from "vitest";
 import { type Cut, selectBeats } from "../src/plan/select.js";
@@ -38,11 +45,11 @@ const DEMO: Array<[string, Beat["archetype"], number, number]> = [
   ["b04", "grid", 0.85, 19.73],
   ["b05", "equation-walk", 0.85, 13.492],
   ["b06", "stack", 0.8, 24.704],
-  ["b07", "split-compare", 0.9, 20.138],
+  ["b07", "claim-figure", 0.9, 20.138],
   ["b08", "bar-compare", 0.8, 14.314],
   ["b09", "data-table", 0.85, 25.446],
   ["b10", "line-chart", 0.95, 13.28],
-  ["b11", "claim-figure", 0.75, 15.504],
+  ["b11", "split-compare", 0.75, 15.504],
   ["b12", "callout", 0.7, 23.004],
 ];
 
@@ -71,7 +78,13 @@ const PARAMS: Record<string, Record<string, unknown>> = {
     terms: [{ tex: "R", label: "r", tone: "a" }],
   },
   stack: { headline: "H", layers: [{ label: "a" }, { label: "b" }] },
-  "split-compare": { headline: "H", left: { label: "L" }, right: { label: "R" } },
+  // Both sides carry a figure, as the demo's qualitative beat does: `protect`
+  // and `dangling` read the sides, not just the top-level `figureId`.
+  "split-compare": {
+    headline: "H",
+    left: { label: "L", figureId: "fig-progress" },
+    right: { label: "R", figureId: "fig-error" },
+  },
   "bar-compare": {
     headline: "H",
     unit: "M",
@@ -90,7 +103,7 @@ const PARAMS: Record<string, Record<string, unknown>> = {
       { x: "2", y: 2 },
     ],
   },
-  "claim-figure": { headline: "H", claim: "C", figureId: "fig-progress" },
+  "claim-figure": { headline: "H", claim: "C", figureId: "fig-arch" },
   callout: { headline: "H", panels: [{ label: "p", lines: ["l"] }] },
 };
 
@@ -104,9 +117,13 @@ const EVIDENCE: Record<string, Array<{ kind: string; id: string }>> = {
   b02: [{ kind: "section", id: "sec2" }],
   b03: [{ kind: "figure", id: "fig-compare" }],
   b05: [{ kind: "equation", id: "eq-carrier" }],
+  b07: [{ kind: "figure", id: "fig-arch" }],
   b08: [{ kind: "table", id: "tbl-bench" }],
   b09: [{ kind: "table", id: "tbl-bench" }],
-  b11: [{ kind: "figure", id: "fig-progress" }],
+  b11: [
+    { kind: "figure", id: "fig-progress" },
+    { kind: "figure", id: "fig-error" },
+  ],
 };
 
 function demo(over: Partial<Record<string, Partial<Beat>>> = {}): Storyboard {
@@ -144,15 +161,18 @@ describe("selectBeats on the demo at short-9x16", () => {
 
     expect(cut.fits).toBe(true);
     expect(cut.seconds).toBeLessThanOrEqual(short.maxSeconds ?? 0);
-    expect(cut.seconds).toBe(178.75);
-    expect(ids(cut)).toEqual(["b01", "b02", "b04", "b05", "b07", "b08", "b09", "b10", "b12"]);
+    expect(cut.seconds).toBe(176.602);
+    expect(ids(cut)).toEqual(["b01", "b02", "b03", "b05", "b07", "b08", "b10", "b11", "b12"]);
     expect(ids(cut)).toContain("b08"); // bar-compare
     expect(ids(cut)).toContain("b12"); // callout
+    // And all three beats that carry a figure of the paper's, which is what the
+    // deck has that a text summary of it does not.
+    expect(ids(cut)).toEqual(expect.arrayContaining(["b03", "b07", "b11"]));
   });
 
   it("beats the threshold it replaces on the author's own measure", () => {
     // Not "different" — better, in the units --min-weight itself optimises.
-    // Selection: 9 beats, 7.80 of author weight, 178.750s.
+    // Selection: 9 beats, 7.75 of author weight, 176.602s.
     // Threshold 0.85: 8 beats, 7.20 of author weight, 168.956s. It leaves 11
     // seconds of the budget unspent and buys less with what it does spend.
     const cut = selectBeats(demo(), short, SECONDS);
@@ -179,7 +199,7 @@ describe("selectBeats on the demo at short-9x16", () => {
     // slide is missing, so every casualty carries a sentence and a rule.
     const cut = selectBeats(demo(), short, SECONDS);
 
-    expect(cut.dropped.map((d) => d.beat.id)).toEqual(["b03", "b06", "b11"]);
+    expect(cut.dropped.map((d) => d.beat.id)).toEqual(["b04", "b06", "b09"]);
     for (const d of cut.dropped) {
       expect(d.rule).toBe("over_budget");
       expect(d.reason).toContain("3m00s");
@@ -190,10 +210,10 @@ describe("selectBeats on the demo at short-9x16", () => {
   });
 
   it("drops long high-weight beats before short low-weight ones, which is the fix", () => {
-    // b03 at weight 0.90 goes and b08 at 0.80 stays, because b03 costs 27.5s and
+    // b09 at weight 0.85 goes and b08 at 0.80 stays, because b09 costs 25.4s and
     // b08 costs 14.3s. A threshold cannot express that and it is why it is wrong.
     const cut = selectBeats(demo(), short, SECONDS);
-    expect(ids(cut)).not.toContain("b03");
+    expect(ids(cut)).not.toContain("b09");
     expect(ids(cut)).toContain("b08");
   });
 });
@@ -224,9 +244,12 @@ describe("selectBeats under a tighter budget", () => {
   });
 
   it("keeps a citation intact when both ends of it survive", () => {
-    // The three-minute cut keeps b09, so b08's reference resolves and there is
-    // nothing to warn about. A detector that fires either way is not a detector.
-    expect(selectBeats(demo(), short, SECONDS).dangling).toEqual([]);
+    // A detector that fires either way is not a detector. At 3m40s the cut keeps
+    // both b08 and the b09 that shows the table it cites, so there is nothing to
+    // warn about — and at three minutes, where b09 goes, the case above fires.
+    const cut = selectBeats(demo(), { ...short, maxSeconds: 220, id: "short-9x16" }, SECONDS);
+    expect(ids(cut)).toEqual(expect.arrayContaining(["b08", "b09"]));
+    expect(cut.dangling).toEqual([]);
   });
 
   it("says so, rather than throwing, when no cut can fit", () => {
@@ -236,6 +259,65 @@ describe("selectBeats under a tighter budget", () => {
 
     expect(cut.fits).toBe(false);
     expect(cut.kept.length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/**
+ * The picture protection, on a deck where it BINDS.
+ *
+ * It does nothing to the demo — there the two result figures ride on the beat
+ * that is already `structure`'s representative — so a case built on the demo
+ * would assert a rule that was not doing any work. This deck is the shape the
+ * rule exists for: one beat carries the source's only figure, it is the worst
+ * value per second in the deck, and every family is covered without it.
+ */
+describe("selectBeats and the last real picture", () => {
+  const PICTURE: Array<[string, Beat["archetype"], number, number]> = [
+    ["b01", "title", 0.9, 10],
+    ["b02", "grid", 0.9, 10],
+    ["b03", "annotated-figure", 0.6, 20],
+    ["b04", "bar-compare", 0.9, 10],
+    ["b05", "stack", 0.85, 15],
+    ["b06", "callout", 0.9, 10],
+  ];
+  const deck = (): Storyboard =>
+    storyboardSchema.parse({
+      sourceId: "s1",
+      title: "A deck",
+      beats: PICTURE.map(([id, archetype, weight]) => ({
+        id,
+        intent: "The viewer understands.",
+        archetype,
+        params: PARAMS[archetype],
+        evidence: [],
+        weight,
+      })),
+    });
+  const seconds = Object.fromEntries(PICTURE.map(([id, , , s]) => [id, s]));
+
+  it("keeps the one beat carrying a figure, and pays author weight for it", () => {
+    // b03 is 0.030 weight per second against b05's 0.057, so on value alone the
+    // optimiser takes b05 and the deck comes out with no picture of the source
+    // in it at all. `structure` is covered by the grid either way, so nothing
+    // above this rule notices.
+    const cut = selectBeats(deck(), { minWeight: 0, maxSeconds: 60, id: "60s" }, seconds);
+
+    expect(cut.fits).toBe(true);
+    expect(ids(cut)).toEqual(["b01", "b02", "b03", "b04", "b06"]);
+    expect(cut.dropped.map((d) => d.beat.id)).toEqual(["b05"]);
+    expect(cut.seconds).toBe(60);
+  });
+
+  it("gives the picture up rather than making the cut impossible", () => {
+    // A protection that cannot be honoured is not a protection. Under 40 seconds
+    // the protected core busts the cap, and the figure beat — the worst value per
+    // second — is the first thing released back to the optimiser.
+    const cut = selectBeats(deck(), { minWeight: 0, maxSeconds: 40, id: "40s" }, seconds);
+
+    expect(cut.fits).toBe(true);
+    expect(ids(cut)).not.toContain("b03");
+    expect(ids(cut)[0]).toBe("b01");
+    expect(ids(cut).at(-1)).toBe("b06");
   });
 });
 
@@ -272,7 +354,7 @@ describe("selectBeats and the storyboard's own rules", () => {
     // relation is a note.
     const sb = demo({
       b07: { inside: { beat: "b06", element: "layer0" } },
-      b08: { weight: 0.9, inside: { beat: "b07", element: "left" } },
+      b08: { weight: 0.9, inside: { beat: "b07", element: "f" } },
     });
     const cut = selectBeats(sb, { minWeight: 0.85, maxSeconds: Infinity }, SECONDS);
 

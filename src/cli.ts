@@ -63,6 +63,7 @@ import {
   scanBeatCount,
   scanHeadlines,
   scanRepeatedObject,
+  scanUnusedFigures,
   verify,
 } from "./verify/index.js";
 import { VERSION } from "./version.js";
@@ -347,7 +348,11 @@ imageFlags(
   const source = await readValidated(src, sourceSchema, "source");
   // Nobody naming a language means "the one the document is in" — the planner is
   // being asked to explain this source, not to translate it by accident.
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)));
+  //
+  // The source goes in as well, and this is the one verb that can pass it: a
+  // beat count nobody stated is a question about how much the document has to
+  // say, and `slidesFor` cannot answer it from a clock alone.
+  const chosen = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
@@ -385,6 +390,9 @@ imageFlags(
     ...scanBeatCount(storyboard, prefs),
     ...scanHeadlines(storyboard),
     ...scanRepeatedObject(storyboard),
+    // A figure the plan ignored is cheapest to fix here, where the answer is one
+    // more beat in a file the author already has open.
+    ...scanUnusedFigures(storyboard, source),
   ])
     step(`plan:   ${f.message}`);
 
@@ -543,7 +551,11 @@ lookFlags(
     // the floor, the budget and the navigability stay the base's, because a
     // pixel count implies none of them. See `resizeFormat`.
     const format = withMinWeight(pickFormat(o.format, o.width, o.height), o.minWeight);
-    const prefs = await loadPrefs(prefsFromFlags(flags(o)));
+    // WITH THE SOURCE, the same way `plan` resolves them. The beat count is
+    // derived from what the document contains, so preferences resolved without
+    // it fall back to the schema's flat default and `scanBeatCount` then measures
+    // this plan against a floor nobody ever asked for.
+    const prefs = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
     // The storyboard records the theme it was planned under; `--theme` or a
     // config file restates it. Language is not overridable here — it describes
     // the copy that is already written, not a wish.
@@ -639,7 +651,7 @@ lookFlags(
     reportCut(cut);
     if (deck.page) step(`build: navigable deck → ${join(out, DECK_PAGE)}`);
 
-    await gate(out, false, storyboard, cut.kept, o.fidelity !== false);
+    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source);
   },
 );
 
@@ -912,7 +924,8 @@ function reportCut(cut: Cut): void {
  * `build` has the storyboard in hand and so gets the beat-level gates too;
  * `verify <dir>` is handed a built directory and nothing else, and skips them.
  * `kept` is the cut `build` emitted — without it the budget gate has to guess
- * which beats the scenes it is reading correspond to.
+ * which beats the scenes it is reading correspond to. `source` is the same story
+ * once more: it is what the unused-figure advisory reads, and only `build` has one.
  */
 async function gate(
   dir: string,
@@ -920,11 +933,12 @@ async function gate(
   storyboard?: Storyboard,
   kept?: readonly Beat[],
   fidelity = true,
+  source?: Source,
 ): Promise<void> {
   step(
     `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute`,
   );
-  const verdict = await verify(dir, { snapshots, fidelity }, storyboard, kept);
+  const verdict = await verify(dir, { snapshots, fidelity }, storyboard, kept, source);
   process.stdout.write(report(verdict));
   if (snapshots) step(`verify: snapshots in ${join(dir, "snapshots")}`);
   // Non-zero, but let the process unwind: exitCode beats process.exit() here.

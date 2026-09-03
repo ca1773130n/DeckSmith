@@ -24,7 +24,9 @@ import {
   FF_BEAT_SECONDS,
   fastEnough,
   LAST_HOLD_SECONDS,
+  MAX_BEAT_SECONDS,
   MAX_PLAYBACK,
+  MIN_BEAT_SECONDS,
   MIN_SENTENCE_CHARS,
   OPEN_SECONDS_AT_SPEED,
   p95CueRate,
@@ -37,11 +39,14 @@ import {
   SHORT_FORM_CPS,
   SPEAKING_STOPS,
   SPEECH_CPS,
+  SUPPLY_RANGE,
+  slidesFor,
+  sourcePoints,
   tempoChain,
 } from "../src/plan/duration.js";
 import { systemPrompt } from "../src/plan/prompt.js";
 import { respeedArgs } from "../src/render/ffmpeg.js";
-import { prefsSchema } from "../src/types.js";
+import { prefsSchema, type Source } from "../src/types.js";
 
 const prefs = (over: Record<string, unknown> = {}) => prefsSchema.parse(over);
 
@@ -658,5 +663,130 @@ describe("the prompt", () => {
     const high = systemPrompt(prefs({ duration: 240 }));
     expect(high).toContain("ONE SENTENCE PER REVEAL");
     expect(high).toContain("characters");
+  });
+});
+
+/**
+ * How long the deck is, against how much the document has to say.
+ *
+ * `slidesFor` used to read a clock and nothing else, and the clock is flat: from
+ * 48 to 240 seconds it returned exactly twelve, so a two-page note and a
+ * forty-page survey were planned to the same length. The tests below pin the two
+ * halves that fixes — the document moves the number, and the clock still owns
+ * the beat length at both ends of the move.
+ */
+describe("slidesFor", () => {
+  const doc = (chars: number, figures: number, tables: number, equations: number): Source => ({
+    id: "s",
+    title: "t",
+    lang: "en",
+    sections: [{ id: "a", depth: 1, heading: "h", text: "x".repeat(chars) }],
+    figures: Array.from({ length: figures }, (_, i) => ({
+      id: `f${i}`,
+      src: "u",
+      caption: "c",
+      width: 10,
+      height: 10,
+    })),
+    tables: Array.from({ length: tables }, (_, i) => ({
+      id: `t${i}`,
+      caption: "c",
+      columns: ["a"],
+      rows: [["1"]],
+    })),
+    equations: Array.from({ length: equations }, (_, i) => ({
+      id: `e${i}`,
+      tex: "x",
+      display: true,
+    })),
+  });
+  /** Roughly an eight-section conference paper: the shape the constants are set for. */
+  const paper = doc(30_000, 5, 2, 4);
+  /** A two-page note with one picture. */
+  const note = doc(4_000, 1, 0, 0);
+
+  it("counts prose and exhibits, and nothing about the heading structure", () => {
+    // Headings are a formatting decision — one author writes six over 20k
+    // characters and another writes twenty-four over the same prose.
+    const oneSection = doc(3_600, 2, 1, 1);
+    const split: Source = {
+      ...oneSection,
+      sections: [0, 1, 2, 3].map((i) => ({
+        id: `s${i}`,
+        depth: 1,
+        heading: "h",
+        text: "x".repeat(900),
+      })),
+    };
+    expect(sourcePoints(oneSection)).toBe(sourcePoints(split));
+    // 3600 characters is two beats' worth of prose, plus the four exhibits.
+    expect(sourcePoints(oneSection)).toBe(6);
+  });
+
+  it("was flat at twelve across the whole middle of the range, and is not now", () => {
+    // The defect, stated as a test: the clock alone gives one answer for every
+    // document, and it is the same answer for four durations running.
+    for (const duration of [48, 60, 120, 240]) {
+      expect(slidesFor(prefs({ duration }))).toBe(12);
+    }
+    expect(slidesFor(prefs({ duration: 60 }), note)).toBe(6);
+    expect(slidesFor(prefs({ duration: 60 }), paper)).toBe(15);
+  });
+
+  it("returns exactly what it always did when no source is in hand", () => {
+    // `parseOptions` derives the count while the upload is still a form and the
+    // MCP `estimate` has no document at all. Omitting the argument is the old
+    // behaviour, not a degraded one.
+    for (const duration of [10, 30, 60, 120, 300, 600, 1800]) {
+      const beat = Math.min(Math.max(duration / 12, 4), 20);
+      expect(slidesFor(prefs({ duration }))).toBe(
+        Math.round(Math.min(Math.max(duration / beat, 3), 40)),
+      );
+    }
+    expect(slidesFor(prefs())).toBe(12);
+  });
+
+  it("lets a document move the count with no duration target at all", () => {
+    // The case the old guard could not reach: with no clock it returned
+    // `prefs.slides`, which is the schema's flat twelve.
+    expect(slidesFor(prefs(), note)).toBe(6);
+    expect(slidesFor(prefs(), paper)).toBe(17);
+  });
+
+  it("stops a rich document short of a beat under MIN_BEAT_SECONDS", () => {
+    // 30 seconds wants 7.5 beats at the 4-second floor; the paper's supply would
+    // buy more, and there is nowhere to put them.
+    expect(slidesFor(prefs({ duration: 30 }), paper)).toBe(8);
+    expect(30 / slidesFor(prefs({ duration: 30 }), paper)).toBeLessThanOrEqual(MIN_BEAT_SECONDS);
+  });
+
+  it("stops a thin document short of a beat over MAX_BEAT_SECONDS", () => {
+    // Six 40-second slides is a lecture, and nothing downstream warns about one:
+    // `durationPlan(240s, 6 beats)` returns 40-second beats with no warning at
+    // all. So the clock holds the count up where the document would drop it.
+    const thin = slidesFor(prefs({ duration: 240 }), note);
+    expect(240 / thin).toBeLessThanOrEqual(MAX_BEAT_SECONDS);
+    expect(thin).toBe(12);
+    // Shortening still bites wherever the clock leaves room for it.
+    expect(slidesFor(prefs({ duration: 120 }), note)).toBe(6);
+  });
+
+  it("keeps every answer inside the schema's 3..40, at both extremes", () => {
+    // The shortest legal duration wants 2.5 beats and the schema forbids it;
+    // `clamp` lets `hi` win over `lo`, so the order of the two clamps is the bug
+    // this pins.
+    expect(slidesFor(prefs({ duration: 10 }), note)).toBe(3);
+    expect(slidesFor(prefs({ duration: 1800 }), doc(200_000, 40, 20, 30))).toBe(40);
+  });
+
+  it("bounds how far a proxy measure is allowed to move the number", () => {
+    // `sourcePoints` is a proxy, so its authority is bounded rather than open: a
+    // survey with a hundred points is not worth a hundred beats.
+    const survey = doc(200_000, 40, 20, 30);
+    expect(sourcePoints(survey) / 20).toBeGreaterThan(SUPPLY_RANGE.max);
+    expect(slidesFor(prefs({ duration: 120 }), survey)).toBe(Math.round(12 * SUPPLY_RANGE.max));
+    expect(slidesFor(prefs({ duration: 120 }), doc(0, 0, 0, 0))).toBe(
+      Math.round(12 * SUPPLY_RANGE.min),
+    );
   });
 });

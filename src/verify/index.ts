@@ -12,7 +12,14 @@ import { DECK_PAGE } from "../emit/composition.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Prefs } from "../prefs.js";
 import { TIMING_FILE } from "../render/timing.js";
-import { type Beat, DIAGRAMMATIC, type Finding, type Storyboard, type Verdict } from "../types.js";
+import {
+  type Beat,
+  DIAGRAMMATIC,
+  type Finding,
+  type Source,
+  type Storyboard,
+  type Verdict,
+} from "../types.js";
 import { scanBudget } from "./budget.js";
 import { type CheckOptions, check } from "./check.js";
 import { fidelity, readStops, type Stop } from "./fidelity.js";
@@ -114,13 +121,15 @@ export interface VerifyOptions extends CheckOptions {
  * the beat-level gates as well. `kept` — the cut `build` emitted — is optional
  * for the same reason, and for a second one: without it the budget gate falls
  * back to the flat threshold, which is the right list only while the budget has
- * cut nothing.
+ * cut nothing. `source` is optional on the same terms: it is what makes the
+ * unused-figure advisory possible, and a built directory does not carry it.
  */
 export async function verify(
   dir: string,
   opts: VerifyOptions = {},
   storyboard?: Storyboard,
   kept?: readonly Beat[],
+  source?: Source,
 ): Promise<Verdict> {
   const html = await readCompositions(dir);
   const determinism = html.flatMap(([file, text]) => scanDeterminism(text, file));
@@ -165,6 +174,9 @@ export async function verify(
             ...scanDiagrammatic(storyboard),
             ...scanHeadlines(storyboard),
             ...scanRepeatedObject(storyboard),
+            // Needs the source as well, and says nothing without it — the same
+            // silence `scanNarrationLead` keeps when its manifest is missing.
+            ...(source ? scanUnusedFigures(storyboard, source) : []),
           ]
         : []),
       ...verdict.findings,
@@ -276,10 +288,13 @@ async function listFiles(dir: string): Promise<Set<string>> {
  * What a beat that draws nothing could have drawn instead. Naming the specific
  * alternative is the whole value of the finding: "be more visual" changes no
  * plan, "these three numbers share a unit, so they are bars" does.
+ *
+ * One row per archetype OUTSIDE `DIAGRAMMATIC`, and no more: `claim-figure` used
+ * to be listed here, advising annotated-figure, and it is now counted as drawing
+ * — a row for it would be advice this scan can never reach.
  */
 const INSTEAD: Record<string, string> = {
   title: "past the opening frame a divider draws nothing — cut it, or draw what it announces",
-  "claim-figure": "annotated-figure — same figure, but pointing at where in it the claim lives",
   "data-table": "bar-compare, if the numbers share a unit",
   callout:
     "pipeline if it names steps, stack if it names layers, split-compare if it contrasts two things, grid if it is about regions of a field",
@@ -454,6 +469,64 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
     }
   }
   return findings;
+}
+
+/**
+ * Warn when the source carries a figure the deck never cites.
+ *
+ * NOTHING ELSE LOOKS IN THIS DIRECTION. `assertRefsResolve` checks the other one
+ * — that every id a beat writes exists in the source — so a plan that ignores
+ * the figures entirely satisfies it perfectly. Measured on the shipped demo: two
+ * of four figures cited, one of the two left out being the paper's own
+ * architecture figure, while a beat redrew that architecture as a synthetic
+ * pipeline. Every gate was green, and the owner found it by watching the video.
+ *
+ * A WARNING, NEVER AN ERROR. A source may honestly hold a figure this deck does
+ * not need — a decorative header, a figure about related work, a plot the deck
+ * replaces with bars of its own. What is wrong is not using none of them; it is
+ * not having decided.
+ *
+ * Cited counts BOTH ways a beat can be accountable to a figure: `evidence`, and
+ * the params that actually put it on screen. A beat that shows a figure without
+ * citing it in evidence is a different defect, and not this scan's to report.
+ */
+export function scanUnusedFigures(storyboard: Storyboard, source: Source): Finding[] {
+  if (!source.figures.length) return [];
+
+  const used = new Set<string>();
+  for (const beat of storyboard.beats) {
+    for (const ref of beat.evidence) if (ref.kind === "figure") used.add(ref.id);
+    for (const id of figuresShown(beat.params as Record<string, unknown>)) used.add(id);
+  }
+  const unused = source.figures.filter((f) => !used.has(f.id));
+  if (!unused.length) return [];
+
+  // The caption travels with the id, because "fig2 is unused" is not something
+  // an author can act on without opening the source to see what fig2 was.
+  const named = unused.map((f) => `${f.id} ("${f.caption}")`).join("; ");
+  // Two words, not one: "1 of 4 source figures is" and "2 of 4 source figures are"
+  // disagree about different things, and one variable cannot serve both.
+  const noun = source.figures.length === 1 ? "figure" : "figures";
+  const verb = unused.length === 1 ? "is" : "are";
+  return [
+    {
+      severity: "warning",
+      gate: "storyboard",
+      rule: "figure_unused",
+      message: `${unused.length} of ${source.figures.length} source ${noun} ${verb} never cited: ${named}. The authors drew them to carry the argument — a figure worth pointing into is an annotated-figure, one that argues on its own is a claim-figure — or say why this deck does not need it.`,
+    },
+  ];
+}
+
+/**
+ * The figure ids a beat PUTS ON SCREEN. A split-compare carries them one level
+ * down, one per side, which is why this is not a single field read.
+ */
+function figuresShown(params: Record<string, unknown>): string[] {
+  const sides = ["left", "right"].map(
+    (side) => (params[side] as { figureId?: unknown } | undefined)?.figureId,
+  );
+  return [params.figureId, ...sides].filter((v): v is string => typeof v === "string");
 }
 
 /**
