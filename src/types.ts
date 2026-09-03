@@ -630,11 +630,22 @@ export const prefsSchema = z.object({
       /** The planner may ask for pictures, and the server runs the `illustrate` stage. */
       enabled: z.boolean().default(false),
       /**
-       * Where the provider chain starts. `auto` tries a configured backend, then
-       * the Codex account, then the tool's own SVG; `codex` skips the backend;
-       * `svg` is the tool alone — no network, no spend, fully deterministic.
+       * Where the provider chain starts. `codex` — the DEFAULT — draws on the
+       * account that already planned the deck, then falls to the tool's own SVG;
+       * `auto` puts a configured backend in front of it; `svg` is the tool alone
+       * — no network, no spend, fully deterministic.
+       *
+       * CODEX IS THE DEFAULT rather than `auto` because the two rungs are not
+       * the same kind of thing to reach for by accident. The Codex account is
+       * already paying for the plan, and its spend is the one the user has
+       * consented to by running the tool at all; a backend named in the
+       * environment is metered per image and belongs to whoever set the variable
+       * — which, on a shared machine or a server, is not necessarily the person
+       * whose deck is being built. Defaulting to `auto` meant "spend money if a
+       * key happens to be around", and a default should never be the expensive
+       * branch. `--image-provider auto` is one flag away.
        */
-      provider: z.enum(["auto", "codex", "svg"]).default("auto"),
+      provider: z.enum(["auto", "codex", "svg"]).default("codex"),
       /**
        * Model for the separate backend only. The Codex rung draws with the
        * account's own model — `--model` there selects the agent, not the picture
@@ -652,7 +663,7 @@ export const prefsSchema = z.object({
     })
     // Same reason as `narration`: the resolved shape, spelled once, so an omitted
     // block reads fully populated and a `.deck` manifest carries every field.
-    .default({ enabled: false, provider: "auto", style: "flat vector illustration", max: 4 }),
+    .default({ enabled: false, provider: "codex", style: "flat vector illustration", max: 4 }),
 });
 
 /* -------------------------------------------------------------- Narration */

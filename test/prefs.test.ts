@@ -62,7 +62,7 @@ describe("loadPrefs", () => {
     const root = await project({ images: { enabled: true, style: "woodcut" } });
     const prefs = await loadPrefs({ images: { max: 2 } }, root);
 
-    expect(prefs.images).toEqual({ enabled: true, provider: "auto", style: "woodcut", max: 2 });
+    expect(prefs.images).toEqual({ enabled: true, provider: "codex", style: "woodcut", max: 2 });
   });
 
   it("rejects an unknown config key by name, and lists the real ones", async () => {

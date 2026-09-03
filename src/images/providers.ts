@@ -316,14 +316,36 @@ export function codexImages(opts: CodexImagesOptions = {}): ImageProvider {
   };
 }
 
+/**
+ * THE PICTURE IS CHECKED BY THE AGENT THAT DREW IT, IN THE SAME RUN.
+ *
+ * A generated raster can contain text, and nothing downstream can see it: the
+ * 40px audience floor measures DOM text, so a caption baked into a JPEG passes
+ * every gate at any size (EXPERIMENT-007, and `.planning/DECISION.md` lists a
+ * raster type floor as work that does not exist). Shipping illustrations is
+ * what made that gap matter, so the gap is closed where it is cheapest to
+ * close: the agent already has the image and can look at it, so it looks,
+ * redraws once, and refuses rather than handing back a picture with words in
+ * it. A refusal is not a failure — the chain falls to the next rung, and the
+ * tool's own SVG has no text by construction.
+ *
+ * This costs no extra call. The alternative — a second `codex exec` with
+ * `-i picture.png` — doubles the price of every illustration to ask a question
+ * the drawing session can already answer.
+ */
 function codexPrompt(req: ImageRequest): string {
   return [
     `Use $imagegen to make one picture: ${picturePrompt(req)}`,
     "Save it as a PNG and copy it to ./picture.png in the current directory.",
+    "Then LOOK at ./picture.png and check it carefully for any text: letters,",
+    "words, numbers, labels, captions, watermarks or signage, in any language.",
+    "The picture must contain NONE. If it does, generate it once more with the",
+    "text removed and replace ./picture.png. If the second attempt still has",
+    'text, do not hand it back — answer ok=false with the reason "text in picture".',
     "Your final message must be JSON conforming to the supplied schema:",
-    '  { "ok": true, "file": "picture.png", "reason": null } once the picture is there;',
-    '  { "ok": false, "file": null, "reason": "<why>" } if you have no image tool or the picture cannot be made.',
-    "Do not search the web and do not read files. Do nothing else.",
+    '  { "ok": true, "file": "picture.png", "reason": null } once a text-free picture is there;',
+    '  { "ok": false, "file": null, "reason": "<why>" } if you have no image tool, the picture cannot be made, or it keeps coming back with text.',
+    "Do not search the web and do not read any other files. Do nothing else.",
   ].join("\n");
 }
 

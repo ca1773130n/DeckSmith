@@ -40,8 +40,8 @@ Three rungs, tried in order. Every hop down is printed, never silent.
    error where the backend is *resolved* — at `illustrate` time on the CLI, in
    the preflight banner on the server, in `capabilities` for MCP. Nothing throws
    at import.
-   A Gemini adapter is the obvious follow-up behind the same seam; it is not on
-   this branch because nothing here can exercise it.
+   NOT the default, and there will be no Gemini adapter: a metered API is the
+   expensive branch, and a default must never be the expensive branch.
 2. **The main account** — the Codex CLI that already plans the deck. Codex 0.149
    ships a stable `image_generation` feature (`codex features list` →
    `image_generation stable true` on this machine): the agent has an `image_gen`
@@ -67,8 +67,10 @@ capture — a nondeterministic render that every gate passes (measured in
 chrome-headless-shell 145 during review). A blocklist sanitiser is the wrong
 tool for that; the tool rung already covers "always finish".
 
-`images.provider` says where the chain starts: `auto` (all of the above), `codex`
-(skip the backend), `svg` (tool only — no network, no spend, fully deterministic).
+`images.provider` says where the chain starts. **`codex` is the default**: the
+account that planned the deck draws, and falls to the tool's SVG. `auto` puts a
+configured backend in front of it, `svg` is the tool alone — no network, no
+spend, fully deterministic.
 
 ## The contract
 
@@ -282,8 +284,8 @@ Server code imports the new names through `../index.js` only
 ### Not in scope
 
 Hero images on `title`/`callout` (no figure slot today); `annotated-figure`
-(notes point *into* an image that does not exist yet); a Gemini adapter (same
-seam, needs a key to verify); SVG figures from *sources* (`imageSize` stays
+(notes point *into* an image that does not exist yet); any Gemini adapter, ruled
+out on 2026-09-03; SVG figures from *sources* (`imageSize` stays
 raster-only on purpose — it is the upload type check); generated video (rejected
 in VOCABULARY.md); a raster type floor (still the open item in DECISION.md);
 reading `.env` from Node (only `just` does, as before).
