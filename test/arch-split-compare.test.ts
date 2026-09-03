@@ -59,16 +59,20 @@ const minimal = beat("min", {
 
 /**
  * Every optional field present, long labels, and the deepest list that still
- * fits. Five a side, not six: with an eyebrow, a headline that wraps and a note,
- * the chrome takes 493 of the 912px canvas and content gets 419. Six bullets
- * need 438px at the 40px floor, so the sixth cannot be drawn without breaking
- * invariant 5 — and `deepest that still fits` is measured against the CURRENT
- * budget, not the flat 560 this archetype used to assume. `refuses a panel that
- * cannot fit` below pins the other side of that boundary.
+ * fits. Six a side, not seven: with an eyebrow, a headline that wraps and a
+ * note, the chrome, the body's top margin and the note take 346 of the 912px
+ * canvas and content gets 566. The sixth bullet sets at exactly the 40px floor,
+ * which passes; a seventh cannot be drawn without going under it — and `deepest
+ * that still fits` is measured against the CURRENT budget, not the flat 560
+ * this archetype used to assume. `refuses a panel that cannot fit` below pins
+ * the other side of that boundary.
+ *
+ * It was five a side while the headline was 76px: two headline lines cost 174
+ * then and 148 now, and the 26px is where the sixth bullet came from.
  */
 const maximal = beat("max", {
   eyebrow: "Ablation",
-  headline: "A headline long enough to wrap onto its second line at 66px",
+  headline: "A headline long enough to wrap onto its second line at 64px",
   left: {
     label: "Naive per-frame reconstruction",
     lines: [
@@ -77,6 +81,7 @@ const maximal = beat("max", {
       "28.10 dB at 4.1 GFLOPs",
       "Fails on fast motion",
       "Latency grows with length",
+      "One pass, no reuse",
     ],
   },
   right: {
@@ -87,6 +92,7 @@ const maximal = beat("max", {
       "30.47 dB at 1.6 GFLOPs",
       "Holds up in fast motion",
       "Latency flat in length",
+      "One warp, full reuse",
     ],
   },
   note: "Both rows measured on the same held-out split.",
@@ -385,25 +391,30 @@ describe("split-compare", () => {
   });
 
   /**
-   * The boundary itself, not a value far past it. `maximal` is five bullets a
-   * side because six is one more than the fully-dressed chrome leaves room for;
-   * if the budget ever moves, one of these two assertions fails and says which
-   * way it went — rather than the `maximal` fixture throwing at module scope and
-   * taking the whole suite's collection down with it, which is how this
-   * boundary announced itself the first time.
+   * The boundary itself, not a value far past it. `maximal` is six bullets a
+   * side because seven is one more than the fully-dressed chrome leaves room
+   * for; if the budget ever moves, one of these two assertions fails and says
+   * which way it went — rather than the `maximal` fixture throwing at module
+   * scope and taking the whole suite's collection down with it, which is how
+   * this boundary announced itself the first time.
+   *
+   * It was five and six while the headline was 76px. Bringing the type scale
+   * down to 64 gives a two-line headline back 26px, and 26px is one more bullet
+   * — the sixth sets at exactly the 40px floor, which passes. This assertion is
+   * the one that noticed, which is what it is for.
    */
-  it("fits five bullets a side under a full chrome, and refuses the sixth", () => {
+  it("fits six bullets a side under a full chrome, and refuses the seventh", () => {
     const dress = (lines: string[]): Beat =>
       beat("edge", {
         eyebrow: "Ablation",
-        headline: "A headline long enough to wrap onto its second line at 66px",
+        headline: "A headline long enough to wrap onto its second line at 64px",
         left: { label: "Naive per-frame reconstruction", lines },
         right: { label: "Proposed recurrent update", lines },
         note: "Both rows measured on the same held-out split.",
       });
-    const five = Array.from({ length: 5 }, (_, i) => `Latency grows with length ${i}`);
-    expect(() => splitCompare(dress(five), ctx("s5"))).not.toThrow();
-    expect(() => splitCompare(dress([...five, "One pass, no reuse"]), ctx("s5"))).toThrow(
+    const six = Array.from({ length: 6 }, (_, i) => `Latency grows with length ${i}`);
+    expect(() => splitCompare(dress(six), ctx("s5"))).not.toThrow();
+    expect(() => splitCompare(dress([...six, "One pass, no reuse"]), ctx("s5"))).toThrow(
       /do not fit/,
     );
   });

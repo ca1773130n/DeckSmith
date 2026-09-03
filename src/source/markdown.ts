@@ -43,6 +43,17 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
   /** Content can appear before the first heading; it still needs somewhere to live. */
   const current = () => (open ??= { depth: 1, heading: "", lines: [] });
 
+  /**
+   * Every prose block and every lifted image, by their index in the stream, so a
+   * figure can be matched to the paragraph that refers to it. That paragraph is
+   * as often AFTER the image as before it, and when the image is lifted it has
+   * not been read yet — hence a second pass rather than a lookup here.
+   */
+  const prose: Array<{ at: number; text: string }> = [];
+  const placed: Array<{ figure: Figure; at: number; opened: number }> = [];
+  /** Where the open section began, which bounds the fallback below. */
+  let opened = -1;
+
   const children = root.children;
   for (let i = 0; i < children.length; i++) {
     const node = children[i];
@@ -53,6 +64,7 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
       if (!title) title = heading;
       flush();
       open = { depth: node.depth, heading, lines: [] };
+      opened = i;
       continue;
     }
 
@@ -72,7 +84,7 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
       // The real input captions a figure with the italic paragraph that follows it.
       const caption = captionOf(children[i + 1]);
       for (const img of images) {
-        figures.push({
+        const figure: Figure = {
           id: `fig${figures.length + 1}`,
           src: img.url,
           caption: caption ?? img.alt ?? "",
@@ -80,7 +92,13 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
           // and a square placeholder is a visible wrong rather than a plausible one.
           width: 1,
           height: 1,
-        });
+          // The section is still open, so the id `flush` is about to give it is
+          // the id this figure belongs to. Absent before the first heading,
+          // where there is no section to name yet.
+          ...(open && { sectionId: `sec${sections.length + 1}` }),
+        };
+        figures.push(figure);
+        placed.push({ figure, at: i, opened });
       }
       if (caption !== undefined) i++;
       continue;
@@ -89,9 +107,31 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
     collectMath(node, equations);
     if (node.type === "math") continue; // lifted, not prose
     const text = blockText(node);
-    if (text) current().lines.push(text);
+    if (text) {
+      current().lines.push(text);
+      prose.push({ at: i, text });
+    }
   }
   flush();
+
+  for (const p of placed) {
+    // A figure BEFORE the first heading has no section open at lift time, but if
+    // any prose preceded or followed it the flush created a preamble section and
+    // the figure is inside it — so the id exists, it is just not known until
+    // now. Deferred here rather than guessed above: `sections.length + 1` at
+    // lift time would have named a section that might never be created, and the
+    // hero figure of a document that opens with an image is exactly the one this
+    // dropped.
+    // The marker for "lifted before the first heading" is the absent id itself:
+    // `open` was null, so nothing named it. If the flush then created a preamble
+    // section — the one with no heading — that is the section the figure is in.
+    const preamble = sections[0];
+    if (p.figure.sectionId === undefined && preamble && preamble.heading === "") {
+      p.figure.sectionId = preamble.id;
+    }
+    const mention = mentionOf(p.figure.caption, prose, p.at, p.opened);
+    if (mention) p.figure.mention = mention;
+  }
 
   return sourceSchema.parse({
     id: opts.id ?? createHash("sha256").update(md).digest("hex").slice(0, 12),
@@ -128,6 +168,49 @@ function captionOf(node: RootContent | undefined): string | undefined {
   const solid = node.children.filter((c) => !(c.type === "text" && !c.value.trim()));
   const first = solid[0];
   return solid.length === 1 && first?.type === "emphasis" ? textOf(first) : undefined;
+}
+
+/**
+ * The prose a figure is referred to by: the nearest paragraph that NAMES it —
+ * the one before it, or failing that the first one after — and where the author
+ * never wrote "Figure 2" at all, the paragraph immediately in front of the image.
+ *
+ * A named reference may sit anywhere in the document, because the name says
+ * which figure it is about. The unnamed fallback may not: it is a guess from
+ * position alone, so it is bounded by the figure's own section. A paragraph from
+ * the section above is about something else, and the planner cannot tell a wrong
+ * reference from a right one.
+ */
+function mentionOf(
+  caption: string,
+  prose: ReadonlyArray<{ at: number; text: string }>,
+  at: number,
+  opened: number,
+): string | undefined {
+  const name = figureName(caption);
+  if (name) {
+    const before = prose.filter((p) => p.at < at && name.test(p.text)).at(-1);
+    const found = before ?? prose.find((p) => p.at > at && name.test(p.text));
+    if (found) return found.text;
+  }
+  return prose.filter((p) => p.at > opened && p.at < at).at(-1)?.text;
+}
+
+/**
+ * How the document would refer to this figure in a sentence, read off the
+ * caption's own numbering: a caption opening "Figure 2 —" is cited as "Figure 2"
+ * or "Fig. 2". Undefined for a caption with no number in it, which is exactly
+ * when there is nothing to match on.
+ */
+function figureName(caption: string): RegExp | undefined {
+  const match = /^\s*(fig(?:ure)?\.?|그림|図|图)\s*([0-9]+)/i.exec(caption);
+  const word = match?.[1];
+  const number = match?.[2];
+  if (!word || !number) return undefined;
+  // Latin prose abbreviates what the caption spells out; CJK does not, and the
+  // three CJK words carry no characters a regex reads specially.
+  const head = /^fig/i.test(word) ? String.raw`fig(?:ure)?\.?` : word;
+  return new RegExp(`${head}\\s*${number}\\b`, "i");
 }
 
 function readTable(node: TableNode) {

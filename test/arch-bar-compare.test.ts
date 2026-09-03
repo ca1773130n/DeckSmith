@@ -358,6 +358,42 @@ describe("bar-compare", () => {
     ).toThrow(/Shorten the labels or split the beat/);
   });
 
+  /**
+   * The chrome this archetype charges itself has to be the one it draws.
+   *
+   * It used to keep a private `CHROME_H` of one eyebrow line plus one headline
+   * line, flat, while `chromeHeight` — which every other archetype asks —
+   * measures the wrapping both actually do. MEASURED at 1700: a two-line
+   * headline is 74px more than the flat figure, a two-line eyebrow 50px more,
+   * and both together 124px. The bars are solved against that budget, so every
+   * one of those pixels was a bar drawn into the headline, silently and with
+   * every gate green.
+   *
+   * Pinned as an ORDERING rather than as a pixel count: the plot under a
+   * wrapping chrome must be shorter than under a chrome of the same beat that
+   * fits on one line. A flat constant makes them equal, which is the bug.
+   */
+  it("pays for the chrome it actually draws, wrapping included", () => {
+    // Eight bars, not two: at two the row height is capped by BAR_MAX and the
+    // budget never binds, so both chromes would draw the same plot and the
+    // assertion would pass without measuring anything.
+    const bars = Array.from({ length: 8 }, (_, i) => ({ label: `Run ${i}`, value: i + 1 }));
+    const plotH = (html: string): number => Number(/<svg[^>]*height="([0-9.]+)"/.exec(html)?.[1]);
+
+    const short = barCompare(beat({ eyebrow: "Cost", headline: "Two numbers", bars }), ctx("s1"));
+    const wrapped = barCompare(
+      beat({
+        // Both lines wrap at 1700 — the case the flat constant under-counted most.
+        eyebrow: "Throughput on the held-out split, measured end to end across every length",
+        headline:
+          "The recurrent update keeps a hidden state across frames and stops the per-frame rebuild",
+        bars,
+      }),
+      ctx("s2"),
+    );
+    expect(plotH(wrapped.html)).toBeLessThan(plotH(short.html));
+  });
+
   it("puts zero inside the plot when a value is negative", () => {
     const scene = barCompare(
       beat({

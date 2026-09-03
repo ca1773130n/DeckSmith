@@ -21,8 +21,35 @@ import {
   tween,
 } from "./title.js";
 
-/** Caption line box plus its top margin — what the figure has to leave behind. */
-const CAP_BAND = 26 + 2 * 58;
+/**
+ * Two caption line boxes plus the margin above them — what the figure has to
+ * leave behind.
+ *
+ * DERIVED, because the literal it replaces went stale silently. `58` was
+ * `40 * 1.45` frozen when `BODY_SIZE` was 40; the density pass moved `BODY_SIZE`
+ * to 44 and the line box became 64, so every claim-figure beat was told the
+ * caption needed 12px less than it does, and spent the difference on the plate.
+ * The size has since come back to 40 and the arithmetic agrees again — which is
+ * exactly why this has to derive rather than sit at a number that happens to be
+ * right today.
+ *
+ * The `26` is deliberately not `.caption`'s 16px margin: it is the same figure
+ * `bodyBudget` is given as `top`, and over-counting the band by 10px is the
+ * direction that leaves the caption on the canvas.
+ *
+ * TWO LINES IS AN ASSUMPTION, not a measurement, and it is the one number here
+ * that can be wrong in the dangerous direction: a caption that wraps to three
+ * charges the figure a line it was never given, so the plate is solved too tall
+ * and the caption is the thing pushed down. The demo's own claim-figure sets a
+ * three-line caption. It is left as an assumption rather than measured because
+ * the caption's column is not known until the layout branch below has chosen
+ * (beside, under or stacked), and that branch reads this number — measuring it
+ * properly means breaking that circle, which is more than this fix. What the
+ * constant buys instead is a name: the next person to see a caption sitting low
+ * has something to grep for.
+ */
+const CAP_LINES_ASSUMED = 2;
+const CAP_BAND = 26 + CAP_LINES_ASSUMED * Math.round(BODY_SIZE * BODY_LH);
 
 /**
  * At 1920 wide the figure box is ~1668px, and the budget under the headline —

@@ -34,14 +34,30 @@ export function isPortrait(format: Format): boolean {
  *
  * These are exported because every archetype that draws a diagram has to know
  * how much room the chrome took before it can decide how big the diagram is. A
- * duplicated `const HEADLINE_H = 76` in five files is a type scale that can only
+ * duplicated `const HEADLINE_H = 64` in five files is a type scale that can only
  * ever be changed in one of them, and the other four then overflow or leave a
  * band — both silent.
  *
- * 76/42, not 66/40. The floor is 40 and most of the deck was sitting on it, so
- * the whole slide read as body text with one slightly larger line. Growing type
- * is the safe direction (invariant 5 is a minimum), and the budget arithmetic
- * below is what keeps the extra height from pushing a scene off both edges.
+ * 64/42/40, down from 76/42/44. The density pass that set 76 was answering a
+ * real complaint — at 66/40 the whole slide read as body text with one slightly
+ * larger line — but it overshot the measure. MEASURED at contentW 1700: a 76px
+ * headline line holds 45 characters, and the planner is asked for headlines
+ * longer than that, so TEN of `demo/storyboard.json`'s twelve wrapped to two
+ * lines and each spent 174px of a 912px box saying one sentence. At 64 the same
+ * line holds 53: three still wrap, seven stop, and a headline that stops hands
+ * 100px back to the body (174 -> 74) while one that still wraps hands back 26
+ * (174 -> 148). Across the demo that is 804px, 67 a beat — which is the space
+ * the owner said the deck was wasting.
+ *
+ * EYEBROW_SIZE STAYS AT 42. It is the one line that is already short by
+ * contract, so shrinking it buys ~10px and costs the only contrast the chrome
+ * has between its two lines.
+ *
+ * BODY_SIZE goes to 40, which IS the floor. That is deliberate and it is legal:
+ * `scanTypeFloor` compares `px < floorPx` (src/verify/typefloor.ts), so 40
+ * passes, and the demo already declares 40 in ten places. There is no room under
+ * this one — the next archetype that wants a body notch smaller has to take less
+ * text instead.
  */
 export const EYEBROW_SIZE = 42;
 export const EYEBROW_LH = 1.2;
@@ -59,22 +75,23 @@ export const EYEBROW_H = EYEBROW_LINE + EYEBROW_GAP;
  */
 export const EYEBROW_TRACKING = 0.14;
 export const HEADLINE_TRACKING = -0.015;
-export const HEADLINE_SIZE = 76;
+export const HEADLINE_SIZE = 64;
 export const HEADLINE_LH = 1.15;
 export const HEADLINE_H = Math.round(HEADLINE_SIZE * HEADLINE_LH);
 
-/** Body copy — notes, captions, claims. One notch off the floor, deliberately. */
-export const BODY_SIZE = 44;
+/** Body copy — notes, captions, claims. ON the floor, deliberately: see above. */
+export const BODY_SIZE = 40;
 export const BODY_LH = 1.45;
 
 /**
  * A last line of this many words or fewer is an orphan, not a line.
  *
- * The density pass grew the headline from 66px to 76px and five of the demo's
- * twelve started breaking as "…is read / through", "…not the / smallest",
- * "…behind recent / models". One stranded word under a full measure reads as a
- * typesetting accident, and at 9:16 — where the box is 860 wide and the type is
- * proportionally twice as large — nearly every headline of any length does it.
+ * The density pass that grew the headline to 76px had five of the demo's twelve
+ * breaking as "…is read / through", "…not the / smallest", "…behind recent
+ * / models". One stranded word under a full measure reads as a typesetting
+ * accident. Coming back down to 64 removes six of those breaks outright but not
+ * the shape: at 9:16 — where the box is 860 wide and the type is proportionally
+ * twice as large — nearly every headline of any length still does it.
  */
 const ORPHAN_WORDS = 2;
 

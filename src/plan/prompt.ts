@@ -101,79 +101,121 @@ DRAWING ARCHETYPES — reach here first
 
   pipeline       Two to six labelled stages left to right, arrowed, revealed one
                  at a time, with an optional labelled feedback arrow back to an
-                 earlier stage. The tell: a method, a procedure, a training loop,
-                 an inference path — any sentence with "then", "next", or "feeds
-                 into" in it. Each stage's note carries the concrete thing that
-                 happens there: a shape, a count, a rate.
+                 earlier stage. The tell: THINGS HANDED ALONG IN ORDER — a method,
+                 a procedure, a training loop, an inference path, any sentence
+                 with "then", "next", or "feeds into" in it. Each stage's note
+                 carries the concrete thing that happens there: a shape, a count,
+                 a rate. If the parts do not hand anything to each other but sit
+                 one on top of another, that is stack.
 
   annotated-figure
                  A figure from the source with leader lines drawn onto it and
                  revealed in turn; notes[].x/y are fractions of the figure's own
-                 box. The tell: a figure worth more than one sentence. If you can
-                 say WHERE in the figure the claim lives — and you usually can —
-                 this beats claim-figure, which just parks the image beside a
-                 sentence. Up to five notes, each pointing at one thing.
+                 box. The tell: A PLACE INSIDE A FIGURE YOU CAN POINT AT. If you
+                 can say WHERE in the figure the claim lives — and the caption,
+                 plus the "the document says" line the inventory prints under it,
+                 usually tell you — this beats claim-figure, which just parks the
+                 image beside a sentence. Up to five notes, each pointing at one
+                 thing.
+                 USE \`crop\` — { x, y, w, h }, the same fractions — to make the
+                 beat about ONE REGION rather than a whole page. A paper figure is
+                 usually several panels drawn to be read at arm's length, and a
+                 beat about the third panel should show the third panel: cropped,
+                 its internal type is legible from the back of a room, the notes
+                 land on something the viewer can actually see, and two beats off
+                 the same figure look like two different slides instead of a
+                 repeat. Leave it off only when the figure's whole layout is the
+                 argument.
 
   grid           A cols×rows lattice with up to four regions lit in turn. The
-                 tell: anything about regions of a field — patches, windows,
-                 tokens, tiles, receptive fields, masks, strides, a neighbourhood,
-                 a block-sparse pattern. Regions are cell coordinates, so the
-                 lattice IS the argument.
+                 tell: A FIELD WITH NO ORDER — patches, windows, tokens, tiles,
+                 receptive fields, masks, strides, a neighbourhood, a block-sparse
+                 pattern. Regions are cell coordinates, so the lattice IS the
+                 argument. It is synthetic: for a region of a real image, that is
+                 annotated-figure with a \`crop\`.
 
-  bar-compare    Two to eight bars grown from zero in order. The tell: a
-                 magnitude comparison — speedups, parameter counts, scores,
+  bar-compare    Two to eight bars grown from zero in order. The tell: NAMED
+                 THINGS MEASURED IN ONE UNIT — speedups, parameter counts, scores,
                  latencies, costs. Whenever the numbers share a unit, use this
                  rather than data-table: a length the eye compares lands faster
-                 than a figure it has to read.
+                 than a figure it has to read. If the labels are steps along an
+                 axis rather than names — epochs, sizes, sequence lengths — that
+                 is line-chart.
 
   stack          Two to seven layers drawn bottom-up as offset planes. The tell:
-                 something built ON something — a layered architecture, a protocol,
+                 SOMETHING BUILT ON SOMETHING — a layered architecture, a protocol,
                  a hierarchy of representations, a system diagram whose point is
-                 what sits above what.
+                 what sits above what. Nothing moves along it: the relation is ON
+                 TOP OF, not THEN, which is what makes it not a pipeline.
 
   split-compare  Two labelled halves, each a figure or a few short lines. The
-                 tell: before/after, baseline/ours, with/without, naive/proposed.
-                 The contrast is the point, so give both halves the same shape.
+                 tell: TWO OF SOMETHING, HELD SIDE BY SIDE — before/after,
+                 baseline/ours, with/without, naive/proposed. The contrast is the
+                 point, so give both halves the same shape. If the whole contrast
+                 is two numbers in one unit, that is bar-compare with two bars.
+                 AT MOST ONE OF THE TWO HALVES IS A FIGURE when the figure has
+                 panels inside it. A half is under half the canvas wide, so a
+                 seven-column grid put there draws its own labels at about 11px —
+                 unreadable, and invisible to every check, because text inside an
+                 image is not text anything here can measure. Give a dense figure
+                 a slide of its own (claim-figure), or point into one region of
+                 it (annotated-figure with \`crop\`), and put words in the other
+                 half.
 
-  equation-walk  An equation, then its symbols lit one at a time. Use when the
-                 point IS the equation — a definition, a loss, a bound. Each
+  equation-walk  An equation, then its symbols lit one at a time. The tell: THE
+                 POINT IS THE EQUATION — a definition, a loss, a bound. Each
                  terms[].tex must appear verbatim inside that equation's TeX, and
                  each label says what the symbol means, not what it is called.
                  Four terms maximum; if the equation needs more, it needs two beats.
+                 An equation quoted to back a claim someone else is making is
+                 evidence under another archetype, not a beat of its own.
 
-  line-chart     A trend the source states numerically but does not plot. Points
-                 come from the source's numbers; deltas, if given, are the steps
-                 between consecutive points, so there is always one fewer.
+  line-chart     A trend the source states numerically but does not plot. The
+                 tell: A QUANTITY MOVING ALONG AN ORDERED AXIS — over length, over
+                 scale, over training. Points come from the source's numbers;
+                 deltas, if given, are the steps between consecutive points, so
+                 there is always one fewer.
 
 DESCRIBING ARCHETYPES — the fallbacks
 
-  title          One headline, optional eyebrow and subtitle. The opening frame,
-                 and the divider before a genuine change of subject. Not a
-                 chapter marker for every heading in the source.
+  title          One headline, with \`eyebrow\` above it and \`sub\` beneath. The
+                 tell: THE DECK OPENING, or a genuine change of subject partway
+                 through. Not a chapter marker for every heading in the source.
+                 On the opening beat all three carry weight and none of them is
+                 decoration. \`eyebrow\` PLACES THE WORK in three or four words —
+                 the field, the venue, the kind of artifact ("Image
+                 super-resolution", "NeurIPS 2024", "An open-weights decoder").
+                 \`sub\` states, in ONE line, the problem the work attacks or the
+                 claim it lands, so the headline has something to be the answer
+                 to. A headline standing alone is a title card, and a title card
+                 tells a viewer who has not read the source nothing.
 
-  claim-figure   A claim beside a figure that demonstrates it. Use only when the
-                 figure argues on its own and there is nothing to point at inside
-                 it; otherwise annotated-figure says strictly more. params.figureId
+  claim-figure   A claim beside a figure that demonstrates it. The tell: A FIGURE
+                 THAT ARGUES AS A WHOLE and has nothing worth pointing at inside
+                 it — otherwise annotated-figure says strictly more, and cropped
+                 to the part that matters it says more still. params.figureId
                  must name a figure in the inventory.
 
-  data-table     A table with up to four rows revealed and toned. Use when the
-                 cells themselves matter — mixed units, text values, a matrix the
-                 reader must scan. If it is one column of numbers in one unit,
-                 that is bar-compare. It draws EVERY row of the table it names and
-                 cannot show a subset. Five to seven rows is what a 16:9 slide
-                 holds — fewer under a long headline or a two-line note, more in
-                 portrait or where wider columns set the type smaller — and a
-                 table that does not fit is refused rather than shrunk, which
-                 fails the build. For a longer one, take the column that carries
-                 the argument to bar-compare, or cite it under another archetype.
-                 params.tableId must name a table, and each highlight[].row must
-                 match one of that table's first-column values exactly.
+  data-table     A table with up to four rows revealed and toned. The tell: CELLS
+                 THAT MUST BE READ RATHER THAN COMPARED — mixed units, text
+                 values, a matrix the reader must scan. If it is one column of
+                 numbers in one unit, that is bar-compare. It draws EVERY row of
+                 the table it names and cannot show a subset. Five to seven rows
+                 is what a 16:9 slide holds — fewer under a long headline or a
+                 two-line note, more in portrait or where wider columns set the
+                 type smaller — and a table that does not fit is refused rather
+                 than shrunk, which fails the build. For a longer one, take the
+                 column that carries the argument to bar-compare, or cite it
+                 under another archetype. params.tableId must name a table, and
+                 each highlight[].row must match one of that table's first-column
+                 values exactly.
 
-  callout        One to three short panels. The last resort, for structure that
-                 has no shape at all: a definition, the limitations the source
-                 admits to. Lines are phrases, not sentences. It is not a place to
-                 dump bullets you could not find a visual for — a contrast is
-                 split-compare, a sequence is pipeline, layers are stack.
+  callout        One to three short panels. The tell: STRUCTURE WITH NO SHAPE AT
+                 ALL — a definition, the limitations the source admits to. The
+                 last resort, and lines are phrases rather than sentences. It is
+                 not a place to dump bullets you could not find a visual for — a
+                 contrast is split-compare, a sequence is pipeline, layers are
+                 stack.
 
 RULES
 
@@ -184,6 +226,16 @@ RULES
    callout. A deck of headlines and bullet panels is a failure even if every
    sentence in it is true; it is what every other slide generator already makes.
    Most beats in a good deck draw something.
+
+   AND VARY THE SHAPE. Do not use the same archetype for two beats in a row, and
+   where a point could honestly take two shapes, take the family this deck has
+   not used yet — a lattice, a stack, a chart, a contrast, a figure pointed into
+   are five different pictures and a deck that reaches for one of them twelve
+   times has drawn one. Real measured failure: across sixty-five planned beats a
+   single archetype took nineteen of them, and the deck it produced looks, slide
+   after slide, exactly like every other deck this planner has ever written.
+   Reaching for the same shape twice running is the reliable sign that the point
+   was not read — it is the last thing that worked, reused.
 
 2. Every id you write — in params and in evidence — must appear in the inventory
    below. A dangling id fails the build. If no figure fits the point, choose a
@@ -204,16 +256,37 @@ RULES
    hedges, the beat hedges. Drawing a mechanism is not licence to add a stage,
    a layer or a bar the source does not describe.
 
+   AND USE THE SOURCE'S OWN WORDS FOR THE THINGS IT NAMES. The work, its method,
+   the parts of that method, the datasets and the measures keep the names the
+   source gives them, spelled the way the source spells them. A part you rename
+   is a part the viewer cannot find again in the paper, and a generic stand-in —
+   "the model", "the module", "the score" — throws away the one thing that makes
+   this deck about THIS work rather than about research in general. Define each
+   term the first time it is used, in the same breath, in a clause short enough
+   to leave the headline inside its character cap: the definition usually belongs
+   in the narration or in a stage note, and the name alone belongs on the slide.
+
 4. Weight honestly. Short formats keep only the highest-weighted beats, so a 0.9
    on a detail costs the deck its spine. Reserve 0.8 and above for beats the
    explanation is broken without; give supporting detail 0.3-0.5.
 
-5. The deck is read at 1920x1080 from across a room. Headlines under 60
-   characters, claims under 140, callout lines and stage/layer labels under 48.
-   No paragraphs.
+5. The deck is read at 1920x1080 from across a room, and the type scale is what
+   sets the caps. Measured across the 1700px content box: a 64px headline line
+   holds 53 characters, a 50px claim 68, a 40px callout line about 39 in a
+   two-panel row. So headlines under 80 characters — one full line and a short
+   second, which is what fits without a third — claims under 160, callout lines
+   under 54. Stage and layer labels stay under 48: they sit inside stage boxes
+   and label gutters that the type scale does not widen. No paragraphs.
 
-6. Order it for someone who has not read the source: what problem, what idea, why
-   it works, what it costs. Length is set under PREFERENCES.
+6. EARN THE MECHANISM FIRST. The opening beats establish what problem exists, who
+   has it, and what it costs them today — in the viewer's own terms, before a
+   single stage, layer, symbol or component appears. A viewer who does not yet
+   know why the work matters cannot tell a good mechanism from an arbitrary one,
+   so every beat spent on machinery before that is spent on somebody still
+   working out what the deck is for. Then the rest of the arc, in this order:
+   what the idea is, why it works, what was measured, what it costs. A deck
+   that opens on architecture has skipped the only part of the story the
+   audience did not already have. Length is set under PREFERENCES.
 
 7. Beat ids are short, stable, lowercase slugs: "b01-title", "b02-cost".
 
@@ -301,10 +374,14 @@ ${cadence.length}
  * them, and the three it did not ask for are tokens spent on nothing.
  */
 const TONES: Record<Prefs["tone"], string> = {
+  // PLAIN IS THE SENTENCES, NOT THE VOCABULARY, and saying only the first half
+  // was how the DEFAULT tone came to mean generic. The naming requirement is
+  // RULE 3's and is sent whatever the register; what changes here is the grammar
+  // wrapped around the names, which is the thing a register actually is.
   plain:
-    "state the claim in ordinary words, and narrate in short declarative sentences with no flourish and no metaphor the source did not use.",
+    "state the claim in ordinary words — plain SENTENCES, never a plainer word swapped in for a name the source uses — and narrate in short declarative sentences with no flourish and no metaphor the source did not use.",
   academic:
-    "name the mechanism or the measured result exactly and hedge precisely as much as the source does; narration keeps the technical vocabulary and defines each term once, the first time it is spoken.",
+    "name the mechanism or the measured result exactly and hedge precisely as much as the source does; narration carries the qualifications with the claim rather than after it.",
   conversational:
     'address the audience directly and may say "you"; narration uses contractions, short sentences and the occasional aside, like explaining it to a sharp colleague at a whiteboard.',
   punchy:
@@ -502,14 +579,17 @@ FORMAT     This is a CONFERENCE FAST-FORWARD TALK — the one-minute teaser an a
            so write for it: every second carries a word, every slide carries a
            picture, and the whole thing is ONE breathless argument that still
            lands. Compress by cutting hedges and restatement, never by cutting
-           the story — the viewer must come away knowing the problem, the idea,
-           what it costs, and what was measured.
+           the story: RULE 6's arc is what a minute has to deliver, not what a
+           minute excuses you from.
 `
 }`
 }
 LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR — not a ceiling, and not a target to
-           come close to. Four of the last five plans came back short of it, and a
-           plan that comes back short is now reported as having missed it.${
+           come close to. LOOK FOR THEM IN THE SOURCE'S OWN SUBSTANCE: its prose,
+           and the figures, tables and equations its authors thought worth
+           drawing. A plan that comes back with fewer beats has usually stopped
+           looking rather than run out, and it is reported as having missed the
+           floor. Four of the last five came back short.${
              prefs.duration === undefined
                ? `
            Each beat you leave out is a piece of the explanation the viewer never
@@ -524,9 +604,8 @@ LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR — not a cei
 }
            What is still forbidden is PADDING to reach it: a beat restating an
            earlier one, a divider nobody needed, a visual repeated to say one more
-           small thing. Those cost more than being short does. So when the source
-           looks as though it will not carry ${prefs.slides} distinct points, split a point that
-           has two halves — that is the way to the number, and dropping one is not.
+           small thing. Those cost more than being short does. The way to ${prefs.slides} is to
+           SPLIT a point that has two halves, never to say one of them twice.
 LANGUAGE   Write every word the audience sees or hears in ${languageName(prefs.lang)}:
            headlines, eyebrows, claims, labels, notes, and every narration
            sentence. Write it in that language rather than translating an English
@@ -535,8 +614,18 @@ LANGUAGE   Write every word the audience sees or hears in ${languageName(prefs.l
 TONE       ${prefs.tone} — headlines ${TONES[prefs.tone]}
 DENSITY    ${prefs.density} — ${DENSITIES[prefs.density]}
 
-Set sourceId and title from the source header, and lang to the language above.
-Omit theme — the renderer chooses it. Return the storyboard only.`;
+Set sourceId from the source header and lang to the language above. Omit theme —
+the renderer chooses it.
+
+THE DECK'S \`title\` IS NOT THE SOURCE'S TITLE. Write it for a viewer who has not
+read the source and is deciding whether to keep watching: name what the work is
+about in their terms — what it does, or what it fixes. The paper's own headline
+was written for people already inside the field, and it is a string they can
+read on the paper; repeating it here spends the one line that could have told
+them why to stay. Copying it is measurable — fifty-two stored runs produced ONE
+distinct title.
+
+Return the storyboard only.`;
 }
 
 /**
@@ -559,7 +648,13 @@ function languageName(tag: string): string {
   }
 }
 
-/** The document plus every id the model is allowed to cite, and nothing else. */
+/**
+ * The document plus every id the model is allowed to cite, and nothing else.
+ *
+ * The figure block carries two facts beyond the caption — the section the image
+ * sat under and the prose that refers to it — because a planner that cannot see
+ * the picture has nothing else to decide what the picture is FOR.
+ */
 export function renderSource(source: Source): string {
   const out = [
     `SOURCE ${source.id}`,
@@ -575,10 +670,28 @@ export function renderSource(source: Source): string {
   }
 
   out.push("", "== FIGURES ==");
-  for (const f of source.figures)
-    out.push(`[figure ${f.id}] ${f.width}x${f.height} — ${f.caption}`);
-  if (!source.figures.length)
+  if (!source.figures.length) {
     out.push("(none — no annotated-figure or claim-figure beat is possible)");
+  } else {
+    const n = source.figures.length;
+    // The count as a fact, said once. What to DO about a figure is RULE 2's job;
+    // this line exists so the model can notice it has planned around three of
+    // four pictures, which it cannot do from a list it never counted.
+    out.push(`${n === 1 ? "1 figure" : `${n} figures`} in this document.`);
+    const headings = new Map(source.sections.map((s) => [s.id, s.heading]));
+    for (const f of source.figures) {
+      out.push("", `[figure ${f.id}] ${f.width}x${f.height} — ${f.caption}`);
+      const heading = f.sectionId === undefined ? undefined : headings.get(f.sectionId);
+      // WHERE IT SITS, then WHAT THE DOCUMENT SAYS ABOUT IT. The model cannot
+      // see the image; these two lines are everything it has for deciding which
+      // point the picture belongs to, and without them the only usable signal
+      // was a caption, which says what a figure is and never what it is for.
+      if (f.sectionId !== undefined) {
+        out.push(`  under: [section ${f.sectionId}]${heading ? ` ${heading}` : ""}`);
+      }
+      if (f.mention) out.push(`  the document says: ${clip(f.mention)}`);
+    }
+  }
 
   out.push("", "== EQUATIONS ==");
   for (const e of source.equations)
@@ -596,4 +709,19 @@ export function renderSource(source: Source): string {
   if (!source.tables.length) out.push("(none — no data-table beat is possible)");
 
   return out.join("\n");
+}
+
+/**
+ * A referencing paragraph, cut to the part that says what the figure is for.
+ *
+ * The whole paragraph is already in `== DOCUMENT ==` above, so what is worth
+ * paying for here is proximity to the id, not a second copy of the prose. Cut on
+ * a space so the line ends on a word rather than mid-token.
+ */
+function clip(text: string, max = 300): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${space > max / 2 ? cut.slice(0, space) : cut}…`;
 }

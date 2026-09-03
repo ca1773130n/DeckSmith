@@ -43,6 +43,7 @@
  * planner, no TTS and no ffmpeg.
  */
 import type { Prefs } from "../prefs.js";
+import type { Source } from "../types.js";
 
 /**
  * Characters of text per second of speech.
@@ -198,6 +199,18 @@ export const FF_BEAT_SECONDS = 8;
  * for both put 60 seconds at eight slides when the reference is twelve.
  */
 export const MIN_BEAT_SECONDS = 4;
+
+/**
+ * The longest a slide may sit and still be one thought.
+ *
+ * Past twenty seconds a beat stops being a slide and becomes a section of a
+ * lecture: the demo sits at 20.5s and is already the slowest thing this project
+ * ships. It was the bare `20` inside `slidesFor`'s tempo clamp; it is named
+ * because that function now uses it twice — once to stop a long target from
+ * flattening into a handful of enormous beats, and once as the floor a thin
+ * DOCUMENT may shorten the deck to. Both are the same rule.
+ */
+export const MAX_BEAT_SECONDS = 20;
 
 /**
  * Subtitle rate a short-form viewer will take, as against broadcast television.
@@ -602,14 +615,119 @@ export function durationPlan(prefs: Prefs, beats: number = prefs.slides): Durati
  *     30s ->  8    120s -> 12    600s -> 30
  *     60s -> 12    300s -> 15
  *
+ * AND HOW MUCH THE DOCUMENT HAS TO SAY, which is the half that was missing. The
+ * table above is flat at twelve from 48s to 240s no matter what it is pointed
+ * at: a four-page workshop note and a forty-page survey both got twelve beats,
+ * because the only input was a clock. Tempo says how long a beat may LAST; it
+ * cannot say how many points exist to spend beats on. So `source`, when the
+ * caller has one, scales the tempo count by what the document actually contains
+ * (`sourcePoints`), bounded by `SUPPLY_RANGE` because the measure is coarse and
+ * its authority should be too.
+ *
+ *     60s + a thin note  ->  6      240s + a thin note  -> 12
+ *     60s + a full paper -> 15      240s + a full paper -> 17
+ *
+ * The clock still wins at both ends. Sixty seconds cannot hold seventeen beats
+ * at `MIN_BEAT_SECONDS` apiece, so a rich document against a short target spends
+ * its extra points on nothing; and past four minutes `MAX_BEAT_SECONDS` holds
+ * the count up, so a thin note asked for a long video does not become six
+ * forty-second slides. Only where the clock leaves room does the document move
+ * the number — which is most of the range people actually ask for.
+ *
+ * WHO CAN PASS A SOURCE. The CLI's `plan` verb reads `source.json` before it
+ * resolves preferences, so it can and does. `parseOptions` (src/server/options.ts)
+ * derives the count while the upload is still a form, before anything is
+ * ingested, and the MCP `estimate` is a pre-flight with no document at all;
+ * both get the tempo number, which is what they got before. Omitting the
+ * argument is therefore not a degraded path, it is the old behaviour, byte for
+ * byte.
+ *
  * This is the DEFAULT, never an override. `slides` is one of the three knobs the
  * owner asked to hold — "user can give you the number of slides they want in the
- * video with duration of their choice" — so an explicit count is obeyed.
+ * video with duration of their choice" — so an explicit count is obeyed, which
+ * is `loadPrefs`'s business: it calls this only when nobody named a number.
  */
-export function slidesFor(prefs: Prefs): number {
-  if (prefs.duration === undefined) return prefs.slides;
-  const beat = clamp(prefs.duration / 12, MIN_BEAT_SECONDS, 20);
-  return Math.round(clamp(prefs.duration / beat, 3, 40));
+export function slidesFor(prefs: Prefs, source?: Source): number {
+  // What the TEMPO wants — the number this function has always returned, and
+  // still the anchor. With no target the anchor is the requested count itself.
+  const tempo =
+    prefs.duration === undefined
+      ? prefs.slides
+      : prefs.duration / clamp(prefs.duration / 12, MIN_BEAT_SECONDS, MAX_BEAT_SECONDS);
+  if (source === undefined) return Math.round(clamp(tempo, 3, 40));
+
+  const supply = clamp(sourcePoints(source) / REFERENCE_POINTS, SUPPLY_RANGE.min, SUPPLY_RANGE.max);
+  // THE CLOCK STILL OWNS THE BEAT LENGTH, at both ends, and the document only
+  // picks inside what it leaves: a sixty-second target cannot hold eighteen
+  // beats without dropping under `MIN_BEAT_SECONDS`, and a four-minute target
+  // cannot be told six because a 40-second slide is a lecture nothing warns
+  // about. Beyond four minutes the two meet — `tempo` IS `duration /
+  // MAX_BEAT_SECONDS` once the clamp above saturates — so a long target can be
+  // lengthened by a rich document but never shortened by a thin one, which is
+  // the honest answer to asking for ten minutes of a two-page note.
+  const [fewest, most] =
+    prefs.duration === undefined
+      ? [3, 40]
+      : [prefs.duration / MAX_BEAT_SECONDS, Math.min(40, prefs.duration / MIN_BEAT_SECONDS)];
+  // The schema's floor is applied LAST, because `clamp` lets `hi` win over `lo`
+  // and a ten-second target's `most` sits under three.
+  return Math.round(clamp(clamp(tempo * supply, fewest, most), 3, 40));
+}
+
+/**
+ * Characters of section prose one beat is worth.
+ *
+ * A GUESS, and marked one the way `SPEECH_CPS.cjk` is: no full-length document
+ * is stored in this repository to measure against — `demo/source.json` is a
+ * 231-character stub whose twelve beats were written by hand, and the fixture
+ * papers are 1.9 KB each. What matters is this number's RATIO to
+ * `REFERENCE_POINTS`, and the two are set together so an eight-section
+ * conference paper — around 30k characters, five figures, two tables, four
+ * equations — comes out above the reference rather than at it. Replace both with
+ * a measurement the first time a corpus of real sources exists.
+ */
+export const PROSE_CHARS_PER_BEAT = 1800;
+
+/**
+ * The supply a document needs to earn the tempo's own beat count.
+ *
+ * Twenty points is roughly a solid conference paper minus its trimmings. Below
+ * it the deck shortens, above it the deck lengthens, and `SUPPLY_RANGE` decides
+ * how far either can go.
+ */
+export const REFERENCE_POINTS = 20;
+
+/**
+ * How far the document may move the tempo's count, as a multiplier.
+ *
+ * Bounded rather than open because `sourcePoints` is a proxy and a proxy should
+ * not be trusted past the range where it is obviously right. Half is the
+ * shortest a deck of a real document should get before the answer is "this is
+ * not enough source"; one and a half keeps a rich paper under the twenty-second
+ * beat that makes a deck a lecture. A survey with a hundred points is not worth
+ * a hundred beats, and the clamp is what says so.
+ */
+export const SUPPLY_RANGE = { min: 0.5, max: 1.5 } as const;
+
+/**
+ * How many distinct points a document offers a deck.
+ *
+ * Two supplies, added, because they are genuinely different things to make a
+ * beat out of: PROSE, which carries the argument, and EXHIBITS — the figures,
+ * tables and equations the authors made on purpose because a sentence was not
+ * enough. RULE 2 in the prompt tells the planner every figure should earn a
+ * beat, so a document with eight of them is asking for a longer deck than one
+ * with none, and this is where that is counted rather than hoped for.
+ *
+ * Headings are deliberately NOT counted. A section boundary is a formatting
+ * decision — one author writes six headings over 20k characters and another
+ * writes twenty-four over the same prose — so counting them would measure the
+ * template rather than the document.
+ */
+export function sourcePoints(source: Source): number {
+  const prose = source.sections.reduce((n, s) => n + s.text.length, 0);
+  const exhibits = source.figures.length + source.tables.length + source.equations.length;
+  return prose / PROSE_CHARS_PER_BEAT + exhibits;
 }
 
 /**

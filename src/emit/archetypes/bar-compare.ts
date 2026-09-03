@@ -27,15 +27,14 @@
  * and width it does not.
  */
 import type { Emitter } from "../kit.js";
-import { contentH, contentW, esc, spotlighter } from "../kit.js";
+import { contentW, esc, spotlighter } from "../kit.js";
 import { group, id, line, MIN_FONT, nv, roundRect, svg, text, textWidth, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
+  bodyBudget,
   chrome,
   chromeCss,
   chromeIn,
-  EYEBROW_H,
-  HEADLINE_H,
   holdsWithin,
   isPortrait,
   noteCss,
@@ -43,8 +42,6 @@ import {
   tween,
 } from "./title.js";
 
-/** Rendered height of the chrome block, eyebrow included or not. */
-const CHROME_H = { with: EYEBROW_H + HEADLINE_H, without: HEADLINE_H };
 /** `.bc-wrap` margin-top. */
 const BODY_TOP = 34;
 /**
@@ -130,11 +127,18 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   // Portrait moves the label onto its own line above the rail. See the header.
   const tall = isPortrait(ctx.format);
   const unitBand = p.unit ? UNIT_BAND : 0;
-  const avail =
-    contentH(ctx.format) -
-    (p.eyebrow ? CHROME_H.with : CHROME_H.without) -
-    BODY_TOP -
-    (p.note ? NOTE_H : 0);
+  // `bodyBudget`, not a private chrome constant. This archetype used to charge
+  // itself one eyebrow line and one headline line flat, where `chromeHeight`
+  // measures the wrapping both actually do — so a two-line headline handed the
+  // plot 64px it did not have, and an eyebrow that wrapped handed it 72 more.
+  // Nothing catches that: the bars are solved against `avail`, so they simply
+  // grow into the chrome and the slide overflows with every gate green.
+  //
+  // FLOOR 0, deliberately. `bodyBudget`'s 320px default is a last resort for a
+  // caller that cannot act on "there is almost none"; this one can, and does —
+  // the `H > avail` throw below names the beat and says what to shorten, which
+  // is a better answer than bars drawn over the headline.
+  const avail = bodyBudget(ctx.format, p.eyebrow, p.headline, p.note ? NOTE_H : 0, BODY_TOP, 0);
 
   // H = count*bar + (count-1)*gap, with gap a fixed fraction of bar.
   let bar = Math.min(BAR_MAX, (avail - unitBand - FOOT) / (count + GAP_RATIO * (count - 1)));

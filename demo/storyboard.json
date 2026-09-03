@@ -205,31 +205,25 @@
     },
     {
       "id": "b07",
-      "archetype": "split-compare",
+      "archetype": "claim-figure",
       "params": {
-        "eyebrow": "The difference",
-        "headline": "One summary token per window, or one query per pixel",
-        "left": {
-          "label": "Window-wise CTM",
-          "lines": [
-            "one summary token",
-            "window identity collapses",
-            "positions are lost"
-          ]
-        },
-        "right": {
-          "label": "DQ-CTM (ours)",
-          "lines": [
-            "one query per position",
-            "token count preserved",
-            "dense field survives"
-          ]
-        },
-        "note": "Same window partition; different interface to the thought state."
+        "eyebrow": "3 · One dense tick",
+        "headline": "One tick reads the carrier and adds its update back",
+        "claim": "A persistent dense carrier, read and updated by a compact thought process.",
+        "figureId": "fig-arch"
       },
-      "intent": "The contrast that names the contribution.",
-      "narration": "The window-wise version collapses each window down to a single summary token. This one asks a question at every position instead, and the token count survives it. The partition is identical in both. What differs is how much of it the thought state ever sees.",
-      "evidence": [],
+      "intent": "What one tick does to the carrier.",
+      "narration": "This is the authors' own drawing of one tick, and the two rows are the two halves of it. The compact state runs along the top and ends in a dense query projection; underneath, the carrier is read as dense keys and values and comes back updated, added to what arrived.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-arch"
+        },
+        {
+          "kind": "section",
+          "id": "sec2"
+        }
+      ],
       "weight": 0.9,
       "seconds": 9
     },
@@ -353,19 +347,34 @@
     },
     {
       "id": "b11",
-      "archetype": "claim-figure",
+      "archetype": "split-compare",
       "params": {
         "eyebrow": "Qualitative",
-        "headline": "The trajectory is visible, not just measurable",
-        "claim": "Reconstruction improves monotonically across ticks on all 100 validation images.",
-        "figureId": "fig-progress"
+        "headline": "Where the ticks help, and where they do not",
+        "left": {
+          "label": "Reconstruction, T=1 → T=4",
+          "figureId": "fig-progress"
+        },
+        "right": {
+          "label": "Absolute error, same crops",
+          "lines": [
+            "typical crop — error fades by T=2",
+            "strong improvement — texture arrives late",
+            "difficult crop — stays bright at every tick"
+          ]
+        },
+        "note": "Rows are the same three crops in both: typical, strong improvement, difficult."
       },
-      "intent": "The improvement is visible frame to frame.",
-      "narration": "The claim is that reconstruction improves at every tick, on all one hundred validation images. The figure is the evidence — each column is one more tick, and the detail keeps arriving.",
+      "intent": "The improvement is visible, and so is what is left over.",
+      "narration": "On the left each column is one more tick, and in the top two rows the detail keeps arriving. On the right is what is still wrong, on the same three crops — and the bottom row stays bright at every tick.",
       "evidence": [
         {
           "kind": "figure",
           "id": "fig-progress"
+        },
+        {
+          "kind": "figure",
+          "id": "fig-error"
         }
       ],
       "weight": 0.75,

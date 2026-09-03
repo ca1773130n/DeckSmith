@@ -181,18 +181,19 @@ cut runs 4m07s.
 ```sh
 decksmith build storyboard.json --source source.json --format short-9x16 -o short/
 # build: 9 of 12 beats at 1080×1920 in ink → short/index.html
-# build:   cut b03 (annotated-figure, 27.5s) — Cut to fit short-9x16's 3m00s: 27.5s for
-#          weight 0.9 is 0.033 weight per second, and the beats kept buy more per second.
+# build:   cut b04 (grid, 19.7s) — Cut to fit short-9x16's 3m00s: 19.7s for weight 0.85
+#          is 0.043 weight per second, and the beats kept buy more per second.
 #          Its family (structure) still has 3 beat(s) in the cut.
 # build:   cut b06 (stack, 24.7s) — …
-# build:   cut b11 (claim-figure, 15.5s) — …
+# build:   cut b09 (data-table, 25.4s) — …
 # PASS — 0 error(s), 2 warning(s)
 ```
 
 The rule is `selectBeats` (`src/plan/select.ts`), and it is not "drop the lightest". In
 priority order it keeps a cut **coherent**, then **covered** — the deck's first and last
-beat, and one beat of every archetype family the full deck used — then **fitting**, and
-only then heaviest. Author weight is the last tiebreak, because weight says how much a
+beat, one beat of every archetype family the full deck used, and one beat carrying a
+figure of the source's, because a deck that cuts its way to no picture at all cannot get
+one back by rewording — then **fitting**, and only then heaviest. Author weight is the last tiebreak, because weight says how much a
 beat matters and nothing about what it costs: two 14-second beats at 0.80 are worth more
 to a three-minute budget than one 39-second beat at 0.95, and a threshold cannot say so.
 

@@ -16,7 +16,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { z } from "zod";
 import { slidesFor } from "./plan/duration.js";
-import { prefsSchema } from "./types.js";
+import { prefsSchema, type Source } from "./types.js";
 
 export type Prefs = z.infer<typeof prefsSchema>;
 
@@ -45,8 +45,19 @@ const NESTED = { narration: NARRATION_KEYS, images: IMAGES_KEYS } as const;
  * `cwd` is where the search for a config file starts; the search stops at the
  * filesystem root. Returns a fully-populated Prefs — every consumer downstream
  * reads fields, never optionals.
+ *
+ * `source` is the document the deck is being planned FROM, when the caller has
+ * already read one. It is optional because most callers have not: `build`,
+ * `narrate` and `pack` work from a storyboard that was planned long ago, and
+ * `illustrate` never needed a beat count. Only the planning path passes it, and
+ * only so `slidesFor` can size the deck to what the document contains rather
+ * than to a clock — see its header for what changes when it is absent.
  */
-export async function loadPrefs(overrides: PrefsPatch = {}, cwd = process.cwd()): Promise<Prefs> {
+export async function loadPrefs(
+  overrides: PrefsPatch = {},
+  cwd = process.cwd(),
+  source?: Source,
+): Promise<Prefs> {
   const found = await findConfig(cwd);
   const fromFile = found ? checkKeys(found.value, found.path) : {};
   const merged = merge(fromFile, overrides);
@@ -63,8 +74,14 @@ export async function loadPrefs(overrides: PrefsPatch = {}, cwd = process.cwd())
   // obeyed even when it cannot flow — `durationPlan` reports that rather than
   // quietly overruling it. This is the layer that already owns "what happens when
   // a preference comes from nowhere", which is exactly the question.
-  if (merged.slides === undefined && parsed.duration !== undefined) {
-    return { ...parsed, slides: slidesFor(parsed) };
+  //
+  // A SOURCE IS ALSO A REASON TO DERIVE, and it is why the condition is no longer
+  // the duration alone. How many beats a deck wants is a question about how much
+  // the document says, and `duration` was standing in for that because it was the
+  // only number in the room: without a target the schema's flat twelve applied to
+  // a two-page note and a forty-page survey alike.
+  if (merged.slides === undefined && (parsed.duration !== undefined || source !== undefined)) {
+    return { ...parsed, slides: slidesFor(parsed, source) };
   }
   return parsed;
 }

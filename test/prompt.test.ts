@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { ink } from "../src/emit/themes/index.js";
-import { REVEALS, systemPrompt } from "../src/plan/prompt.js";
+import { REVEALS, renderSource, systemPrompt } from "../src/plan/prompt.js";
 import type { Beat, Format, Source } from "../src/types.js";
 import { FORMATS, prefsSchema } from "../src/types.js";
 
@@ -173,6 +173,77 @@ describe("the prompt's reveal counts", () => {
 });
 
 /**
+ * What the model is told about a picture it cannot see.
+ *
+ * A caption says what a figure IS. Where it sat and what the prose said about it
+ * are the only evidence available for what it is FOR, which is the question the
+ * planner was answering badly: shown a size and a caption, a real run redrew the
+ * architecture as a synthetic pipeline and left the architecture figure unused.
+ */
+describe("the figure inventory", () => {
+  const paper = (figures: Source["figures"]): Source => ({
+    id: "s",
+    title: "t",
+    lang: "en",
+    sections: [
+      { id: "sec1", depth: 1, heading: "The mismatch", text: "Compact against dense." },
+      { id: "sec2", depth: 2, heading: "Method", text: "Figure 2 shows one tick." },
+    ],
+    figures,
+    equations: [],
+    tables: [],
+  });
+  const arch = {
+    id: "fig-arch",
+    src: "a.jpg",
+    caption: "Figure 2 — One tick.",
+    width: 1373,
+    height: 381,
+  };
+
+  it("states the count, and gives each figure its section and its prose", () => {
+    const text = renderSource(
+      paper([arch, { ...arch, id: "fig-err", caption: "Figure 5 — Error maps." }]),
+    );
+
+    expect(text).toContain("2 figures in this document.");
+    // The id stays verbatim and next to the caption: RULE 2 and
+    // `assertRefsResolve` both depend on the model having seen it exactly.
+    expect(text).toContain("[figure fig-arch] 1373x381 — Figure 2 — One tick.");
+  });
+
+  it("names the section a figure sits under, by id and by heading", () => {
+    const text = renderSource(paper([{ ...arch, sectionId: "sec2" }]));
+    expect(text).toContain("1 figure in this document.");
+    expect(text).toContain("under: [section sec2] Method");
+  });
+
+  it("carries the sentence the document refers to it with", () => {
+    const text = renderSource(paper([{ ...arch, mention: "Figure 2 shows one tick." }]));
+    expect(text).toContain("the document says: Figure 2 shows one tick.");
+  });
+
+  it("clips a mention rather than reprinting a section it already printed", () => {
+    // The paragraph is in `== DOCUMENT ==` above in full; what is worth paying
+    // for here is proximity to the id, not a second copy of the prose.
+    const long = `${"word ".repeat(120)}end`;
+    const text = renderSource(paper([{ ...arch, mention: long }]));
+    const line = text.split("\n").find((l) => l.includes("the document says:")) ?? "";
+
+    expect(line.length).toBeLessThan(340);
+    expect(line.endsWith("…")).toBe(true);
+    expect(line).not.toContain("end");
+  });
+
+  it("still tells a figure-less source that no figure beat is possible", () => {
+    // The line the ILLUSTRATIONS block below is the one exception to.
+    const text = renderSource(paper([]));
+    expect(text).toContain("(none — no annotated-figure or claim-figure beat is possible)");
+    expect(text).not.toContain("figures in this document");
+  });
+});
+
+/**
  * The block is an exception to RULE 2 and to the inventory's "(none — no
  * claim-figure beat is possible)". An exception that is sent when it does not
  * apply is a prompt with two answers, so presence is gated and pinned here.
@@ -201,5 +272,57 @@ describe("the prompt's illustrations block", () => {
     // A picture is a scene, never something to read; and it is never evidence.
     expect(on).toMatch(/text, labels, numbers, charts or diagrams/);
     expect(on).toMatch(/not evidence/);
+  });
+});
+
+/**
+ * The catalogue the planner picks from, and whether it can tell the entries apart.
+ *
+ * Selection is a MEASURED failure here, not a worry: across sixty-five stored
+ * beats one archetype took nineteen, and `annotated-figure.crop` — the one
+ * parameter that makes two beats off the same figure look like two slides — was
+ * set in two of forty-two. Both are what a catalogue of look-alike entries
+ * produces, so what is pinned is that each entry says what it is INSTEAD of.
+ */
+describe("the archetype catalogue", () => {
+  const text = systemPrompt(prefsSchema.parse({}));
+
+  it("gives every archetype a tell", () => {
+    // Twelve entries, twelve tells. A row with no tell is a row the model picks
+    // by name, and the names all sound equally plausible.
+    expect(text.match(/The\s+tell:/g)?.length).toBe(Object.keys(REVEALS).length);
+  });
+
+  it("says what each drawing archetype is NOT, so its neighbours are separable", () => {
+    // The confusable pairs, each named in the entry it would be mistaken for.
+    expect(text).toMatch(
+      /hand anything to each other but sit\s+one on top of another, that is stack/,
+    );
+    expect(text).toMatch(/ON\s+TOP OF, not THEN, which is what makes it not a pipeline/);
+    expect(text).toMatch(/steps along an\s+axis rather than names[^.]*that\s+is line-chart/);
+    expect(text).toMatch(/two numbers in one unit, that is bar-compare with two bars/);
+    expect(text).toMatch(/for a region of a real image, that is\s+annotated-figure with a `crop`/);
+  });
+
+  it("names annotated-figure.crop where annotated-figure is described", () => {
+    // Used in 2 of 42 stored beats. It was documented in the schema and nowhere
+    // in the text the planner is actually sent, so the planner never saw it.
+    expect(text).toContain("USE `crop` — { x, y, w, h }");
+    expect(text).toMatch(/about\s+ONE REGION rather than a whole page/);
+  });
+
+  it("briefs the title archetype's eyebrow and sub instead of calling them optional", () => {
+    // They were named once, as "optional eyebrow and subtitle", and a field named
+    // once with no brief is a field that gets written once with no thought.
+    expect(text).not.toContain("optional eyebrow and subtitle");
+    expect(text).toMatch(/`eyebrow` PLACES THE WORK/);
+    expect(text).toMatch(
+      /`sub` states, in ONE line, the problem the work attacks or the\s+claim it lands/,
+    );
+  });
+
+  it("forbids reaching for the same shape twice running", () => {
+    expect(text).toMatch(/Do not use the same archetype for two beats in a row/);
+    expect(text).toMatch(/take the family this deck has\s+not used yet/);
   });
 });

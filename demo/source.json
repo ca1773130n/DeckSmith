@@ -33,7 +33,7 @@
     {
       "id": "fig-arch",
       "src": "fig-arch.jpg",
-      "caption": "Figure 2 — ThinkSR end to end: encoder, windows, shared DQ-CTM ticks, decoder.",
+      "caption": "Figure 2 — One DQ-CTM tick: the compact thought path above, the dense key-value path below.",
       "width": 1373,
       "height": 381
     },
