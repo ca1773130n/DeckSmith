@@ -12,11 +12,48 @@ const source = {
     { id: "sec2", depth: 2, heading: "Method", text: "A persistent dense carrier, read and updated by a compact thought process." },
     { id: "sec3", depth: 2, heading: "Results", text: "Competitive with CNN baselines; behind recent lightweight transformers." },
   ],
+  // `sectionId` and `mention` are what the planner has instead of eyes: which
+  // part of the argument a picture sits in, and the sentence the prose refers to
+  // it by. `ingest` reads both off a real document; this source is hand-written,
+  // so they are written out here — a field the demo never carries is a field no
+  // end-to-end run ever exercises.
   figures: [
-    { id: "fig-compare", src: "fig-compare.jpg", caption: "Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.", width: 1373, height: 692 },
-    { id: "fig-arch", src: "fig-arch.jpg", caption: "Figure 2 — One DQ-CTM tick: the compact thought path above, the dense key-value path below.", width: 1373, height: 381 },
-    { id: "fig-progress", src: "fig-progress.jpg", caption: "Figure 4 — Reconstruction at T=0 through T=4 against bicubic and ground truth.", width: 1298, height: 578 },
-    { id: "fig-error", src: "fig-error.jpg", caption: "Figure 5 — Absolute-error maps on the same crops, one shared colour scale.", width: 1298, height: 915 },
+    {
+      id: "fig-compare",
+      src: "fig-compare.jpg",
+      caption: "Figure 1 — CTM, a window-wise adaptation, and DQ-CTM compared.",
+      width: 1373,
+      height: 692,
+      sectionId: "sec1",
+      mention: "Figure 1 puts CTM beside a window-wise adaptation and DQ-CTM; the three differ only in what each hands the thought block.",
+    },
+    {
+      id: "fig-arch",
+      src: "fig-arch.jpg",
+      caption: "Figure 2 — One DQ-CTM tick: the compact thought path above, the dense key-value path below.",
+      width: 1373,
+      height: 381,
+      sectionId: "sec2",
+      mention: "Figure 2 draws a single tick, with the compact thought path along the top and the dense key-value path underneath it.",
+    },
+    {
+      id: "fig-progress",
+      src: "fig-progress.jpg",
+      caption: "Figure 4 — Reconstruction at T=0 through T=4 against bicubic and ground truth.",
+      width: 1298,
+      height: 578,
+      sectionId: "sec3",
+      mention: "Figure 4 shows the reconstruction at T=0 through T=4 on three crops, against bicubic and the ground truth.",
+    },
+    {
+      id: "fig-error",
+      src: "fig-error.jpg",
+      caption: "Figure 5 — Absolute-error maps on the same crops, one shared colour scale.",
+      width: 1298,
+      height: 915,
+      sectionId: "sec3",
+      mention: "Figure 5 maps the absolute error over the same three crops on one shared colour scale, so what a tick fails to fix stays visible.",
+    },
   ],
   equations: [
     { id: "eq-carrier", tex: "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})", display: true },

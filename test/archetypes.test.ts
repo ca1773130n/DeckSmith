@@ -558,22 +558,31 @@ describe("archetypes", () => {
     expect((demo.match(/class="dv"/g) ?? []).length).toBe(3);
   });
 
-  it("sets table cells at the 40px floor however wide the table is", () => {
+  it("refuses a table too wide to draw at the floor, and holds the floor otherwise", () => {
     // Deriving the size from the table's width shrank six columns to 37px, which
     // is unreadable projected and clean through every gate (invariant 5). The
     // size is now derived, but only ever *upwards*, and these assertions are
     // unchanged.
     //
-    // WHAT THIS TEST USED TO ALSO SAY, and no longer does: that a table too big
-    // for its slide "is still set at the floor and allowed to trip the layout
-    // gate, which someone can see". That held for WIDTH — an over-wide table is
-    // the thing that runs off the canvas — and was false for HEIGHT, where
-    // `.scene` being centred sends the HEADLINE and the NOTE off the two ends
-    // and leaves the table looking fine. The sweep reported exactly that at 9
-    // and 10 rows and nobody could act on it. A table too tall to DRAW is
-    // refused now; see the row sweep below. The width rule this case exercises
-    // is untouched: `t2` is one row of six columns, so it still hits the floor
-    // and still draws.
+    // WIDTH IS NOW REFUSED TOO, and this case is the reversal.
+    //
+    // It used to say a too-wide table "is still set at the floor and allowed to
+    // trip the layout gate, which someone can see" — the argument being that
+    // width, unlike height, runs off the canvas visibly and the gate reports it.
+    // Height was refused first, because a centred `.scene` hid it.
+    //
+    // The visibility argument was right and still insufficient, and what settled
+    // it was the archetype finally being CHOSEN. While the prompt steered the
+    // planner away from data-table this path never ran; the moment that steer
+    // was removed, a 7-column decision matrix planned from a real 38k-word
+    // document built FAIL with 34 `canvas_overflow` errors — one per cell, all
+    // on one beat, arriving after a browser had laid the whole deck out, with no
+    // sentence anywhere about what to do. One refusal naming the widest column
+    // and three levers is worth more than 34 findings, and `onBeatError` then
+    // drops that beat and keeps the deck instead of failing the build.
+    //
+    // So the floor still holds for a table that FITS at it — that half is
+    // unchanged and asserted below — and a table that does not is refused.
     const wide = structuredClone(beats[3]) as Extract<Beat, { archetype: "data-table" }>;
     wide.params.tableId = "t2";
     wide.params.highlight = [];
@@ -610,8 +619,12 @@ describe("archetypes", () => {
       }).css;
       return Number(/table\{[^}]*font-size:\s*(\d+)px/.exec(css ?? "")?.[1] ?? 0);
     };
-    expect(cellSize(wide)).toBe(40);
-    // ...and the three-column table it shares a deck with is not held there.
+    // `t2` is six columns of long text: 2843px of demand against a 1700px box,
+    // so it cannot be drawn at the floor and is refused by name.
+    expect(() => cellSize(wide)).toThrow(/needs 2843px of width at the 40px floor/);
+    expect(() => cellSize(wide)).toThrow(/"Configuration name" column is the widest/);
+    // ...and the three-column table it shares a deck with fits, and is not held
+    // at the floor: the solve is still upwards-only for anything that fits.
     expect(cellSize(beats[3] as Beat)).toBeGreaterThan(40);
   });
 

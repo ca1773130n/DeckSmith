@@ -321,6 +321,42 @@ describe("the archetype catalogue", () => {
     );
   });
 
+  /**
+   * MEASURED: a 38k-character document with SEVEN tables was planned twice and
+   * cited none of them, taking bar-compare four times instead. Three sentences
+   * caused it, and all three were true — bar-compare said to prefer it "whenever
+   * the numbers share a unit", data-table said one column of numbers "is
+   * bar-compare", and data-table's own entry then warned that a table which does
+   * not fit "fails the build". Choosing the archetype was the risky move, so the
+   * model rationally did not. The tables were decision matrices of text values,
+   * which is what data-table describes itself as being for.
+   */
+  it("separates bar-compare from data-table by what the viewer does, not by unit", () => {
+    // Each states its own side once. Neither tells the model to prefer the other.
+    expect(text).toMatch(/bar-compare[\s\S]*?MAGNITUDES THE EYE COMPARES/);
+    expect(text).toMatch(/data-table[\s\S]*?CELLS THAT MUST BE READ RATHER THAN\s+COMPARED/);
+    expect(text).not.toContain("use this\n                 rather than data-table");
+    expect(text).not.toMatch(/one column of\s+numbers in one unit, that is bar-compare/);
+  });
+
+  it("answers a table longer than a slide with the subset rather than with bar-compare", () => {
+    // The escape that produced zero cited tables. Its replacement has to be in
+    // the text the planner is sent, or the parameter is one only the schema
+    // knows about — which is how `annotated-figure.crop` came to be used twice
+    // in forty-two beats.
+    expect(text).not.toContain("cannot show a subset");
+    expect(text).not.toMatch(/For a longer one, take the\s+column that carries the argument/);
+    expect(text).toMatch(/SO NAME THE ROWS THAT CARRY THE ARGUMENT, in `rows`/);
+    expect(text).toMatch(/states on itself how many it\s+left out/);
+    // The refusal is still stated — ONCE, as this file's own rule requires — and
+    // now as the case where neither the whole table nor the subset fits. (RULE 2
+    // says a dangling id "fails the build" too; that is a different constraint,
+    // so what is counted here is this one's own words.)
+    expect(text.match(/refused rather than shrunk/g)?.length).toBe(1);
+    expect(text.match(/five to seven of/g)?.length).toBe(1);
+    expect(text).toMatch(/fits neither\s+whole nor as the rows you named is refused/);
+  });
+
   it("forbids reaching for the same shape twice running", () => {
     expect(text).toMatch(/Do not use the same archetype for two beats in a row/);
     expect(text).toMatch(/take the family this deck has\s+not used yet/);

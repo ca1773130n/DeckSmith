@@ -153,14 +153,37 @@ export const equationWalkParamsSchema = z.object({
   terms: z.array(termSchema).min(1).max(4),
 });
 
-export const dataTableParamsSchema = z.object({
-  eyebrow: z.string().optional(),
-  headline: z.string(),
-  tableId: z.string(),
-  /** Row labels (first-column values) to emphasise, in reveal order. */
-  highlight: z.array(z.object({ row: z.string(), tone: z.enum(["a", "b", "c", "d"]) })).max(4),
-  note: z.string().optional(),
-});
+export const dataTableParamsSchema = z
+  .object({
+    eyebrow: z.string().optional(),
+    headline: z.string(),
+    tableId: z.string(),
+    /**
+     * OPTIONAL subset: the rows to draw, named by first-column value exactly as
+     * `highlight[].row` names them. Omitted, the whole table is drawn.
+     *
+     * Real tables are longer than a slide holds, and the answer to that used to be
+     * "cite one column in bar-compare" — which is why a seven-table document was
+     * planned twice with zero tables in either deck. The rows a table is cited FOR
+     * are usually three or four of them; this names those, and the slide says on
+     * itself how many it left out.
+     */
+    rows: z.array(z.string()).min(1).optional(),
+    /** Row labels (first-column values) to emphasise, in reveal order. */
+    highlight: z.array(z.object({ row: z.string(), tone: z.enum(["a", "b", "c", "d"]) })).max(4),
+    note: z.string().optional(),
+  })
+  /**
+   * A HIGHLIGHT MUST BE A ROW THE SLIDE DRAWS. `rows` chooses what is on screen
+   * and `highlight` colours one of them; naming a highlight the subset left out
+   * is a plan that cannot be drawn, and the emitter refuses it. Caught here so
+   * it fails at plan time with the pair named, rather than costing a beat at
+   * build. Whole-table beats are unaffected — with no `rows`, every row is drawn.
+   */
+  .refine((p) => p.rows === undefined || p.highlight.every((h) => p.rows?.includes(h.row)), {
+    path: ["highlight"],
+    message: "every highlight must name a row that params.rows draws",
+  });
 
 export const lineChartParamsSchema = z.object({
   eyebrow: z.string().optional(),

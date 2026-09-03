@@ -60,6 +60,8 @@ ds-mcp-*/
 ds-prov-*/
 hf-*/
 node-compile-cache/
+# Chrome's own profile directory, mkdtemp'd by puppeteer under the same TMPDIR
+puppeteer_dev_chrome_profile-*/
 tsx-*/
 .scratch/
 
