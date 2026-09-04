@@ -167,7 +167,7 @@ export interface DeckOptions {
  * a player, carries the same island, and inlines our step layer. Two files
  * because they are genuinely two things — one is rendered, one is presented —
  * and because HyperFrames' own navigation is dead at 0.7.71/0.7.72 and still
- * dead at 0.7.90 (EXPERIMENT-003), so the presented one has to be ours.
+ * dead at 0.8.27 as at 0.7.90 (EXPERIMENT-003), so the presented one has to be ours.
  */
 export function emitDeck(
   storyboard: Storyboard,
