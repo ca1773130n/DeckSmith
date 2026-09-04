@@ -42,7 +42,7 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
 
 /**
  * Dispatch a beat to its emitter. The cast is the one place the pairing is taken
- * on trust: `emitters[beat.archetype]` is a union of twelve emitters and TypeScript
+ * on trust: `emitters[beat.archetype]` is a union of thirteen emitters and TypeScript
  * will not narrow the key and the beat together. The table above already proves
  * every archetype has exactly one emitter of the right shape.
  */

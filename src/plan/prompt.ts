@@ -91,9 +91,9 @@ A beat is one idea, one visual, one hold. It carries:
              beat immediately before it. See RULE 11. Leave it off unless the
              source itself puts one inside the other.
 
-THE TWELVE ARCHETYPES
+THE THIRTEEN ARCHETYPES
 
-Eight of them DRAW: they build a vector graphic out of the source's own content
+Nine of them DRAW: they build a vector graphic out of the source's own content
 and reveal it stage by stage, so the viewer watches the idea assemble. Four only
 describe. The drawing ones are the default. The describing ones are what you
 fall back to when a point genuinely has no shape.
