@@ -33,13 +33,18 @@ a human looking at the artifact, which is also how the next one will be found.
     inside the scene's own timeline construction — and both ramped smoothly, 68
     and 72 frames mid-ramp, one frame apart.
 
-    What remains true is that the instruments disagree and none of them is
-    authoritative: `frames` shows nothing, `snapshot` shows a browser's playback,
-    the render shows a third thing, and the player is a fourth path nobody has
-    tested. Determinism across worker counts is unmeasured, and the pin is 30
-    minor versions behind, so this result is pinned to 0.7.90. Writing motion no
-    cheap gate can check is the failure; predicting *which way* it fails is not
-    something this project has earned yet.
+    **What it actually costs is determinism.** `drift` on that same deck: 2860 of
+    3120 frames byte-identical, 260 differing, worst **43.53 dB against a 40 dB
+    floor**. Without the callback the deck is 3120 of 3120. So one such tween
+    surrenders byte-identity and leaves three and a half decibels of margin over
+    a failing build — where the CSS 3D transform the css3d spike called expensive
+    sits 44 dB clear. Two of them, or one over a busier background, is a
+    plausible intermittent `drift` failure.
+
+    Also true: the instruments disagree and none is authoritative — `frames`
+    shows nothing, `snapshot` shows a browser's playback, the render shows a
+    third thing, and the player is a fourth path nobody has tested. Pinned to
+    0.7.90; re-run it with issue #35's bump.
 
 A related trap, found while reconciling the render and camera workstreams: the
 video retimer freezes each scene at its holds and then plays whatever is left of
