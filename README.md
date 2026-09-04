@@ -98,7 +98,9 @@ decksmith unpack  talk.deck        -o reopened/
   whatever the scene actually ends on. Needs Chromium and ffmpeg, and needs the
   `timing.json` that `build` writes.
 - **drift** — renders the deck twice and compares every frame. `--identical` fails on any
-  differing byte, which is only honest for an image-free deck with no camera;
+  differing byte, which is only honest for an image-free deck with no camera — the demo
+  deck is not one, and fails it on both hyperframes pins (see
+  `.planning/2026-09-04-hyperframes-0.8.27.md`);
   the default compares PSNR against a 40 dB floor. Costs two full renders, so it is a
   thing you schedule rather than a thing you run per build. See
   `.planning/EXPERIMENT-006-diagrams.md` for why byte-identical is not available in

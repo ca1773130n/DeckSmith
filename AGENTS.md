@@ -53,8 +53,8 @@ a human looking at the artifact, which is also how the next one will be found.
 
     Also true: the instruments disagree and none is authoritative — `frames`
     shows nothing, `snapshot` shows a browser's playback, the render shows a
-    third thing, and the player is a fourth path nobody has tested. Pinned to
-    0.7.90; re-run it with issue #35's bump.
+    third thing, and the player is a fourth path nobody has tested. Re-run at
+    0.8.27 and identical frame for frame, so this is not a 0.7.90 quirk.
 
 A related trap, found while reconciling the render and camera workstreams: the
 video retimer freezes each scene at its holds and then plays whatever is left of
