@@ -27,7 +27,8 @@ import { contentH, contentW, esc, spotlighter } from "../kit.js";
 import type { Box, Pt } from "../svg.js";
 import {
   circle,
-  drawFrom,
+  DRAW_FROM,
+  DRAW_TO,
   type Face,
   faceOf,
   group,
@@ -710,7 +711,6 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     h: plan.img.h + 2 * PLATE,
   };
 
-  const lengths: number[] = [];
   const parts = plan.boxes.map((b, i) => {
     const left = b.side === "l";
     const tone = notes[i]?.tone;
@@ -724,7 +724,6 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     const start = offDot(b.at, knee);
     // One stroke from the dot to the label and along under it: the leader becomes
     // the rule, so the reveal is a single gesture rather than two events.
-    lengths[i] = Math.hypot(knee.x - start.x, knee.y - start.y) + b.w;
 
     const anchor = left ? "end" : "start";
     const first = b.top + ASCENT;
@@ -821,12 +820,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         },
         at,
       ),
-      tween(
-        `#${sid}-lead${i}`,
-        drawFrom(lengths[i] ?? 0),
-        { strokeDashoffset: 0, duration: 0.55, ease: "none" },
-        at + 0.1,
-      ),
+      tween(`#${sid}-lead${i}`, DRAW_FROM, { ...DRAW_TO, duration: 0.55, ease: "none" }, at + 0.1),
       tween(
         `#${sid}-lab${i}`,
         { opacity: 0, x: b.side === "l" ? -16 : 16 },

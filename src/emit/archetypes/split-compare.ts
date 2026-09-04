@@ -26,7 +26,8 @@ import type { Emitter } from "../kit.js";
 import { contentW, esc, spotlighter } from "../kit.js";
 import type { Box } from "../svg.js";
 import {
-  drawFrom,
+  DRAW_FROM,
+  DRAW_TO,
   type Face,
   faceOf,
   line,
@@ -412,12 +413,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
         { opacity: 1, [axis]: 0, duration: 0.6, ease: "power2.out" },
         t,
       ),
-      tween(
-        `#${sid}-hair${i}`,
-        drawFrom(pw),
-        { strokeDashoffset: 0, duration: 0.7, ease: "power2.out" },
-        t,
-      ),
+      tween(`#${sid}-hair${i}`, DRAW_FROM, { ...DRAW_TO, duration: 0.7, ease: "power2.out" }, t),
     );
     if (i > 0) {
       tl.push(...spot.dim(`side${i - 1}`, t + 0.15));

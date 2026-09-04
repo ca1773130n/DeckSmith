@@ -365,6 +365,34 @@ describe("emitComposition", () => {
  * told to start from 1, a route that jumps between legs. They are checked on
  * the `Tween` objects, which is where the promise is made.
  */
+describe("the DrawSVG seam", () => {
+  it("loads the plugin and registers it before any scene script runs", () => {
+    // Order is the whole of it. A scene's IIFE builds its timeline inline, so a
+    // `drawSVG` tween created before `registerPlugin` runs is a tween GSAP does
+    // not understand — it would silently animate nothing, and every gate would
+    // stay green because the DOM still contains the path.
+    const gsapAt = html.indexOf("vendor/gsap.min.js");
+    const pluginAt = html.indexOf("vendor/DrawSVGPlugin.min.js");
+    const registerAt = html.indexOf("registerPlugin(DrawSVGPlugin)");
+    const firstScene = html.indexOf("__timelines");
+    expect(gsapAt).toBeGreaterThan(-1);
+    expect(pluginAt).toBeGreaterThan(gsapAt);
+    expect(registerAt).toBeGreaterThan(pluginAt);
+    expect(firstScene).toBeGreaterThan(registerAt);
+  });
+
+  it("never feeds a stroke a length the emitter computed", () => {
+    // The point of the seam: no archetype should be summing segment lengths or
+    // computing a rounded-rect perimeter to feed `strokeDasharray` any more. If
+    // one comes back, it is measuring a shape the browser measures anyway and
+    // keeping it in step by hand. The positive case — that a drawing archetype
+    // emits `drawSVG` — is pinned in archetypes.test.ts, where one exists; this
+    // fixture's two scenes draw no strokes, which is what makes it the right
+    // place for the negative.
+    expect(html).not.toMatch(/strokeDasharray:\s*\d/);
+  });
+});
+
 describe("the reveal verbs", () => {
   const sid = "s3";
   const scoped = (tweens: Tween[]) => {

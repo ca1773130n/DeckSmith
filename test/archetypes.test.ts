@@ -486,15 +486,20 @@ describe("archetypes", () => {
     }
   });
 
-  it("line-chart draws the axis it computed and measures the line without the DOM", () => {
+  it("line-chart draws the axis it computed and lets the browser measure the line", () => {
     const scene = emitScene(beats[4] as Beat, ctx("s5"));
     const s = chartScale([28.91, 29.88, 30.18, 30.47]);
     expect(scene.html).toContain(`>${s.min.toFixed(s.decimals)}<`);
     expect(scene.html).toContain(`>${s.max.toFixed(s.decimals)}<`);
-    expect(scene.tl.join("\n")).not.toContain("getTotalLength");
-    expect(scene.tl.map(tweenText).join("\n")).toMatch(
-      /strokeDasharray: \d+(\.\d+)?, strokeDashoffset/,
-    );
+    // This used to assert the opposite — that the emitter had summed the
+    // polyline's segments itself and written a `strokeDasharray` — because
+    // `getTotalLength()` would have been a DOM read at render time. DrawSVG is
+    // that DOM read, done by a plugin whose `render()` is part of being seeked,
+    // so the arithmetic is gone and the length is the browser's again.
+    const tl = scene.tl.map(tweenText).join("\n");
+    expect(tl).toContain('drawSVG: "0%"');
+    expect(tl).toContain('drawSVG: "100%"');
+    expect(tl).not.toMatch(/strokeDasharray/);
   });
 
   it("line-chart keeps its outermost labels inside the svg frame", () => {

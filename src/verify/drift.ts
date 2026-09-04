@@ -592,7 +592,7 @@ function stillness(motion: Motion, frames: number): Finding | undefined {
       "frozen_scene",
       `${motion.frozen.length} of ${measured} scene(s) hold one unchanging image for every frame they do not share with a neighbour: ${motion.frozen.join(", ")}. ` +
         `Two renders of a frozen deck are byte-identical, so nothing else in this gate can see it. ` +
-        `Look for a timeline that was never built, a missing vendor/gsap.min.js, or motion applied from a GSAP callback — \`seek()\` passes \`suppressEvents\`, so \`onUpdate\` never fires under capture and callback-driven motion renders still (invariant 11).`,
+        `Look for a timeline that was never built, a missing vendor/gsap.min.js, or motion applied from a GSAP callback rather than tweened — a callback does not run under a suppressed seek, so what a still frame shows of it is not what the render draws (invariant 11).`,
     );
   if (measured === 0 && frames > 1 && motion.distinct <= 1)
     return finding(

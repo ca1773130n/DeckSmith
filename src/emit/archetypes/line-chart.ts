@@ -8,7 +8,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc } from "../kit.js";
-import { drawFrom, faceOf, nv, textWidth, travel, wrap } from "../svg.js";
+import { DRAW_FROM, DRAW_TO, faceOf, nv, textWidth, travel, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -226,13 +226,6 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     .join("");
 
   const path = p.points.map((pt, i) => `${i === 0 ? "M" : "L"}${n(x(i))},${n(y(pt.y))}`).join(" ");
-  // The dash animation needs the path length. `getTotalLength()` would mean a DOM
-  // measurement at render time; a polyline's length is just the sum of its segments.
-  const length = p.points.reduce(
-    (total, pt, i) =>
-      i === 0 ? 0 : total + Math.hypot(x(i) - x(i - 1), y(pt.y) - y(p.points[i - 1]?.y ?? pt.y)),
-    0,
-  );
 
   const dots = p.points
     .map(
@@ -365,12 +358,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const step = Math.min(0.45, 1.8 / p.points.length);
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
-    tween(
-      `#${sid}-line`,
-      drawFrom(length),
-      { strokeDashoffset: 0, duration: 1.8, ease: "none" },
-      draw,
-    ),
+    tween(`#${sid}-line`, DRAW_FROM, { ...DRAW_TO, duration: 1.8, ease: "none" }, draw),
     tween(
       `#${sid} .dot`,
       // Origin in both halves, or GSAP's smoothOrigin compensates the change with
