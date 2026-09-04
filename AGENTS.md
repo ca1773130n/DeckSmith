@@ -19,15 +19,27 @@ a human looking at the artifact, which is also how the next one will be found.
  8. A hold outside its own slide's window fails `emitIsland`.
  9. A font stack naming a family the bundle does not declare falls back silently.
 10. Times are rounded to 3 decimals so float drift never moves a byte.
-11. **`seek()` passes `suppressEvents`, so a GSAP `onUpdate` NEVER FIRES under
-    capture.** Nor does `onStart`, `onComplete`, or any other callback. Motion
-    driven by a callback plays perfectly in a browser and renders a **frozen
-    video**, silently, with every gate green — `lint`, `check`, the type floor,
-    and even `drift`, which passes twice over because both renders are
-    identically frozen. State must be applied *by the thing being seeked* — tween
-    the property — never by a callback hanging off it. If a value is not directly
+11. **Never drive state from a GSAP callback** — `onUpdate`, `onStart`,
+    `onComplete` or any other. Tween the property. If a value is not directly
     tweenable, tween a proxy object and bind the property; do not write it from
-    `onUpdate`. This is the most dangerous failure shape in the project.
+    `onUpdate`.
+
+    **The reason is that nothing here can see it, NOT that it renders frozen.**
+    That was measured on 2026-09-04 and the frozen-video claim did not hold: at
+    hyperframes 0.7.90 the render animates callback-driven motion correctly,
+    because capture is driven by Chrome's `beginFrame` rather than by a seek, and
+    `suppressEvents` is a property of a seek. Both constructions were rendered —
+    the tween added after the runtime built the timeline, and the tween present
+    inside the scene's own timeline construction — and both ramped smoothly, 68
+    and 72 frames mid-ramp, one frame apart.
+
+    What remains true is that the instruments disagree and none of them is
+    authoritative: `frames` shows nothing, `snapshot` shows a browser's playback,
+    the render shows a third thing, and the player is a fourth path nobody has
+    tested. Determinism across worker counts is unmeasured, and the pin is 30
+    minor versions behind, so this result is pinned to 0.7.90. Writing motion no
+    cheap gate can check is the failure; predicting *which way* it fails is not
+    something this project has earned yet.
 
 A related trap, found while reconciling the render and camera workstreams: the
 video retimer freezes each scene at its holds and then plays whatever is left of
@@ -44,20 +56,13 @@ it — or listen to it — before you report.
 
 **`decksmith frames` writes the PNGs, and no still frame settles invariant 11.**
 Measured 2026-09-04 on a deck carrying a band painted ONLY from a GSAP
-`onUpdate`, the three views of one instant disagree three ways: `frames` leaves
-the band at the background's RGB (11,13,17), because it passes `suppressEvents`;
+`onUpdate`, three views of one instant disagree three ways: `frames` leaves the
+band at the background's RGB (11,13,17), because it passes `suppressEvents`;
 `hyperframes snapshot` paints it mid-tween at (143,4,5), because it does not; and
-`hyperframes render` — the thing that actually ships — animates it smoothly to
-(205,0,0) across the tween's own three seconds, 68 frames of genuine ramp.
-
-That last number is the surprise, and it is NOT what invariant 11 predicts. The
-capture is driven by Chrome's `beginFrame`, not by a suppressed seek, and under
-`beginFrame` a callback ticks. Either invariant 11 is narrower than it reads, or
-this injection is unlike the failure it was written from. **Until somebody
-settles that, do not treat a still — from any of the three — as proof that
-callback-driven motion will or will not render.** Watch the mp4. The rule against
-callback-driven state stands either way: it is the shape nothing here can check
-cheaply, which is reason enough not to write it.
+`hyperframes render` — the thing that ships — animates it smoothly to (205,0,0)
+across the tween's own three seconds. Reach for `frames` to see what the GATE
+saw; watch the mp4 to see what ships. See
+`.planning/2026-09-04-invariant-11-under-beginframe.md`.
 
 # context-mode — MANDATORY routing rules
 

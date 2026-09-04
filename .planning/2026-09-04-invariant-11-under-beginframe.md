@@ -57,20 +57,43 @@ log confirms `"captureMode":"beginframe"`. Under `beginFrame` the page's clock
 advances and GSAP ticks, so callbacks run. `suppressEvents` is a property of a
 **seek**, and the shipping capture is not seeking.
 
-So one of two things is true, and this experiment does not distinguish them:
+So one of two things could be true:
 
-1. **Invariant 11 is narrower than it reads.** It would be exactly right about a
-   seek-driven capture (`forceScreenshot`, and both frame tools here) and wrong
-   about the `beginFrame` path the renderer actually uses.
+1. **Invariant 11 is narrower than it reads** — right about a seek-driven
+   capture (both frame tools here) and wrong about the `beginFrame` path the
+   renderer actually uses.
 2. **This injection is unlike the failure the invariant was written from.** The
-   tween is added late, after the runtime has built the timelines. A tween
-   present at build time might be handled differently — though suppression is a
-   property of the seek call, not of the tween, so late addition should not
-   matter.
+   tween is added after the runtime has built the timelines; one present at build
+   time might be handled differently.
 
-Resolving it needs a deck whose callback-driven motion is emitted by an archetype
-rather than injected, rendered once. That is cheap — one render — and it has not
-been done.
+**Branch 2 is eliminated.** The experiment was rebuilt with the tween spliced
+into scene `s3`'s OWN timeline construction, inside the same IIFE that builds it,
+before `window.__timelines["s3"] = tl` — indistinguishable from something an
+archetype emitted. Rendered again:
+
+| case | frames strictly mid-ramp | first red | max |
+| --- | --- | --- | --- |
+| tween added after the runtime built the timeline | 68 | frame 475 | 205 |
+| tween present at timeline construction | 72 | frame 474 | 205 |
+
+The same smooth ramp, one frame apart. **When the tween exists makes no
+difference**, which is what you would expect if suppression is a property of the
+seek call rather than of the tween — and the shipping capture does not seek.
+
+So branch 1 stands: under hyperframes 0.7.90's `beginFrame` capture, a GSAP
+`onUpdate` fires, and callback-driven motion renders as the animation it looks
+like in a browser. It is not frozen.
+
+## What is still NOT established
+
+- **Whether it stays deterministic.** Firing callbacks is not the same as firing
+  them identically at every worker count. `drift` on this deck is the check.
+- **What the player does.** Invariant 11 also says snapshot "moves the `onUpdate`
+  cell that the player freezes" — the deck.html slideshow is a separate path from
+  the render and was not tested here.
+- **hyperframes 0.8.20.** The pin is 30 minor versions behind (issue #35). Capture
+  semantics are exactly the kind of thing that moves in that gap, so this result
+  is pinned to 0.7.90 and has to be re-run with the bump.
 
 ## What this changes now
 
@@ -80,9 +103,13 @@ been done.
   says exactly that and no more.
 - **No still frame settles invariant 11.** All three tools disagree, and the one
   that ships disagrees with both of the cheap ones. Watch the mp4.
-- **The rule against callback-driven state stands regardless.** Whichever branch
-  is true, it is the shape none of the cheap instruments agree about, and that is
-  reason enough not to write it.
+- **Invariant 11's stated consequence is wrong for the render at 0.7.90.**
+  "Renders a frozen video" did not happen in either construction. The invariant
+  should say what was actually verified, and name the capture mode it is about.
+- **Its RULE is still worth keeping**, on narrower grounds: no cheap instrument
+  in this repo agrees about callback-driven motion, the player is a separate path
+  that was not tested, and determinism across worker counts is unmeasured. Do not
+  write it — but do not tell people it renders frozen, because it does not.
 - **The css3d spike's snapshot claim did not reproduce.** A static CSS 3D
   transform (`rotateY(22deg) rotateX(10deg)` with perspective, injected into the
   same deck) came back correctly rotated under BOTH `frames` and
