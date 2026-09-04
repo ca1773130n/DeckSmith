@@ -50,15 +50,23 @@ export interface ApparentRun {
   declared: number;
   /** Painted height over untransformed height, including the stage's own zoom. */
   ratio: number;
+  /** Its own computed opacity, multiplied down the ancestors that carry one. */
+  opacity: number;
 }
 
-/** What `measureApparent` hands back for one stop. */
+/** What `measureApparent` hands back for one instant. */
 export interface ApparentStop {
   sid: string;
   t: number;
   runs: ApparentRun[];
   /** The scene's own painted-over-declared scale, the baseline runs divide by. */
   stage: number;
+  /**
+   * True at a declared stop, where the frame has arrived and everything drawn is
+   * being read. False at a sampled midpoint, where a run may be part-way through
+   * its own entrance — see `SETTLED_OPACITY`.
+   */
+  settled: boolean;
 }
 
 /**
@@ -102,10 +110,20 @@ export function collectApparent(sid: string): { runs: ApparentRun[]; stage: numb
         }
         const painted = el.getBoundingClientRect().height;
         if (box && box.height > 0 && painted > 0) {
+          // Opacity has to be accumulated: a label at `opacity: 1` inside a group
+          // fading in at 0.3 is drawn at 0.3, and it is the drawn value that says
+          // whether anyone is reading it yet.
+          let opacity = 1;
+          for (let node: Element | null = el; node; node = node.parentElement) {
+            const own = Number(getComputedStyle(node).opacity);
+            if (Number.isFinite(own)) opacity *= own;
+            if (node === scene) break;
+          }
           runs.push({
             text: (el.textContent ?? "").trim().slice(0, 40),
             declared: Number.parseFloat(getComputedStyle(el).fontSize) || 0,
             ratio: painted / box.height,
+            opacity,
           });
         }
       }
@@ -126,6 +144,44 @@ export function apparentPx(run: ApparentRun, stage: number): number {
 }
 
 /**
+ * How opaque a run must be, at a sampled midpoint, to count as text being read.
+ *
+ * At a declared stop the frame has arrived and everything drawn counts. Between
+ * stops it has not: `annotated-figure` enters its labels from `scale: 0.97`, so
+ * a run caught half way through its own entrance is BOTH under the floor and
+ * fading in, and failing a build for it would be crying wolf about a frame no
+ * one reads. A run at 0.95 opacity is not entering any more; it has arrived.
+ */
+export const SETTLED_OPACITY = 0.95;
+
+/**
+ * The times to sample BETWEEN the declared stops.
+ *
+ * `fidelity` measures at stops because that is where a frame has settled, and
+ * the apparent floor inherited that — which left exactly the hole it was built
+ * to close, one interval over: text scaled DOWN between two stops is invisible
+ * to a gate that only looks at the stops. A camera pulling back, or an exit that
+ * shrinks a label, would ship.
+ *
+ * Midway between consecutive stops of the SAME scene. Not across a scene
+ * boundary, where the midpoint lands in a cross-fade between two compositions
+ * and belongs to neither. Costs a seek and a DOM read each — no screenshot,
+ * which is what makes doubling the sample count affordable.
+ */
+export function midpoints(
+  stops: readonly { sid: string; t: number }[],
+): { sid: string; t: number }[] {
+  const out: { sid: string; t: number }[] = [];
+  for (let i = 1; i < stops.length; i++) {
+    const a = stops[i - 1] as { sid: string; t: number };
+    const b = stops[i] as { sid: string; t: number };
+    if (a.sid !== b.sid || b.t <= a.t) continue;
+    out.push({ sid: b.sid, t: Math.round(((a.t + b.t) / 2) * 1000) / 1000 });
+  }
+  return out;
+}
+
+/**
  * Runs the frame drew below the floor, whatever shrank them.
  *
  * An ERROR, not a warning, and for the same reason `typefloor` is: text the
@@ -137,6 +193,8 @@ export function gradeApparent(stops: readonly ApparentStop[], floor = TYPE_FLOOR
   const worst = new Map<string, { sid: string; t: number; text: string; px: number }>();
   for (const stop of stops) {
     for (const run of stop.runs) {
+      // Between stops, only text that has finished arriving is text being read.
+      if (!stop.settled && run.opacity < SETTLED_OPACITY) continue;
       const px = apparentPx(run, stop.stage);
       if (px >= floor - 0.1) continue;
       const seen = worst.get(run.text);

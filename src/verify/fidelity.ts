@@ -146,7 +146,7 @@ import { DECK_PAGE } from "../emit/composition.js";
 import { openDeck } from "../render/capture.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
-import { type ApparentStop, collectApparent, gradeApparent } from "./apparent.js";
+import { type ApparentStop, collectApparent, gradeApparent, midpoints } from "./apparent.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
 
 /**
@@ -546,7 +546,11 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       // One more read on the frame that is already seeked and settled: how big
       // the glyphs actually came out. `typefloor` reads the source and says in
       // its own header that it cannot see this.
-      apparent.push({ ...stop, ...(await page.evaluate(collectApparent, stop.sid)) });
+      apparent.push({
+        ...stop,
+        settled: true,
+        ...(await page.evaluate(collectApparent, stop.sid)),
+      });
       const frame = await decodePng(await deck.shoot());
       measured.push({
         ...stop,
@@ -554,6 +558,14 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         bandTop: Math.round((1000 * bandTopPx) / height) / 1000,
       });
     }
+    // A second pass between the stops, for the apparent floor only. No screenshot
+    // and no ink arithmetic — a seek and one DOM read — which is what makes
+    // doubling the sample count affordable.
+    for (const mid of midpoints(stops)) {
+      await deck.seek(mid.t);
+      apparent.push({ ...mid, settled: false, ...(await page.evaluate(collectApparent, mid.sid)) });
+    }
+
     return {
       stops: measured,
       findings: [
