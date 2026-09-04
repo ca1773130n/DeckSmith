@@ -35,6 +35,7 @@ const source: Source = {
       tex: "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}),\\quad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
       display: true,
     },
+    { id: "e2", tex: "\\mathbf{X}=\\mathcal{W}(\\mathcal{E}(\\mathbf{I}))", display: true },
   ],
   tables: [
     {
@@ -243,6 +244,18 @@ const beats: Beat[] = [
       left: { label: "Before", figureId: "f2" },
       right: { label: "After", lines: ["sharper edges", "no ringing"] },
       note: "same crop, same scale",
+    },
+  },
+  {
+    ...core,
+    id: "b13",
+    archetype: "equation-morph",
+    params: {
+      eyebrow: "Method",
+      headline: "H",
+      fromId: "e1",
+      toId: "e2",
+      terms: [{ tex: "\\mathcal{E}(\\mathbf{I})", label: "the encoded field", tone: "a" }],
     },
   },
 ];

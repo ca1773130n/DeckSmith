@@ -37,6 +37,7 @@ export const REVEALS: Record<string, string> = {
   title: "1",
   "claim-figure": "2",
   "equation-walk": "one per term",
+  "equation-morph": "2",
   "data-table": "one per highlighted row, plus 1",
   "line-chart": "1",
   callout: "one per panel",
@@ -169,6 +170,14 @@ DRAWING ARCHETYPES — reach here first
                  Four terms maximum; if the equation needs more, it needs two beats.
                  An equation quoted to back a claim someone else is making is
                  evidence under another archetype, not a beat of its own.
+
+  equation-morph One equation becoming the next, the shared terms carried
+                 across. The tell: THE SOURCE DERIVES ONE LINE FROM ANOTHER — a
+                 substitution, a rearrangement, a special case — and the point
+                 is what moved. \`fromId\` and \`toId\` name two equations from
+                 the inventory. Each terms[].tex must appear verbatim in BOTH,
+                 and travels as one piece; a term in only one of them is
+                 dropped. Four terms maximum.
 
   line-chart     A trend the source states numerically but does not plot. The
                  tell: A QUANTITY MOVING ALONG AN ORDERED AXIS — over length, over
@@ -712,7 +721,8 @@ export function renderSource(source: Source): string {
   out.push("", "== EQUATIONS ==");
   for (const e of source.equations)
     out.push(`[equation ${e.id}] ${e.display ? "display" : "inline"} — ${e.tex}`);
-  if (!source.equations.length) out.push("(none — no equation-walk beat is possible)");
+  if (!source.equations.length)
+    out.push("(none — no equation-walk or equation-morph beat is possible)");
 
   out.push("", "== TABLES ==");
   for (const t of source.tables) {

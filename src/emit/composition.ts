@@ -80,6 +80,13 @@ const GSAP_SRC = "./vendor/gsap.min.js";
  * yet, and an unused plugin is 43KB every deck pays for.
  */
 const DRAWSVG_SRC = "./vendor/DrawSVGPlugin.min.js";
+/**
+ * The equation morph's runtime — ours, built by `scripts/build.mjs` from
+ * `src/emit/morph-runtime.ts` and vendored beside GSAP by the CLI. Loaded ONLY
+ * when a scene names it (`Scene.plugins`), so every deck without a morph is
+ * byte-for-byte what it was.
+ */
+const MORPH_SRC = "./vendor/ds-morph.js";
 const KATEX_JS = "./vendor/katex.min.js";
 const KATEX_CSS = "./katex/katex.min.css";
 
@@ -375,6 +382,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
   // needs to know, and it must be told: an extra link in that chain on a deck
   // with no builders to await would move bytes in every deck we have shipped.
   let builds = false;
+  const plugins = new Set<string>();
   cuts.forEach((cut, i) => {
     const { beat, sid, dive, inside, duration } = cut;
     if (cut.segments?.length) spoken[sid] = cut.segments;
@@ -412,6 +420,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
     if (scene.css) archetypeCss.add(scene.css.trim());
     if (scene.measure?.length) builds = true;
+    for (const p of scene.plugins ?? []) plugins.add(p);
     scenes.push(
       sceneHtml(
         sid,
@@ -449,6 +458,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     total: start,
     cut,
     builds,
+    plugins,
   };
 }
 
@@ -678,6 +688,11 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
   const fontLink =
     family && !fontFace ? `\n    <link rel="stylesheet" href="${FONT_BUNDLE_HREF}" />` : "";
   const island = format.navigable ? `\n${emitIsland(slides)}` : "";
+  // Registered before any scene script runs, for the same reason DrawSVG is: a
+  // `dsMorph` tween built before `registerPlugin` is one GSAP does not know.
+  const morph = laid.plugins.has("dsMorph")
+    ? `\n    <script src="${MORPH_SRC}"></script>\n    <script>gsap.registerPlugin(DSMorphPlugin);</script>`
+    : "";
 
   return `<!doctype html>
 <html lang="${esc(storyboard.lang)}" data-resolution="${orientation}">
@@ -687,7 +702,7 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     <meta name="viewport" content="width=${format.width}, height=${format.height}" />
     <script src="${GSAP_SRC}"></script>
     <script src="${DRAWSVG_SRC}"></script>
-    <script>gsap.registerPlugin(DrawSVGPlugin);</script>
+    <script>gsap.registerPlugin(DrawSVGPlugin);</script>${morph}
     <link rel="stylesheet" href="${KATEX_CSS}" />
     <script src="${KATEX_JS}"></script>${fontLink}${fontFace}
     <style>

@@ -787,7 +787,7 @@ names the figure or equation it rests on, a later pass can ask whether the anima
 actually asserts what the source asserts. Prior art verifies that slides *look* fine;
 nothing verifies that they are *true*.
 
-## The twelve archetypes
+## The thirteen archetypes
 
 The explanatory vocabulary. These came out of hand-building a real deck
 (`.planning/EXPERIMENT-002-thinksr-korean.md`), not from guessing at what might be useful.
@@ -797,6 +797,7 @@ The explanatory vocabulary. These came out of hand-building a real deck
 | `title` | opening or section break | `headline`, `eyebrow?`, `sub?` |
 | `claim-figure` | one assertion beside the figure that supports it | `claim`, `figureId` |
 | `equation-walk` | an equation explained symbol by symbol | `equationId`, `terms` (1–4) |
+| `equation-morph` | one equation becoming the next, the shared terms carried across | `fromId`, `toId`, `terms` (1–4) |
 | `data-table` | a results table with rows revealed in argument order | `tableId`, `highlight` |
 | `line-chart` | a trend, with per-step deltas | `points`, `deltas?`, `readout?` |
 | `callout` | 1–3 panels of prose: definitions, contrasts, takeaways | `panels`, `note?` |

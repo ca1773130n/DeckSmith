@@ -109,6 +109,10 @@ export function assertRefsResolve(
       case "equation-walk":
         check(beat, "equation", beat.params.equationId, "params.equationId");
         break;
+      case "equation-morph":
+        check(beat, "equation", beat.params.fromId, "params.fromId");
+        check(beat, "equation", beat.params.toId, "params.toId");
+        break;
       case "data-table": {
         check(beat, "table", beat.params.tableId, "params.tableId");
         // `rows` and `highlight[].row` are references too — they name rows of

@@ -12,6 +12,7 @@ import { barCompare } from "./bar-compare.js";
 import { callout } from "./callout.js";
 import { claimFigure } from "./claim-figure.js";
 import { dataTable } from "./data-table.js";
+import { equationMorph } from "./equation-morph.js";
 import { equationWalk } from "./equation-walk.js";
 import { grid } from "./grid.js";
 import { lineChart } from "./line-chart.js";
@@ -30,6 +31,7 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
   stack,
   "split-compare": splitCompare,
   "equation-walk": equationWalk,
+  "equation-morph": equationMorph,
   "line-chart": lineChart,
   // The ones that describe.
   title,

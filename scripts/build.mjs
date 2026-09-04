@@ -58,6 +58,19 @@ await build({
   minify: true,
 });
 
+// The equation morph's runtime, vendored into a deck by the CLI. Same shape as
+// the step layer: an IIFE the composition loads by `<script src>`, so its
+// globals exist before any scene script runs.
+await build({
+  ...shared,
+  entryPoints: ["src/emit/morph-runtime.ts"],
+  outfile: "dist/ds-morph.js",
+  platform: "browser",
+  target: "es2022",
+  format: "iife",
+  minify: true,
+});
+
 // Declarations. tsconfig.json is noEmit and includes test/ — it exists to gate,
 // not to build — so override it on the command line rather than fork a second
 // config that would drift from it. Because test/ is in the input set, tsc puts
@@ -102,7 +115,7 @@ console.log("  dist/types/index.d.ts");
 // Here rather than in a test, because `prepare` runs this on the consumer's
 // machine during a git install, where no test suite runs at all.
 const { bin, main, types } = require("../package.json");
-const promised = { ...bin, main, types };
+const promised = { ...bin, main, types, "ds-morph": "dist/ds-morph.js" };
 const missing = [];
 for (const [name, file] of Object.entries(promised)) {
   if (!file) continue;
