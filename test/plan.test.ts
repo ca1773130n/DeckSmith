@@ -73,6 +73,24 @@ describe("assertRefsResolve", () => {
     );
   });
 
+  it("catches a dangling equation on either side of a morph", () => {
+    const morph = {
+      id: "b04-morph",
+      intent: "i",
+      weight: 0.5,
+      archetype: "equation-morph",
+      params: {
+        headline: "H",
+        fromId: "eq-loss",
+        toId: "eq-nowhere",
+        terms: [{ tex: "\\hat{x}", label: "estimate", tone: "a" }],
+      },
+    };
+    expect(() => assertRefsResolve(plan(beat, morph), source)).toThrow(
+      /b04-morph.*params\.toId.*eq-nowhere/s,
+    );
+  });
+
   it("catches a dangling id in evidence, which the schema cannot see", () => {
     const broken = plan({ ...beat, evidence: [{ kind: "equation", id: "eq-psnr" }] });
 

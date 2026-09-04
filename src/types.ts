@@ -153,6 +153,22 @@ export const equationWalkParamsSchema = z.object({
   terms: z.array(termSchema).min(1).max(4),
 });
 
+/**
+ * Two equations from the source, the first becoming the second.
+ *
+ * `terms` are the parts that TRAVEL: each must occur in both equations, and is
+ * carried from its place in the first to its place in the second as one rigid
+ * body. Everything else dissolves. Which terms are keyed IS the animation —
+ * the same two strings are a glyph riot unkeyed and an exchange keyed.
+ */
+export const equationMorphParamsSchema = z.object({
+  eyebrow: z.string().optional(),
+  headline: z.string(),
+  fromId: z.string(),
+  toId: z.string(),
+  terms: z.array(termSchema).min(1).max(4),
+});
+
 export const dataTableParamsSchema = z
   .object({
     eyebrow: z.string().optional(),
@@ -465,6 +481,12 @@ export const beatSchema = z.discriminatedUnion("archetype", [
   }),
   z.object({
     ...beatCore,
+    archetype: z.literal("equation-morph"),
+    params: equationMorphParamsSchema,
+    ...beatTail,
+  }),
+  z.object({
+    ...beatCore,
     archetype: z.literal("data-table"),
     params: dataTableParamsSchema,
     ...beatTail,
@@ -530,6 +552,7 @@ export const DIAGRAMMATIC: ReadonlySet<string> = new Set([
   "stack",
   "split-compare",
   "equation-walk",
+  "equation-morph",
   "line-chart",
 ]);
 
@@ -568,6 +591,7 @@ export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   "line-chart": "quantity",
   "data-table": "quantity",
   "equation-walk": "formal",
+  "equation-morph": "formal",
 };
 
 export const storyboardSchema = z

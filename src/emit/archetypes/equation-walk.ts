@@ -7,7 +7,7 @@
  * GSAP then tints and swells in step with its legend row.
  */
 import type { Term } from "../../types.js";
-import type { Emitter } from "../kit.js";
+import type { Emitter, Theme } from "../kit.js";
 import { contentW, esc, js, spotlighter } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
@@ -30,8 +30,8 @@ import { chrome, chromeCss, chromeIn, holdsWithin, isPortrait, tween } from "./t
  * KaTeX's default refusal.
  */
 const TRUST = 'function (c) { return c.command === "\\\\htmlClass"; }';
-const OPTS = `{ displayMode: true, trust: ${TRUST}, strict: false, output: "html" }`;
-const INLINE_OPTS = `{ displayMode: false, trust: ${TRUST}, strict: false, output: "html" }`;
+export const OPTS = `{ displayMode: true, trust: ${TRUST}, strict: false, output: "html" }`;
+export const INLINE_OPTS = `{ displayMode: false, trust: ${TRUST}, strict: false, output: "html" }`;
 
 /**
  * Fold away the ways LaTeX spells the same thing.
@@ -88,7 +88,7 @@ function normalise(tex: string): { text: string; map: number[] } {
 }
 
 /** Where `term` sits in `tex`, comparing normal forms. Null when it is absent. */
-function locate(tex: string, term: string): { start: number; end: number } | null {
+export function locate(tex: string, term: string): { start: number; end: number } | null {
   const hay = normalise(tex);
   const needle = normalise(term).text;
   if (needle === "") return null;
@@ -126,10 +126,12 @@ function locate(tex: string, term: string): { start: number; end: number } | nul
  * worse answer than either. If NOTHING matches, the beat has no work to do and
  * that is still an error.
  */
-function wrapTerms(
+export function wrapTerms(
   tex: string,
   terms: Term[],
   beatId: string,
+  /** The class the wrapper carries; the morph adds its key to the walk's tint. */
+  cls: (t: Term) => string = (t) => `term t-${t.tone}`,
 ): { tex: string; used: Term[]; missing: Term[] } {
   let parts: { text: string; raw: boolean }[] = [{ text: tex, raw: true }];
   const used: Term[] = [];
@@ -146,7 +148,7 @@ function wrapTerms(
         1,
         { text: part.text.slice(0, at.start), raw: true },
         {
-          text: `\\htmlClass{term t-${term.tone}}{${part.text.slice(at.start, at.end)}}`,
+          text: `\\htmlClass{${cls(term)}}{${part.text.slice(at.start, at.end)}}`,
           raw: false,
         },
         { text: part.text.slice(at.end), raw: true },
@@ -183,7 +185,7 @@ function wrapTerms(
  * asserted something false. `statements` and the `size` cap below are what make
  * the claim true.
  */
-function equationSize(tex: string): number {
+export function equationSize(tex: string): number {
   return tex.length > 120 ? 68 : tex.length > 90 ? 80 : tex.length > 55 ? 92 : 108;
 }
 
@@ -207,7 +209,7 @@ const NO_INK =
 const GLYPH_EM = 0.9;
 
 /** Estimated rendered width of a display, in ems. */
-function texUnits(tex: string): number {
+export function texUnits(tex: string): number {
   let ems = 0;
   for (const m of tex.matchAll(/\\qquad|\\quad/g)) ems += m[0] === "\\qquad" ? 2 : 1;
   const glyphs = tex
@@ -235,6 +237,30 @@ function statements(tex: string, stacked: boolean): string[] {
   return parts.length > 0 ? parts : [tex];
 }
 
+/** One row per term: a chip KaTeX fills in `setup`, and the label. Shared with the morph. */
+export function legendRows(sid: string, terms: Term[], theme: Theme): string {
+  return terms
+    .map(
+      (t) =>
+        `<div class="leg" id="${sid}-leg-${t.tone}"><span class="chip" id="${sid}-chip-${t.tone}" style="color:${theme.tones[t.tone]}"></span><span>${esc(t.label)}</span></div>`,
+    )
+    .join("\n    ");
+}
+
+export function legendCss(theme: Theme): string {
+  return [
+    // `width:fit-content` + auto margins, not `align-items:center`: centring
+    // each row individually gave the legend a ragged left edge, because a short
+    // label indented its own chip further than a long one did. The column is
+    // centred as one block and the rows start on a shared spine.
+    ".legend{display:flex;flex-direction:column;gap:30px;width:fit-content;margin-inline:auto}",
+    `.leg{display:flex;gap:26px;align-items:baseline;max-width:1400px;font-size:48px;color:${theme.muted}}`,
+    // A common chip width, so the labels share a spine too — the glyphs inside
+    // are one symbol each and their natural widths differ by a few pixels.
+    `.chip{display:inline-block;min-width:72px;text-align:center;background:${theme.panel};border-radius:10px;padding:2px 20px;white-space:nowrap;font-weight:700}`,
+  ].join("\n");
+}
+
 export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
@@ -251,12 +277,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   const walk = wrapTerms(eq.tex, p.terms, beat.id);
   const terms = walk.used;
 
-  const legend = terms
-    .map(
-      (t) =>
-        `<div class="leg" id="${sid}-leg-${t.tone}"><span class="chip" id="${sid}-chip-${t.tone}" style="color:${theme.tones[t.tone]}"></span><span>${esc(t.label)}</span></div>`,
-    )
-    .join("\n    ");
+  const legend = legendRows(sid, terms, theme);
 
   // Split the raw TeX and the term-wrapped TeX the same way: the delimiters are
   // untouched by `wrapTerms`, so the two lists line up piece for piece. Measuring
@@ -387,15 +408,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
       ".eqstack{display:flex;flex-direction:column;gap:32px}",
       // Transforms do not apply to inline boxes, and KaTeX spans are inline.
       ".term{display:inline-block}",
-      // `width:fit-content` + auto margins, not `align-items:center`: centring
-      // each row individually gave the legend a ragged left edge, because a short
-      // label indented its own chip further than a long one did. The column is
-      // centred as one block and the rows start on a shared spine.
-      ".legend{display:flex;flex-direction:column;gap:30px;width:fit-content;margin-inline:auto}",
-      `.leg{display:flex;gap:26px;align-items:baseline;max-width:1400px;font-size:48px;color:${theme.muted}}`,
-      // A common chip width, so the labels share a spine too — the glyphs inside
-      // are one symbol each and their natural widths differ by a few pixels.
-      `.chip{display:inline-block;min-width:72px;text-align:center;background:${theme.panel};border-radius:10px;padding:2px 20px;white-space:nowrap;font-weight:700}`,
+      legendCss(theme),
       // The block, not the term under discussion: which term that is, is a fact
       // about the paused timeline, and CSS cannot see it. The terms are also the
       // one thing here GSAP tints and swells, so a rule on them would win the

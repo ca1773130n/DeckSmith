@@ -336,6 +336,13 @@ export interface Scene {
    */
   measure?: string[];
   /**
+   * Vendored runtimes this scene's tweens need registered before its script
+   * runs — `"dsMorph"` for the equation morph. The shell loads a runtime only
+   * when some scene names it, so a deck that names none is byte-for-byte what
+   * it was.
+   */
+  plugins?: readonly string[];
+  /**
    * Hold points in seconds from the scene's start — where a presenter should
    * pause. The shell converts these to absolute island fragment times.
    */

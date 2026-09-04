@@ -20,7 +20,10 @@ const source: Source = {
   lang: "en",
   sections: [{ id: "sec", depth: 1, heading: "H", text: "t" }],
   figures: [{ id: "fig", src: "f.jpg", caption: "c", width: 1000, height: 600 }],
-  equations: [{ id: "eq", tex: "y = \\mathcal{E}(x) + \\mathcal{W}(z)", display: true }],
+  equations: [
+    { id: "eq", tex: "y = \\mathcal{E}(x) + \\mathcal{W}(z)", display: true },
+    { id: "eq2", tex: "y - \\mathcal{W}(z) = \\mathcal{E}(x)", display: true },
+  ],
   tables: [
     {
       id: "tbl",
@@ -67,6 +70,17 @@ const CASES: [string, unknown, number][] = [
       ],
     },
     2, // one per term
+  ],
+  [
+    "equation-morph",
+    {
+      eyebrow: "E",
+      headline: "H",
+      fromId: "eq",
+      toId: "eq2",
+      terms: [{ tex: "\\mathcal{E}(x)", label: "a", tone: "a" }],
+    },
+    2, // the first line, then the second
   ],
   [
     "data-table",

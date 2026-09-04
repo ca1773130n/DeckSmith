@@ -164,6 +164,12 @@ async function vendorScripts(out: string): Promise<void> {
     const from = join(dirname(require.resolve(pkg)), rel);
     await cp(from, join(out, "vendor", name));
   }
+  // Ours, not a package's: the morph runtime is built beside dist/cli.js by
+  // scripts/build.mjs, exactly as the step layer is.
+  await cp(
+    fileURLToPath(new URL("./ds-morph.js", import.meta.url)),
+    join(out, "vendor", "ds-morph.js"),
+  );
 }
 
 /** Enough for `hyperframes check` to recognise a project and find the assets. */

@@ -381,6 +381,49 @@ describe("the DrawSVG seam", () => {
     expect(firstScene).toBeGreaterThan(registerAt);
   });
 
+  it("loads the morph runtime only for a deck that morphs, and before any scene script", () => {
+    // The base fixture has no morph, so it pays nothing — not a script tag, not
+    // a byte. That is what keeps every shipped deck byte-identical across this.
+    expect(html).not.toContain("ds-morph");
+    const two = sourceSchema.parse({
+      ...source,
+      equations: [
+        ...source.equations,
+        { id: "eq-two", tex: String.raw`\mathrm{softmax}(QK^{\top})V`, display: true },
+      ],
+    });
+    const morphed = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        ...storyboard.beats,
+        {
+          id: "b3",
+          intent: "Drop the scaling and see what is left.",
+          archetype: "equation-morph",
+          seconds: 9,
+          params: {
+            headline: "Without the scale",
+            fromId: "eq-attn",
+            toId: "eq-two",
+            terms: [{ tex: "QK^{\\top}", label: "query–key similarity", tone: "a" }],
+          },
+        },
+      ],
+    });
+    const out = emitComposition(morphed, two, format("deck-16x9"));
+    const gsapAt = out.indexOf("vendor/gsap.min.js");
+    const runtimeAt = out.indexOf("vendor/ds-morph.js");
+    const registerAt = out.indexOf("registerPlugin(DSMorphPlugin)");
+    const firstScene = out.indexOf("__timelines");
+    expect(runtimeAt).toBeGreaterThan(gsapAt);
+    expect(registerAt).toBeGreaterThan(runtimeAt);
+    expect(firstScene).toBeGreaterThan(registerAt);
+    // And the scene is DEFERRED: its plan is browser geometry, so its timeline
+    // is registered by a builder the ready gate awaits, not during parse.
+    expect(out).toContain("__dsBuilders");
+    expect(out).toMatch(/DSMorph\.build\(document\.getElementById\("s3-morph"\)\)/);
+  });
+
   it("never feeds a stroke a length the emitter computed", () => {
     // The point of the seam: no archetype should be summing segment lengths or
     // computing a rounded-rect perimeter to feed `strokeDasharray` any more. If
