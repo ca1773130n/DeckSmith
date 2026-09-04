@@ -153,8 +153,13 @@ function anchor(el: Element): [number, number] {
  * The clone keeps the leaf's class list (so `.mathnormal` still selects
  * Computer Modern Italic) but is given its computed font-size explicitly,
  * because the em cascade it inherited from four ancestor boxes does not come
- * with it. `translate(-50%, -50%)` is set once here so every later transform
- * is about the glyph's own centre.
+ * with it. It is anchored by its top-left, NOT centred with a
+ * `translate(-50%, -50%)`: a resting clone must carry no transform at all,
+ * because a transformed glyph is rasterised on Chrome's composited path and
+ * that path differed between a cold render worker and a warm one — one
+ * `\big)` in 424 pixels, held for 31 frames — where untransformed text did
+ * not. Motion is `translate(x, y) scale(s)` about the box centre, which is
+ * the default `transform-origin`, so the plan's arithmetic is unchanged.
  *
  * `k` is the host's on-screen scale — `.scene` carries `zoomOf(format)` on
  * every canvas but 1920 wide — so rects, which are screen px, are divided back
@@ -175,8 +180,8 @@ function lift(root: Element, host: HTMLElement, layer: HTMLElement): Leaf[] {
     const s = clone.style;
     s.position = "absolute";
     s.display = "inline-block";
-    s.left = `${(r.left - H.left + r.width / 2) / k}px`;
-    s.top = `${(r.top - H.top + r.height / 2) / k}px`;
+    s.left = `${(r.left - H.left) / k}px`;
+    s.top = `${(r.top - H.top) / k}px`;
     s.fontSize = cs.fontSize;
     s.fontFamily = cs.fontFamily;
     s.fontStyle = cs.fontStyle;
@@ -189,7 +194,6 @@ function lift(root: Element, host: HTMLElement, layer: HTMLElement): Leaf[] {
     // rect IS the border. Under the default content-box the copied border would
     // be added to that height and the rule would draw a full stroke-width low.
     s.boxSizing = "border-box";
-    s.transform = "translate(-50%, -50%)";
     if (!text) {
       s.width = `${r.width / k}px`;
       s.height = `${r.height / k}px`;
@@ -525,7 +529,12 @@ export function evaluate(p: MorphPlan, v: number): void {
     if (s) s[st.prop] = st.from + (st.to - st.from) * EASES[st.ease](u);
   }
   for (const [el, s] of state) {
-    el.style.transform = `translate(-50%, -50%) translate(${R(s.x)}px, ${R(s.y)}px) scale(${R(s.s)})`;
+    // None at rest — see `lift` for why a resting glyph must not be transformed.
+    const x = R(s.x);
+    const y = R(s.y);
+    const sc = R(s.s);
+    el.style.transform =
+      x === 0 && y === 0 && sc === 1 ? "" : `translate(${x}px, ${y}px) scale(${sc})`;
     el.style.opacity = String(R(s.o));
     // A fully faded leaf is also hidden, so the layout gate does not read two
     // renderings of one line — B under A at rest, A under B after — as text

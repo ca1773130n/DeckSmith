@@ -224,7 +224,10 @@ describe("morph evaluate", () => {
   it("at 0 is the resting state: A drawn, B hidden, nothing moved", () => {
     const p = mk();
     evaluate(p, 0);
-    expect(style(p, 0).transform).toBe("translate(-50%, -50%) translate(0px, 0px) scale(1)");
+    // No transform at all at rest. A transformed glyph takes Chrome's composited
+    // raster path, and that path came out differently in a cold worker than in
+    // a warm one — 424 pixels of one `\big)` across 31 frames of a hold.
+    expect(style(p, 0).transform).toBe("");
     expect(style(p, 0).opacity).toBe("1");
     expect(style(p, 1).opacity).toBe("0");
     // Hidden as well as transparent, so a layout gate never reads B under A.
@@ -235,9 +238,9 @@ describe("morph evaluate", () => {
   it("lets a later segment on the same property take over, which is what makes an arc", () => {
     const p = mk();
     evaluate(p, 0.25);
-    expect(style(p, 0).transform).toBe("translate(-50%, -50%) translate(25px, -25px) scale(1)");
+    expect(style(p, 0).transform).toBe("translate(25px, -25px) scale(1)");
     evaluate(p, 0.75);
-    expect(style(p, 0).transform).toBe("translate(-50%, -50%) translate(75px, -15px) scale(1)");
+    expect(style(p, 0).transform).toBe("translate(75px, -15px) scale(1)");
     expect(style(p, 1).opacity).toBe("0.5");
   });
 
