@@ -11,6 +11,7 @@
  */
 import { zlibSync } from "fflate";
 import { describe, expect, it } from "vitest";
+import { apparentPx, gradeApparent } from "../src/verify/apparent.js";
 import {
   decodePng,
   type Frame,
@@ -331,5 +332,75 @@ describe("gradeFidelity", () => {
   it("takes an explicit floor, so the corpus can be re-scored without a rebuild", () => {
     expect(gradeFidelity([stop("s1", 1, 0.005)], 0.01)).toHaveLength(1);
     expect(gradeFidelity([stop("s1", 1, 0.005)], 0.001)).toEqual([]);
+  });
+});
+
+describe("the apparent type floor", () => {
+  const run = (text: string, declared: number, ratio: number) => ({ text, declared, ratio });
+
+  it("reports a flat run at exactly what it declared", () => {
+    // The control that stops this gate from arguing with the declared one. A deck
+    // doing nothing clever measures its own declared size back, so `apparent` and
+    // `typefloor` agree everywhere except where something actually shrank a glyph.
+    // Measured in Chrome: a 46px run on an untransformed plane comes back at
+    // ratio 1.000, which is 46.0.
+    expect(apparentPx(run("Reconstruction", 46, 1), 1)).toBe(46);
+  });
+
+  it("divides out the stage, so portrait is not a violation", () => {
+    // `typefloor` calls this "the whole argument of REF_PULL and not a violation":
+    // in portrait, 40 reference px is SUPPOSED to land at 30 canvas px. The run and
+    // its scene shrink together, so the ratio over the stage is 1 and 40 stays 40.
+    expect(apparentPx(run("Every window", 40, 0.75), 0.75)).toBe(40);
+  });
+
+  it("sees the projection the declared scan cannot", () => {
+    // Measured in Chrome at rotateX(30deg) under perspective 1400: a 46px run near
+    // the top of the plane paints at ratio 0.682.
+    expect(apparentPx(run("Reconstruction", 46, 0.682), 1)).toBeCloseTo(31.4, 1);
+    // ...and the same run near the BOTTOM is magnified, which is not a fault.
+    expect(apparentPx(run("Reconstruction", 46, 1.126), 1)).toBeCloseTo(51.8, 1);
+  });
+
+  it("sees a scale below 1 at a hold, which is the hole typefloor names", () => {
+    expect(apparentPx(run("Reconstruction", 46, 0.6), 1)).toBeCloseTo(27.6, 1);
+  });
+
+  it("passes a deck whose glyphs all clear the floor", () => {
+    expect(gradeApparent([{ sid: "s1", t: 1.5, stage: 1, runs: [run("Encode", 40, 1)] }])).toEqual(
+      [],
+    );
+  });
+
+  it("fails one finding per scene, naming the smallest runs and when", () => {
+    const findings = gradeApparent([
+      {
+        sid: "s2",
+        t: 7.55,
+        stage: 1,
+        runs: [run("no pooling", 40, 0.64), run("shared ticks", 40, 0.7)],
+      },
+      { sid: "s3", t: 18.75, stage: 1, runs: [run("the shared", 40, 0.6875)] },
+    ]);
+    expect(findings).toHaveLength(2);
+    expect(findings[0]?.severity).toBe("error");
+    expect(findings[0]?.rule).toBe("apparent_type_floor");
+    // The selector, not a bare id: `scripts/sweep.mjs` reads it back to decide
+    // which beat a finding belongs to.
+    expect(findings[0]?.message).toContain("#s2");
+    expect(findings[0]?.message).toContain("t=7.55s");
+    // Smallest first, so the worst offender is the one a reader sees.
+    expect(findings[0]?.message).toContain('"no pooling" at 25.6px');
+  });
+
+  it("keeps a run a tenth of a pixel under, because that is rasteriser noise not grace", () => {
+    // Measured on the tilted demo: "the next" came back at 39.8px and is a real
+    // violation. A run at 39.95 is the same 40 through a rounding error.
+    expect(
+      gradeApparent([{ sid: "s4", t: 27.85, stage: 1, runs: [run("the next", 40, 0.995)] }]),
+    ).toHaveLength(1);
+    expect(
+      gradeApparent([{ sid: "s4", t: 27.85, stage: 1, runs: [run("the next", 40, 0.9988)] }]),
+    ).toEqual([]);
   });
 });

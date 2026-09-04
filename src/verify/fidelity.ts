@@ -146,6 +146,7 @@ import { DECK_PAGE } from "../emit/composition.js";
 import { openDeck } from "../render/capture.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
+import { type ApparentStop, collectApparent, gradeApparent } from "./apparent.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
 
 /**
@@ -526,6 +527,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const { page, height } = deck;
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
+    const apparent: ApparentStop[] = [];
     for (const stop of stops) {
       await deck.seek(stop.t);
       const bandTopPx = await page.evaluate(
@@ -541,6 +543,10 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...stop,
         pairs: overprints(await page.evaluate(collectSvgTextRuns, stop.sid)),
       });
+      // One more read on the frame that is already seeked and settled: how big
+      // the glyphs actually came out. `typefloor` reads the source and says in
+      // its own header that it cannot see this.
+      apparent.push({ ...stop, ...(await page.evaluate(collectApparent, stop.sid)) });
       const frame = await decodePng(await deck.shoot());
       measured.push({
         ...stop,
@@ -550,7 +556,11 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     }
     return {
       stops: measured,
-      findings: [...gradeFidelity(measured, floor), ...gradeOverprint(collided)],
+      findings: [
+        ...gradeFidelity(measured, floor),
+        ...gradeOverprint(collided),
+        ...gradeApparent(apparent),
+      ],
       elapsedMs: Date.now() - started,
     };
   } catch (err) {

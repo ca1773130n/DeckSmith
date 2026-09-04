@@ -32,8 +32,11 @@ jobs:
     #
     # It is also where deployment protection lives: the environment is
     # restricted to `v*` TAGS, so a push to a branch cannot reach it. Required
-    # reviewers belong here too and are not set — GitHub gates that rule behind
-    # a paid plan for private repositories.
+    # reviewers ARE set now — the note here used to say they were not, because
+    # GitHub gates that rule behind a paid plan for PRIVATE repositories and this
+    # one was private when the note was written. So a tag no longer publishes on
+    # its own: the run sits in `waiting` until a human approves the deployment,
+    # which is the last irreversible step getting the one gate that is a person.
     environment: release
     steps:
       - uses: actions/checkout@v7
