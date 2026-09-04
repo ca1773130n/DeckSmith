@@ -7,7 +7,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc, words } from "../kit.js";
-import { wrap } from "../svg.js";
+import { faceOf, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
 import {
   BODY_LH,
@@ -79,6 +79,7 @@ const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
 export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
+  const face = faceOf(theme.fontStack);
 
   // `emitDeck` is public, so `assertRefsResolve` is not the only way here: a
   // pending brief has to be refused by name rather than as `no figure "undefined"`.
@@ -111,8 +112,10 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // which is the stacked layout portrait already uses — so an over-tall claim
   // falls back to it rather than being refused or clipped.
   const bandFor = (width: number) =>
-    wrap(p.claim, CLAIM_SIZE, width - CLAIM_RULE).length * Math.round(CLAIM_SIZE * CLAIM_LH) + 34;
-  const rowBudget = bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND, 26);
+    wrap(p.claim, CLAIM_SIZE, width - CLAIM_RULE, 400, 0, face).length *
+      Math.round(CLAIM_SIZE * CLAIM_LH) +
+    34;
+  const rowBudget = bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND, 26, undefined, face);
   const tall = portrait || (!wide && bandFor(BESIDE_COL) - 34 > rowBudget);
 
   // Stacked, the claim is above the figure rather than beside it, so it comes out
@@ -134,7 +137,15 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // sampling the deck's own stops rather than nine midpoints of a 92s timeline.
   const figMax =
     Math.round(
-      bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND + claimBand, 26, tall ? 0 : undefined),
+      bodyBudget(
+        ctx.format,
+        p.eyebrow,
+        p.headline,
+        CAP_BAND + claimBand,
+        26,
+        tall ? 0 : undefined,
+        face,
+      ),
     ) - 32;
   // A claim long enough to leave no plate is not a layout to solve, it is a beat
   // to split — the same answer `split-compare` and `callout` already give, in the
@@ -198,7 +209,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   ];
 
   return {
-    html: `${chrome(sid, p.eyebrow, p.headline, box)}\n${body}`,
+    html: `${chrome(sid, p.eyebrow, p.headline, box, face)}\n${body}`,
     tl,
     holds: holdsWithin([1.4, 2.4], beat.seconds),
     css: [

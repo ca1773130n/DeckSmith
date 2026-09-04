@@ -5,7 +5,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc, lift, settle, spotlighter } from "../kit.js";
-import { wrap } from "../svg.js";
+import { faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_LH,
@@ -35,6 +35,7 @@ const LINE_TOP = 10;
 export const callout: Emitter<"callout"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
+  const face = faceOf(theme.fontStack);
 
   const panels = p.panels
     .map((panel, i) => {
@@ -71,9 +72,9 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const column = (box - PANEL_GAP * (cols - 1)) / cols;
   const inner = column - 2 * PANEL_PAD_X;
   const heights = p.panels.map((panel) => {
-    const label = wrap(panel.label, LABEL_SIZE, inner, 600).length * LABEL_SIZE * 1.2;
+    const label = wrap(panel.label, LABEL_SIZE, inner, 600, 0, face).length * LABEL_SIZE * 1.2;
     const body = panel.lines.reduce(
-      (h, l) => h + wrap(l, BODY_SIZE, inner).length * BODY_SIZE * BODY_LH + LINE_TOP,
+      (h, l) => h + wrap(l, BODY_SIZE, inner, 400, 0, face).length * BODY_SIZE * BODY_LH + LINE_TOP,
       0,
     );
     return 2 * PANEL_PAD_Y + label + LABEL_GAP + body;
@@ -97,7 +98,10 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     ctx.format,
     p.eyebrow,
     p.headline,
-    noteHeight(p.note, noteWidth(ctx.format)),
+    noteHeight(p.note, noteWidth(ctx.format), undefined, face),
+    undefined,
+    undefined,
+    face,
   );
   // Refused rather than clipped, and refused rather than shrunk: the body is
   // 44px against a 40px audience floor, which is 9% of a height that can be over
@@ -116,7 +120,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const cap = Math.min(budget, Math.round(need * (cols === 1 ? 1.1 : 1.22)));
 
   const note = p.note ? `\n<div class="conote" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, box)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, box, face)}
 <div class="panels" style="grid-template-columns:repeat(${cols}, 1fr);max-height:${cap}px">
   ${panels}
 </div>${note}`;

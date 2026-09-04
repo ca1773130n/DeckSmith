@@ -9,7 +9,7 @@
 import type { Format } from "../../types.js";
 import type { Emitter, Theme, Tween, Vars } from "../kit.js";
 import { contentH, contentW, esc, fromTo, words } from "../kit.js";
-import { textWidth, wrap } from "../svg.js";
+import { type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 
 /**
@@ -127,9 +127,15 @@ const NBSP = "\u00a0";
  * (nothing to borrow from), and one where every candidate is wider than the
  * measure — the browser would break that anyway, and then in mid-word.
  */
-export function unwidow(text: string, width: number, size: number, weight = 700): string {
+export function unwidow(
+  text: string,
+  width: number,
+  size: number,
+  weight = 700,
+  face: Face = "latin",
+): string {
   const words = text.split(/\s+/).filter(Boolean);
-  const lines = wrap(text, size, width, weight);
+  const lines = wrap(text, size, width, weight, 0, face);
   const tail = (lines[lines.length - 1] ?? "").split(/\s+/).filter(Boolean).length;
   // `+ 1` because this guard is reading a measurement the rest of this file
   // already distrusts: `wrap` errs wide by construction, so where it predicts a
@@ -140,14 +146,15 @@ export function unwidow(text: string, width: number, size: number, weight = 700)
   // a tail it considered acceptable and returned before trying anything.
   // Widening the guard only costs an NBSP on headlines that did not need one.
   if (lines.length < 2 || tail > ORPHAN_WORDS + 1) return text;
-  const shortest = (ls: string[]) => Math.min(...ls.map((l) => textWidth(l, size, weight)));
+  const shortest = (ls: string[]) =>
+    Math.min(...ls.map((l) => textWidth(l, size, weight, 0, false, face)));
   const rag = shortest(lines);
   // Widest first: any run that fits protects the same seam, and `wrap` erring
   // wide means its idea of the last line is not always the browser's.
   for (let n = Math.min(tail + 1, words.length - 1); n >= 2; n--) {
     const bound = words.slice(-n).join(" ");
-    if (textWidth(bound, size, weight) > width) continue;
-    const after = wrapTokens([...words.slice(0, -n), bound], size, width, weight);
+    if (textWidth(bound, size, weight, 0, false, face) > width) continue;
+    const after = wrapTokens([...words.slice(0, -n), bound], size, width, weight, face);
     if (after.length > lines.length || shortest(after) < rag) continue;
     return [...words.slice(0, -n), words.slice(-n).join(NBSP)].join(" ");
   }
@@ -161,12 +168,18 @@ export function unwidow(text: string, width: number, size: number, weight = 700)
  * would take the binding apart before measuring it. Only used to score a
  * candidate binding, never to decide a height.
  */
-function wrapTokens(tokens: string[], size: number, width: number, weight: number): string[] {
+function wrapTokens(
+  tokens: string[],
+  size: number,
+  width: number,
+  weight: number,
+  face: Face,
+): string[] {
   const lines: string[] = [];
   let line = "";
   for (const token of tokens) {
     const candidate = line ? `${line} ${token}` : token;
-    if (line && textWidth(candidate, size, weight) > width) {
+    if (line && textWidth(candidate, size, weight, 0, false, face) > width) {
       lines.push(line);
       line = token;
       continue;
@@ -184,8 +197,13 @@ function wrapTokens(tokens: string[], size: number, width: number, weight: numbe
  * That is the safe direction: an under-count overflows the canvas, and `.scene`
  * is centred so it overflows off *both* edges at once.
  */
-export function chromeHeight(eyebrow: string | undefined, headline: string, width: number): number {
-  const lines = wrap(headline, HEADLINE_SIZE, width, 700, HEADLINE_TRACKING).length;
+export function chromeHeight(
+  eyebrow: string | undefined,
+  headline: string,
+  width: number,
+  face: Face = "latin",
+): number {
+  const lines = wrap(headline, HEADLINE_SIZE, width, 700, HEADLINE_TRACKING, face).length;
   // COUNTS THE EYEBROW'S LINES. It used to charge one `EYEBROW_H` however many
   // an eyebrow wrapped to, and measured it as untracked lowercase besides — so a
   // long one was charged a single 72px line while the browser drew two 50px ones
@@ -195,7 +213,7 @@ export function chromeHeight(eyebrow: string | undefined, headline: string, widt
   // `toUpperCase` rather than a flag: `text-transform` changes which glyphs are
   // measured, and the width table already knows what a capital costs.
   const brow = eyebrow
-    ? wrap(eyebrow.toUpperCase(), EYEBROW_SIZE, width, 500, EYEBROW_TRACKING).length *
+    ? wrap(eyebrow.toUpperCase(), EYEBROW_SIZE, width, 500, EYEBROW_TRACKING, face).length *
         EYEBROW_LINE +
       EYEBROW_GAP
     : 0;
@@ -230,9 +248,13 @@ export function bodyBudget(
   below = 0,
   top = 34,
   floor = BODY_FLOOR,
+  face: Face = "latin",
 ): number {
   const width = contentW(format);
-  return Math.max(floor, contentH(format) - chromeHeight(eyebrow, headline, width) - top - below);
+  return Math.max(
+    floor,
+    contentH(format) - chromeHeight(eyebrow, headline, width, face) - top - below,
+  );
 }
 
 /**
@@ -259,11 +281,12 @@ export function fitText(
   lo: number,
   hi: number,
   weight = 700,
+  face: Face = "latin",
 ): number {
-  const units = textWidth(text, 1, weight);
+  const units = textWidth(text, 1, weight, 0, false, face);
   const bound = Math.max(lo, Math.min(hi, Math.floor((width * maxLines) / units)));
   let size = bound;
-  while (size > lo && wrap(text, size, width, weight).length > maxLines) size--;
+  while (size > lo && wrap(text, size, width, weight, 0, face).length > maxLines) size--;
   return size;
 }
 
@@ -322,8 +345,9 @@ export function chrome(
   eyebrow: string | undefined,
   headline: string,
   width: number,
+  face: Face = "latin",
 ): string {
-  const set = unwidow(headline, width, HEADLINE_SIZE);
+  const set = unwidow(headline, width, HEADLINE_SIZE, 700, face);
   const brow = eyebrow ? `<div class="eyebrow" id="${sid}-e">${esc(eyebrow)}</div>\n` : "";
   return `${brow}<h2 class="headline" id="${sid}-h">${esc(set)}</h2>`;
 }
@@ -374,9 +398,14 @@ export function noteWidth(format: Format): number {
  * measuring against the bare 1600 cap at 9:16 under-counts the lines by half and
  * hands the body a budget the note then overruns.
  */
-export function noteHeight(note: string | undefined, width: number, top = 34): number {
+export function noteHeight(
+  note: string | undefined,
+  width: number,
+  top = 34,
+  face: Face = "latin",
+): number {
   if (!note) return 0;
-  return wrap(note, BODY_SIZE, width).length * Math.round(BODY_SIZE * BODY_LH) + top;
+  return wrap(note, BODY_SIZE, width, 400, 0, face).length * Math.round(BODY_SIZE * BODY_LH) + top;
 }
 
 export const title: Emitter<"title"> = (beat, ctx) => {
@@ -389,12 +418,13 @@ export const title: Emitter<"title"> = (beat, ctx) => {
   // and the first thing anyone sees. Three lines is the cap because a title that
   // wants four is a title, not a headline.
   const width = contentW(ctx.format);
-  const size = fitText(p.headline, width, 3, 88, 156);
+  const face = faceOf(ctx.theme.fontStack);
+  const size = fitText(p.headline, width, 3, 88, 156, 700, face);
   // The title is the one headline set at its own size, so it is un-widowed
   // against that size rather than against `HEADLINE_SIZE`. Left alone, the demo
   // broke as "Compact thought / collides with dense / output" at 16:9 and stranded
   // a single word under a full measure on the first slide anyone sees.
-  const head = unwidow(p.headline, width, size);
+  const head = unwidow(p.headline, width, size, 700, face);
   const brow = p.eyebrow ? `<div class="eyebrow" id="${sid}-e">${esc(p.eyebrow)}</div>\n  ` : "";
   const sub = p.sub ? `\n  <div class="sub" id="${sid}-s">${esc(p.sub)}</div>` : "";
   // The headline is set word by word so it can RISE word by word. `words()`

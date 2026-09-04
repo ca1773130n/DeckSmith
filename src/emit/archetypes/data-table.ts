@@ -30,7 +30,7 @@
 import type { Table } from "../../types.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, mathy, PAD_Y, spotlighter } from "../kit.js";
-import { MIN_FONT, textWidth } from "../svg.js";
+import { faceOf, MIN_FONT, textWidth } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -165,10 +165,19 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   // narrower columns, and solving against a row nobody will see would set the
   // type smaller than the slide can read — which is the direction invariant 5
   // exists to forbid.
+  //
+  // AND THE FACE COMES FROM THE THEME, not from the cells. `textWidth` sniffs
+  // the run it is given, which answers for a Korean method name and not for the
+  // column of ASCII figures beside it: a CJK bundle puts Noto Sans in front of
+  // Inter, so those figures are drawn in the wider face too and measuring them
+  // as Inter under-charges the column by up to 3.8%. Under-charging is the
+  // direction that leaves the canvas — `cell` is a division by `units`, so a
+  // short total buys type the row has no room for.
   const box = contentW(ctx.format);
+  const face = faceOf(ctx.theme.fontStack);
   const units = table.columns.reduce((total, col, i) => {
-    const head = textWidth(col, 1, 600, TH_TRACKING, true);
-    const body = shown.map((r) => textWidth(r[i] ?? "", 1, 600, 0, true));
+    const head = textWidth(col, 1, 600, TH_TRACKING, true, face);
+    const body = shown.map((r) => textWidth(r[i] ?? "", 1, 600, 0, true, face));
     return total + Math.max(head, ...body);
   }, 0);
   const channels = 2 * CELL_PAD * table.columns.length;
@@ -196,8 +205,8 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
       .map((col, i) => ({
         col,
         w: Math.max(
-          textWidth(col, MIN_FONT, 600, TH_TRACKING, true),
-          ...shown.map((r) => textWidth(r[i] ?? "", MIN_FONT, 600, 0, true)),
+          textWidth(col, MIN_FONT, 600, TH_TRACKING, true, face),
+          ...shown.map((r) => textWidth(r[i] ?? "", MIN_FONT, 600, 0, true, face)),
         ),
       }))
       .sort((a, b) => b.w - a.w)[0];
@@ -235,9 +244,10 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
     ctx.format,
     p.eyebrow,
     p.headline,
-    noteHeight(p.note, width, 26) + noteHeight(said, width, 26),
+    noteHeight(p.note, width, 26, face) + noteHeight(said, width, 26, face),
     34,
     0,
+    face,
   );
 
   // Row padding takes what is left over vertically, so a five-row table fills
@@ -327,7 +337,7 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
   // before they read anything the author concluded from those rows.
   const omit = said ? `\n<div class="rowomit" id="${sid}-omit">${esc(said)}</div>` : "";
   const note = p.note ? `\n<div class="rownote" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, box)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, box, face)}
 <table>
   <thead><tr id="${sid}-thead">${head}</tr></thead>
   <tbody>

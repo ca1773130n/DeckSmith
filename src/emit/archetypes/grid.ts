@@ -17,6 +17,8 @@ import { contentW, DIM, esc } from "../kit.js";
 import type { Box } from "../svg.js";
 import {
   drawFrom,
+  type Face,
+  faceOf,
   group,
   id,
   line,
@@ -96,10 +98,10 @@ const NOTE_GAP = FIELD_TOP;
  */
 const NOTE_LINES = 4;
 
-function noteColumn(note: string, size: number): { min: number; want: number } {
+function noteColumn(note: string, size: number, face: Face): { min: number; want: number } {
   const words = note.split(/\s+/).filter(Boolean);
-  const longest = Math.max(0, ...words.map((w) => textWidth(w, size)));
-  const whole = textWidth(note, size);
+  const longest = Math.max(0, ...words.map((w) => textWidth(w, size, 400, 0, false, face)));
+  const whole = textWidth(note, size, 400, 0, false, face);
   return { min: longest, want: Math.max(longest, whole / NOTE_LINES) };
 }
 
@@ -139,6 +141,14 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   /** The scene's content width — the format's, less the shell's side padding. */
   const W = contentW(ctx.format);
 
+  /**
+   * A CJK bundle sets the ASCII labels in that family too, and 31 Latin glyphs
+   * are wider there than in Inter. Measured as Inter, a label that "fits inside"
+   * its own region draws past it — so every width below is charged at the face
+   * the theme will actually use.
+   */
+  const face = faceOf(ctx.theme.fontStack);
+
   // The field takes exactly what the chrome and the note leave, measured rather
   // than guessed: a two-line headline over a three-line note costs 300px more
   // than a one-line pair, and a constant that clears the worst case throws that
@@ -161,15 +171,17 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // asked of the note rather than assumed, see `noteColumn` — and only in
   // portrait's absence, where there is width to spare at all. Otherwise this is
   // the layout it always was.
-  const full = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, FIELD_TOP);
-  const col = p.note ? noteColumn(p.note, BODY_SIZE) : undefined;
+  const full = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, FIELD_TOP, undefined, face);
+  const col = p.note ? noteColumn(p.note, BODY_SIZE, face) : undefined;
   /** The height the note costs when it sits underneath rather than beside. */
   const stackedBudget = bodyBudget(
     ctx.format,
     p.eyebrow,
     p.headline,
-    noteHeight(p.note, noteWidth(ctx.format)),
+    noteHeight(p.note, noteWidth(ctx.format), undefined, face),
     FIELD_TOP,
+    undefined,
+    face,
   );
 
   /**
@@ -196,8 +208,8 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     if (bw <= 0 || bh <= 0) return false;
     // `wrap` breaks mid-word when it must, so a returned line can still be wider
     // than the ask when a single glyph does not fit. Measure the result.
-    const lines = wrap(r.label, LABEL, bw, 700);
-    if (Math.max(...lines.map((l) => textWidth(l, LABEL, 700))) > bw) return false;
+    const lines = wrap(r.label, LABEL, bw, 700, 0, face);
+    if (Math.max(...lines.map((l) => textWidth(l, LABEL, 700, 0, false, face))) > bw) return false;
     return lines.length * LABEL * LH <= bh;
   };
 
@@ -216,7 +228,7 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // Sized from the widest label over *every* region, not only the ones that
   // missed at pass one: reserving the gutter shrinks the cells, which can push a
   // further region out, and a gutter able to grow a second time never settles.
-  const widest = Math.max(...p.regions.map((r) => textWidth(r.label, LABEL, 600)));
+  const widest = Math.max(...p.regions.map((r) => textWidth(r.label, LABEL, 600, 0, false, face)));
   /** Column width at which no label wraps at all, and at which none wraps past `MAX_LINES`. */
   const oneLine = Math.min(620, widest * 1.06);
   const wrapped = Math.min(620, (widest / MAX_LINES) * 1.12);
@@ -253,7 +265,7 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
 
     /** Which labels the gutter has to carry. Fixed by `f`, so it settles here. */
     const inGutter = p.regions.map((r, i) => crowded[i] || !fitsInside(f, r));
-    const lines = (r: Region) => wrap(r.label, LABEL, lw, 600).length;
+    const lines = (r: Region) => wrap(r.label, LABEL, lw, 600, 0, face).length;
     const stackH = p.regions
       .filter((_, i) => inGutter[i])
       .reduce((t, r, i) => t + lines(r) * LABEL * LH + (i > 0 ? 14 : 16), 0);
@@ -411,6 +423,7 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
             vAlign: "middle",
             class: "grlab",
             id: id(sid, "lab", i),
+            face,
           },
         ),
       );
@@ -431,6 +444,7 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
           vAlign: "middle",
           class: "grlab",
           id: id(sid, "lab", i),
+          face,
         },
       ),
     );
@@ -462,9 +476,9 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // judgement `noteCss` makes with `NOTE_MAX_W` for the stacked layout.
   const noteW = col ? Math.round(Math.min(col.want, room)) : 0;
   const html = beside
-    ? `${chrome(sid, p.eyebrow, p.headline, W)}
+    ? `${chrome(sid, p.eyebrow, p.headline, W, face)}
 <div class="growbeside"><div class="gwrap" style="width:${fieldW}px;flex:none">${field}</div><div class="gnotecol" style="width:${noteW}px">${note}</div></div>`
-    : `${chrome(sid, p.eyebrow, p.headline, W)}
+    : `${chrome(sid, p.eyebrow, p.headline, W, face)}
 <div class="gwrap">${field}</div>${note}`;
 
   // The empty field first, fast and low-contrast: it is the thing being operated

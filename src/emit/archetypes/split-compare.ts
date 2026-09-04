@@ -27,6 +27,8 @@ import { contentW, esc, spotlighter } from "../kit.js";
 import type { Box } from "../svg.js";
 import {
   drawFrom,
+  type Face,
+  faceOf,
   line,
   MIN_FONT,
   n,
@@ -77,14 +79,15 @@ const ITEM_SIZES = [52, 50, 48, 46, 44, 42, MIN_FONT];
 
 const NAME = ["left", "right"] as const;
 
-function itemHeight(t: string, size: number, width: number): number {
-  return wrap(t, size, width).length * size * ITEM_LH;
+function itemHeight(t: string, size: number, width: number, face: Face): number {
+  return wrap(t, size, width, 400, 0, face).length * size * ITEM_LH;
 }
 
-function listHeight(lines: string[], size: number, width: number): number {
+function listHeight(lines: string[], size: number, width: number, face: Face): number {
   if (lines.length === 0) return 0;
   return (
-    lines.reduce((h, t) => h + itemHeight(t, size, width), 0) + size * ITEM_GAP * (lines.length - 1)
+    lines.reduce((h, t) => h + itemHeight(t, size, width, face), 0) +
+    size * ITEM_GAP * (lines.length - 1)
   );
 }
 
@@ -139,12 +142,18 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // — eyebrow, a two-line headline and a note — charged to every slide including
   // the ones that had none of them, which is 250px of the canvas thrown away on
   // the common case to protect the rare one.
+  // Every measurement below is charged to the DECK's face, not to each run's
+  // own characters: a CJK bundle sets an all-ASCII label in Noto Sans too.
+  const face = faceOf(theme.fontStack);
   const W = contentW(ctx.format);
   const H = bodyBudget(
     ctx.format,
     p.eyebrow,
     p.headline,
-    noteHeight(p.note, noteWidth(ctx.format)),
+    noteHeight(p.note, noteWidth(ctx.format), undefined, face),
+    undefined,
+    undefined,
+    face,
   );
 
   // Two equal panels with a 2×GUTTER channel between them for the divider —
@@ -163,13 +172,19 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // size against the half-width rather than picking one and hoping. `textWidth`
   // is linear in size, so the largest that clears the gutter is a division. At
   // the floor a label wraps instead of shrinking — two readable lines beat one
-  // unreadable one.
+  // unreadable one. Measured at the DECK's face rather than the label's own
+  // characters: a CJK bundle sets an all-ASCII label in Noto Sans too, and
+  // charging that as Inter solves a size the drawn label then overruns — into
+  // the gutter this division exists to keep clear.
   const labelSize = Math.max(
     MIN_FONT,
-    Math.floor(Math.min(LABEL_MAX, ...sides.map((s) => pw / textWidth(s.label, 1, 700)))),
+    Math.floor(
+      Math.min(LABEL_MAX, ...sides.map((s) => pw / textWidth(s.label, 1, 700, 0, false, face))),
+    ),
   );
   const labelLh = labelSize * 1.25;
-  const bandH = Math.max(...sides.map((s) => wrap(s.label, labelSize, pw, 700).length)) * labelLh;
+  const bandH =
+    Math.max(...sides.map((s) => wrap(s.label, labelSize, pw, 700, 0, face).length)) * labelLh;
   const hairY = bandH + 20;
   const contentY = hairY + 36;
   const contentH = sideH - contentY;
@@ -179,7 +194,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // on its own initiative.
   const fits = (size: number) =>
     sides.every((side, i) => {
-      const list = listHeight(side.lines ?? [], size, pw - INDENT);
+      const list = listHeight(side.lines ?? [], size, pw - INDENT, face);
       const fig = figs[i] ? MIN_FIG + (list > 0 ? STACK_GAP : 0) : 0;
       return list + fig <= contentH;
     });
@@ -196,7 +211,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   const natural = figs.map((fig, i) => {
     const side = sides[i];
     if (!fig || !side) return 0;
-    const list = listHeight(side.lines ?? [], itemSize, itemW);
+    const list = listHeight(side.lines ?? [], itemSize, itemW, face);
     const boxH = contentH - list - (list > 0 ? STACK_GAP : 0);
     return Math.min(boxH - 2 * PAD, ((pw - 2 * PAD) * fig.height) / fig.width);
   });
@@ -214,7 +229,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     // one of them having slipped — which at 9:16, where the left heading wraps
     // and the right does not, is exactly what it looked like (EXPERIMENT-006,
     // "Known, not fixed"). Identical arithmetic whenever both wrap the same.
-    const ownBand = wrap(side.label, labelSize, pw, 700).length * labelLh;
+    const ownBand = wrap(side.label, labelSize, pw, 700, 0, face).length * labelLh;
 
     const parts = [
       // Both headings start at their own panel's left edge, on the same spine
@@ -233,6 +248,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
           lineHeight: 1.25,
           vAlign: "middle",
           id: `${sid}-lab${i}`,
+          face,
         },
       ),
       // Landscape draws it from the rule outwards, so the hairline reads as
@@ -253,7 +269,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     const imgW = fig ? (fig.width * imgH) / fig.height : 0;
     const cardH = fig ? imgH + 2 * PAD : 0;
     const list = side.lines ?? [];
-    const listH = listHeight(list, itemSize, itemW);
+    const listH = listHeight(list, itemSize, itemW, face);
     const stackH = cardH + listH + (cardH > 0 && listH > 0 ? STACK_GAP : 0);
     // A list-only side loosens down its column rather than sitting as a tight
     // block in the middle of it. The cap is half a line: at a full line the three
@@ -279,7 +295,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     }
 
     for (const item of list) {
-      const h = itemHeight(item, itemSize, itemW);
+      const h = itemHeight(item, itemSize, itemW, face);
       // A tick rather than a dot: it carries the side's tone at the height of the
       // first line, so a list reads as belonging to its half at a glance.
       parts.push(
@@ -293,6 +309,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
             maxWidth: itemW,
             lineHeight: ITEM_LH,
             vAlign: "middle",
+            face,
           },
         ),
       );
@@ -343,7 +360,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       );
 
   const note = p.note ? `\n<div class="sc-note" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
 <div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`;
 
   const at = [1.15, 2.05];

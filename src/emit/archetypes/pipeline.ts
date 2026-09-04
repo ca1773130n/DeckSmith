@@ -39,6 +39,8 @@ import {
   arrowDefs,
   circle,
   elbow,
+  type Face,
+  faceOf,
   fitBoxes,
   group,
   id,
@@ -187,6 +189,7 @@ function columnLayout(
   stageW: number,
   stageH: number,
   stages: readonly Stage[],
+  face: Face,
   loop?: Loop,
 ): PipeLayout {
   const count = stages.length;
@@ -199,12 +202,12 @@ function columnLayout(
 
   // `textWidth` is linear in size, so the size at which the widest label exactly
   // fills the box is a division. It is almost never binding at this width.
-  const unit = Math.max(1, ...stages.map((s) => textWidth(s.label, 1, 600)));
+  const unit = Math.max(1, ...stages.map((s) => textWidth(s.label, 1, 600, 0, false, face)));
   const size = Math.max(MIN_FONT, Math.min(LABEL, Math.floor(boxW / (unit + 2 * PAD_X_EM))));
   const innerW = Math.max(size, boxW - 2 * PAD_X_EM * size);
 
-  const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600));
-  const noteLines = stages.map((s) => (s.note ? wrap(s.note, NOTE, innerW, 400) : []));
+  const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600, 0, face));
+  const noteLines = stages.map((s) => (s.note ? wrap(s.note, NOTE, innerW, 400, 0, face) : []));
   const need = Math.max(
     MIN_BOX_H,
     ...stages.map((_, i) => {
@@ -229,7 +232,7 @@ function columnLayout(
     labelLines,
     noteLines,
     loopDrop: 0,
-    loopLines: loop ? wrap(loop.label, NOTE, loopW, 500) : [],
+    loopLines: loop ? wrap(loop.label, NOTE, loopW, 500, 0, face) : [],
     loopX: boxX + boxW + V_LOOP_SIDE,
     loopW,
     svgH: 2 * M + count * boxH + (count - 1) * V_GAP,
@@ -243,10 +246,10 @@ function columnLayout(
  * real breaks are made by `wrap` inside the box; greedy wrapping is optimal for
  * line count, so a box wide enough for this split never needs more than `k`.
  */
-function balance(label: string, k: number): string[] {
+function balance(label: string, k: number, face: Face): string[] {
   const words = label.split(/\s+/).filter(Boolean);
   if (k <= 1 || words.length <= 1) return [label];
-  const w = words.map((x) => textWidth(x, 1, 600));
+  const w = words.map((x) => textWidth(x, 1, 600, 0, false, face));
   const share = w.reduce((a, b) => a + b, 0) / k;
   const lines: string[] = [];
   let cur: string[] = [];
@@ -288,8 +291,10 @@ function loopLabelWidth(boxes: readonly Track[], from: number, to: number, stage
 }
 
 /** The widest of a label's lines — the string the box has to be sized against. */
-function widest(lines: string[]): string {
-  return lines.reduce((a, b) => (textWidth(b, 1, 600) > textWidth(a, 1, 600) ? b : a));
+function widest(lines: string[], face: Face): string {
+  return lines.reduce((a, b) =>
+    textWidth(b, 1, 600, 0, false, face) > textWidth(a, 1, 600, 0, false, face) ? b : a,
+  );
 }
 
 /**
@@ -300,9 +305,11 @@ function widest(lines: string[]): string {
  * fitting only the label leaves it a box it cannot fit in. Measuring the note at
  * the label's weight overstates it by 4%, which is the direction to be wrong in.
  */
-function fitAt(stages: readonly Stage[], k: number, width: number, stageW: number) {
+function fitAt(stages: readonly Stage[], k: number, width: number, stageW: number, face: Face) {
   return fitBoxes({
-    labels: stages.map((s) => widest([...balance(s.label, k), ...balance(s.note ?? "", k)])),
+    labels: stages.map((s) =>
+      widest([...balance(s.label, k, face), ...balance(s.note ?? "", k, face)], face),
+    ),
     width,
     size: LABEL,
     gap: GAP,
@@ -314,9 +321,9 @@ function fitAt(stages: readonly Stage[], k: number, width: number, stageW: numbe
 }
 
 /** More lines before smaller type: legibility is the constraint, height is not. */
-function solve(stages: readonly Stage[], width: number, stageW: number) {
-  let fit = fitAt(stages, 1, width, stageW);
-  for (let k = 2; !fit.ok && k <= 3; k++) fit = fitAt(stages, k, width, stageW);
+function solve(stages: readonly Stage[], width: number, stageW: number, face: Face) {
+  let fit = fitAt(stages, 1, width, stageW, face);
+  for (let k = 2; !fit.ok && k <= 3; k++) fit = fitAt(stages, k, width, stageW, face);
   return fit;
 }
 
@@ -327,13 +334,18 @@ function solve(stages: readonly Stage[], width: number, stageW: number) {
  * archetype must never get wrong, and asserting it against numbers beats
  * asserting it against a rendered string.
  */
-export function pipeLayout(stageW: number, stages: readonly Stage[], loop?: Loop): PipeLayout {
+export function pipeLayout(
+  stageW: number,
+  stages: readonly Stage[],
+  loop?: Loop,
+  face: Face = "latin",
+): PipeLayout {
   const width = stageW - 2 * M;
   const capped = Math.min(width, stages.length * MAX_BOX_W + (stages.length - 1) * GAP);
   // Try the capped row first, and only spend the full canvas when the labels
   // actually need it — the cap is a preference, not a constraint.
-  let fit = solve(stages, capped, stageW);
-  if (!fit.ok && capped < width) fit = solve(stages, width, stageW);
+  let fit = solve(stages, capped, stageW, face);
+  if (!fit.ok && capped < width) fit = solve(stages, width, stageW, face);
   // Floor rather than round, so the box is never asked to hold type a fraction
   // wider than it was solved for. `fit.size` is already at or above the floor
   // whenever `fit.ok`; the clamp only matters for labels that cannot fit at all,
@@ -342,8 +354,8 @@ export function pipeLayout(stageW: number, stages: readonly Stage[], loop?: Loop
   const boxes = fit.boxes;
   const innerW = Math.max(size, (boxes[0]?.w ?? width) - 2 * PAD_X_EM * size);
 
-  const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600));
-  const noteLines = stages.map((s) => (s.note ? wrap(s.note, NOTE, innerW, 400) : []));
+  const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600, 0, face));
+  const noteLines = stages.map((s) => (s.note ? wrap(s.note, NOTE, innerW, 400, 0, face) : []));
   // The floor is a proportion of the box's own width, not a constant.
   //
   // A row of boxes tall enough for their own text is *correct*, and it is tiny:
@@ -366,7 +378,7 @@ export function pipeLayout(stageW: number, stages: readonly Stage[], loop?: Loop
   // have the rest, and its label width depends on the boxes — but only on their
   // *x*, which is already fixed. So it can be measured first.
   const loopLines: string[] = loop
-    ? wrap(loop.label, NOTE, loopLabelWidth(boxes, loop.from, loop.to, stageW), 500)
+    ? wrap(loop.label, NOTE, loopLabelWidth(boxes, loop.from, loop.to, stageW), 500, 0, face)
     : [];
   const below = loop
     ? LOOP_TOP + LOOP_LABEL_TOP + loopLines.length * NOTE * NOTE_LH + LOOP_BOTTOM
@@ -424,6 +436,8 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   })();
   /** The stage's box: the content width the shell's padding leaves. */
   const W = contentW(ctx.format);
+  /** Every measurement below is charged at the face the deck will actually draw. */
+  const face = faceOf(theme.fontStack);
   // Portrait is a different arrangement, not the same one squeezed: at 1080 wide
   // a four-stage row gives each box ~170px, which is narrower than the words in
   // it. See `columnLayout`.
@@ -435,13 +449,16 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
           ctx.format,
           p.eyebrow,
           p.headline,
-          noteHeight(p.note, noteWidth(ctx.format), 36),
+          noteHeight(p.note, noteWidth(ctx.format), 36, face),
           38,
+          undefined,
+          face,
         ),
         p.stages,
+        face,
         loop,
       )
-    : pipeLayout(W, p.stages, loop);
+    : pipeLayout(W, p.stages, loop, face);
 
   /** Cross-axis centre of the row/column — the spine every connector sits on. */
   const spine = L.vertical ? L.boxX + L.boxW / 2 : M + L.boxH / 2;
@@ -490,6 +507,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
         maxWidth: L.innerW,
         lineHeight: LABEL_LH,
         vAlign: "middle",
+        face,
       },
     );
     const note =
@@ -504,6 +522,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
               maxWidth: L.innerW,
               lineHeight: NOTE_LH,
               vAlign: "middle",
+              face,
             },
           )
         : "";
@@ -588,6 +607,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
             : loopLabelWidth(L.boxes, last, loop.to, W),
         lineHeight: NOTE_LH,
         vAlign: "middle",
+        face,
       },
     );
     // A self-loop leaves one side of its box and returns to the other, so the two
@@ -633,7 +653,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
       routeHalf,
       L.vertical
         ? labelBlock / 2 + 10
-        : Math.max(...L.loopLines.map((l) => textWidth(l, NOTE, 500)), 0) / 2 + 10,
+        : Math.max(...L.loopLines.map((l) => textWidth(l, NOTE, 500, 0, false, face)), 0) / 2 + 10,
     );
     const span = L.vertical ? L.svgH : W;
     const a0 = Math.max(0, Math.min(cx(loop.to) - 30, mid - half));
@@ -659,7 +679,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   ].join("");
 
   const note = p.note ? `\n<div class="pipenote" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
 <div class="pipewrap">${svg(id(sid, "pipe"), W, L.svgH, body)}</div>${note}`;
 
   /* ------------------------------------------------------------- the reveal */

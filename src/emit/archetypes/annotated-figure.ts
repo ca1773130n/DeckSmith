@@ -28,6 +28,8 @@ import type { Box, Pt } from "../svg.js";
 import {
   circle,
   drawFrom,
+  type Face,
+  faceOf,
   group,
   id,
   line,
@@ -174,11 +176,11 @@ function lineBudget(count: number, stageH: number): number {
  */
 const STEPS = 6;
 
-function columns(notes: readonly FigureNote[], stageW: number): number[] {
+function columns(notes: readonly FigureNote[], stageW: number, face: Face): number[] {
   const words = notes.flatMap((n) => n.text.split(/\s+/).filter(Boolean));
   if (words.length === 0) return [stageW / 3];
-  const floor = Math.max(...words.map((w) => textWidth(w, LAB, LAB_WEIGHT)));
-  const ceiling = Math.max(...notes.map((n) => textWidth(n.text, LAB, LAB_WEIGHT)));
+  const floor = Math.max(...words.map((w) => textWidth(w, LAB, LAB_WEIGHT, 0, false, face)));
+  const ceiling = Math.max(...notes.map((n) => textWidth(n.text, LAB, LAB_WEIGHT, 0, false, face)));
   // A single word longer than the widest label cannot happen, but a label of one
   // word makes them equal — one attempt is then the whole search.
   const hi = Math.max(floor, ceiling);
@@ -263,25 +265,29 @@ interface Measured {
   splitWord: boolean;
 }
 
-function measure(content: string, col: number, maxLines: number): Measured {
-  const all = wrap(content, LAB, col, LAB_WEIGHT);
+function measure(content: string, col: number, maxLines: number, face: Face): Measured {
+  const all = wrap(content, LAB, col, LAB_WEIGHT, 0, face);
   // The exact condition that arms `wrap`'s per-character fallback, asked before
   // it fires rather than inferred from its output — a broken word and a genuine
   // two-word wrap are indistinguishable once they are both just lines.
   const splitWord = content
     .split(/\s+/)
     .filter(Boolean)
-    .some((word) => /\p{Script=Latin}/u.test(word) && textWidth(word, LAB, LAB_WEIGHT) > col);
+    .some(
+      (word) =>
+        /\p{Script=Latin}/u.test(word) && textWidth(word, LAB, LAB_WEIGHT, 0, false, face) > col,
+    );
   const clipped = all.length > maxLines;
   const lines = all.slice(0, maxLines);
   if (clipped) {
     let tail = lines[maxLines - 1] ?? "";
-    while (tail && textWidth(`${tail}…`, LAB, LAB_WEIGHT) > col) tail = tail.slice(0, -1);
+    while (tail && textWidth(`${tail}…`, LAB, LAB_WEIGHT, 0, false, face) > col)
+      tail = tail.slice(0, -1);
     lines[maxLines - 1] = `${tail.trimEnd()}…`;
   }
   return {
     lines,
-    w: Math.max(0, ...lines.map((l) => textWidth(l, LAB, LAB_WEIGHT))),
+    w: Math.max(0, ...lines.map((l) => textWidth(l, LAB, LAB_WEIGHT, 0, false, face))),
     h: (lines.length - 1) * LAB * LAB_LH + ASCENT + RULE_LIFT + RULE_W,
     clipped,
     splitWord,
@@ -335,6 +341,7 @@ function attempt(
   stageH: number,
   want: number,
   tall: boolean,
+  face: Face,
   sides: Sides = { l: true, r: true },
 ): FigureLayout {
   // A row of columns when they are wide enough to read in, two stacked columns
@@ -405,7 +412,7 @@ function attempt(
 
   const maxLines = lineBudget(notes.length, room);
   const work: Work[] = notes.map((no, i) => ({
-    ...measure(no.text, col, maxLines),
+    ...measure(no.text, col, maxLines, face),
     i,
     at: { x: img.x + no.x * img.w, y: img.y + no.y * img.h },
     side: "l",
@@ -557,10 +564,11 @@ export function planFigure(
   fig: { width: number; height: number },
   stageH: number,
   tall = false,
+  face: Face = "latin",
 ): FigureLayout {
   // Portrait's column is fixed at half the stage, so there is nothing to widen
   // and the search has one entry.
-  if (tall) return attempt(stageW, notes, fig, stageH, 0, true);
+  if (tall) return attempt(stageW, notes, fig, stageH, 0, true, face);
 
   // TWO AXES, TIGHT FIRST. The margins a figure's own notes actually face, then
   // both — and each arrangement walks the column widths as before.
@@ -573,11 +581,11 @@ export function planFigure(
   const wanted = wantedSides(notes);
   const both: Sides = { l: true, r: true };
   const tries = wanted.l && wanted.r ? [both] : [wanted, both];
-  const cols = columns(notes, stageW);
+  const cols = columns(notes, stageW, face);
   let plan: FigureLayout | undefined;
   for (const sides of tries) {
     for (const col of cols) {
-      plan = attempt(stageW, notes, fig, stageH, col, false, sides);
+      plan = attempt(stageW, notes, fig, stageH, col, false, face, sides);
       if (plan.ok) return plan;
     }
   }
@@ -619,12 +627,13 @@ export function stageBudget(
   eyebrow: string | undefined,
   headline: string,
   caption: string,
+  face: Face = "latin",
 ): number {
-  const lines = Math.min(CAP_LINES, wrap(caption, LAB, contentW(format)).length);
+  const lines = Math.min(CAP_LINES, wrap(caption, LAB, contentW(format), 400, 0, face).length);
   const capH = lines * LAB * CAP_LH;
   return (
     contentH(format) -
-    chromeHeight(eyebrow, headline, contentW(format)) -
+    chromeHeight(eyebrow, headline, contentW(format), face) -
     STAGE_GAP -
     CAP_GAP -
     capH
@@ -679,7 +688,8 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
 
   /** The stage's own box: the content width the shell's padding leaves. */
   const STAGE_W = contentW(ctx.format);
-  const budget = stageBudget(ctx.format, p.eyebrow, p.headline, fig.caption);
+  const face = faceOf(ctx.theme.fontStack);
+  const budget = stageBudget(ctx.format, p.eyebrow, p.headline, fig.caption, face);
   // The ladder's last rung. Between `MIN_STAGE` and the whole canvas the figure
   // simply shrinks; below it there is no picture left to annotate, and drawing
   // one inside-out — `scale` goes negative once `stageH < 2 * PLATE` — is how a
@@ -691,7 +701,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         `under the ${MIN_STAGE}px floor — shorten the headline or split the beat`,
     );
   }
-  const plan = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format));
+  const plan = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face);
   const stageH = plan.height;
   const plate: Box = {
     x: plan.img.x - PLATE,
@@ -755,7 +765,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     ].join("");
   });
 
-  const html = `${chrome(sid, p.eyebrow, p.headline, STAGE_W)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, STAGE_W, face)}
 <div class="af-stage" id="${sid}-stage">
   <div class="af-plate" id="${sid}-plate"><img${crop ? " data-layout-allow-overflow" : ""} src="assets/${esc(fig.src)}" alt="${esc(fig.caption)}" /></div>
   ${svg(`${sid}-ov`, STAGE_W, stageH, `<g class="af-ov-g">${parts.join("")}</g>`)}

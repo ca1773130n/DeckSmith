@@ -8,7 +8,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc } from "../kit.js";
-import { drawFrom, nv, textWidth, travel, wrap } from "../svg.js";
+import { drawFrom, faceOf, nv, textWidth, travel, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -106,6 +106,11 @@ function axisValues(labels: string[]): number[] | undefined {
 export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
+  // Every run measured below is ASCII, so `textWidth`'s own sniff sees Latin —
+  // but a CJK deck sets ASCII in the CJK family too, where 31 of those glyphs
+  // are wider. Under-charging is the unrecoverable direction: the layout keeps
+  // a label the browser then draws past the frame.
+  const face = faceOf(theme.fontStack);
 
   const scale = chartScale(p.points.map((pt) => pt.y));
   const box = contentW(ctx.format);
@@ -126,12 +131,13 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   // budget rather than out of its width.
   const below =
     tall && p.readout
-      ? wrap(p.readout, BODY_SIZE, box).length * Math.round(BODY_SIZE * READOUT_LH) + CHART_GAP
+      ? wrap(p.readout, BODY_SIZE, box, 400, 0, face).length * Math.round(BODY_SIZE * READOUT_LH) +
+        CHART_GAP
       : 0;
   // The chart is the argument, so it takes the room the chrome and the readout
   // leave rather than a flat 600 that fitted a two-line headline and nothing
   // else. `CHART_TOP` is `.chartwrap`'s margin.
-  const budget = bodyBudget(ctx.format, p.eyebrow, p.headline, below, CHART_TOP);
+  const budget = bodyBudget(ctx.format, p.eyebrow, p.headline, below, CHART_TOP, undefined, face);
   const H = Math.round(tall ? Math.min(budget, width * TALL_ASPECT) : budget);
   // The last point's value and axis labels are centred on the last x, so half of
   // the wider one hangs past it — which at a flat 40px pad the layout gate
@@ -144,8 +150,8 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   // Neither survives contact with a measured table: "SET5" is 2.539em, not the
   // 2.72 that 0.68/char claims, and "T=9" is 1.957 against 2.04.
   const last = p.points[p.points.length - 1];
-  const valueW = textWidth(String(last?.y ?? ""), 40);
-  const labelW = textWidth(last?.x ?? "", 40);
+  const valueW = textWidth(String(last?.y ?? ""), 40, 400, 0, false, face);
+  const labelW = textWidth(last?.x ?? "", 40, 400, 0, false, face);
   const padR = Math.max(PAD.r, Math.ceil(Math.max(valueW, labelW) / 2) + 16);
   const plotW = width - PAD.l - padR;
   const plotH = H - PAD.t - PAD.b;
@@ -206,8 +212,8 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
 
   const LABEL_SIZE = 40;
   /** One answer to "how wide is this", shared with every other archetype. */
-  const runW = (s: string) => textWidth(s, LABEL_SIZE);
-  const catW = (s: string) => textWidth(s, LABEL_SIZE);
+  const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
+  const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
 
   // The category names were the six collisions left after the values were
   // thinned: "T=9" through "T=15" printing into each other along the bottom of a
@@ -337,7 +343,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const readout = p.readout
     ? `\n  <div class="readout" id="${sid}-read">${esc(p.readout)}</div>`
     : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, box)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, box, face)}
 <div class="chartwrap${tall ? " chartstack" : ""}">
   <svg id="${sid}-chart" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}">
     <g class="grid">${grid}</g>
