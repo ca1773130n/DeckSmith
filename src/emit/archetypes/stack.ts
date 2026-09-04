@@ -501,6 +501,25 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
   const html = `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format))}
 <div class="stackwrap">${svg(id(sid, "stack"), L.width, L.height, body + probe)}</div>${noteHtml}`;
 
+  /**
+   * Where a slab enters from, in its own `y`.
+   *
+   * Flat: 34px below its place, a small settle that reads as arrival.
+   *
+   * Tilted: the CENTRE plane of the pile, so each slab pulls out of the stack
+   * into its own slot instead of dropping into it — the pile opens. Layer `i`
+   * sits `i * rise` above `yBase`, so starting it at the centre index is an
+   * offset of `(i - centre) * rise`: bottom slabs begin high, top slabs begin
+   * low, and all of them converge on where the stack already is.
+   *
+   * Tied to `tilt` rather than given its own switch, because they are one
+   * gesture and not two. A stack that leans is being shown AS a stack of things;
+   * opening it is what that claim looks like in motion. Two independent knobs
+   * would be two ways to get the same picture and one more thing nothing reaches.
+   */
+  const centre = (count - 1) / 2;
+  const enterFrom = (i: number): number => (p.tilt ? (i - centre) * L.rise : 34);
+
   const first = 0.9;
   const step = Math.min(0.8, Math.max(0.4, (beat.seconds - first - 1.5) / count));
   const tl = [...chromeIn(sid, p.eyebrow !== undefined)];
@@ -516,7 +535,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
     tl.push(
       tween(
         `#${sid}-lay${i}`,
-        { opacity: 0, y: 34 },
+        { opacity: 0, y: enterFrom(i) },
         { opacity: 1, y: 0, duration: 0.55, ease: "power2.out" },
         at,
       ),

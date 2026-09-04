@@ -394,3 +394,57 @@ describe("stack, tilted", () => {
     expect(tilted(12).floor).toBeGreaterThan(tilted(6).floor);
   });
 });
+
+describe("the stack opens when it leans", () => {
+  const beat = (tilt?: number) =>
+    ({
+      id: "b1",
+      archetype: "stack",
+      weight: 3,
+      seconds: 9,
+      params: {
+        headline: "The thought state is a stack",
+        layers: [
+          { label: "Dense carrier", note: "token count preserved" },
+          { label: "Dense queries", note: "one per position" },
+          { label: "Synchronisation", note: "neuron-level history" },
+          { label: "Compact state", note: "evolves per tick" },
+        ],
+        ...(tilt === undefined ? {} : { tilt }),
+      },
+    }) as BeatOf<"stack">;
+
+  const enters = (tilt?: number) =>
+    stack(beat(tilt), ctx("s6"))
+      .tl.map(tweenText)
+      .filter((t) => /-lay\d+"?,\s*\{ opacity: 0, y:/.test(t));
+
+  // `[,{]\s*y:` and not `y:` — the latter matches the tail of "opacit`y: 0`",
+  // which reads every entrance as starting at zero and passes whatever it is
+  // handed, including the flat default this is meant to tell apart.
+  const yOf = (t: string) => Number(/[,{]\s*y: (-?[\d.]+)/.exec(t)?.[1] ?? Number.NaN);
+
+  it("drops a flat stack's slabs in from the same small offset", () => {
+    const flat = enters();
+    expect(flat.length).toBe(4);
+    for (const t of flat) expect(yOf(t)).toBe(34);
+  });
+
+  it("pulls a tilted stack's slabs out of the pile's centre instead", () => {
+    // Layer i sits i*rise above yBase, so entering from the centre index is an
+    // offset of (i - centre) * rise. Four layers, centre 1.5, rise 180: the
+    // emitted offsets are -270, -90, +90, +270. Bottom slabs start high, top
+    // slabs start low, each converges on its own slot — the pile opening rather
+    // than the slabs dropping in.
+    const ys = enters(12).map(yOf);
+    expect(ys).toHaveLength(4);
+    expect(ys.every(Number.isFinite)).toBe(true);
+    expect(ys[0]).toBeLessThan(0);
+    expect(ys[1]).toBeLessThan(0);
+    expect(ys[2]).toBeGreaterThan(0);
+    expect(ys[3]).toBeGreaterThan(0);
+    expect(Math.abs(ys[0] as number)).toBeGreaterThan(Math.abs(ys[1] as number));
+    expect(Math.abs(ys[0] as number)).toBeCloseTo(Math.abs(ys[3] as number), 5);
+    for (const y of ys) expect(y).not.toBe(34);
+  });
+});
