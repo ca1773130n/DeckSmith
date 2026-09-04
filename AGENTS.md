@@ -33,13 +33,23 @@ a human looking at the artifact, which is also how the next one will be found.
     inside the scene's own timeline construction — and both ramped smoothly, 68
     and 72 frames mid-ramp, one frame apart.
 
-    **What it actually costs is determinism.** `drift` on that same deck: 2860 of
-    3120 frames byte-identical, 260 differing, worst **43.53 dB against a 40 dB
-    floor**. Without the callback the deck is 3120 of 3120. So one such tween
-    surrenders byte-identity and leaves three and a half decibels of margin over
-    a failing build — where the CSS 3D transform the css3d spike called expensive
-    sits 44 dB clear. Two of them, or one over a busier background, is a
-    plausible intermittent `drift` failure.
+    **What it actually costs is reproducibility, by frame count.** Measured
+    against a control on the same deck, both at 0.7.90:
+
+    | deck | frames differing of 3120 | worst |
+    | --- | --- | --- |
+    | demo, silent, as built | 11 | 43.53 dB at frame 1161 |
+    | the same + one `onUpdate` tween | 260 | 43.53 dB at frame 1161 |
+
+    One callback multiplies the non-reproducible frames by 24. It does NOT move
+    the worst-case PSNR: 43.53 dB at frame 1161 is the deck's OWN, and it is
+    there in the control. An earlier version of this note said the callback
+    caused that margin and that the plain deck was 3120 of 3120 — both wrong. The
+    3120 figure was quoted from the css3d spike rather than measured, and the
+    control, when finally run, disagreed with it.
+
+    Note what that also means: **this deck is not byte-identical to begin with.**
+    `drift --identical` fails on it with no callback at all. Use the PSNR floor.
 
     Also true: the instruments disagree and none is authoritative — `frames`
     shows nothing, `snapshot` shows a browser's playback, the render shows a

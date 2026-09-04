@@ -96,15 +96,29 @@ like in a browser. It is not frozen.
   PASS — 0 error(s), 0 warning(s)
   ```
 
-  The same deck without the callback is **3120 of 3120 byte-identical**. So one
-  callback-driven tween costs byte-identity outright and leaves **3.5 dB of
-  margin** over the floor that fails a build.
+  **CORRECTED 2026-09-04, later the same day.** The sentence that stood here said
+  the same deck without the callback is 3120 of 3120 byte-identical, and charged
+  the 3.5 dB of margin to the callback. Both were wrong, and wrong in the way this
+  repo keeps warning about: the 3120 figure was **quoted from the css3d spike
+  rather than measured**, and no control was run until the hyperframes bump forced
+  one. The control:
 
-  For scale, the CSS-3D spike measured 167 differing frames at a worst of
-  **83.90 dB** — 44 dB clear. Callback-driven motion is an order of magnitude
-  closer to the cliff than the thing that spike called expensive. Two such tweens
-  in one deck, or one on a busier background, is a plausible way to actually fail
-  `drift`, and it would fail it intermittently.
+  | deck (0.7.90, silent, 3120 frames) | differing | worst |
+  | --- | --- | --- |
+  | demo as built — THE CONTROL | 11 | 43.53 dB at frame 1161 |
+  | the same + one emitted `onUpdate` tween | 260 | 43.53 dB at frame 1161 |
+
+  So the callback multiplies non-reproducible frames by 24 — that part stands and
+  is the real cost. But **43.53 dB at frame 1161 is the deck's own worst frame**,
+  present without any callback, at the identical frame. The callback adds 249
+  differing frames, every one of them milder than the deck's own worst.
+
+  And the control fails `--identical` on its own: this deck has not been
+  byte-identical today, whatever it was when the css3d spike measured it hours
+  earlier. Either the deck changed under the PRs that landed between, or
+  byte-identity on this machine is marginal enough to flip between runs. I did not
+  determine which, and the honest position is that `--identical` is not a property
+  this deck currently has.
 - **What the player does.** Invariant 11 also says snapshot "moves the `onUpdate`
   cell that the player freezes" — the deck.html slideshow is a separate path from
   the render and was not tested here.
@@ -123,12 +137,12 @@ like in a browser. It is not frozen.
 - **Invariant 11's stated consequence is wrong for the render at 0.7.90.**
   "Renders a frozen video" did not happen in either construction. The invariant
   should say what was actually verified, and name the capture mode it is about.
-- **Its RULE is worth keeping, and now has a number behind it.** Not "it renders
-  frozen" — it does not — but "it costs byte-identity and lands 3.5 dB off
-  failing `drift`, where a CSS 3D transform lands 44 dB off". That is a cost
-  worth refusing, it is measurable, and unlike the old justification it survives
-  being tested. The instruments disagreeing and the player being untested are
-  still true and still reasons.
+- **Its RULE is worth keeping, and the number behind it is 24x.** Not "it renders
+  frozen" — it does not — and not "it costs byte-identity", because this deck did
+  not have byte-identity to lose. What one callback does is take the deck from 11
+  non-reproducible frames to 260, without improving or worsening its worst frame.
+  That is a real cost and a measured one. The instruments disagreeing and the
+  player being untested are still true and still reasons.
 - **The css3d spike's snapshot claim did not reproduce.** A static CSS 3D
   transform (`rotateY(22deg) rotateX(10deg)` with perspective, injected into the
   same deck) came back correctly rotated under BOTH `frames` and
