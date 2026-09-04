@@ -28,7 +28,19 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc, spotlighter } from "../kit.js";
-import { group, id, line, MIN_FONT, nv, roundRect, svg, text, textWidth, wrap } from "../svg.js";
+import {
+  faceOf,
+  group,
+  id,
+  line,
+  MIN_FONT,
+  nv,
+  roundRect,
+  svg,
+  text,
+  textWidth,
+  wrap,
+} from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   bodyBudget,
@@ -124,6 +136,12 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
 
   /** The scene's content box — the format's, less the shell's padding. */
   const W = contentW(ctx.format);
+  // Every measurement below is charged against the face the deck will actually
+  // set in. A CJK bundle puts its family ahead of Inter, so a pure-ASCII label
+  // is drawn in that family too — and `textWidth` cannot see that from the run's
+  // own characters. Under-charging is the unrecoverable direction: the gutter and
+  // the value reserve both believe they fit, and the browser draws past them.
+  const face = faceOf(ctx.theme.fontStack);
   // Portrait moves the label onto its own line above the rail. See the header.
   const tall = isPortrait(ctx.format);
   const unitBand = p.unit ? UNIT_BAND : 0;
@@ -138,7 +156,15 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   // caller that cannot act on "there is almost none"; this one can, and does —
   // the `H > avail` throw below names the beat and says what to shorten, which
   // is a better answer than bars drawn over the headline.
-  const avail = bodyBudget(ctx.format, p.eyebrow, p.headline, p.note ? NOTE_H : 0, BODY_TOP, 0);
+  const avail = bodyBudget(
+    ctx.format,
+    p.eyebrow,
+    p.headline,
+    p.note ? NOTE_H : 0,
+    BODY_TOP,
+    0,
+    face,
+  );
 
   // H = count*bar + (count-1)*gap, with gap a fixed fraction of bar.
   let bar = Math.min(BAR_MAX, (avail - unitBand - FOOT) / (count + GAP_RATIO * (count - 1)));
@@ -152,7 +178,10 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const gutterInner = tall ? W : gutterMax - GUTTER_PAD;
   // textWidth is linear in size, so the size at which the widest label exactly
   // fills the gutter is a division rather than a search.
-  const unitWidth = Math.max(1, ...p.bars.map((b) => textWidth(b.label, 1, LABEL_WEIGHT)));
+  const unitWidth = Math.max(
+    1,
+    ...p.bars.map((b) => textWidth(b.label, 1, LABEL_WEIGHT, 0, false, face)),
+  );
   const labelSize = Math.max(
     MIN_FONT,
     // A stacked label is not competing with its bar for height, so it is not
@@ -160,7 +189,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     // rail it sits beside, and beside is the case that has gone.
     Math.min(LABEL_MAX, tall ? LABEL_MAX : bar * 0.86, gutterInner / unitWidth),
   );
-  const lines = p.bars.map((b) => wrap(b.label, labelSize, gutterInner, LABEL_WEIGHT));
+  const lines = p.bars.map((b) => wrap(b.label, labelSize, gutterInner, LABEL_WEIGHT, 0, face));
   const maxLines = Math.max(...lines.map((l) => l.length));
   const lead = labelSize * 1.12;
   /** Portrait: the band a row spends on its label before the rail starts. */
@@ -215,7 +244,9 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     : Math.min(
         gutterMax,
         Math.ceil(
-          Math.max(...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT))) + GUTTER_PAD,
+          Math.max(
+            ...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT, 0, false, face)),
+          ) + GUTTER_PAD,
         ),
       );
 
@@ -232,7 +263,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
       snap: decimals === 0 ? "1" : `0.${"0".repeat(decimals - 1)}1`,
       /** Exponent notation and deep decimals have no such grid; those labels fade. */
       countable: !printed.includes("e") && decimals <= 4,
-      tail: textWidth(printed, valueSize, 700) + VALUE_GAP,
+      tail: textWidth(printed, valueSize, 700, 0, false, face) + VALUE_GAP,
     };
   });
 
@@ -295,7 +326,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
           fill: theme.dim,
           // The caption follows the axis, and the axis is only at the left edge
           // when every value is positive.
-          anchor: zeroX + textWidth(p.unit, MIN_FONT, 500) > W ? "end" : "start",
+          anchor: zeroX + textWidth(p.unit, MIN_FONT, 500, 0, false, face) > W ? "end" : "start",
           id: id(sid, "unit"),
         },
       )
@@ -350,6 +381,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
           // one, the left edge of the plot above one.
           anchor: tall ? "start" : "end",
           maxWidth: gutterInner,
+          face,
           lineHeight: 1.12,
           vAlign: "middle",
           class: "bc-lab",
@@ -377,7 +409,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   ].join("");
 
   const note = p.note ? `\n<div class="bc-note" id="${id(sid, "note")}">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W)}
+  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
 <div class="bc-wrap">
 ${svg(id(sid, "chart"), W, H, body)}
 </div>${note}`;

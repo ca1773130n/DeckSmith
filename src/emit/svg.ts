@@ -498,22 +498,54 @@ function weightFactor(weight: number): number {
  * Every archetype sizes its boxes and padding through this function. When two of
  * them disagree about how wide "Reconstruction" is, one of them clips.
  */
+/**
+ * Which face actually draws a run.
+ *
+ * A deck that bundles a CJK family sets EVERY run in it, ASCII included, because
+ * `fontStack` puts that family ahead of Inter and it covers Latin. So the face is
+ * a property of the DECK, not of the characters in one run — and a run of pure
+ * ASCII inside a Korean deck is drawn by the Korean face even though nothing in
+ * it is Korean.
+ *
+ * `"latin"` is not "no CJK in this string"; it is "this deck bundles no CJK
+ * family". Passing it for a run that does contain CJK would be a lie, which is
+ * why the auto-detection below still runs underneath: the parameter can only
+ * widen what a run is charged, never narrow it.
+ */
+export type Face = "latin" | "cjk" | "hangul";
+
+/**
+ * The face a theme's stack will use, from the family `familyFor` put in front.
+ *
+ * Korean is split out because it is the one character the four bundled families
+ * disagree about: KR draws the middle dot at 0.561em where JP, SC and TC draw it
+ * on the em grid at 1.0.
+ */
+export function faceOf(fontStack: string): Face {
+  if (/Noto Sans KR/.test(fontStack)) return "hangul";
+  if (/Noto Sans (JP|SC|TC)/.test(fontStack)) return "cjk";
+  return "latin";
+}
+
 export function textWidth(
   text: string,
   fontSize: number,
   weight = 400,
   tracking = 0,
   tabular = false,
+  face: Face = "latin",
 ): number {
   // Two pools, because only one of them answers to weight. See `charUnits`.
   let weighted = 0;
   let emGrid = 0;
   let chars = 0;
-  // Decided once for the whole run, not per character: a font stack is chosen by
-  // the element, so one run is set in one face, and "does this run contain CJK"
-  // is the closest this model can get to "which face draws it".
-  const cjkRun = CJK_RANGE.test(text);
-  const hangul = cjkRun && HANGUL_RANGE.test(text);
+  // The run's own characters, OR the deck's face when the caller knows it. The
+  // two are OR'd rather than the parameter replacing the sniff, because the
+  // sniff is never wrong when it fires — a run containing Hangul IS drawn by a
+  // Hangul face — while `face` defaults to "latin" at the call sites that have
+  // not been threaded yet, and must not un-charge those runs.
+  const cjkRun = CJK_RANGE.test(text) || face !== "latin";
+  const hangul = (cjkRun && HANGUL_RANGE.test(text)) || face === "hangul";
   for (const c of text) {
     const [units, scalesWithWeight] = charUnits(c, tabular, cjkRun, hangul);
     if (scalesWithWeight) weighted += units;
@@ -556,6 +588,7 @@ export function wrap(
   maxWidth: number,
   weight = 400,
   tracking = 0,
+  face: Face = "latin",
 ): string[] {
   if (maxWidth <= 0) return [text];
   const lines: string[] = [];
@@ -564,19 +597,23 @@ export function wrap(
     if (line) lines.push(line);
     line = "";
   };
+  // `face` matters MORE here than in a bare `textWidth`, because this decides a
+  // LINE COUNT and a caller turns that into a height. Measuring an ASCII run in
+  // a CJK deck as Inter fits one more word per line than the browser will, so the
+  // block is budgeted a line short and the last one is drawn outside its box.
   for (const word of text.split(/\s+/).filter(Boolean)) {
     const candidate = line ? `${line} ${word}` : word;
-    if (textWidth(candidate, fontSize, weight, tracking) <= maxWidth) {
+    if (textWidth(candidate, fontSize, weight, tracking, false, face) <= maxWidth) {
       line = candidate;
       continue;
     }
     push();
-    if (textWidth(word, fontSize, weight, tracking) <= maxWidth) {
+    if (textWidth(word, fontSize, weight, tracking, false, face) <= maxWidth) {
       line = word;
       continue;
     }
     for (const c of word) {
-      if (line && textWidth(line + c, fontSize, weight, tracking) > maxWidth) push();
+      if (line && textWidth(line + c, fontSize, weight, tracking, false, face) > maxWidth) push();
       line += c;
     }
   }
@@ -644,11 +681,16 @@ export interface TextOptions {
   vAlign?: "baseline" | "middle";
   class?: string;
   id?: string;
+  /**
+   * The face the deck's stack will draw this in. Only consulted when `maxWidth`
+   * makes this text wrap — an unwrapped run is measured by nothing here.
+   */
+  face?: Face;
 }
 
 export function text(content: string, at: Pt, o: TextOptions): string {
   const weight = o.weight ?? 400;
-  const lines = o.maxWidth ? wrap(content, o.size, o.maxWidth, weight) : [content];
+  const lines = o.maxWidth ? wrap(content, o.size, o.maxWidth, weight, 0, o.face) : [content];
   const lh = (o.lineHeight ?? 1.3) * o.size;
   // 0.34em lifts the baseline to put the cap box, not the baseline, on `y`.
   const first = o.vAlign === "middle" ? -((lines.length - 1) * lh) / 2 + o.size * 0.34 : 0;

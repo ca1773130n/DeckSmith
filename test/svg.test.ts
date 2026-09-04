@@ -4,6 +4,7 @@ import {
   arrowDefs,
   circle,
   elbow,
+  faceOf,
   fitBoxes,
   group,
   id,
@@ -19,6 +20,61 @@ import {
   tracks,
   wrap,
 } from "../src/emit/svg.js";
+
+describe("the deck's face, not the run's characters", () => {
+  it("charges an ASCII run more when the deck bundles a CJK family", () => {
+    // The gap the per-run sniff cannot see. "Reconstruction improves" contains
+    // no CJK, so `textWidth` alone measures it as Inter — but a Korean deck sets
+    // it in Noto Sans KR, because `fontStack` puts that family first and it
+    // covers Latin. Under-charging is the unrecoverable direction: the layout
+    // believes the line fits and the browser draws it past its column.
+    const run = "Reconstruction improves";
+    const asInter = textWidth(run, 40);
+    const asKorean = textWidth(run, 40, 400, 0, false, "hangul");
+    expect(asKorean).toBeGreaterThan(asInter);
+    // Small, which is why it survived a year: ~1-4% depending on the letters.
+    expect(asKorean / asInter).toBeLessThan(1.05);
+  });
+
+  it("never charges LESS than the run's own characters demand", () => {
+    // `face` is OR'd with the sniff rather than replacing it, so it can only
+    // widen. Passing "latin" for a run that is plainly Korean must not un-charge
+    // it — that would be the one direction this model must never move.
+    const korean = "복원 파이프라인";
+    expect(textWidth(korean, 40, 400, 0, false, "latin")).toBe(textWidth(korean, 40));
+  });
+
+  it("leaves a Latin deck measuring exactly as it always did", () => {
+    // The default is "latin", so every deck that bundles no CJK family takes the
+    // path it took before this parameter existed. That is what keeps a change to
+    // the width model off the common path.
+    const run = "Reconstruction improves";
+    expect(textWidth(run, 40, 400, 0, false, "latin")).toBe(textWidth(run, 40));
+  });
+
+  it("wraps to more lines in a CJK deck, which is the part that moves a layout", () => {
+    // `wrap` turns width into a LINE COUNT and callers turn that into a height.
+    // Measuring an ASCII paragraph as Inter fits one more word per line than the
+    // browser will, so the block is budgeted a line short and the last line is
+    // drawn outside its box. Width picked so the two disagree.
+    const para = "Reconstruction improves fidelity when the window is wide enough to hold it";
+    const width = 620;
+    const latin = wrap(para, 40, width);
+    const korean = wrap(para, 40, width, 400, 0, "hangul");
+    expect(korean.length).toBeGreaterThanOrEqual(latin.length);
+    expect(wrap(para, 40, width, 400, 0, "latin")).toEqual(latin);
+  });
+
+  it("reads the face off a theme's own stack", () => {
+    expect(faceOf('"Noto Sans KR", Inter, sans-serif')).toBe("hangul");
+    expect(faceOf('"Noto Sans JP", Inter, sans-serif')).toBe("cjk");
+    expect(faceOf('"Noto Sans SC", Inter, sans-serif')).toBe("cjk");
+    expect(faceOf('"Noto Sans TC", Inter, sans-serif')).toBe("cjk");
+    // Korean is split from the other three for one character: KR draws the
+    // middle dot at 0.561em where JP, SC and TC put it on the em grid at 1.0.
+    expect(faceOf('"Inter", system-ui, sans-serif')).toBe("latin");
+  });
+});
 
 describe("textWidth", () => {
   it("grows with every added character", () => {

@@ -26,6 +26,8 @@ import type { Emitter } from "../kit.js";
 import { contentH, contentW, esc, lift, settle, spotlighter } from "../kit.js";
 import {
   circle,
+  type Face,
+  faceOf,
   group,
   id,
   line,
@@ -159,10 +161,10 @@ export interface StackLayout {
  * composition changes rather than the type: the note moves beside its label, on
  * the same line, right-aligned against the spine.
  */
-export function stackLayout(p: Params, format: Format): StackLayout {
-  const stacked = solve(p, format, false);
+export function stackLayout(p: Params, format: Format, face: Face = "latin"): StackLayout {
+  const stacked = solve(p, format, false, face);
   if (stacked.fits || !p.layers.some((l) => l.note)) return stacked;
-  const inline = solve(p, format, true);
+  const inline = solve(p, format, true, face);
   if (inline.fits) return inline;
   // Neither composition fits. Prefer the shorter one — but only if its width is
   // honest: an inline layout is often shorter precisely BECAUSE its note is a
@@ -187,7 +189,7 @@ function labelWeight(i: number, count: number): number {
   return i === count - 1 ? 700 : 600;
 }
 
-function solve(p: Params, format: Format, inline: boolean): StackLayout {
+function solve(p: Params, format: Format, inline: boolean, face: Face): StackLayout {
   const width = contentW(format);
   const boxH = contentH(format);
   const count = p.layers.length;
@@ -200,9 +202,11 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
   // label wraps every label, and wrapped labels are what eats the rise. Inline
   // notes share the line, so they are part of what the column must hold.
   const noteW = (l: Params["layers"][number]) =>
-    inline && l.note !== undefined ? textWidth(l.note, MIN_FONT, 400) + 28 : 0;
+    inline && l.note !== undefined ? textWidth(l.note, MIN_FONT, 400, 0, false, face) + 28 : 0;
   const want = Math.max(
-    ...p.layers.map((l, i) => textWidth(l.label, LABEL_SIZE, labelWeight(i, count)) + noteW(l)),
+    ...p.layers.map(
+      (l, i) => textWidth(l.label, LABEL_SIZE, labelWeight(i, count), 0, false, face) + noteW(l),
+    ),
   );
   const colCap = inline ? width * 0.56 : width * 0.5;
   const colW = clamp(Math.ceil(want) + 12, Math.min(520, width * 0.34), colCap);
@@ -217,7 +221,9 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
   // because a label pushed under 40px is the failure this whole file guards.
   const labelRoom = Math.min(
     ...p.layers.map(
-      (l, i) => (colW - noteW(l)) / Math.max(1, textWidth(l.label, 1, labelWeight(i, count))),
+      (l, i) =>
+        (colW - noteW(l)) /
+        Math.max(1, textWidth(l.label, 1, labelWeight(i, count), 0, false, face)),
     ),
   );
   const labelSize = Math.max(MIN_FONT, Math.min(LABEL_SIZE, labelRoom));
@@ -228,10 +234,11 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
     // wider of the two and is what actually ran past the edge.
     const labelMaxW = Math.max(labelSize, colW - nw);
     return {
-      label: wrap(l.label, labelSize, labelMaxW, labelWeight(i, count)),
+      label: wrap(l.label, labelSize, labelMaxW, labelWeight(i, count), 0, face),
       // Inline notes stay on one line by contract — the schema calls a note "one
       // short line" — and wrapping one would put its second line under the label.
-      note: l.note === undefined ? [] : inline ? [l.note] : wrap(l.note, MIN_FONT, colW, 400),
+      note:
+        l.note === undefined ? [] : inline ? [l.note] : wrap(l.note, MIN_FONT, colW, 400, 0, face),
       noteW: nw,
       labelMaxW,
     };
@@ -248,8 +255,8 @@ function solve(p: Params, format: Format, inline: boolean): StackLayout {
 
   // Chrome and note are measured, not guessed: a headline that wraps to two
   // lines costs 76px, which is most of a layer's rise at seven layers.
-  const chromeH = chromeHeight(p.eyebrow, p.headline, width);
-  const noteH = noteHeight(p.note, noteWidth(format), 28);
+  const chromeH = chromeHeight(p.eyebrow, p.headline, width, face);
+  const noteH = noteHeight(p.note, noteWidth(format), 28, face);
   const free = boxH - chromeH - 20 - noteH;
   // A beat whose chrome has eaten the slide leaves nothing to solve against, and
   // a negative rise inverts the planes. Report it below rather than draw it.
@@ -323,7 +330,8 @@ function slab(
 export const stack: Emitter<"stack"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
-  const L = stackLayout(p, ctx.format);
+  const face = faceOf(ctx.theme.fontStack);
+  const L = stackLayout(p, ctx.format, face);
   const count = p.layers.length;
   const last = count - 1;
 
@@ -392,6 +400,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
           maxWidth: block.labelMaxW,
           lineHeight: 1.16,
           vAlign: "middle",
+          face,
         },
       );
       // Beside the label and right-aligned on the spine when the pile is too
@@ -417,6 +426,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
                 maxWidth: L.inline ? undefined : L.colW,
                 lineHeight: 1.16,
                 vAlign: "middle",
+                face,
               },
             );
       const num = text(
