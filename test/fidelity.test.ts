@@ -11,7 +11,7 @@
  */
 import { zlibSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { apparentPx, gradeApparent } from "../src/verify/apparent.js";
+import { apparentPx, gradeApparent, midpoints } from "../src/verify/apparent.js";
 import {
   decodePng,
   type Frame,
@@ -336,7 +336,12 @@ describe("gradeFidelity", () => {
 });
 
 describe("the apparent type floor", () => {
-  const run = (text: string, declared: number, ratio: number) => ({ text, declared, ratio });
+  const run = (text: string, declared: number, ratio: number, opacity = 1) => ({
+    text,
+    declared,
+    ratio,
+    opacity,
+  });
 
   it("reports a flat run at exactly what it declared", () => {
     // The control that stops this gate from arguing with the declared one. A deck
@@ -367,9 +372,9 @@ describe("the apparent type floor", () => {
   });
 
   it("passes a deck whose glyphs all clear the floor", () => {
-    expect(gradeApparent([{ sid: "s1", t: 1.5, stage: 1, runs: [run("Encode", 40, 1)] }])).toEqual(
-      [],
-    );
+    expect(
+      gradeApparent([{ sid: "s1", t: 1.5, stage: 1, settled: true, runs: [run("Encode", 40, 1)] }]),
+    ).toEqual([]);
   });
 
   it("fails one finding per scene, naming the smallest runs and when", () => {
@@ -378,9 +383,10 @@ describe("the apparent type floor", () => {
         sid: "s2",
         t: 7.55,
         stage: 1,
+        settled: true,
         runs: [run("no pooling", 40, 0.64), run("shared ticks", 40, 0.7)],
       },
-      { sid: "s3", t: 18.75, stage: 1, runs: [run("the shared", 40, 0.6875)] },
+      { sid: "s3", t: 18.75, stage: 1, settled: true, runs: [run("the shared", 40, 0.6875)] },
     ]);
     expect(findings).toHaveLength(2);
     expect(findings[0]?.severity).toBe("error");
@@ -397,10 +403,64 @@ describe("the apparent type floor", () => {
     // Measured on the tilted demo: "the next" came back at 39.8px and is a real
     // violation. A run at 39.95 is the same 40 through a rounding error.
     expect(
-      gradeApparent([{ sid: "s4", t: 27.85, stage: 1, runs: [run("the next", 40, 0.995)] }]),
+      gradeApparent([
+        { sid: "s4", t: 27.85, stage: 1, settled: true, runs: [run("the next", 40, 0.995)] },
+      ]),
     ).toHaveLength(1);
     expect(
-      gradeApparent([{ sid: "s4", t: 27.85, stage: 1, runs: [run("the next", 40, 0.9988)] }]),
+      gradeApparent([
+        { sid: "s4", t: 27.85, stage: 1, settled: true, runs: [run("the next", 40, 0.9988)] },
+      ]),
     ).toEqual([]);
+  });
+
+  it("samples between the stops, but not across a scene boundary", () => {
+    // The hole this closes is one interval wide: text scaled DOWN between two
+    // stops is invisible to a gate that only looks at the stops. A midpoint that
+    // fell across a scene seam would land in a cross-fade belonging to neither.
+    expect(
+      midpoints([
+        { sid: "s1", t: 1 },
+        { sid: "s1", t: 3 },
+        { sid: "s2", t: 9 },
+        { sid: "s2", t: 12 },
+      ]),
+    ).toEqual([
+      { sid: "s1", t: 2 },
+      { sid: "s2", t: 10.5 },
+    ]);
+  });
+
+  it("rounds a sampled time to 3 decimals, like every other time here", () => {
+    expect(
+      midpoints([
+        { sid: "s1", t: 1 },
+        { sid: "s1", t: 2.0001 },
+      ])[0]?.t,
+    ).toBe(1.5);
+  });
+
+  it("ignores a run still fading in at a midpoint, so entrances are not cried wolf over", () => {
+    // `annotated-figure` enters its labels from scale 0.97, so a run caught half
+    // way through its own entrance is both under the floor and not yet being
+    // read. Failing a build for that frame would make the gate untrustworthy.
+    const entering = [
+      { sid: "s3", t: 10.5, stage: 1, settled: false, runs: [run("the shared", 40, 0.6, 0.4)] },
+    ];
+    expect(gradeApparent(entering)).toEqual([]);
+    // The identical run, arrived, at the identical instant: now it counts.
+    const arrived = [
+      { sid: "s3", t: 10.5, stage: 1, settled: false, runs: [run("the shared", 40, 0.6, 1)] },
+    ];
+    expect(gradeApparent(arrived)).toHaveLength(1);
+  });
+
+  it("still judges everything drawn at a declared stop, fading or not", () => {
+    // At a stop the frame has arrived. A run that is still translucent THERE is a
+    // different bug, and not this gate's to excuse.
+    const atStop = [
+      { sid: "s3", t: 18.75, stage: 1, settled: true, runs: [run("the shared", 40, 0.6, 0.5)] },
+    ];
+    expect(gradeApparent(atStop)).toHaveLength(1);
   });
 });
