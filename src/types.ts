@@ -330,6 +330,21 @@ export const stackParamsSchema = z.object({
     .min(2)
     .max(7),
   note: z.string().optional(),
+  /**
+   * Tilt the slab stack away from the viewer, so the planes read as stacked in
+   * depth rather than merely offset up the page.
+   *
+   * OPTIONAL, and absent means flat — every storyboard written before this
+   * existed still parses, and every deck that does not ask for it emits exactly
+   * the bytes it did before.
+   *
+   * Degrees, and bounded at 18 rather than by taste: the tilt is paid for in
+   * declared type, because perspective shrinks the far half of the plane and
+   * invariant 5 is about what the audience SEES. At 18 degrees a 40px floor
+   * already needs 53.8px declared (`src/emit/depth.ts`), and past that a
+   * headline cannot spend enough and still fit its own line.
+   */
+  tilt: z.number().min(0).max(18).optional(),
 });
 
 /**

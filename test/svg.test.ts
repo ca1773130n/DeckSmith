@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_POSE, depthCss, scaleAt, tiltedFloor, worstScale } from "../src/emit/depth.js";
 import {
   arrow,
   arrowDefs,
@@ -400,5 +401,60 @@ describe("id", () => {
     expect(id("s4", "stage")).toBe("s4-stage");
     expect(id("s4", "stage", 0)).toBe("s4-stage0");
     expect(id("s4", "stage", 2)).toBe("s4-stage2");
+  });
+});
+
+describe("the tilt budget", () => {
+  it("matches what Chrome actually drew, to about a percent", () => {
+    // Fitted against a measured page: rotateX(30deg), perspective 1400, a 46px
+    // run at two heights on a 1080 canvas. These two numbers are the only reason
+    // to believe any of the rest of this module.
+    const pose = { rotateX: 30, perspective: 1400 };
+    expect(scaleAt(pose, -340)).toBeCloseTo(0.6886, 3); // Chrome: 0.682
+    expect(scaleAt(pose, 360)).toBeCloseTo(1.1404, 3); // Chrome: 1.126
+  });
+
+  it("is smallest at the top edge, which is the point that has to clear the floor", () => {
+    const pose = { rotateX: 18, perspective: 1400 };
+    const top = scaleAt(pose, -540);
+    for (const dy of [-400, -200, 0, 200, 540]) expect(scaleAt(pose, dy)).toBeGreaterThan(top);
+  });
+
+  it("discounts the model rather than trusting it", () => {
+    // The fit runs ~1% optimistic. Erring large costs a couple of type px; erring
+    // small ships a slide under the floor, which is the failure this prevents.
+    const pose = { rotateX: 12, perspective: 1400 };
+    expect(worstScale(pose, 1080)).toBeLessThan(scaleAt(pose, -540));
+  });
+
+  it("prices the tilt in declared type, which is what bounds how far it can go", () => {
+    // The table in worstScale's note. 30deg is not affordable — a 40px floor would
+    // need 66px declared, more than a headline can spend and still fit its line.
+    const at = (deg: number) =>
+      Math.round(tiltedFloor({ rotateX: deg, perspective: 1400 }, 1080, 40) * 10) / 10;
+    expect(at(6)).toBeCloseTo(44.4, 0);
+    expect(at(12)).toBeCloseTo(48.7, 0);
+    expect(at(30)).toBeCloseTo(67.0, 0);
+    // The default is chosen to be payable, not dramatic.
+    expect(DEFAULT_POSE.rotateX).toBe(12);
+  });
+
+  it("refuses a plane that has swung through the eye instead of returning nonsense", () => {
+    // perspective 100 with a 1080-tall plane at 60deg swings the NEAR edge through
+    // the viewer. Checking only the far edge returns a perfectly reasonable 2630px
+    // floor for a pose that cannot be drawn at all — which is why worstScale asks
+    // about the near edge first.
+    expect(scaleAt({ rotateX: 60, perspective: 100 }, 540)).toBe(0);
+    expect(tiltedFloor({ rotateX: 60, perspective: 100 }, 1080, 40)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("scopes its css to the scene, because an unscoped rule tilts other scenes", () => {
+    const css = depthCss("s6", DEFAULT_POSE, ".stackwrap");
+    expect(css).toContain("#s6 {");
+    // The named part, not the whole scene: tilting a scene shears its headline.
+    expect(css).toContain("#s6 .stackwrap {");
+    expect(css).not.toContain("#s6 > *");
+    expect(css).toContain("rotateX(12deg)");
+    expect(css).not.toMatch(/^\s*\*/m);
   });
 });
