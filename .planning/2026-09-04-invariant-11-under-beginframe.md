@@ -86,8 +86,25 @@ like in a browser. It is not frozen.
 
 ## What is still NOT established
 
-- **Whether it stays deterministic.** Firing callbacks is not the same as firing
-  them identically at every worker count. `drift` on this deck is the check.
+- ~~**Whether it stays deterministic.**~~ **Measured, and this is the answer the
+  invariant should have been resting on all along.** `drift` on the emitted-case
+  deck:
+
+  ```
+  stable  2860 of 3120 frames byte-identical, 260 differing,
+  worst 43.53 dB at frame 1161 of 3120 — above the 40 dB floor
+  PASS — 0 error(s), 0 warning(s)
+  ```
+
+  The same deck without the callback is **3120 of 3120 byte-identical**. So one
+  callback-driven tween costs byte-identity outright and leaves **3.5 dB of
+  margin** over the floor that fails a build.
+
+  For scale, the CSS-3D spike measured 167 differing frames at a worst of
+  **83.90 dB** — 44 dB clear. Callback-driven motion is an order of magnitude
+  closer to the cliff than the thing that spike called expensive. Two such tweens
+  in one deck, or one on a busier background, is a plausible way to actually fail
+  `drift`, and it would fail it intermittently.
 - **What the player does.** Invariant 11 also says snapshot "moves the `onUpdate`
   cell that the player freezes" — the deck.html slideshow is a separate path from
   the render and was not tested here.
@@ -106,10 +123,12 @@ like in a browser. It is not frozen.
 - **Invariant 11's stated consequence is wrong for the render at 0.7.90.**
   "Renders a frozen video" did not happen in either construction. The invariant
   should say what was actually verified, and name the capture mode it is about.
-- **Its RULE is still worth keeping**, on narrower grounds: no cheap instrument
-  in this repo agrees about callback-driven motion, the player is a separate path
-  that was not tested, and determinism across worker counts is unmeasured. Do not
-  write it — but do not tell people it renders frozen, because it does not.
+- **Its RULE is worth keeping, and now has a number behind it.** Not "it renders
+  frozen" — it does not — but "it costs byte-identity and lands 3.5 dB off
+  failing `drift`, where a CSS 3D transform lands 44 dB off". That is a cost
+  worth refusing, it is measurable, and unlike the old justification it survives
+  being tested. The instruments disagreeing and the player being untested are
+  still true and still reasons.
 - **The css3d spike's snapshot claim did not reproduce.** A static CSS 3D
   transform (`rotateY(22deg) rotateX(10deg)` with perspective, injected into the
   same deck) came back correctly rotated under BOTH `frames` and
