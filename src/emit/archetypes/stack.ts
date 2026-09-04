@@ -22,6 +22,7 @@
  * `sy` can never push the pile back out of the box.
  */
 import type { BeatOf, Format } from "../../types.js";
+import { DEFAULT_POSE, depthCss, tiltedFloor } from "../depth.js";
 import type { Emitter } from "../kit.js";
 import { contentH, contentW, esc, lift, settle, spotlighter } from "../kit.js";
 import {
@@ -91,6 +92,13 @@ const EDGE = 10;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 export interface StackLayout {
+  /**
+   * The type floor this layout solved against, which is `MIN_FONT` for a flat
+   * beat and larger for a tilted one. The emitter reads it back so the notes it
+   * draws are set at the same floor the solver reserved room for — they were
+   * pinned to `MIN_FONT` directly, which under a tilt drew them below it.
+   */
+  floor: number;
   /**
    * False when the rise the canvas allows is shorter than the tallest label
    * block — i.e. adjacent labels would overlap. `stackLayout` re-composes rather
@@ -189,9 +197,24 @@ function labelWeight(i: number, count: number): number {
   return i === count - 1 ? 700 : 600;
 }
 
+/**
+ * The type floor this beat solves against: the audience floor, divided by how
+ * much its own tilt will shrink the far half of the plane.
+ *
+ * A flat beat gets `MIN_FONT` unchanged and emits exactly the bytes it always
+ * did. A tilted one solves against a bigger number so the DRAWN glyph lands on
+ * 40 — which `src/verify/apparent.ts` then measures on the frame rather than
+ * taking on trust.
+ */
+function floorFor(p: Params, format: Format): number {
+  if (!p.tilt) return MIN_FONT;
+  return tiltedFloor({ ...DEFAULT_POSE, rotateX: p.tilt }, contentH(format), MIN_FONT);
+}
+
 function solve(p: Params, format: Format, inline: boolean, face: Face): StackLayout {
   const width = contentW(format);
   const boxH = contentH(format);
+  const floor = floorFor(p, format);
   const count = p.layers.length;
   const k = isPortrait(format) ? "tall" : "wide";
   const riseMax = RISE_MAX[k];
@@ -202,7 +225,7 @@ function solve(p: Params, format: Format, inline: boolean, face: Face): StackLay
   // label wraps every label, and wrapped labels are what eats the rise. Inline
   // notes share the line, so they are part of what the column must hold.
   const noteW = (l: Params["layers"][number]) =>
-    inline && l.note !== undefined ? textWidth(l.note, MIN_FONT, 400, 0, false, face) + 28 : 0;
+    inline && l.note !== undefined ? textWidth(l.note, floor, 400, 0, false, face) + 28 : 0;
   const want = Math.max(
     ...p.layers.map(
       (l, i) => textWidth(l.label, LABEL_SIZE, labelWeight(i, count), 0, false, face) + noteW(l),
@@ -226,7 +249,7 @@ function solve(p: Params, format: Format, inline: boolean, face: Face): StackLay
         Math.max(1, textWidth(l.label, 1, labelWeight(i, count), 0, false, face)),
     ),
   );
-  const labelSize = Math.max(MIN_FONT, Math.min(LABEL_SIZE, labelRoom));
+  const labelSize = Math.max(floor, Math.min(LABEL_SIZE, labelRoom));
 
   const lines = p.layers.map((l, i) => {
     const nw = noteW(l);
@@ -237,8 +260,7 @@ function solve(p: Params, format: Format, inline: boolean, face: Face): StackLay
       label: wrap(l.label, labelSize, labelMaxW, labelWeight(i, count), 0, face),
       // Inline notes stay on one line by contract — the schema calls a note "one
       // short line" — and wrapping one would put its second line under the label.
-      note:
-        l.note === undefined ? [] : inline ? [l.note] : wrap(l.note, MIN_FONT, colW, 400, 0, face),
+      note: l.note === undefined ? [] : inline ? [l.note] : wrap(l.note, floor, colW, 400, 0, face),
       noteW: nw,
       labelMaxW,
     };
@@ -246,9 +268,9 @@ function solve(p: Params, format: Format, inline: boolean, face: Face): StackLay
   const blockH = Math.max(
     ...lines.map((l) =>
       inline
-        ? Math.max(l.label.length * labelSize, l.note.length * MIN_FONT) * 1.16
+        ? Math.max(l.label.length * labelSize, l.note.length * floor) * 1.16
         : l.label.length * labelSize * 1.16 +
-          (l.note.length > 0 ? 6 + l.note.length * MIN_FONT * 1.16 : 0),
+          (l.note.length > 0 ? 6 + l.note.length * floor * 1.16 : 0),
     ),
   );
   const pad = Math.max(EDGE, blockH / 2);
@@ -283,6 +305,7 @@ function solve(p: Params, format: Format, inline: boolean, face: Face): StackLay
     // BOTH directions. A layout that fits the height and not the width is not a
     // layout that fits; it is one whose overflow is in the axis nothing measured.
     fits: room >= blockH + 10 && height <= free && wide,
+    floor,
     wide,
     inline,
     width,
@@ -354,7 +377,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
     throw new Error(
       `stack ${beat.id}: ${count} layers with ${p.layers.filter((l) => l.note).length} note(s) ` +
         `need ${Math.round(L.blockH)}px of label block against ${Math.round(L.avail)}px of room, ` +
-        `at the ${MIN_FONT}px floor and with the notes already moved beside their labels. ` +
+        `at the ${Math.round(L.floor)}px floor and with the notes already moved beside their labels. ` +
         `Nothing here may be set smaller, so the lever is upstream of this beat: ` +
         `drop a layer, or shorten the notes.`,
     );
@@ -389,7 +412,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
 
       const block = L.lines[i] ?? { label: [], note: [], noteW: 0, labelMaxW: L.colW };
       const labelH = block.label.length * L.labelSize * 1.16;
-      const noteH = block.note.length > 0 ? 6 + block.note.length * MIN_FONT * 1.16 : 0;
+      const noteH = block.note.length > 0 ? 6 + block.note.length * L.floor * 1.16 : 0;
       const label = text(
         layer.label,
         { x: L.labelX, y: L.inline ? mid : mid - noteH / 2 },
@@ -420,7 +443,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
                   // box centres the pair on the leader dot again.
                   { x: L.labelX, y: mid + labelH / 2 + 3 },
               {
-                size: MIN_FONT,
+                size: L.floor,
                 fill: theme.muted,
                 anchor: L.inline ? "end" : "start",
                 maxWidth: L.inline ? undefined : L.colW,
@@ -432,7 +455,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
       const num = text(
         String(i + 1),
         { x: NUM_X, y: mid },
-        { size: MIN_FONT, weight: 600, fill: theme.dim, anchor: "end", vAlign: "middle" },
+        { size: L.floor, weight: 600, fill: theme.dim, anchor: "end", vAlign: "middle" },
       );
 
       return (
@@ -549,6 +572,12 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
       // one the final hold sits on. Its entrance owns `opacity` and `transform`,
       // so the breath takes `filter`, the property nothing else writes.
       ambient(sid, `-lay${last}`, BREATHE),
-    ].join("\n"),
+      // Absent unless the beat asked for it, so a flat stack emits the bytes it
+      // always did.
+      // `.stackwrap` and not the scene: the slabs lean, the headline does not.
+      p.tilt ? depthCss(sid, { ...DEFAULT_POSE, rotateX: p.tilt }, ".stackwrap") : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 };

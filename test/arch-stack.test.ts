@@ -13,7 +13,7 @@ import { stack, stackLayout } from "../src/emit/archetypes/stack.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { tweenText } from "../src/emit/kit.js";
 import { MIN_FONT, textWidth } from "../src/emit/svg.js";
-import { type BeatOf, FORMATS } from "../src/types.js";
+import { type BeatOf, FORMATS, type Format } from "../src/types.js";
 
 const theme: Theme = {
   bg: "#0b0d10",
@@ -355,5 +355,42 @@ describe("stack in portrait", () => {
       expect(L.sy).toBeLessThanOrEqual(100);
       expect(L.t).toBeLessThanOrEqual(18);
     }
+  });
+});
+
+describe("stack, tilted", () => {
+  const tilted = (tilt?: number) =>
+    stackLayout(
+      {
+        headline: "The thought state is a stack",
+        layers: [
+          { label: "Dense carrier", note: "token count preserved" },
+          { label: "Dense queries", note: "one per position" },
+          { label: "Synchronisation", note: "neuron-level history" },
+          { label: "Compact state", note: "evolves per tick" },
+        ],
+        ...(tilt === undefined ? {} : { tilt }),
+      },
+      FORMATS["deck-16x9"] as Format,
+    );
+
+  it("solves a flat beat against the audience floor, exactly as before", () => {
+    expect(tilted().floor).toBe(MIN_FONT);
+  });
+
+  it("raises its own floor by what the tilt will take away", () => {
+    // 12 degrees costs about 18% at the far edge, so the solver has to reserve
+    // room for ~48px type in order for the DRAWN glyph to land on 40. Verified on
+    // a built deck: the flat scene declares 40 and 46, the tilted one 47.57, and
+    // `apparent` passes the tilted deck while failing the same tilt applied as
+    // CSS alone.
+    const floor = tilted(12).floor;
+    expect(floor).toBeGreaterThan(MIN_FONT);
+    expect(floor).toBeLessThan(50);
+  });
+
+  it("costs more the further it leans", () => {
+    expect(tilted(18).floor).toBeGreaterThan(tilted(12).floor);
+    expect(tilted(12).floor).toBeGreaterThan(tilted(6).floor);
   });
 });
