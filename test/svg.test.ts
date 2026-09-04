@@ -125,6 +125,36 @@ describe("textWidth", () => {
     // bold Hangul costs exactly what regular Hangul does.
     expect(textWidth("복원", 40, 700)).toBe(textWidth("복원", 40, 400));
   });
+
+  it("charges a CJK run's Latin characters to the face that draws them", () => {
+    // A deck that bundles a CJK family sets its ASCII in that family too — the
+    // stack puts "Noto Sans KR" ahead of Inter — and the CJK faces are wider for
+    // 31 of the characters this project sets. Measuring that ASCII as Inter is
+    // the unrecoverable direction, and it drew a note past its column.
+    //
+    // The middle dot is the one that matters: Korean uses it as a separator, and
+    // the faces set it on the em grid where Inter gives it 0.288em.
+    const dotAlone = textWidth("a·b", 100) - textWidth("ab", 100);
+    const dotInKorean = textWidth("가·가", 100) - textWidth("가가", 100);
+    // Inter gives it 0.288em; the Korean face 0.561. Nearly double, per dot.
+    expect(dotInKorean).toBeGreaterThan(dotAlone * 1.5);
+
+    // A run with NO CJK in it is untouched — every Latin deck measures exactly
+    // as it did, which is what keeps this change off the common path.
+    expect(textWidth("Reconstruction improves", 40)).toBe(textWidth("Reconstruction improves", 40));
+    expect(dotAlone).toBeLessThan(35);
+
+    // And the one character the four families disagree about: Korean draws "·"
+    // at 0.561em, the other three at 1.0. A run with Hangul in it gets Korean's,
+    // which is why that one character is split out rather than pinned at the max.
+    const hanDot = textWidth("重·重", 100) - textWidth("重重", 100);
+    expect(dotInKorean).toBeLessThan(hanDot);
+    expect(dotInKorean).toBeGreaterThan(50);
+
+    // A lowercase run inside Korean is charged the wider face as well: "m" is
+    // 0.926em there against Inter's 0.83.
+    expect(textWidth("가 mm", 100)).toBeGreaterThan(textWidth("가 ", 100) + 2 * 83);
+  });
 });
 
 describe("wrap", () => {

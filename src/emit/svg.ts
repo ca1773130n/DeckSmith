@@ -319,6 +319,87 @@ const TABULAR_SEPARATOR = 0.269;
  * `node scripts/measure-type.mjs` re-derives this block, exhaustively over every
  * codepoint the four families declare, and prints it ready to paste.
  */
+/**
+ * What a CJK face charges for a LATIN character, where that is more than Inter.
+ *
+ * A deck whose language needs a bundled face sets EVERYTHING in it, not only the
+ * CJK: `fontStack` puts "Noto Sans KR" ahead of Inter, so the ASCII inside a
+ * Korean sentence is drawn by the Korean face too. `ADVANCE` is Inter's, and for
+ * 31 of the 104 characters this project sets, the CJK faces are wider — so a
+ * mixed run was measured against a font it is not drawn in, and the error is all
+ * in the unrecoverable direction.
+ *
+ * THE MIDDLE DOT IS THE ONE THAT MATTERS. Korean uses "·" as a list separator
+ * the way English uses a comma, and the CJK faces set it on the em grid: 1.0em
+ * against Inter's 0.288. That is 247% under-charged, per dot. It surfaced as a
+ * note running past its column in a real Korean deck, caught by
+ * `container_overflow` at a hold — after a browser had drawn it, which is the
+ * only thing in this stack that can see a width the model gets wrong.
+ *
+ * ONE TABLE, BECAUSE THE FOUR FAMILIES AGREE — measured, exhaustively, over
+ * every character this project sets: Noto Sans KR, JP, SC and TC give the SAME
+ * Latin advance for all 31, with exactly one exception. Korean sets "·" at
+ * 0.561 where the other three set it on the em grid at 1.0, and that one
+ * character is worth splitting: a blanket 1.0 over-predicted a real Korean note
+ * by 18%, and this file's own history records what over-predicting Korean costs
+ * — beats refused for room they actually have, invisibly, because
+ * over-prediction is the safe direction and no gate can see it.
+ *
+ * APPLIED ONLY TO A RUN THAT CONTAINS CJK, which is the whole of the heuristic
+ * and its whole limitation. A run with a Hangul syllable in it is certainly set
+ * in the Korean face; a run of pure ASCII in a Korean deck is too, and this does
+ * NOT catch that one — it stays measured as Inter, a little light, exactly as it
+ * was before. Catching it needs the deck's language at every one of the 37
+ * `textWidth` call sites, which is a different change with a different blast
+ * radius.
+ */
+const CJK_LATIN: Readonly<Record<string, number>> = {
+  "·": 1,
+  "`": 0.606,
+  "≈": 1,
+  "≤": 1,
+  "§": 1,
+  "×": 1,
+  "1": 0.555,
+  _: 0.559,
+  "^": 0.555,
+  l: 0.284,
+  "…": 1,
+  t: 0.377,
+  i: 0.275,
+  j: 0.275,
+  "!": 0.323,
+  I: 0.293,
+  "/": 0.392,
+  "\\": 0.392,
+  "–": 0.536,
+  m: 0.926,
+  "&": 0.68,
+  n: 0.61,
+  r: 0.388,
+  h: 0.607,
+  u: 0.607,
+  '"': 0.474,
+  d: 0.62,
+  p: 0.62,
+  q: 0.62,
+  o: 0.606,
+  b: 0.618,
+};
+
+/**
+ * The one character the four families disagree about. Hangul in the run means
+ * the Korean face is drawing it, and Korean sets the middle dot at 0.561.
+ */
+const HANGUL_LATIN: Readonly<Record<string, number>> = { "·": 0.561 };
+
+/** Hangul, specifically — the one script with its own Latin advance above. */
+const HANGUL_RANGE = /[\u3130-\u318f\uac00-\ud7a3]/;
+
+/** The scripts whose faces this project bundles, and therefore sets ASCII in. */
+const CJK_RANGE =
+  /[\u3000-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3\uf900-\ufaff\uff01-\uff60]/;
+
 const BLOCK_ADVANCE: readonly (readonly [number, number, number])[] = [
   [0x3000, 0x303f, 1], // CJK symbols and punctuation
   [0x3040, 0x309f, 1], // hiragana
@@ -357,10 +438,23 @@ const UNMEASURED = 1.02;
  * Applying `weightFactor` to them anyway charged a bold Korean line 4.5% it
  * never spends. That is the same failure as the blanket, one layer down.
  */
-function charUnits(c: string, tabular: boolean): [units: number, scalesWithWeight: boolean] {
+function charUnits(
+  c: string,
+  tabular: boolean,
+  cjkRun: boolean,
+  hangul: boolean,
+): [units: number, scalesWithWeight: boolean] {
   if (tabular) {
     if (c >= "0" && c <= "9") return [TABULAR_FIGURE, true];
     if (c === "." || c === ",") return [TABULAR_SEPARATOR, true];
+  }
+  // Before Inter's own table: in a run the CJK face is drawing, its Latin
+  // advance is the real one. `scalesWithWeight` is false for the same reason it
+  // is false for the CJK blocks — the em grid is the design, and weight fills it
+  // rather than widening it.
+  if (cjkRun) {
+    const wide = (hangul ? HANGUL_LATIN[c] : undefined) ?? CJK_LATIN[c];
+    if (wide !== undefined) return [wide, false];
   }
   const measured = ADVANCE[c];
   if (measured !== undefined) return [measured, true];
@@ -415,8 +509,13 @@ export function textWidth(
   let weighted = 0;
   let emGrid = 0;
   let chars = 0;
+  // Decided once for the whole run, not per character: a font stack is chosen by
+  // the element, so one run is set in one face, and "does this run contain CJK"
+  // is the closest this model can get to "which face draws it".
+  const cjkRun = CJK_RANGE.test(text);
+  const hangul = cjkRun && HANGUL_RANGE.test(text);
   for (const c of text) {
-    const [units, scalesWithWeight] = charUnits(c, tabular);
+    const [units, scalesWithWeight] = charUnits(c, tabular, cjkRun, hangul);
     if (scalesWithWeight) weighted += units;
     else emGrid += units;
     chars++;
