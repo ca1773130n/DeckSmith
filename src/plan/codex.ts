@@ -29,8 +29,14 @@ const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 /**
  * Keywords JSON Schema supports but structured-output backends generally do not.
- * Dropping them loses only redundant validation — `storyboardSchema.parse` still
- * enforces every one of them on the way back.
+ *
+ * Dropping them does NOT lose only redundant validation, which this note used to
+ * claim. `storyboardSchema.parse` still enforces every one of them on the way
+ * back — and that is the hazard, not the reassurance: a bound the model cannot
+ * see is a bound it can cross, and crossing it fails the parse and throws away
+ * the whole storyboard. Ten minutes of planning lost to a number nobody told the
+ * model about. A field with a range the backend cannot express therefore belongs
+ * in `PLANNER_INVISIBLE` until the prompt can carry the range in prose.
  */
 const UNSUPPORTED = new Set([
   "$schema",
@@ -101,7 +107,51 @@ function stripNulls(node: unknown): unknown {
 
 // `io: "input"` so fields carrying a zod default stay optional — the model must
 // not be forced to invent a theme name it has never seen.
-export const SCHEMA = forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" }));
+/**
+ * Params the planner must not see, by name.
+ *
+ * `tilt` is the first. It carries a range — 0 to 18 degrees — that
+ * `forStructuredOutput` strips, because no structured-output backend takes
+ * `minimum`. So the schema the model receives declares `tilt` as an unbounded
+ * number AND lists it in `required`, which is an invitation to write one; and
+ * `storyboardSchema.safeParse` then rejects anything over 18 and discards the
+ * entire storyboard. The model was being required to guess inside a range it was
+ * never shown.
+ *
+ * It is not a planner concern yet in any case. A tilt is paid for out of the
+ * layout's type budget, and nothing in the prompt tells the model when depth
+ * earns its place, so the honest state is "hand authors and the emitter may set
+ * this; the planner may not". When there is a rule worth trusting, this is where
+ * it stops being hidden.
+ */
+const PLANNER_INVISIBLE = new Set(["tilt"]);
+
+/** Strip `PLANNER_INVISIBLE` keys, and the `required` entries naming them. */
+function hideFromPlanner(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(hideFromPlanner);
+  if (node === null || typeof node !== "object") return node;
+  const src = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(src)) {
+    if (key === "properties" && value && typeof value === "object") {
+      const kept: Record<string, unknown> = {};
+      for (const [prop, sub] of Object.entries(value as Record<string, unknown>))
+        if (!PLANNER_INVISIBLE.has(prop)) kept[prop] = hideFromPlanner(sub);
+      out.properties = kept;
+      continue;
+    }
+    if (key === "required" && Array.isArray(value)) {
+      out.required = value.filter((r) => typeof r !== "string" || !PLANNER_INVISIBLE.has(r));
+      continue;
+    }
+    out[key] = hideFromPlanner(value);
+  }
+  return out;
+}
+
+export const SCHEMA = hideFromPlanner(
+  forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
+);
 
 export interface CodexOptions {
   /** Left unset by default: use whatever model the user's Codex is configured for. */
