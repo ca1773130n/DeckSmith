@@ -65,6 +65,11 @@
       "id": "eq-carrier",
       "tex": "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})",
       "display": true
+    },
+    {
+      "id": "eq-composed",
+      "tex": "\\mathbf{X}=\\mathcal{W}\\big(\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})\\big)",
+      "display": true
     }
   ],
   "tables": [
