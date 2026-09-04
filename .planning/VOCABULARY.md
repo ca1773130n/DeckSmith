@@ -515,7 +515,11 @@ together, depth-sorted by the browser. **~2× render cost** (6.3–8.2s vs 3.2�
 blank for 4s at 1080p), against WebGL's 3.3×.
 
 **One decision ships with it, not after: CSS 3D forfeits the byte-identical render
-unless `--workers 1` is pinned.** Measured: byte-identical at 1 worker; at 4
+unless `--workers 1` is pinned.** `[SUPERSEDED 2026-09-04 — the premise does not
+hold. The plain deck is not byte-identical on either pin (2954/3120 at 0.8.27,
+3109/3120 at 0.7.90), and a deck-wide 3D transform measured FEWER differing
+frames than the plain one (26, worst 61.69 dB, PASS). Nothing here shows a
+depth archetype needs `--workers 1`. See`.planning/2026-09-04-css3d-recheck.md`.]` Measured: byte-identical at 1 worker; at 4
 workers, 189,237 of 6,220,800 subpixels differ (3.0%), max channel delta 41 —
 antialiasing scale, same shape as EXPERIMENT-006's drift. The pure-2D composition
 was byte-identical at 1 *and* 4, so this is the 3D transform's cost specifically.
