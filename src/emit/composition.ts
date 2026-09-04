@@ -34,7 +34,14 @@ import {
 } from "./camera.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, tweenText } from "./kit.js";
-import { baseCss, type DeckTheme, FONT_BUNDLE_HREF, pace, resolveTheme } from "./theme.js";
+import {
+  baseCss,
+  type DeckTheme,
+  FONT_BUNDLE_DIR,
+  FONT_BUNDLE_HREF,
+  pace,
+  resolveTheme,
+} from "./theme.js";
 
 /** Pinned: a floating CDN version would break determinism between renders. */
 /**
@@ -116,6 +123,24 @@ export interface DeckOptions {
    * failure shape.
    */
   onBeatError?: (beatId: string, err: Error) => void;
+  /**
+   * The subsetted bundle's `@font-face` CSS, INLINED rather than linked.
+   *
+   * The composition sets `font-family: "Noto Sans KR", …` for a CJK deck and
+   * used to declare the face in a `<link rel=stylesheet>`. Two things read the
+   * composition and neither follows that link: hyperframes' static guard, which
+   * reported "Font family used without @font-face declaration … text will fall
+   * back to a generic font, producing incorrect typography in the video" on
+   * every Korean deck this project has built; and the compiler, which inlines
+   * `<script src>` and not stylesheets — the same asymmetry the KaTeX note above
+   * records. A face the renderer cannot see is invariant 9 exactly: a font stack
+   * naming a family the bundle does not declare falls back silently.
+   *
+   * Passed in rather than read here because this function does no I/O. Absent,
+   * the link is emitted as before, so a caller that has no bundle is unchanged
+   * and every non-CJK deck is byte-identical either way.
+   */
+  fontCss?: string;
 }
 
 /**
@@ -395,7 +420,20 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     start += duration;
   });
 
-  return { family, theme, archetypeCss, scenes, slides, spoken, total: start, cut, builds };
+  return {
+    family,
+    // Rides with `family` because it answers the same question one level down:
+    // `family` is what the stack ASKS for, this is what declares it.
+    fontCss: opts.fontCss,
+    theme,
+    archetypeCss,
+    scenes,
+    slides,
+    spoken,
+    total: start,
+    cut,
+    builds,
+  };
 }
 
 type Layout = ReturnType<typeof layout>;
@@ -613,7 +651,16 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
       : format.width < format.height
         ? "portrait"
         : "square";
-  const fontLink = family ? `\n    <link rel="stylesheet" href="${FONT_BUNDLE_HREF}" />` : "";
+  // Inlined when the caller has the bundle, linked when it does not. The
+  // bundle's `url()` names a bare file beside its own stylesheet, so inlining
+  // moves the resolution base from `assets/fonts/` to the deck root and the
+  // reference has to move with it — a woff2 that 404s is the same silent
+  // fallback the link was causing.
+  const fontFace = laid.fontCss?.trim()
+    ? `\n    <style>${laid.fontCss.trim().replace(/url\((['"]?)([^'")/][^'")]*)\1\)/g, (_m: string, q: string, name: string) => `url(${q}${FONT_BUNDLE_DIR}/${name}${q})`)}</style>`
+    : "";
+  const fontLink =
+    family && !fontFace ? `\n    <link rel="stylesheet" href="${FONT_BUNDLE_HREF}" />` : "";
   const island = format.navigable ? `\n${emitIsland(slides)}` : "";
 
   return `<!doctype html>
@@ -624,7 +671,7 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     <meta name="viewport" content="width=${format.width}, height=${format.height}" />
     <script src="${GSAP_SRC}"></script>
     <link rel="stylesheet" href="${KATEX_CSS}" />
-    <script src="${KATEX_JS}"></script>${fontLink}
+    <script src="${KATEX_JS}"></script>${fontLink}${fontFace}
     <style>
 ${baseCss(theme, format)}
 ${[...archetypeCss].map(indent).join("\n")}

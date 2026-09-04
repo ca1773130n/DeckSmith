@@ -272,9 +272,21 @@ describe("stack label fitting", () => {
     }
   });
 
-  it("gives the canvas the last word when nothing fits", () => {
+  it("refuses when nothing fits, rather than crowding the labels", () => {
     // A headline that wraps plus a long note leaves too little for seven layers.
-    // Crowded labels are a compromise; a pile hanging off the top is a defect.
+    //
+    // THIS CASE USED TO SAY "crowded labels are a compromise; a pile hanging off
+    // the top is a defect", and drew the crowded pile. Both halves were right and
+    // the conclusion no longer follows: `fits` is `room >= blockH + 10`, where
+    // `room` is the rise one layer gets and `blockH` is the tallest label block,
+    // so `fits === false` IS "adjacent labels overlap" stated in arithmetic. A
+    // deck that draws it does not ship either — `svg_text_overprint` reports it
+    // as an error, which is how it was found: a Korean deck with five noted
+    // layers, four overlapping pairs on one slide. The compromise was between a
+    // visible defect and a build failure with a worse message.
+    //
+    // So it refuses, `onBeatError` drops the one beat, and the other eleven
+    // survive — which is what every other archetype here already does.
     const cramped: Params = {
       ...MAX,
       headline: "Six residual transformer groups sitting on a single shallow convolutional stem",
@@ -282,8 +294,15 @@ describe("stack label fitting", () => {
     };
     const L = stackLayout(cramped, format);
     expect(L.fits).toBe(false);
+    // The layout still solves — the refusal is the emitter's, and it reports the
+    // two numbers the author needs to act on.
     expect(L.chromeH + 20 + L.height + L.noteH).toBeLessThanOrEqual(format.height - 168);
-    const { body, w, h } = svgOf(stack(beat(cramped), ctx("s1")).html);
+    expect(() => stack(beat(cramped), ctx("s1"))).toThrow(/7 layers with 7 note\(s\)/);
+    expect(() => stack(beat(cramped), ctx("s1"))).toThrow(/drop a layer, or shorten the notes/);
+
+    // And a stack that DOES fit still draws, entirely inside its own box — the
+    // assertion this case used to make about the crowded one.
+    const { body, w, h } = svgOf(stack(beat(MAX), ctx("s1")).html);
     for (const m of ink(body)) {
       expect(m.x0).toBeGreaterThanOrEqual(-0.5);
       expect(m.x1).toBeLessThanOrEqual(w + 0.5);

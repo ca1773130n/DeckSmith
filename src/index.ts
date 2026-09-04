@@ -346,11 +346,18 @@ export async function buildDeck(
   // reveal by the ratio. `emitComposition` also defaults to 1; this states it.
   const speed = opts.speed ?? 1;
 
+  // BEFORE the emit, because the composition inlines the face rather than
+  // linking it and therefore needs the CSS in hand. It also writes the woff2
+  // into `out`, which is why `out` must exist by here — it does; `buildDeck`
+  // made it above.
+  const fontCss = await refreshFont(storyboard, source, out, step);
+
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
     ...(opts.theme ? { theme: opts.theme } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
+    ...(fontCss ? { fontCss } : {}),
   });
 
   const files: string[] = [];
@@ -403,8 +410,6 @@ export async function buildDeck(
   if (opts.narration && opts.audioFrom) {
     files.push(...(await copyAudio(opts.audioFrom, opts.narration, out)));
   }
-  await refreshFont(storyboard, source, out, step);
-
   // What was DRAWN, not what was offered. This said `storyboard.beats.length`,
   // which is the same number only while nothing is cut — it overstated any deck
   // built at a format with a weight floor, and now overstates any deck a budget
@@ -528,7 +533,7 @@ async function refreshFont(
   source: Source,
   out: string,
   step: (m: string) => void,
-): Promise<void> {
+): Promise<string | undefined> {
   try {
     const bundle = await bundleFont(
       storyboard.lang,
@@ -536,9 +541,13 @@ async function refreshFont(
       join(out, "assets", "fonts"),
     );
     if (bundle) step(`build: font bundle covers ${bundle.family}`);
+    // Returned so the composition can DECLARE the face instead of linking it —
+    // nothing that reads the composition follows a stylesheet link.
+    return bundle?.css;
   } catch (err) {
     step(
       `build: could not refresh the font bundle (${err instanceof Error ? err.message : err}); keeping the one from ingest`,
     );
+    return undefined;
   }
 }

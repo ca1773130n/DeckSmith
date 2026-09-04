@@ -592,8 +592,13 @@ lookFlags(
     for (const f of scanBeatCount(storyboard, prefs)) step(`build: ${f.message}`);
     for (const w of paced.warnings) step(`build: ${w}`);
 
+    // BEFORE the emit: the composition inlines this, so it has to exist first.
+    // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
+    const fontCss = await refreshFont(storyboard, source, out);
+
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
       // A beat an emitter refuses costs that slide, not the deck. Six archetypes
@@ -627,8 +632,6 @@ lookFlags(
     await vendorScripts(out);
     await copyAssets(dirname(resolve(o.source)), out, source.figures);
     if (found && narration) await copyAudio(dirname(found), narration, out);
-    await refreshFont(storyboard, source, out);
-
     const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
       .filter(Boolean)
       .join(", ");
@@ -1196,7 +1199,11 @@ async function copyAssets(
  * renders. The bundle is content-hashed, so this is a no-op when nothing new
  * appeared, and a build that cannot reach the font service keeps what it copied.
  */
-async function refreshFont(storyboard: Storyboard, source: Source, out: string): Promise<void> {
+async function refreshFont(
+  storyboard: Storyboard,
+  source: Source,
+  out: string,
+): Promise<string | undefined> {
   try {
     const bundle = await bundleFont(
       storyboard.lang,
@@ -1204,10 +1211,15 @@ async function refreshFont(storyboard: Storyboard, source: Source, out: string):
       join(out, "assets", "fonts"),
     );
     if (bundle) step(`build: font bundle covers ${bundle.family}`);
+    // The CSS goes back to the caller so the composition can DECLARE the face
+    // rather than link it. Writing the file is still what puts the woff2 beside
+    // the deck; only the declaration moves.
+    return bundle?.css;
   } catch (err) {
     step(
       `build: could not refresh the font bundle (${err instanceof Error ? err.message : err}); keeping the one from ingest`,
     );
+    return undefined;
   }
 }
 
