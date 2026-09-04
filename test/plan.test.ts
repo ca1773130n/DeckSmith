@@ -438,3 +438,30 @@ describe("the schema handed to Codex", () => {
     expect(planned?.params.eyebrow).toBeUndefined();
   });
 });
+
+describe("what the planner's schema does and does not offer", () => {
+  const json = JSON.stringify(SCHEMA);
+
+  it("hides params whose range the backend cannot express", () => {
+    // `tilt` is 0-18 degrees in zod. `forStructuredOutput` strips `minimum` and
+    // `maximum` because no structured-output backend takes them, so the model
+    // would see an unbounded number — and, because every property is listed in
+    // `required`, be invited to write one. `storyboardSchema.safeParse` then
+    // rejects anything over 18 and throws away the WHOLE storyboard: ten minutes
+    // of planning lost to a range nobody showed the model.
+    expect(json).not.toContain('"tilt"');
+    expect(json).not.toMatch(/"required":\[[^\]]*"tilt"/);
+  });
+
+  it("carries no numeric bounds at all, which is why hiding is the remedy", () => {
+    // If this ever becomes false, a bounded param could be exposed safely and
+    // this whole mechanism deserves revisiting.
+    expect(json).not.toContain("minimum");
+    expect(json).not.toContain("maximum");
+  });
+
+  it("leaves the rest of the params alone", () => {
+    expect(json).toContain('"layers"');
+    expect(json).toContain('"headline"');
+  });
+});
