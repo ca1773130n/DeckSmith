@@ -30,10 +30,10 @@
  * does not: `enable=` is evaluated against the base video's own timestamps.
  */
 import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Cue } from "../deck/subtitles.js";
+import { chromePath } from "./capture.js";
 import type { BurnStyle } from "./ffmpeg.js";
 import { wrap } from "./timing.js";
 
@@ -194,39 +194,11 @@ function measure(count: number): { x: number; y: number; w: number; h: number }[
   return rects;
 }
 
-/* -------------------------------------------------------------------- Chrome */
-
 /**
- * The browser `render` already uses.
- *
- * `@puppeteer/browsers` and `puppeteer-core` are DIRECT dependencies of this
- * package. They arrive with hyperframes too — a hard dependency of this verb,
- * since there is no `render` without a browser — but relying on that made this
- * module's imports resolve through somebody else's dependency tree, and the day
- * hyperframes swaps its automation library the burned captions stop working for
- * a reason nothing in this repo mentions. They are still imported DYNAMICALLY,
- * which is a different concern: a machine that cannot supply a browser must
- * degrade to the sidecar rather than throw after the capture has already run.
+ * What `render` needs Chrome FOR, completing `chromePath`'s error. Captions can
+ * degrade to a sidecar, so the advice differs from every other caller's.
  */
-async function chromePath(): Promise<string> {
-  const explicit = process.env.DECKSMITH_CHROME || process.env.CHROME_PATH;
-  if (explicit) return explicit;
-
-  const { getInstalledBrowsers } = await import("@puppeteer/browsers");
-  const cacheDir = process.env.PUPPETEER_CACHE_DIR || join(homedir(), ".cache", "puppeteer");
-  const installed = await getInstalledBrowsers({ cacheDir }).catch(() => []);
-  // headless-shell first: it is the smaller download hyperframes prefers, and
-  // for a screenshot of a static page the two render identically.
-  const found =
-    installed.find((b) => b.browser === "chrome-headless-shell") ??
-    installed.find((b) => b.browser === "chrome");
-  if (found) return found.executablePath;
-
-  throw new Error(
-    "no Chrome to draw the captions with. `render` needs one for the capture too; " +
-      "run `npx puppeteer browsers install chrome`, or set DECKSMITH_CHROME to a Chrome binary.",
-  );
-}
+const CAPTION_NEED = "draw the captions with (`render` needs one for the capture too)";
 
 /**
  * Why captions cannot be drawn here, or null if they can.
@@ -237,7 +209,7 @@ async function chromePath(): Promise<string> {
 export async function captionBlocker(): Promise<string | null> {
   try {
     await import("puppeteer-core");
-    await chromePath();
+    await chromePath(CAPTION_NEED);
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : String(err);
@@ -270,7 +242,7 @@ export async function renderCaptions(
 
   const { default: puppeteer } = await import("puppeteer-core");
   const browser = await puppeteer.launch({
-    executablePath: await chromePath(),
+    executablePath: await chromePath(CAPTION_NEED),
     headless: true,
     args: ["--force-device-scale-factor=1", "--hide-scrollbars"],
   });

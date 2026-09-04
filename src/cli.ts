@@ -35,6 +35,7 @@ import {
 } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
 import { loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
+import { captureFrames } from "./render/capture.js";
 import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
 import { fetchFigures } from "./source/assets.js";
@@ -60,6 +61,7 @@ import {
 import {
   drift,
   FLOOR_DB,
+  readStops,
   scanBeatCount,
   scanHeadlines,
   scanRepeatedObject,
@@ -666,6 +668,44 @@ program
   .option("--no-fidelity", "skip the frame check — only for a machine with no browser")
   .action(async (dir: string, o: { snapshots: boolean; fidelity: boolean }) => {
     await gate(resolve(dir), o.snapshots, undefined, undefined, o.fidelity !== false);
+  });
+
+program
+  .command("frames")
+  .description("Write PNGs of a built deck through the capture path the renderer uses.")
+  .argument("<dir>", "a built deck directory")
+  .option(
+    "--at <seconds...>",
+    "absolute times to photograph; defaults to every hold the deck declares",
+  )
+  .option("--out <dir>", "where to write the PNGs (default: <dir>/frames)")
+  .action(async (dir: string, o: { at?: string[]; out?: string }) => {
+    const deck = resolve(dir);
+    const out = resolve(o.out ?? join(deck, "frames"));
+
+    let times: number[];
+    if (o.at?.length) {
+      times = o.at.map((raw) => {
+        const t = Number(raw);
+        // Loudly, because a typo'd time silently becomes 0 and photographs the
+        // title card — a frame that looks plausible and answers nothing.
+        if (!Number.isFinite(t) || t < 0) throw new Error(`not a time in seconds: "${raw}"`);
+        return t;
+      });
+    } else {
+      times = readStops(
+        await readFile(join(deck, TIMING_FILE), "utf8").catch(() => null),
+        await readFile(join(deck, DECK_PAGE), "utf8").catch(() => null),
+      ).map((s) => s.t);
+      if (times.length === 0)
+        throw new Error(
+          `${deck} declares no holds to photograph — pass --at <seconds> to choose your own`,
+        );
+    }
+
+    const written = await captureFrames(deck, times, out);
+    for (const f of written) step(`frames: t=${f.t.toFixed(3)}s → ${f.path}`);
+    step(`frames: ${written.length} frame(s) in ${out}`);
   });
 
 program
