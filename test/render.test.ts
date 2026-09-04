@@ -235,7 +235,15 @@ describe("planTiming", () => {
    * boundary is not something to reason about: the demo's failure was at 0.417
    * and nowhere near it.
    */
-  it("writes a manifest at every derived speed, not just the round ones", () => {
+  // 751 speeds, each emitting a whole composition before planning its timing —
+  // seconds of real work, and the point of the test is that it is exhaustive. It
+  // ran under vitest's 5s default for as long as the machine was quiet, and fails
+  // the moment it is not: 6.6s under load here, on unmodified `main`, which is a
+  // red gate that says nothing about the code. Declare the time it actually needs
+  // rather than leave a test that passes only on an idle machine.
+  it("writes a manifest at every derived speed, not just the round ones", {
+    timeout: 60_000,
+  }, () => {
     for (let speed = 0.25; speed <= 1.0001; speed += 0.001) {
       const s = Math.round(speed * 1000) / 1000;
       expect(

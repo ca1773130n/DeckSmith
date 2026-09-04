@@ -6,7 +6,7 @@ storyboard rendered to a 9:16 short or an MP4 without replanning.
 
 Rendering is bought, not built. A deck is a
 [HyperFrames](https://github.com/heygen-com/hyperframes) composition (Apache-2.0, pinned
-at 0.7.90), so the animation runtime, the headless capture and the FFmpeg encode are
+at 0.8.27), so the animation runtime, the headless capture and the FFmpeg encode are
 upstream's. What DeckSmith owns is the part nothing else does well: turning a document
 into a *good explanation*, and being able to check that the explanation is true to its
 source.
@@ -139,8 +139,8 @@ exist only on the deck page: ambient motion is gated behind a class the composit
 sets, so `render` output is byte-identical with or without it.
 
 Navigation is ours rather than upstream's because upstream's is broken at 0.7.71/0.7.72
-and still broken at 0.7.90 — `player.scenes` never populates, reproduced on HeyGen's own
-reference example. The
+and still broken at 0.8.27 — `player.scenes` never populates, reproduced on HeyGen's own
+reference example, and at 0.8.27 the property is not on the player at all. The
 same layer also paints the composition, because the standalone player moves its clock
 without driving scene timelines or clip visibility. See
 `.planning/EXPERIMENT-003-deck-mode.md` and `-004-step-layer.md`.
@@ -834,9 +834,10 @@ verify gates never learn the new name.
 The step layer in `src/deck/` is DeckSmith code, not upstream's, because upstream deck
 navigation does not work. `player.scenes` never populates, so
 `SlideshowController` has no slide-to-time map to bind and every key press is a no-op —
-reproduced on HeyGen's own unmodified reference example, on 0.7.71 and 0.7.72, and
+reproduced on HeyGen's own unmodified reference example, on 0.7.71 and 0.7.72,
 measured again on 0.7.90 when the pin moved (`player.scenes` still 0; the slideshow
-bundle is byte-identical to 0.7.71's). What
+bundle byte-identical to 0.7.71's), and again on 0.8.27, where `scenes` is not a
+property of the player at all — thirty minor versions and the hole is wider. What
 does work, exactly as documented, is `player.seek(t)`. So we read the slideshow island,
 map steps to absolute times, and drive `seek()` ourselves. It is about a hundred lines and
 it stops the primary deliverable from being blocked on someone else's roadmap.
