@@ -141,11 +141,9 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { DECK_PAGE } from "../emit/composition.js";
+import { openDeck } from "../render/capture.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
@@ -476,58 +474,6 @@ export function gradeFidelity(rows: readonly Measured[], floor = INK_FLOOR): Fin
   });
 }
 
-/* ------------------------------------------------------------------- browser */
-
-/**
- * The browser `render` already uses.
- *
- * Deliberately a copy of `chromePath` in `src/render/captions.ts` rather than a
- * shared helper: that one is not exported, and the two modules are owned
- * separately. If a third caller appears, promote it then.
- */
-async function chromePath(): Promise<string> {
-  const explicit = process.env.DECKSMITH_CHROME || process.env.CHROME_PATH;
-  if (explicit) return explicit;
-  const { getInstalledBrowsers } = await import("@puppeteer/browsers");
-  const cacheDir = process.env.PUPPETEER_CACHE_DIR || join(homedir(), ".cache", "puppeteer");
-  const installed = await getInstalledBrowsers({ cacheDir }).catch(() => []);
-  const found =
-    installed.find((b) => b.browser === "chrome-headless-shell") ??
-    installed.find((b) => b.browser === "chrome");
-  if (found) return found.executablePath;
-  throw new Error(
-    "no Chrome to open the frames with — run `npx puppeteer browsers install chrome`, or set DECKSMITH_CHROME.",
-  );
-}
-
-/**
- * The pinned runtime, from node_modules rather than the CDN the player would
- * reach for. Invariant 4 is about the composition, but a gate that fetches
- * anything is a gate that fails on a train.
- */
-function runtimePath(): string {
-  return createRequire(import.meta.url).resolve("hyperframes/dist/hyperframe.runtime.iife.js");
-}
-
-/**
- * Serialised into the page: INVARIANT 1 AND 11, in one line.
- *
- * `renderSeek` sets an absolute time and commits the frame; `suppressEvents: true`
- * is what stops a GSAP `onUpdate` from firing, so what is measured is what the
- * renderer would capture and not what a browser would play. Drop the option and
- * this gate goes blind to the most dangerous failure shape in the project — a
- * frame that looks right here and renders frozen — which is exactly the reason
- * `hyperframes snapshot` could not be used.
- */
-function renderSeek(t: number): void {
-  const player = (
-    window as unknown as {
-      __player: { renderSeek: (t: number, opts: { suppressEvents: boolean }) => void };
-    }
-  ).__player;
-  player.renderSeek(t, { suppressEvents: true });
-}
-
 /** Serialised into the page: the bottom of this scene's caption, in device px. */
 function captionBottom(sid: string, selector: string, fallbackPx: number): number {
   const scene = document.querySelector(`[data-composition-id="${CSS.escape(sid)}"]`);
@@ -563,9 +509,6 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     elapsedMs: Date.now() - started,
   });
 
-  const index = join(dir, "index.html");
-  const html = await readFile(index, "utf8").catch(() => null);
-  if (html === null) return notMeasured(`no index.html in ${dir}`);
   const stops =
     opts.stops ??
     readStops(
@@ -574,47 +517,17 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     );
   if (stops.length === 0) return notMeasured("the deck declares no stops");
 
-  const width = Number(/data-width="(\d+)"/.exec(html)?.[1] ?? 0);
-  const height = Number(/data-height="(\d+)"/.exec(html)?.[1] ?? 0);
-  if (!width || !height) return notMeasured("index.html declares no canvas size");
-
-  let browser: Awaited<ReturnType<typeof import("puppeteer-core").launch>> | null = null;
+  let deck: Awaited<ReturnType<typeof openDeck>> | null = null;
   try {
-    const { default: puppeteer } = await import("puppeteer-core");
-    browser = await puppeteer.launch({
-      executablePath: await chromePath(),
-      headless: true,
-      // A retina host would otherwise hand back a 2x frame, whose ink fraction
-      // is the same but whose clip is not the renderer's.
-      args: ["--force-device-scale-factor=1", "--hide-scrollbars"],
-    });
-    const page = await browser.newPage();
-    // The runtime bundle is minified with esbuild's `__name` helper, which is not
-    // defined when the bundle is injected instead of served. Same guard the
-    // renderer installs.
-    await page.evaluateOnNewDocument("self.__name = self.__name || ((fn) => fn);");
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await page.goto(pathToFileURL(index).href, {
-      waitUntil: "load",
-      timeout: opts.timeoutMs ?? 60_000,
-    });
-    await page.addScriptTag({ path: runtimePath() });
-    await page.waitForFunction(
-      // The composition registers a paused timeline per scene and a spanning
-      // `main` that carries no motion, so seeking `main` directly moves nothing.
-      // Only the runtime knows the per-scene offsets; wait for it.
-      "typeof window.__player?.renderSeek === 'function'",
-      { timeout: opts.timeoutMs ?? 60_000 },
-    );
-    // Without this the first stops are measured in the fallback face, which
-    // changes how much ink a line of text is by more than the floor.
-    await page.evaluate(() => document.fonts.ready);
-
-    const cdp = await page.createCDPSession();
+    // The capture path itself lives in `../render/capture.js`, shared with the
+    // `frames` verb, so a person looking at a PNG and this gate are looking at
+    // the same three calls. What stays here is only the arithmetic over them.
+    deck = await openDeck(dir, { timeoutMs: opts.timeoutMs });
+    const { page, height } = deck;
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
     for (const stop of stops) {
-      await page.evaluate(renderSeek, stop.t);
+      await deck.seek(stop.t);
       const bandTopPx = await page.evaluate(
         captionBottom,
         stop.sid,
@@ -628,13 +541,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...stop,
         pairs: overprints(await page.evaluate(collectSvgTextRuns, stop.sid)),
       });
-      const shot = await cdp.send("Page.captureScreenshot", {
-        format: "png",
-        fromSurface: true,
-        captureBeyondViewport: false,
-        clip: { x: 0, y: 0, width, height, scale: 1 },
-      });
-      const frame = await decodePng(Buffer.from(shot.data, "base64"));
+      const frame = await decodePng(await deck.shoot());
       measured.push({
         ...stop,
         ink: inkBelow(frame, bandTopPx),
@@ -649,6 +556,6 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
   } catch (err) {
     return notMeasured(err instanceof Error ? err.message : String(err));
   } finally {
-    await browser?.close().catch(() => {});
+    await deck?.close().catch(() => {});
   }
 }

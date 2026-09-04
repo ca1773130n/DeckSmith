@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import type { Cue } from "../src/deck/subtitles.js";
 import { type DeckNarration, emitComposition, planCut } from "../src/emit/composition.js";
 import { captionPage, overlayGraph, overlayInputs, union } from "../src/render/captions.js";
+import { frameName } from "../src/render/capture.js";
 import {
   audioGraph,
   burnStyle,
@@ -1143,5 +1144,33 @@ describe("captions", () => {
       { x: 80.9, y: 1540.2, w: 500.5, h: 120.6 },
     ]);
     expect(box).toEqual({ x: 80, y: 1540, width: 502, height: 121 });
+  });
+});
+
+describe("frameName", () => {
+  it("puts a directory listing in the order the frames were asked for", () => {
+    // The reason the index leads and is padded: a file browser sorts lexically,
+    // so a time-first name puts t=10s before t=3.9s and the reader opens the
+    // wrong frame believing it is the right one. These are frames a human looks
+    // at to catch what the gates cannot — reading the wrong one is the whole
+    // failure this naming exists to prevent.
+    const times = [3.9, 10, 12.25, 120];
+    const names = times.map((t, i) => frameName(i, t, times.length));
+    expect([...names].sort()).toEqual(names);
+    expect(names[0]).toBe("1-t3.900s.png");
+    expect(names[3]).toBe("4-t120.000s.png");
+  });
+
+  it("pads the index to the width of the largest, so ten frames still sort", () => {
+    const names = Array.from({ length: 12 }, (_, i) => frameName(i, i, 12));
+    expect([...names].sort()).toEqual(names);
+    expect(names[0]).toBe("01-t0.000s.png");
+    expect(names[11]).toBe("12-t11.000s.png");
+  });
+
+  it("names the instant the renderer rounds to, at 3 decimals", () => {
+    // Invariant 10. A filename that disagreed with the timeline would be worse
+    // than one carrying no time at all.
+    expect(frameName(0, 1.23456, 1)).toBe("1-t1.235s.png");
   });
 });

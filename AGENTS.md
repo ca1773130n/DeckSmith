@@ -42,6 +42,23 @@ project of green gates over wrong output, and every one was caught by a human
 looking at the artifact. If your work has a visible or audible result, look at
 it — or listen to it — before you report.
 
+**`decksmith frames` writes the PNGs, and no still frame settles invariant 11.**
+Measured 2026-09-04 on a deck carrying a band painted ONLY from a GSAP
+`onUpdate`, the three views of one instant disagree three ways: `frames` leaves
+the band at the background's RGB (11,13,17), because it passes `suppressEvents`;
+`hyperframes snapshot` paints it mid-tween at (143,4,5), because it does not; and
+`hyperframes render` — the thing that actually ships — animates it smoothly to
+(205,0,0) across the tween's own three seconds, 68 frames of genuine ramp.
+
+That last number is the surprise, and it is NOT what invariant 11 predicts. The
+capture is driven by Chrome's `beginFrame`, not by a suppressed seek, and under
+`beginFrame` a callback ticks. Either invariant 11 is narrower than it reads, or
+this injection is unlike the failure it was written from. **Until somebody
+settles that, do not treat a still — from any of the three — as proof that
+callback-driven motion will or will not render.** Watch the mp4. The rule against
+callback-driven state stands either way: it is the shape nothing here can check
+cheaply, which is reason enough not to write it.
+
 # context-mode — MANDATORY routing rules
 
 You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.

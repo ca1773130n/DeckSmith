@@ -42,6 +42,7 @@ decksmith illustrate storyboard.json --source source.json              # optiona
 decksmith narrate storyboard.json  --source source.json -o audio/       # optional
 decksmith build   storyboard.json  --source source.json --format deck-16x9 -o out/
 decksmith verify  out/
+decksmith frames  out/                                 # PNGs of the holds, to look at
 decksmith render  out/            -o talk.mp4          # picture + narration + subtitles
 decksmith drift   out/                                 # render twice, compare frame by frame
 
@@ -77,6 +78,18 @@ decksmith unpack  talk.deck        -o reopened/
 - **verify** — runs the HyperFrames gates over a built directory and returns a `Verdict`:
   lint, runtime, layout, motion and contrast. Read what that does *not* cover before
   trusting it — see "What the gates do not check" below.
+- **frames** — writes a PNG per hold (or per `--at <seconds>`) so you can look at the deck
+  rather than at a verdict. It makes the same three calls the `fidelity` gate makes — the
+  pinned runtime, `renderSeek(t, { suppressEvents: true })`, then a screenshot at the
+  renderer's own clip — which is the path that was measured against a real mp4 to within
+  0.11 percentage points of ink. It is the gate's own view of a deck, which is the thing
+  worth looking at when you are asking why a gate said what it said.
+  **It is not a substitute for watching the render.** On callback-driven motion the three
+  available views disagree, measured on a deck with a band painted only from a GSAP
+  `onUpdate`: `frames` leaves it at the background's RGB (11,13,17) because
+  `suppressEvents` stops the callback; `hyperframes snapshot` draws it mid-tween at
+  (143,4,5); and the render animates it smoothly to (205,0,0) over the tween's own three
+  seconds. See "What the gates do not check".
 - **render** — a built deck to a finished video: capture, retime, mux, subtitles. The
   retiming is the interesting part. The composition reveals everything a beat has to show
   and then sits still for the rest of its window, so playing it back linearly puts the
