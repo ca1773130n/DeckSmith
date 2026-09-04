@@ -57,6 +57,11 @@ const source = {
   ],
   equations: [
     { id: "eq-carrier", tex: "\\mathbf{F}=\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}}),\\qquad \\mathbf{X}=\\mathcal{W}(\\mathbf{F})", display: true },
+    // The same statement with the carrier substituted in. It is a SECOND
+    // equation in the source rather than a rewrite of the first, because
+    // `equation-morph` carries terms between two equations the source states —
+    // the beat is the substitution, so both sides have to exist to be cited.
+    { id: "eq-composed", tex: "\\mathbf{X}=\\mathcal{W}\\big(\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})\\big)", display: true },
   ],
   tables: [
     {
@@ -109,19 +114,23 @@ const script = {
     "The partition then cuts that field into windows without throwing any of it away.",
   ].join(" "),
   b06: [
+    "Take the carrier out of the first line and put it where F stands in the second.",
+    "The encoder's output slides inside the window read, and the two statements become one composition.",
+  ].join(" "),
+  b07: [
     "At the bottom is the carrier, and it keeps every token it started with.",
     "Above it sit the queries — one for each position, rather than one for each window.",
     "Synchronisation is the part that remembers: every neuron carries its own history.",
     "The compact state on top is what actually changes from one tick to the next.",
   ].join(" "),
-  b07: [
+  b08: [
     // The authors' own drawing of a tick, so the narration may point only at
     // what that drawing shows — two rows, and what each of them does to the
     // carrier. Same rule as b03: never at the source figure it was taken from.
     "This is the authors' own drawing of one tick, and the two rows are the two halves of it.",
     "The compact state runs along the top and ends in a dense query projection; underneath, the carrier is read as dense keys and values and comes back updated, added to what arrived.",
   ].join(" "),
-  b08: [
+  b09: [
     // "second from the top" was wrong AND unknowable: the bars are drawn in the
     // order they are listed, so DQ-CTM-SR is fourth from the top and second by
     // value. Ordinals in narration are claims about the DATA — see the NARRATION
@@ -129,21 +138,21 @@ const script = {
     "On parameters the method is the second largest here, at 1.13 million.",
     "So this is not the cheap option, and the paper never claims it is.",
   ].join(" "),
-  b09: [
+  b10: [
     "These are five-benchmark averages at four times upscaling.",
     "CATANet is the one to beat, at 29.48.",
     "The method here comes in at 28.98 — ahead of two CNN baselines, behind the transformer.",
     "Only that last row was trained for this paper. Every other number is quoted.",
   ].join(" "),
-  b10: [
+  b11: [
     "The first tick is worth almost a full decibel.",
     "The fourth is worth under a tenth, and training stopped there, so nothing past it is demonstrated.",
   ].join(" "),
-  b11: [
+  b12: [
     "On the left each column is one more tick, and in the top two rows the detail keeps arriving.",
     "On the right is what is still wrong, on the same three crops — and the bottom row stays bright at every tick.",
   ].join(" "),
-  b12: [
+  b13: [
     "One warning to carry into the paper itself.",
     "The abstract reports this sweep running from 28.10 up to 30.28.",
     "The table for the same sweep says 28.91 to 30.47, and the body quotes a gain of 1.46 decibels where the table gives 0.59.",
@@ -217,7 +226,28 @@ const storyboard = {
       ],
     }, { intent: "Encoding and partitioning, with nothing discarded.", evidence: [{ kind: "equation", id: "eq-carrier" }], weight: 0.85 }),
 
-    beat("b06", "stack", {
+    // THE WALK, THEN THE SUBSTITUTION. b05 names the two symbols; this beat
+    // uses them. The three terms are keyed because they are what the algebra
+    // preserves — the carrier travels inside the window read, and the reader
+    // watches the two statements collapse into one rather than being shown a
+    // second slide and asked to spot the difference.
+    beat("b06", "equation-morph", {
+      eyebrow: "1 · Persistent dense carrier",
+      headline: "Substituting the carrier leaves one composition",
+      fromId: "eq-carrier",
+      toId: "eq-composed",
+      terms: [
+        { tex: "\\mathcal{E}(\\mathbf{I}_{\\mathrm{LR}})", label: "the encoded carrier — it moves, it is not recomputed", tone: "a" },
+        { tex: "\\mathcal{W}", label: "the window read, now applied directly", tone: "b" },
+        { tex: "\\mathbf{X}", label: "the output, unchanged by the rewrite", tone: "c" },
+      ],
+    }, {
+      intent: "The two lines are one function, written apart.",
+      evidence: [{ kind: "equation", id: "eq-carrier" }, { kind: "equation", id: "eq-composed" }],
+      weight: 0.8,
+    }),
+
+    beat("b07", "stack", {
       eyebrow: "2 · Compact thought",
       headline: "The thought state is a stack the carrier is read through",
       layers: [
@@ -232,14 +262,14 @@ const storyboard = {
     // a split-compare of two lists whose content b03, b04 and b06 already make,
     // while Figure 2 — the one picture that shows a whole tick — went unused in
     // a deck built from the paper it came out of.
-    beat("b07", "claim-figure", {
+    beat("b08", "claim-figure", {
       eyebrow: "3 · One dense tick",
       headline: "One tick reads the carrier and adds its update back",
       claim: "A persistent dense carrier, read and updated by a compact thought process.",
       figureId: "fig-arch",
     }, { intent: "What one tick does to the carrier.", evidence: [{ kind: "figure", id: "fig-arch" }, { kind: "section", id: "sec2" }], weight: 0.9 }),
 
-    beat("b08", "bar-compare", {
+    beat("b09", "bar-compare", {
       eyebrow: "Cost",
       headline: "The method is mid-pack on parameters, not the smallest",
       unit: "M params",
@@ -253,7 +283,7 @@ const storyboard = {
       note: "Smaller is better; DQ-CTM-SR is second largest here.",
     }, { intent: "Where the method sits on cost.", evidence: [{ kind: "table", id: "tbl-bench" }], weight: 0.8 }),
 
-    beat("b09", "data-table", {
+    beat("b10", "data-table", {
       eyebrow: "Quantitative comparison · ×4",
       headline: "Competitive with CNN baselines, behind recent models",
       tableId: "tbl-bench",
@@ -264,7 +294,7 @@ const storyboard = {
       note: "Comparison figures are quoted from their papers; only DQ-CTM-SR was trained here.",
     }, { intent: "The honest standing against the field.", evidence: [{ kind: "table", id: "tbl-bench" }], weight: 0.85 }),
 
-    beat("b10", "line-chart", {
+    beat("b11", "line-chart", {
       eyebrow: "Thought sweep · 100 validation images",
       headline: "Each extra tick buys less than the one before it",
       xLabel: "thought ticks", yLabel: "PSNR-Y (dB)",
@@ -286,7 +316,7 @@ const storyboard = {
     // see them, and nothing else measures whether a picture is legible. It was
     // found by opening the frame. The error map is what the right-hand list is
     // ABOUT, so it stays as evidence and the paper keeps it.
-    beat("b11", "split-compare", {
+    beat("b12", "split-compare", {
       eyebrow: "Qualitative",
       headline: "Where the ticks help, and where they do not",
       left: { label: "Reconstruction, T=1 → T=4", figureId: "fig-progress" },
@@ -301,7 +331,7 @@ const storyboard = {
       note: "Rows are the same three crops in both: typical, strong improvement, difficult.",
     }, { intent: "The improvement is visible, and so is what is left over.", evidence: [{ kind: "figure", id: "fig-progress" }, { kind: "figure", id: "fig-error" }], weight: 0.75 }),
 
-    beat("b12", "callout", {
+    beat("b13", "callout", {
       eyebrow: "Read it with care",
       headline: "The same experiment reports three different numbers",
       panels: [
