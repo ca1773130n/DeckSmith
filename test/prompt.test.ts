@@ -12,7 +12,7 @@ import { emitScene } from "../src/emit/archetypes/index.js";
 import { ink } from "../src/emit/themes/index.js";
 import { REVEALS, renderSource, systemPrompt } from "../src/plan/prompt.js";
 import type { Beat, Format, Source } from "../src/types.js";
-import { FORMATS, prefsSchema } from "../src/types.js";
+import { beatSchema, FORMATS, prefsSchema } from "../src/types.js";
 
 const source: Source = {
   id: "s",
@@ -175,6 +175,64 @@ describe("the prompt's reveal counts", () => {
     // A new archetype with no row is a beat whose narration length nobody stated,
     // which is the defect this table exists to prevent.
     expect(Object.keys(REVEALS).sort()).toEqual(CASES.map(([a]) => a).sort());
+  });
+
+  /**
+   * The prompt COUNTS ITSELF, and the count was wrong the moment a thirteenth
+   * archetype landed: the header still said TWELVE while thirteen were listed
+   * below it, so the planner was told the list was shorter than the list it
+   * was given. Prose about a set, sitting beside the set, is the same defect
+   * the REVEALS table above exists to prevent — so it is checked the same way,
+   * against the schema rather than against a reader's memory.
+   */
+  it("states its own archetype count, and the drawing/describing split, correctly", () => {
+    const WORDS = [
+      "zero",
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+      "nine",
+      "ten",
+      "eleven",
+      "twelve",
+      "thirteen",
+      "fourteen",
+      "fifteen",
+      "sixteen",
+      "seventeen",
+      "eighteen",
+      "nineteen",
+      "twenty",
+    ];
+    const text = systemPrompt(prefsSchema.parse({}));
+    const archetypes = new Set(beatSchema.options.map((o) => o.shape.archetype.value));
+
+    // The two sections, and the archetype each names in its left-hand column.
+    // A name may sit alone on its line: `annotated-figure` is too long for the
+    // column, so its description starts on the next one.
+    const section = (from: string, to: string): string[] => {
+      const body = text.slice(text.indexOf(from) + from.length, text.indexOf(to));
+      return [...body.matchAll(/^ {2}([a-z][a-z-]+)(?: +\S.*)?$/gm)]
+        .map((m) => m[1] as string)
+        .filter((name) => archetypes.has(name as never));
+    };
+    const drawing = section("DRAWING ARCHETYPES", "DESCRIBING ARCHETYPES");
+    const describing = section("DESCRIBING ARCHETYPES", "RULES");
+
+    // Every archetype is described exactly once, in exactly one section.
+    expect([...drawing, ...describing].sort()).toEqual([...archetypes].sort());
+
+    // And the prose agrees with what is under it. Both counts open a sentence,
+    // so both are capitalised.
+    const cap = (n: number) => (WORDS[n] as string).replace(/^./, (c) => c.toUpperCase());
+    expect(text).toContain(`THE ${(WORDS[archetypes.size] as string).toUpperCase()} ARCHETYPES`);
+    expect(text).toContain(`${cap(drawing.length)} of them DRAW`);
+    expect(text).toContain(`${cap(describing.length)} only\ndescribe`);
   });
 
   it("puts the table in the prompt the planner actually receives", () => {
