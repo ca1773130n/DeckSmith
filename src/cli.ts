@@ -147,7 +147,7 @@ async function vendorKatex(out: string): Promise<void> {
 }
 
 /**
- * The two scripts a deck runs, copied beside it.
+ * The scripts a deck runs, copied beside it.
  *
  * Pinned by package.json rather than by a URL, so the version that renders is
  * the version that was installed and tested. See the note on GSAP_SRC in
@@ -158,6 +158,7 @@ async function vendorScripts(out: string): Promise<void> {
   await mkdir(join(out, "vendor"), { recursive: true });
   for (const [pkg, rel, name] of [
     ["gsap/package.json", "dist/gsap.min.js", "gsap.min.js"],
+    ["gsap/package.json", "dist/DrawSVGPlugin.min.js", "DrawSVGPlugin.min.js"],
     ["katex/package.json", "dist/katex.min.js", "katex.min.js"],
   ] as const) {
     const from = join(dirname(require.resolve(pkg)), rel);

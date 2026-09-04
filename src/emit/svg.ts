@@ -58,21 +58,28 @@ export function nv(v: number): number {
 }
 
 /**
- * The `from` vars of a stroke draw-on, with the path fully hidden.
+ * The `from` and `to` vars of a stroke draw-on, measured by the browser.
  *
- * The length is rounded UP rather than to two decimals, and then given a pixel
- * of slack, because GSAP writes `strokeDashoffset` back as an integer px: a
- * leader of length 720.21 came to rest at an offset of 720 and left 0.21px of
- * the dash exposed at the path start, which `stroke-linecap: round` paints as a
- * full-width dot. A yellow dot therefore sat on the grid one reveal before its
- * own region was drawn — inside the frame, above the type floor, and invisible
- * to every gate. Any offset between the length and twice it is still inside the
- * pattern's gap, so the slack costs nothing.
+ * The `drawFrom` this replaced needed the emitter to know the path's length at
+ * BUILD time —
+ * `Math.hypot(knee.x - start.x, knee.y - start.y) + b.w` in annotated-figure,
+ * `perimeter(b)` in grid — which is arithmetic about a shape the browser is
+ * going to measure anyway, kept in step by hand. DrawSVG asks the path.
+ *
+ * It also retires a bug the hand-computed version had. GSAP writes
+ * `strokeDashoffset` back as an integer px, so a leader of length 720.21 came to
+ * rest at an offset of 720 and left 0.21px of dash exposed at the path start,
+ * which `stroke-linecap: round` paints as a full-width dot: a yellow dot sat on
+ * the grid one reveal before its own region was drawn, inside the frame, above
+ * the type floor, and invisible to every gate. That is why the old `drawFrom`
+ * rounded up and added a pixel of slack. A percentage has no remainder to leave.
+ *
+ * Safe under capture because a plugin's `render()` is part of being seeked,
+ * unlike a callback — see `DRAWSVG_SRC` in composition.ts for the measurement.
+ * Anything drawn this way still obeys invariant 2: it is a `fromTo`, always.
  */
-export function drawFrom(length: number): Vars {
-  const l = Math.ceil(length) + 1;
-  return { strokeDasharray: l, strokeDashoffset: l };
-}
+export const DRAW_FROM: Vars = { drawSVG: "0%" };
+export const DRAW_TO: Vars = { drawSVG: "100%" };
 
 /**
  * Something travels a polyline — a pulse along an arrow, a marker ring along a

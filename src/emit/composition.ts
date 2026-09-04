@@ -64,6 +64,22 @@ import {
  * genuinely offline — which the README already claimed it was.
  */
 const GSAP_SRC = "./vendor/gsap.min.js";
+/**
+ * DrawSVG, vendored beside GSAP for the same reason GSAP is.
+ *
+ * It is here because a GSAP PLUGIN is seek-safe where a callback is not: a
+ * plugin is a `render(ratio, data)` function that the timeline calls as part of
+ * being seeked, so it runs under `suppressEvents` where an `onUpdate` does not.
+ * Measured on the capture path before this was written — `renderSeek(t,
+ * { suppressEvents: true })` across a four-second draw-on gives 9.3, 444.3,
+ * 894.3, 1344.3, 1764.3px of dash, linear and visible throughout — rather than
+ * taken from the roadmap, which asserted it about a different plugin.
+ *
+ * 4,351 bytes, +6% on gsap.min.js's 72,779. MorphSVG (21,195) and MotionPath
+ * (22,002) ship in the same tarball and are NOT vendored: nothing emits them
+ * yet, and an unused plugin is 43KB every deck pays for.
+ */
+const DRAWSVG_SRC = "./vendor/DrawSVGPlugin.min.js";
 const KATEX_JS = "./vendor/katex.min.js";
 const KATEX_CSS = "./katex/katex.min.css";
 
@@ -670,6 +686,8 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     <title>${esc(storyboard.title)}</title>
     <meta name="viewport" content="width=${format.width}, height=${format.height}" />
     <script src="${GSAP_SRC}"></script>
+    <script src="${DRAWSVG_SRC}"></script>
+    <script>gsap.registerPlugin(DrawSVGPlugin);</script>
     <link rel="stylesheet" href="${KATEX_CSS}" />
     <script src="${KATEX_JS}"></script>${fontLink}${fontFace}
     <style>

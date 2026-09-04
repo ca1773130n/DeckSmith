@@ -16,7 +16,8 @@ import type { Emitter } from "../kit.js";
 import { contentW, DIM, esc } from "../kit.js";
 import type { Box } from "../svg.js";
 import {
-  drawFrom,
+  DRAW_FROM,
+  DRAW_TO,
   type Face,
   faceOf,
   group,
@@ -339,12 +340,6 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
 
   const boxes = p.regions.map(boxOf);
 
-  /** Perimeter of the rounded outline, so the draw-on needs no `getTotalLength`. */
-  const perimeter = (b: Box): number => {
-    const rr = Math.min(corner, b.w / 2, b.h / 2);
-    return 2 * (b.w - 2 * rr) + 2 * (b.h - 2 * rr) + 2 * Math.PI * rr;
-  };
-
   const lx = W - gutter + 40;
   const outside = p.regions
     .map((r, i) => ({ r, i }))
@@ -371,7 +366,6 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   const rects: string[] = [];
   const leads: string[] = [];
   const labels: string[] = [];
-  const leadLen: number[] = [];
   // What a camera aimed at `rgnN` would land on. Written in the same loop that
   // gives the rect its id, so the label and the index it is filed under cannot
   // drift apart. See `Scene.parts`.
@@ -408,7 +402,6 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     const out = outById.get(i);
     if (out) {
       const to = { x: lx - 16, y: out.y };
-      leadLen.push(Math.hypot(to.x - out.from.x, to.y - out.from.y));
       leads.push(line(out.from, to, { class: "glead", id: id(sid, "lead", i), stroke: tone }));
       labels.push(
         text(
@@ -429,7 +422,6 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
       );
       return;
     }
-    leadLen.push(0);
     labels.push(
       text(
         r.label,
@@ -527,12 +519,11 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   p.regions.forEach((_, i) => {
     const at = first + i * step;
     const b = boxes[i] ?? { x: 0, y: 0, w: 0, h: 0 };
-    const len = perimeter(b);
     tl.push(
       tween(
         `#${id(sid, "rgn", i)}`,
-        drawFrom(len),
-        { strokeDashoffset: 0, duration: 0.6, ease: "power2.inOut" },
+        DRAW_FROM,
+        { ...DRAW_TO, duration: 0.6, ease: "power2.inOut" },
         at,
       ),
       // The tint arrives as a slot opening left to right across the region,
@@ -547,12 +538,11 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
       ),
     );
     if (outById.has(i)) {
-      const len2 = leadLen[i] ?? 0;
       tl.push(
         tween(
           `#${id(sid, "lead", i)}`,
-          drawFrom(len2),
-          { strokeDashoffset: 0, duration: 0.35, ease: "none" },
+          DRAW_FROM,
+          { ...DRAW_TO, duration: 0.35, ease: "none" },
           at + 0.3,
         ),
       );
