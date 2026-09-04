@@ -28,7 +28,9 @@
  *
  * WHAT IT DOES NOT SEE, stated because a gate that overclaims is the thing this
  * file was written to stop. It reads declared sizes, so text shrunk by a
- * `scale` below 1 at a hold reads as its unscaled size; and it says nothing about
+ * `scale` below 1 at a hold reads as its unscaled size — `apparent.ts` is the
+ * gate that closes exactly that, by measuring the painted glyph instead, and it
+ * catches a 3D projection the same way; and it says nothing about
  * whether the text FITS — `container_overflow` and `text_occluded` in
  * `hyperframes check` are the gates for that, and `check.ts` already grades them
  * up to errors.
