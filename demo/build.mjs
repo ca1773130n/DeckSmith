@@ -290,6 +290,16 @@ const storyboard = {
     beat("b08", "stack", {
       eyebrow: "2 · Compact thought",
       headline: "The thought state is a stack the carrier is read through",
+      // THE ONE PLACE THE DECK LEANS. 12 degrees is `DEFAULT_POSE`, and it is
+      // not a taste setting: `worstScale` prices it at 0.821 on a 1080 canvas,
+      // so a 40px audience floor needs 48.7px declared and `stack` solves its
+      // fit against that tilted floor rather than the flat one. Past 18 the
+      // type cost stops being payable, which is why the schema stops there.
+      //
+      // A tilt also opens the pile: the slabs enter from the centre plane and
+      // pull out into their slots, which is the layering saying what it means
+      // instead of four rectangles sitting still.
+      tilt: 12,
       layers: [
         { label: "Dense carrier", note: "token count preserved" },
         { label: "Dense queries", note: "one per position" },
