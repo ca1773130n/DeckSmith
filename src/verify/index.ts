@@ -676,6 +676,62 @@ export function scanPaperArc(storyboard: Storyboard, prefs: Prefs): Finding[] {
 }
 
 /**
+ * Narration that belongs to a different version of this storyboard.
+ *
+ * `narration.json` is keyed by BEAT ID and carries nothing that ties it to the
+ * plan it was made for, so an id that still exists is an id `build` will happily
+ * speak — even when the beat behind it has been replaced. Renumbering is the way
+ * in: inserting one beat and shifting the ids after it leaves every later id
+ * pointing at its neighbour's voice.
+ *
+ * FOUND IN THE SHIPPED DEMO, and it is the seventh green-gate case this project
+ * has recorded. A thirteenth beat was inserted at position six and the rest
+ * renumbered; the audio on disk predated it, so beats six through twelve each
+ * spoke the slide after them and the thirteenth spoke nothing. `build` reported
+ * `PASS — 0 error(s), 0 warning(s)`, because every id it looked for was present
+ * and nothing compared what was SAID against what the beat says it says.
+ *
+ * AN ERROR, NOT A WARNING, and it is the one member of this family that earns
+ * it. The other storyboard scans are editorial judgements only an author can
+ * settle; this is a string comparison between two authored fields that must
+ * agree, and the artifact it lets through is a video whose voice describes the
+ * wrong pictures. Missing narration audio is already an error here, and audio
+ * that is present and wrong is not the better failure.
+ *
+ * NARROW ON PURPOSE. It compares only beats that have BOTH a narration text and
+ * segments, so a deck narrated at a lower density — where some beats are
+ * deliberately silent — says nothing, and the existing missing-audio error keeps
+ * its own case. Whitespace is normalised because the splitter re-joins sentences
+ * at stop boundaries; on the demo's thirteen beats the concatenation reproduces
+ * the authored text exactly, which is what makes the comparison safe to make
+ * fatal.
+ */
+export function scanNarrationDrift(
+  storyboard: Storyboard,
+  narration: { beats: Record<string, { text: string }[]> },
+): Finding[] {
+  const flat = (s: string | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
+  const stale: string[] = [];
+  for (const beat of storyboard.beats) {
+    const segments = narration.beats[beat.id];
+    if (!segments?.length || !flat(beat.narration)) continue;
+    if (flat(segments.map((s) => s.text).join(" ")) !== flat(beat.narration)) stale.push(beat.id);
+  }
+  if (!stale.length) return [];
+  return [
+    {
+      severity: "error",
+      gate: "storyboard",
+      rule: "narration_drift",
+      message:
+        `The recorded narration does not say what ${stale.length} beat(s) say they say: ${stale.join(", ")}. ` +
+        `narration.json is keyed by beat id and carries no link to the plan it was made for, so a storyboard whose beats were renumbered or rewritten keeps matching ids and speaks the wrong slide. ` +
+        `Re-run \`decksmith narrate\` for this storyboard — the audio cache is keyed by TEXT, so lines that did not change are not re-synthesised.`,
+    },
+  ];
+}
+
+/**
  * How far a name may precede the thing it names before a viewer notices.
  *
  * A second, which is generous on purpose. The word position inside a cue is

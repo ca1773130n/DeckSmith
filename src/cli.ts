@@ -64,6 +64,7 @@ import {
   readStops,
   scanBeatCount,
   scanHeadlines,
+  scanNarrationDrift,
   scanPaperArc,
   scanRepeatedObject,
   scanUnusedFigures,
@@ -598,6 +599,15 @@ lookFlags(
 
     const found = await findNarration(sbPath, o.narration);
     const narration = found ? await loadNarration(found) : undefined;
+    // BEFORE ANYTHING IS EMITTED, because the failure this catches is a deck
+    // whose voice describes the wrong slides, and every later step spends real
+    // time on it. Thrown rather than reported: the other storyboard scans are
+    // advisories an author weighs, and this one is a string comparison between
+    // two fields that must agree.
+    if (narration) {
+      const drift = scanNarrationDrift(storyboard, narration);
+      if (drift.length > 0) throw new Error(drift[0]?.message ?? "narration drift");
+    }
     if (narration && !format.navigable) {
       step(`build: ${format.id} renders linearly, so its narration is timing only`);
     }
