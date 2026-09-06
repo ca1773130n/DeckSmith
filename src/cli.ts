@@ -622,7 +622,6 @@ lookFlags(
     // Before the budget advisories, because it is the reason they are struck at
     // the number they are.
     for (const f of scanBeatCount(storyboard, prefs)) step(`build: ${f.message}`);
-    for (const f of scanPaperArc(storyboard, prefs)) step(`build: ${f.message}`);
     for (const w of paced.warnings) step(`build: ${w}`);
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
@@ -684,6 +683,16 @@ lookFlags(
     // what the deck still has of its kind — those sentences are the whole reason
     // this may trim at all, so they are printed on every build that trims, not
     // buried in a return value or deferred to a gate that may not run.
+    // THE ARC IS CHECKED ON WHAT SHIPPED, NOT ON WHAT WAS PLANNED, and that is
+    // the whole point of checking it here as well as at `plan`. The floor and
+    // the budget both cut AFTER the storyboard is read, and `protect()` gives a
+    // role the optimiser's protection rather than immunity from the author's
+    // own `--min-weight` — so a plan with a perfect arc can emit a deck that
+    // ends on a bar chart. Scanned against the pre-cut storyboard that deck
+    // reported nothing at all and the gate said PASS, which is the exact shape
+    // of failure this project's first line warns about.
+    for (const f of scanPaperArc({ ...storyboard, beats: cut.kept }, prefs))
+      step(`build: ${f.message}`);
     reportCut(cut);
     if (deck.page) step(`build: navigable deck → ${join(out, DECK_PAGE)}`);
 

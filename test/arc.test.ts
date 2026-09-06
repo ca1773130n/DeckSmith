@@ -107,13 +107,6 @@ describe("what the arc refuses", () => {
     expect(said).toMatch(/not on its conclusion/);
   });
 
-  it("refuses limitations that are not the slide before the conclusion", () => {
-    const s = shaped();
-    (s.beats[s.beats.length - 2] as { role?: BeatRole }).role = undefined;
-    (s.beats[0] as { role?: BeatRole }).role = "limitations";
-    expect(arcProblems(s, paper).join(" ")).toMatch(/not the slide before the conclusion/);
-  });
-
   it("refuses a background beat buried in the middle of the deck", () => {
     const s = shaped();
     (s.beats[1] as { role?: BeatRole }).role = undefined;
@@ -146,6 +139,70 @@ describe("what the arc refuses", () => {
       expect(f.gate).toBe("storyboard");
       expect(f.rule).toBe("paper_arc");
     }
+  });
+});
+
+/**
+ * Every case below was found by an adversarial review of the first cut of this
+ * feature, reproduced against the built artifact, and survived a second agent
+ * trying to refute it. They are the defects, not hypotheticals.
+ */
+describe("what the review caught", () => {
+  it("does not claim the pair is broken when the pair is intact", () => {
+    // A trailing slide after the conclusion. The ending IS wrong — something
+    // follows the conclusion — but limitations still immediately precedes it.
+    // Keying adjacency to index n-2 reported BOTH, one of them false, and
+    // acting on the false one (swapping the two roles) silenced it while
+    // putting the takeaway before the caveat. A gate that rewards the harmful
+    // edit is worse than no gate.
+    const s = shaped();
+    s.beats.push(beat("bTail", "callout"));
+    const said = arcProblems(s, paper);
+    expect(said.join(" ")).toMatch(/ends on "bTail"/);
+    expect(said.join(" ")).not.toMatch(/immediately before the conclusion/);
+  });
+
+  it("still catches a genuinely unpaired ending", () => {
+    const s = shaped();
+    const n = s.beats.length;
+    (s.beats[n - 2] as { role?: BeatRole }).role = undefined;
+    (s.beats[0] as { role?: BeatRole }).role = "limitations";
+    expect(arcProblems(s, paper).join(" ")).toMatch(/immediately before the conclusion/);
+  });
+
+  it("never demands a role the prompt did not ask for", () => {
+    // `--slides 5` takes the prompt's short branch, which names only the
+    // ending. The floor is not a ceiling, so a nine-beat plan carrying exactly
+    // those two roles is obedient — and grading it against the four-role tier
+    // is a bound the model was never shown.
+    const short = prefsSchema.parse({ genre: "paper", slides: 5 });
+    const s = shaped({ n: 9 });
+    (s.beats[0] as { role?: BeatRole }).role = undefined;
+    (s.beats[1] as { role?: BeatRole }).role = undefined;
+    expect(arcProblems(s, short)).toEqual([]);
+    // The prompt and the scan read one table, so what was asked for matches.
+    expect(systemPrompt(short)).not.toContain('role: "background"');
+  });
+
+  it("keeps the ends when a pin makes the optimiser infeasible", () => {
+    // A role beat diving into an expensive container states a requirement the
+    // DP cannot satisfy on its own. The fallback used to retry with NO
+    // protections, which surrendered the terminals too and could return a
+    // one-beat deck — against a docstring promising "the ends are never
+    // released".
+    const s = shaped({ n: 9 });
+    s.beats.forEach((b) => {
+      (b as { seconds: number }).seconds = 20;
+      (b as { weight: number }).weight = 0.8;
+    });
+    const lim = s.beats[7] as { inside?: unknown; seconds: number };
+    lim.inside = { beat: s.beats[6]?.id, element: "stage1" };
+    (s.beats[6] as { seconds: number }).seconds = 60;
+    const cut = selectBeats(s, { id: "t", minWeight: 0, maxSeconds: 70 });
+    expect(cut.kept.length).toBeGreaterThan(0);
+    // Whatever else it gave up, the deck still opens and closes where it should.
+    expect(cut.kept[0]?.id).toBe(s.beats[0]?.id);
+    expect(cut.kept[cut.kept.length - 1]?.id).toBe(s.beats[s.beats.length - 1]?.id);
   });
 });
 

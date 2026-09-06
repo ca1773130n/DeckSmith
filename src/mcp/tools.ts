@@ -64,6 +64,12 @@ export const settingsSchema = z.object({
     .enum(["sparse", "normal", "dense"])
     .optional()
     .describe("How much text a SLIDE carries. A different axis from narration_density."),
+  genre: z
+    .enum(["general", "paper"])
+    .optional()
+    .describe(
+      "DECLARED, never detected. `paper` asks for a research-talk shape — an introduction and background at the front, a limitations slide and then a conclusion at the end — and reports where the deck missed it. There is no detector: the documents this tool ingests are analyses OF papers, rewritten in a way that drops the headings a detector would need, so nothing infers this and absent means `general`.",
+    ),
   duration: z
     .number()
     .min(10)
@@ -133,6 +139,7 @@ function fieldsFor(s: Settings): Record<string, string> {
   put("lang", s.lang);
   put("tone", s.tone);
   put("density", s.density);
+  put("genre", s.genre);
   put("duration", s.duration);
   put("slides", s.slides);
   put("speed", s.animation_speed);

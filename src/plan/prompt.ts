@@ -12,7 +12,7 @@
  */
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
-import { paperArcRequested } from "./arc.js";
+import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 
 /**
@@ -561,7 +561,10 @@ ${REVEAL_COUNTS}`
  * another test uses to slice the archetype catalogue.
  */
 function paperArc(slides: number): string {
-  const full = slides >= 8;
+  // FROM THE SAME TABLE THE SCAN READS. Re-deriving `slides >= 8` here is how
+  // the prompt and the gate came to disagree about which roles were asked for.
+  const asked = requiredRoles(slides);
+  const full = asked.includes("intro");
   return `
 
 PAPER ARC — this source was declared a research paper.

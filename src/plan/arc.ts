@@ -76,9 +76,14 @@ export function arcBeats(storyboard: Storyboard): Map<BeatRole, Beat[]> {
   return by;
 }
 
-/** Ids of every beat carrying a role — what the cut refuses to release. */
-export function arcIds(storyboard: Storyboard): Set<string> {
-  return new Set(storyboard.beats.filter((b) => b.role).map((b) => b.id));
+/**
+ * Ids of every beat carrying a role — what the cut refuses to release.
+ *
+ * Takes a beat list rather than a Storyboard because the cut works over the
+ * surviving beats, not over the plan.
+ */
+export function arcIds(beats: readonly Beat[]): Set<string> {
+  return new Set(beats.filter((b) => b.role).map((b) => b.id));
 }
 
 /**
@@ -95,10 +100,24 @@ export function arcIds(storyboard: Storyboard): Set<string> {
  * Returns an empty array when the arc was not requested, when the deck is too
  * short to carry it, or when the plan satisfied it.
  */
-export function arcProblems(storyboard: Storyboard, prefs: Pick<Prefs, "genre">): string[] {
+export function arcProblems(
+  storyboard: Storyboard,
+  prefs: Pick<Prefs, "genre" | "slides">,
+): string[] {
   if (!paperArcRequested(prefs)) return [];
   const beats = storyboard.beats;
-  const need = requiredRoles(beats.length);
+  // THE SCAN MAY NOT DEMAND WHAT THE PROMPT DID NOT ASK FOR, and the two are
+  // keyed off different numbers: `paperArc` tiers on `prefs.slides`, which is
+  // the FLOOR the prompt was written to, while the deck that came back has its
+  // own length. A model told "this deck is short, so only the ENDING is
+  // required" and then told the floor is not a ceiling can honestly return nine
+  // beats carrying exactly the two roles it was shown — and grading that against
+  // the four-role tier is this project's own "a bound the model cannot see is a
+  // bound it crosses", with the run's ten minutes already spent.
+  //
+  // `min` is right in both directions: a plan shorter than the floor cannot be
+  // held to the floor's tier either.
+  const need = requiredRoles(Math.min(prefs.slides, beats.length));
   if (!need.length) return [];
 
   const out: string[] = [];
@@ -123,20 +142,22 @@ export function arcProblems(storyboard: Storyboard, prefs: Pick<Prefs, "genre">)
   // before it — which is the half of the request that no committed plan has
   // ever produced on its own.
   const last = beats[beats.length - 1];
-  const penultimate = beats[beats.length - 2];
   if (need.includes("conclusion") && by.has("conclusion") && last?.role !== "conclusion") {
     out.push(
       `The deck ends on "${last?.id}" (${last?.archetype}), not on its conclusion. The conclusion is the last thing the viewer sees or it is not a conclusion.`,
     );
   }
-  if (
-    need.includes("limitations") &&
-    by.has("limitations") &&
-    by.has("conclusion") &&
-    penultimate?.role !== "limitations"
-  ) {
+  // ADJACENCY IS RELATIVE TO THE CONCLUSION, not to index n-2. Keying it to the
+  // last-but-one slot told an author whose deck had one trailing slide that the
+  // pair was broken when it was not — and the two messages then disagreed, one
+  // true and one false. Worse, acting on the false one by swapping the roles
+  // silenced it and left the takeaway landing BEFORE the caveat: a gate that
+  // rewards the harmful edit, which is the failure this project names first.
+  const limIdx = beats.findIndex((b) => b.role === "limitations");
+  const conIdx = beats.findIndex((b) => b.role === "conclusion");
+  if (need.includes("limitations") && limIdx >= 0 && conIdx >= 0 && limIdx !== conIdx - 1) {
     out.push(
-      `The limitations beat is not the slide before the conclusion. The two are a pair and the caveat comes first.`,
+      `The limitations beat is not the slide immediately before the conclusion. The two are a pair and the caveat comes first.`,
     );
   }
 
