@@ -201,6 +201,7 @@ export { verify } from "./verify/index.js";
  */
 export {
   scanBeatCount,
+  scanPaperArc,
   scanHeadlines,
   scanNarrationLead,
   scanRepeatedObject,

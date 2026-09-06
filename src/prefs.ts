@@ -97,6 +97,7 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (flags.lang !== undefined) patch.lang = flags.lang;
   if (flags.tone !== undefined) patch.tone = flags.tone as Prefs["tone"];
   if (flags.density !== undefined) patch.density = flags.density as Prefs["density"];
+  if (flags.genre !== undefined) patch.genre = flags.genre as Prefs["genre"];
   if (flags.duration !== undefined) patch.duration = number("--duration", flags.duration);
   if (flags.theme !== undefined) patch.theme = flags.theme;
   if (flags.speed !== undefined) patch.animationSpeed = number("--speed", flags.speed);
@@ -133,6 +134,7 @@ export interface PrefFlags {
   lang?: string;
   tone?: string;
   density?: string;
+  genre?: string;
   duration?: string | number;
   theme?: string;
   speed?: string | number;

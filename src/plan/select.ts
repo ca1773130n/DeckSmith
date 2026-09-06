@@ -268,11 +268,32 @@ function protect(live: Beat[], len: (b: Beat) => number, cap: number): Set<strin
   const picture = cheapest && !ids.has(cheapest.id) ? [cheapest] : [];
   for (const b of picture) ids.add(b.id);
 
+  // A DECLARED STRUCTURAL ROLE IS LOAD-BEARING. `--genre paper` asks for a deck
+  // that ends on its limitations and then its conclusion, and the limitations
+  // beat sits at n-1 where nothing protected it: measured on an eight-beat
+  // paper-shaped deck at a 120s cap, it was the beat the optimiser dropped. It
+  // is also typically the deck's lowest-weighted, which the note above says is
+  // "precisely the one a threshold reaches for first".
+  //
+  // Protected here rather than exempted from the FLOOR, and the difference is
+  // deliberate. The floor is the author's own `--min-weight`, and overruling an
+  // instruction someone typed is worse than losing a slide; the floor also runs
+  // in a second place (`planCut`), so exempting it here alone would let a beat
+  // reach the cut having never been staged — budgeted at its authored seconds
+  // instead of its narrated length, and never drawability-checked. A role gets
+  // the optimiser's protection, not immunity from the author.
+  const roled = live.filter((b) => b.role && !ids.has(b.id));
+  for (const b of roled) ids.add(b.id);
+
   // A protection that cannot be honoured is not a protection: pretending
   // otherwise makes the optimiser infeasible instead of making the cut worse in
   // a stated way. Terminals are excluded from the list, so they survive it.
   const ends = new Set([first?.id, last?.id]);
-  const releasable = [...tier, ...coverage, ...picture]
+  // ONE list, sorted by value per second — not tiers. The note above records
+  // what tiered release cost: a whole family given up before one expensive
+  // favourite, which at 90 seconds took the demo's only equation. Role beats
+  // join the same list rather than forming a tier above it.
+  const releasable = [...tier, ...coverage, ...picture, ...roled]
     .filter((b) => !ends.has(b.id))
     .sort((a, b) => rate(a) - rate(b) || len(b) - len(a));
   const cost = () => live.filter((b) => ids.has(b.id)).reduce((s, b) => s + len(b), 0);

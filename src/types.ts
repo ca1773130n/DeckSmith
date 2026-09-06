@@ -429,10 +429,38 @@ export const insideSchema = z.object({
   label: z.string().optional(),
 });
 
+/**
+ * The structural job a beat does in a paper-shaped deck.
+ *
+ * A ROLE IS NOT AN ARCHETYPE AND NOT A HEADING. Position and archetype cannot
+ * tell these beats apart — a limitation and a conclusion are both naturally a
+ * `callout`, and the prompt lists both under one tell — and a check on headline
+ * wording is the failure `scanHeadlines` documents, where a sharpened rule was
+ * answered by swapping one verb. So the plan SAYS which beat is which, and
+ * everything downstream reads the declaration rather than guessing at prose.
+ *
+ * AN ENUM, DELIBERATELY, AND THAT IS WHY IT MAY BE SHOWN TO THE MODEL.
+ * `forStructuredOutput` strips numeric and length bounds, which is how `tilt`
+ * came to be required as an unbounded number that `safeParse` then rejected,
+ * discarding whole runs. `enum` is not in that stripped set, so the model sees
+ * exactly the values `storyboardSchema` will accept and cannot cross a bound it
+ * was never shown.
+ *
+ * Optional, and hidden from the planner's schema entirely unless the paper arc
+ * was asked for — see `plannerInvisible` in src/plan/codex.ts. A deck that did
+ * not ask for the arc is byte-for-byte what it was.
+ */
+export const beatRoleSchema = z.enum(["intro", "background", "limitations", "conclusion"]);
+
 const beatCore = {
   id: z.string(),
   /** What the viewer should understand after this beat. */
   intent: z.string(),
+  /**
+   * OPTIONAL, and only ever present when `prefs.genre` is `paper`. The
+   * structural job this beat does; see `beatRoleSchema`.
+   */
+  role: beatRoleSchema.optional(),
   /** Optional: this beat happens inside a named part of the beat before it. */
   inside: insideSchema.optional(),
   /** The source sentence or equation this beat is accountable to. */
@@ -658,6 +686,26 @@ export const prefsSchema = z.object({
   tone: z.enum(["plain", "academic", "conversational", "punchy"]).default("plain"),
   /** How much text a slide may carry before it should have been a diagram. */
   density: z.enum(["sparse", "normal", "dense"]).default("normal"),
+  /**
+   * What kind of document is being explained, DECLARED and never sniffed.
+   *
+   * `paper` asks the planner for the shape a research talk has: open on the
+   * problem and the ground the work stands on, close on what it does not do and
+   * then what to take away. `general` is every deck built before this existed
+   * and changes nothing — no prompt block, no `role` in the planner's schema, no
+   * scan.
+   *
+   * WHY DECLARED. A ten-role heading lexicon (en/ko/ja/zh, numbered-prefix
+   * tolerant) run over all 351 markdown files in this repository scored 345 of
+   * them at zero role hits and none at three or more. `src/source/markdown.ts`
+   * says why in its first line: the input is a hypepaper-style ANALYSIS of a
+   * paper, a rewrite that has already discarded the headings a detector would
+   * key on. A classifier here would be a guess with a confidence score attached,
+   * and it would guess wrong on the Korean fixture. So the author says so once —
+   * `--genre paper`, or one line in a `decksmith.config.json` above a directory
+   * of papers — and every run under it costs no further typing.
+   */
+  genre: z.enum(["general", "paper"]).default("general"),
   /**
    * How long the finished thing should run, in seconds. Optional: absent means
    * "as long as it takes", which is what every deck built before this did.
@@ -1193,6 +1241,7 @@ export type Illustration = z.infer<typeof illustrationSchema>;
 /** The `images` block of the preferences, resolved. What `illustrate` reads. */
 export type ImagesPrefs = z.infer<typeof prefsSchema>["images"];
 export type Beat = z.infer<typeof beatSchema>;
+export type BeatRole = z.infer<typeof beatRoleSchema>;
 export type Inside = z.infer<typeof insideSchema>;
 export type Archetype = Beat["archetype"];
 export type Storyboard = z.infer<typeof storyboardSchema>;

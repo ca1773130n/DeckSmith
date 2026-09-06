@@ -218,6 +218,16 @@ function remedy(
       " "
     : `No cut of these beats fits ${clock(maxSeconds)} — the narration itself has to get shorter. `;
 
+  // THE DECK'S OWN ENDING IS OFTEN THE BEAT NAMED HERE, and it is left named on
+  // purpose. `protect()` in src/plan/select.ts refuses to release the terminals
+  // to the OPTIMISER, so it is tempting to exclude them here too — but this
+  // advice names `--min-weight`, and that flag is a flat floor that cannot say
+  // "except the last beat". Excluding the ending from the list while still
+  // recommending the threshold that deletes it would make the two halves of one
+  // sentence disagree, which is worse than advice the author can weigh. The
+  // honest fix for "my conclusion keeps getting cut" is a weight, or
+  // `--genre paper`, which pins the closing pair inside the optimiser where a
+  // pin can actually be expressed.
   const byWeight = kept
     .map((beat, i) => ({ beat, seconds: windows[i] ?? 0 }))
     .sort((a, b) => a.beat.weight - b.beat.weight);
