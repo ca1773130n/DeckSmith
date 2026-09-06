@@ -9,8 +9,14 @@ const source = {
   lang: "en",
   sections: [
     { id: "sec1", depth: 1, heading: "The mismatch", text: "CTM's thought representation is compact; super-resolution needs a dense spatial field." },
+    // PRIOR WORK, and the paper's own comparison rather than a survey bolted on:
+    // Figure 1 sets CTM beside a window-wise adaptation and this work, and the
+    // three differ only in what each hands the thought block.
+    { id: "sec1b", depth: 2, heading: "What came before", text: "CTM carries a compact thought state and no spatial field at all. A window-wise adaptation pools each window down to one summary token, which fits the thought block but throws away position. This work keeps one query per position instead." },
     { id: "sec2", depth: 2, heading: "Method", text: "A persistent dense carrier, read and updated by a compact thought process." },
     { id: "sec3", depth: 2, heading: "Results", text: "Competitive with CNN baselines; behind recent lightweight transformers." },
+    // THE TAKEAWAY, stated by the analysis rather than manufactured for a slide.
+    { id: "sec4", depth: 2, heading: "What to take away", text: "A dense carrier held across ticks and read by a compact thought process matches CNN baselines at a comparable parameter count. The strongest recent lightweight transformers remain ahead, and the gains flatten after about four ticks." },
   ],
   // `sectionId` and `mention` are what the planner has instead of eyes: which
   // part of the argument a picture sits in, and the sentence the prose refers to
@@ -85,7 +91,7 @@ const source = {
 // what `stopsFor` reports for these params, which is why they look arbitrary.
 const script = {
   b01: "This paper puts a thought process that stays small up against a task whose output has to stay large — every pixel of it.",
-  b02: [
+  b03: [
     "The encoder does the heavy lifting first, in the style SwinIR established.",
     "Then the field is cut into windows, and nothing is pooled away on the way through.",
     "The thought machine sits here in the middle, working on what the windows hold.",
@@ -93,7 +99,7 @@ const script = {
     "That loop is a single tick, and it runs in place rather than around the whole pipeline.",
     "Every tick reuses the same weights, so thinking for longer costs time and not memory.",
   ].join(" "),
-  b03: [
+  b04: [
     // Not "look at the bottom row": the beat crops to that row, so there is no
     // other row on screen to be the bottom of, and the instruction sends a
     // viewer hunting for something that was cropped away. Narration may only
@@ -103,34 +109,34 @@ const script = {
     "The block in the middle is shared, the same weights for every window.",
     "And what comes out is still a dense field, one query for every position in it.",
   ].join(" "),
-  b04: [
+  b05: [
     "Picture the feature map as a grid of tokens.",
     "Attention runs inside one window at a time.",
     "The next window does the same, and at this stage the two never mix.",
     "Count the tokens before a tick and after it and you get the same number.",
   ].join(" "),
-  b05: [
+  b06: [
     "The encoder turns the low-resolution image into a dense feature field.",
     "The partition then cuts that field into windows without throwing any of it away.",
   ].join(" "),
-  b06: [
+  b07: [
     "Take the carrier out of the first line and put it where F stands in the second.",
     "The encoder's output slides inside the window read, and the two statements become one composition.",
   ].join(" "),
-  b07: [
+  b08: [
     "At the bottom is the carrier, and it keeps every token it started with.",
     "Above it sit the queries — one for each position, rather than one for each window.",
     "Synchronisation is the part that remembers: every neuron carries its own history.",
     "The compact state on top is what actually changes from one tick to the next.",
   ].join(" "),
-  b08: [
+  b09: [
     // The authors' own drawing of a tick, so the narration may point only at
     // what that drawing shows — two rows, and what each of them does to the
     // carrier. Same rule as b03: never at the source figure it was taken from.
     "This is the authors' own drawing of one tick, and the two rows are the two halves of it.",
     "The compact state runs along the top and ends in a dense query projection; underneath, the carrier is read as dense keys and values and comes back updated, added to what arrived.",
   ].join(" "),
-  b09: [
+  b10: [
     // "second from the top" was wrong AND unknowable: the bars are drawn in the
     // order they are listed, so DQ-CTM-SR is fourth from the top and second by
     // value. Ordinals in narration are claims about the DATA — see the NARRATION
@@ -138,29 +144,42 @@ const script = {
     "On parameters the method is the second largest here, at 1.13 million.",
     "So this is not the cheap option, and the paper never claims it is.",
   ].join(" "),
-  b10: [
+  b11: [
     "These are five-benchmark averages at four times upscaling.",
     "CATANet is the one to beat, at 29.48.",
     "The method here comes in at 28.98 — ahead of two CNN baselines, behind the transformer.",
     "Only that last row was trained for this paper. Every other number is quoted.",
   ].join(" "),
-  b11: [
+  b12: [
     "The first tick is worth almost a full decibel.",
     "The fourth is worth under a tenth, and training stopped there, so nothing past it is demonstrated.",
   ].join(" "),
-  b12: [
+  b13: [
     "On the left each column is one more tick, and in the top two rows the detail keeps arriving.",
     "On the right is what is still wrong, on the same three crops — and the bottom row stays bright at every tick.",
   ].join(" "),
-  b13: [
-    "One warning to carry into the paper itself.",
-    "The abstract reports this sweep running from 28.10 up to 30.28.",
-    "The table for the same sweep says 28.91 to 30.47, and the body quotes a gain of 1.46 decibels where the table gives 0.59.",
+  b02: [
+    "Two earlier answers exist, and each gives something up.",
+    "CTM carries a compact thought state with no spatial field at all, and the window-wise adaptation pools every window down to one summary token, which throws position away.",
+    "This work keeps one query per position, so the field survives every tick.",
+  ].join(" "),
+  b14: [
+    "The honest ceiling, before the takeaway.",
+    "CATANet averages 29.482 against this method's 28.983, and each extra tick buys less than the one before it until the curve flattens after about four.",
+    "The paper's own numbers disagree too: the abstract reports 28.10 to 30.28 where its table says 28.91 to 30.47.",
+  ].join(" "),
+  b15: [
+    "What to take away.",
+    "A dense carrier held across every tick, read by a compact thought process, is enough to match CNN baselines at a comparable parameter count.",
   ].join(" "),
 };
 
 const beat = (id, archetype, params, extra = {}) => ({
   id, archetype, params,
+  // The structural job this beat does in a paper deck, when it has one. Only
+  // the four arc beats carry it; `role` is absent on every other beat, which is
+  // what `--genre paper` checks against.
+  ...(extra.role ? { role: extra.role } : {}),
   intent: extra.intent ?? "…",
   narration: script[id],
   evidence: extra.evidence ?? [],
@@ -178,9 +197,30 @@ const storyboard = {
       eyebrow: "Paper analysis · dense prediction × continuous thought",
       headline: "Compact thought collides with dense output",
       sub: "Dense-Query Continuous Thought Machine (DQ-CTM)",
-    }, { intent: "Name the tension the paper is about.", weight: 0.95, seconds: 6 }),
+    }, { role: "intro", intent: "Name the tension the paper is about.", weight: 0.95, seconds: 6 }),
 
-    beat("b02", "pipeline", {
+    // RELATED WORK, second and before any mechanism: what people did before this
+    // and where it ran out. Three panels because there are three approaches and
+    // one sentence separates them — the source's own Figure 1 comparison, said
+    // in words while the reader still has room for it.
+    beat("b02", "callout", {
+      eyebrow: "What came before",
+      headline: "Two earlier answers, and what each gives up",
+      panels: [
+        { label: "CTM", lines: ["a compact thought state", "no spatial field at all"] },
+        { label: "Window-wise", lines: ["one summary token per window", "position is pooled away"] },
+        { label: "This work", lines: ["one query per position", "the field survives every tick"] },
+      ],
+      note: "The three differ only in what each hands the thought block.",
+    }, {
+      role: "background",
+      intent: "Earlier answers solved the shape mismatch by discarding the field; this one does not.",
+      evidence: [{ kind: "figure", id: "fig-compare" }, { kind: "section", id: "sec1b" }],
+      weight: 0.85,
+      seconds: 10,
+    }),
+
+    beat("b03", "pipeline", {
       eyebrow: "Method",
       headline: "One pass in, one pass out, and a loop in the middle",
       stages: [
@@ -193,7 +233,7 @@ const storyboard = {
       note: "Parameters are shared across every tick.",
     }, { intent: "The recurrence sits after the encoder, not around it.", evidence: [{ kind: "section", id: "sec2" }], weight: 0.95 }),
 
-    beat("b03", "annotated-figure", {
+    beat("b04", "annotated-figure", {
       eyebrow: "Architecture",
       headline: "Every window keeps its own position-wise query",
       figureId: "fig-compare",
@@ -205,7 +245,7 @@ const storyboard = {
       ],
     }, { intent: "DQ-CTM produces one query per position, not one per window.", evidence: [{ kind: "figure", id: "fig-compare" }], weight: 0.9 }),
 
-    beat("b04", "grid", {
+    beat("b05", "grid", {
       eyebrow: "Representation",
       headline: "Attention is computed inside windows, and no token is pooled away",
       cols: 12, rows: 8,
@@ -216,7 +256,7 @@ const storyboard = {
       note: "Token count is identical before and after the update.",
     }, { intent: "The carrier keeps every position across ticks.", weight: 0.85 }),
 
-    beat("b05", "equation-walk", {
+    beat("b06", "equation-walk", {
       eyebrow: "1 · Persistent dense carrier",
       headline: "The encoder makes the field; the partition keeps it",
       equationId: "eq-carrier",
@@ -231,7 +271,7 @@ const storyboard = {
     // preserves — the carrier travels inside the window read, and the reader
     // watches the two statements collapse into one rather than being shown a
     // second slide and asked to spot the difference.
-    beat("b06", "equation-morph", {
+    beat("b07", "equation-morph", {
       eyebrow: "1 · Persistent dense carrier",
       headline: "Substituting the carrier leaves one composition",
       fromId: "eq-carrier",
@@ -247,7 +287,7 @@ const storyboard = {
       weight: 0.8,
     }),
 
-    beat("b07", "stack", {
+    beat("b08", "stack", {
       eyebrow: "2 · Compact thought",
       headline: "The thought state is a stack the carrier is read through",
       layers: [
@@ -262,14 +302,14 @@ const storyboard = {
     // a split-compare of two lists whose content b03, b04 and b06 already make,
     // while Figure 2 — the one picture that shows a whole tick — went unused in
     // a deck built from the paper it came out of.
-    beat("b08", "claim-figure", {
+    beat("b09", "claim-figure", {
       eyebrow: "3 · One dense tick",
       headline: "One tick reads the carrier and adds its update back",
       claim: "A persistent dense carrier, read and updated by a compact thought process.",
       figureId: "fig-arch",
     }, { intent: "What one tick does to the carrier.", evidence: [{ kind: "figure", id: "fig-arch" }, { kind: "section", id: "sec2" }], weight: 0.9 }),
 
-    beat("b09", "bar-compare", {
+    beat("b10", "bar-compare", {
       eyebrow: "Cost",
       headline: "The method is mid-pack on parameters, not the smallest",
       unit: "M params",
@@ -283,7 +323,7 @@ const storyboard = {
       note: "Smaller is better; DQ-CTM-SR is second largest here.",
     }, { intent: "Where the method sits on cost.", evidence: [{ kind: "table", id: "tbl-bench" }], weight: 0.8 }),
 
-    beat("b10", "data-table", {
+    beat("b11", "data-table", {
       eyebrow: "Quantitative comparison · ×4",
       headline: "Competitive with CNN baselines, behind recent models",
       tableId: "tbl-bench",
@@ -294,7 +334,7 @@ const storyboard = {
       note: "Comparison figures are quoted from their papers; only DQ-CTM-SR was trained here.",
     }, { intent: "The honest standing against the field.", evidence: [{ kind: "table", id: "tbl-bench" }], weight: 0.85 }),
 
-    beat("b11", "line-chart", {
+    beat("b12", "line-chart", {
       eyebrow: "Thought sweep · 100 validation images",
       headline: "Each extra tick buys less than the one before it",
       xLabel: "thought ticks", yLabel: "PSNR-Y (dB)",
@@ -316,7 +356,7 @@ const storyboard = {
     // see them, and nothing else measures whether a picture is legible. It was
     // found by opening the frame. The error map is what the right-hand list is
     // ABOUT, so it stays as evidence and the paper keeps it.
-    beat("b12", "split-compare", {
+    beat("b13", "split-compare", {
       eyebrow: "Qualitative",
       headline: "Where the ticks help, and where they do not",
       left: { label: "Reconstruction, T=1 → T=4", figureId: "fig-progress" },
@@ -331,15 +371,43 @@ const storyboard = {
       note: "Rows are the same three crops in both: typical, strong improvement, difficult.",
     }, { intent: "The improvement is visible, and so is what is left over.", evidence: [{ kind: "figure", id: "fig-progress" }, { kind: "figure", id: "fig-error" }], weight: 0.75 }),
 
-    beat("b13", "callout", {
-      eyebrow: "Read it with care",
-      headline: "The same experiment reports three different numbers",
+    // LIMITATIONS — what the work does not do, in the source's own admission,
+    // and its own slide rather than a clause inside the takeaway. All three
+    // panels are facts the analysis states: the gap to CATANet, the flattening
+    // after four ticks, and the paper's own disagreeing numbers.
+    beat("b14", "callout", {
+      eyebrow: "What it does not do",
+      headline: "Competitive, and still short of the best lightweight models",
       panels: [
-        { label: "abstract", lines: ["PSNR-Y 28.10 → 30.28", "L1 0.0346 → 0.0235"] },
-        { label: "sweep table", lines: ["PSNR-Y 28.91 → 30.47", "L1 0.0386 → 0.0229"] },
+        { label: "the gap", lines: ["CATANet averages 29.482", "this method 28.983"] },
+        { label: "the ceiling", lines: ["each tick buys less", "flat after about four"] },
+        { label: "the reporting", lines: ["abstract says 28.10 → 30.28", "the table says 28.91 → 30.47"] },
       ],
-      note: "The body states a 1.4611 dB gain where the table gives 0.59 dB.",
-    }, { intent: "A caveat a reader must carry into the paper.", weight: 0.7, seconds: 8 }),
+      note: "The body claims a 1.4611 dB gain where its own table gives 0.59 dB.",
+    }, {
+      role: "limitations",
+      intent: "The idea holds, and the honest ceiling is that stronger models remain ahead.",
+      evidence: [{ kind: "table", id: "tbl-bench" }, { kind: "section", id: "sec3" }],
+      weight: 0.85,
+      seconds: 10,
+    }),
+
+    // CONCLUSION, last, with nothing after it. A claim over the figure that
+    // demonstrates it rather than a third slab of prose: the closing pair must
+    // not be two of the same picture, and the reconstruction strip is what the
+    // whole deck has been building toward.
+    beat("b15", "claim-figure", {
+      eyebrow: "What to take away",
+      headline: "A carrier that survives every tick is enough to compete",
+      claim: "A dense carrier held across ticks and read by a compact thought process matches CNN baselines at a comparable parameter count.",
+      figureId: "fig-progress",
+    }, {
+      role: "conclusion",
+      intent: "What the viewer should carry away.",
+      evidence: [{ kind: "section", id: "sec4" }, { kind: "figure", id: "fig-progress" }],
+      weight: 0.9,
+      seconds: 9,
+    }),
   ],
 };
 

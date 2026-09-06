@@ -242,7 +242,35 @@ export interface AudioInput {
  * a mismatch and edge-tts emits 24 kHz mono while the video wants 48 kHz.
  * `apad` runs the track out to the video's length so the mux does not have to
  * choose between a short audio stream and `-shortest` truncating the picture.
+ *
+ * THEN NORMALISED, because summing raw TTS lands quiet. edge-tts returns
+ * whatever level it returns and nothing here touched it, so every deck this
+ * tool has ever rendered came out around -21.5 LUFS — measured on the demo —
+ * against the -16 LUFS that streaming and the web settle on. That is roughly
+ * half the perceived loudness, which reads to a listener as "there is no sound"
+ * long before it reads as "this is quiet", and no gate in this project looks at
+ * audio at all, so nothing said so.
+ *
+ * BEFORE `apad`, not after: `loudnorm` measures what it is given, and padding a
+ * three-minute track out with silence first would put that silence into the
+ * measurement. Single pass rather than two, deliberately — a two-pass loudnorm
+ * needs a full analysis run before the mux, doubling the audio work to buy
+ * about a decibel of accuracy on speech that is already compressed. It is a
+ * filter, not a sampler, so two renders of one deck still agree.
+ *
+ * `aresample` after it because `loudnorm` runs its own internal rate and hands
+ * back 192 kHz; the encoder wants the 48 kHz everything upstream agreed on.
  */
+/**
+ * The delivery target, and where the numbers come from.
+ *
+ * -16 LUFS is what web and streaming platforms normalise to, so a deck that
+ * lands there plays at the same level as everything either side of it. -1.5 dBTP
+ * leaves headroom for the lossy encoder, which can overshoot a 0 dB peak on
+ * decode. LRA 11 is loudnorm's default and speech rarely reaches it.
+ */
+const LOUDNESS = "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000";
+
 export function audioGraph(
   inputs: readonly AudioInput[],
   seconds: number,
@@ -259,7 +287,7 @@ export function audioGraph(
   );
   const labels = inputs.map((_, i) => `[d${i}]`).join("");
   lines.push(
-    `${labels}amix=inputs=${inputs.length}:normalize=0:dropout_transition=0:duration=longest,apad=whole_dur=${seconds.toFixed(3)}[aout]`,
+    `${labels}amix=inputs=${inputs.length}:normalize=0:dropout_transition=0:duration=longest,${LOUDNESS},apad=whole_dur=${seconds.toFixed(3)}[aout]`,
   );
   return lines.join(";\n");
 }

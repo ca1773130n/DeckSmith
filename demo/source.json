@@ -10,6 +10,12 @@
       "text": "CTM's thought representation is compact; super-resolution needs a dense spatial field."
     },
     {
+      "id": "sec1b",
+      "depth": 2,
+      "heading": "What came before",
+      "text": "CTM carries a compact thought state and no spatial field at all. A window-wise adaptation pools each window down to one summary token, which fits the thought block but throws away position. This work keeps one query per position instead."
+    },
+    {
       "id": "sec2",
       "depth": 2,
       "heading": "Method",
@@ -20,6 +26,12 @@
       "depth": 2,
       "heading": "Results",
       "text": "Competitive with CNN baselines; behind recent lightweight transformers."
+    },
+    {
+      "id": "sec4",
+      "depth": 2,
+      "heading": "What to take away",
+      "text": "A dense carrier held across ticks and read by a compact thought process matches CNN baselines at a comparable parameter count. The strongest recent lightweight transformers remain ahead, and the gains flatten after about four ticks."
     }
   ],
   "figures": [
