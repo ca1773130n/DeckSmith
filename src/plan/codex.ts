@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
+import { paperArcRequested } from "./arc.js";
 import { renderSource, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
 
@@ -126,9 +127,24 @@ function stripNulls(node: unknown): unknown {
  */
 const PLANNER_INVISIBLE = new Set(["tilt"]);
 
-/** Strip `PLANNER_INVISIBLE` keys, and the `required` entries naming them. */
-function hideFromPlanner(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(hideFromPlanner);
+/**
+ * The keys hidden from THIS run's schema.
+ *
+ * `role` is hidden unless the paper arc was asked for, and that is not tidiness:
+ * strict mode requires every declared property to appear in `required`, so a
+ * `role` left in the schema would force the planner to consider a structural job
+ * on every beat of every deck — including the twelve archetypes' worth of
+ * general explainers that have no arc. Hidden, a general-genre plan CANNOT come
+ * back carrying one, so no post-hoc check is needed to reject what the model was
+ * never offered, and the schema bytes are identical to what they were.
+ */
+function plannerInvisible(prefs: Pick<Prefs, "genre">): ReadonlySet<string> {
+  return paperArcRequested(prefs) ? PLANNER_INVISIBLE : new Set([...PLANNER_INVISIBLE, "role"]);
+}
+
+/** Strip `hidden` keys, and the `required` entries naming them. */
+function hideFromPlanner(node: unknown, hidden: ReadonlySet<string>): unknown {
+  if (Array.isArray(node)) return node.map((n) => hideFromPlanner(n, hidden));
   if (node === null || typeof node !== "object") return node;
   const src = node as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -136,22 +152,32 @@ function hideFromPlanner(node: unknown): unknown {
     if (key === "properties" && value && typeof value === "object") {
       const kept: Record<string, unknown> = {};
       for (const [prop, sub] of Object.entries(value as Record<string, unknown>))
-        if (!PLANNER_INVISIBLE.has(prop)) kept[prop] = hideFromPlanner(sub);
+        if (!hidden.has(prop)) kept[prop] = hideFromPlanner(sub, hidden);
       out.properties = kept;
       continue;
     }
     if (key === "required" && Array.isArray(value)) {
-      out.required = value.filter((r) => typeof r !== "string" || !PLANNER_INVISIBLE.has(r));
+      out.required = value.filter((r) => typeof r !== "string" || !hidden.has(r));
       continue;
     }
-    out[key] = hideFromPlanner(value);
+    out[key] = hideFromPlanner(value, hidden);
   }
   return out;
 }
 
-export const SCHEMA = hideFromPlanner(
-  forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
-);
+/** The schema for one run. `role` is present only when the paper arc was asked for. */
+export function schemaFor(prefs: Pick<Prefs, "genre">): unknown {
+  return hideFromPlanner(
+    forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
+    plannerInvisible(prefs),
+  );
+}
+
+/**
+ * The default-preferences schema, unchanged and still exported: `general` hides
+ * `role`, so these bytes are what they have always been.
+ */
+export const SCHEMA = schemaFor({ genre: "general" });
 
 export interface CodexOptions {
   /** Left unset by default: use whatever model the user's Codex is configured for. */
@@ -191,7 +217,9 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
   try {
     const schemaPath = join(dir, "storyboard.schema.json");
     const outPath = join(dir, "storyboard.json");
-    await writeFile(schemaPath, JSON.stringify(SCHEMA));
+    // Per run, not the module constant: `role` exists in the schema only when
+    // the paper arc was asked for.
+    await writeFile(schemaPath, JSON.stringify(schemaFor(prefs)));
 
     await (opts.run ?? runCodex)({
       prompt: buildPrompt(source, prefs),

@@ -9,6 +9,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { DECK_PAGE } from "../emit/composition.js";
+import { arcProblems } from "../plan/arc.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Prefs } from "../prefs.js";
 import { TIMING_FILE } from "../render/timing.js";
@@ -159,26 +160,36 @@ export async function verify(
     check(dir, { ...opts, at: stops.map((s) => s.t) }),
     opts.fidelity === false ? null : fidelity(dir, { stops }),
   ]);
-  const seen = [...ours, ...(frames?.findings ?? [])];
+  // EVERY finding this function returns, in one array, because `passed` is
+  // computed from it. It used to be computed from `seen` — the scans above plus
+  // the frame gates — while the storyboard scans were spread into `findings`
+  // afterwards, so a storyboard-level `error` printed as an error, was counted
+  // as one by `report()`, and left `passed: true`: a green gate over a red
+  // finding, which is the first thing this project's own notes warn about. It is
+  // a no-op today, because all five storyboard scans are warnings; it is here so
+  // that staying a warning is a decision on the merits rather than a bug nobody
+  // had noticed.
+  const storyboardFindings = storyboard
+    ? [
+        ...scanDiagrammatic(storyboard),
+        ...scanHeadlines(storyboard),
+        ...scanRepeatedObject(storyboard),
+        // Needs the source as well, and says nothing without it — the same
+        // silence `scanNarrationLead` keeps when its manifest is missing.
+        ...(source ? scanUnusedFigures(storyboard, source) : []),
+      ]
+    : [];
+  const seen = [...ours, ...(frames?.findings ?? []), ...storyboardFindings];
   return {
     passed: verdict.passed && seen.every((f) => f.severity !== "error"),
     findings: [
       ...seen,
-      // `scanBeatCount` is deliberately NOT here. It needs the preferences the
-      // deck was asked for, and `verify <dir>` is handed a built directory and
-      // nothing else — the same gating `scanNarrationLead` gets above, and for
-      // the same reason: a check that cannot see its inputs must not report that
-      // it found nothing. It runs at `plan` and `build`, where prefs exist.
-      ...(storyboard
-        ? [
-            ...scanDiagrammatic(storyboard),
-            ...scanHeadlines(storyboard),
-            ...scanRepeatedObject(storyboard),
-            // Needs the source as well, and says nothing without it — the same
-            // silence `scanNarrationLead` keeps when its manifest is missing.
-            ...(source ? scanUnusedFigures(storyboard, source) : []),
-          ]
-        : []),
+      // `scanBeatCount` and `scanPaperArc` are deliberately NOT here. Both need
+      // the preferences the deck was asked for, and `verify <dir>` is handed a
+      // built directory and nothing else — the same gating `scanNarrationLead`
+      // gets above, and for the same reason: a check that cannot see its inputs
+      // must not report that it found nothing. They run at `plan` and `build`,
+      // where prefs exist.
       ...verdict.findings,
     ],
   };
@@ -626,6 +637,42 @@ export function scanBeatCount(storyboard: Storyboard, prefs: Prefs): Finding[] {
       message: `${prefs.slides} beats were asked for and the plan returned ${got}. ${cost} Split a point that has two halves and write the missing beat by hand, or re-plan — padding to reach the number costs more than being short does (RULE 9). The deck is being built for ${got} beats, not ${prefs.slides}.`,
     },
   ];
+}
+
+/**
+ * Where a paper-shaped deck missed the shape it was asked for.
+ *
+ * SILENT UNLESS THE ARC WAS DECLARED. `prefs.genre` defaults to `general`, so
+ * every deck built before this existed, and every deck whose author did not say
+ * `--genre paper`, gets exactly nothing from this scan. That is not timidity: a
+ * ten-role heading lexicon over all 351 markdown files in this repository found
+ * 345 with zero hits, so there is no honest way to infer the genre, and a scan
+ * that guessed would mislabel the Korean fixture and every hypepaper analysis
+ * the tool actually ingests.
+ *
+ * REPORTED, NEVER REPAIRED, and a WARNING. It joins the four scans that already
+ * take that shape, and `scanBeatCount`'s header settles the class: `build`
+ * prints every content loss and fails on none of them, because the alternative
+ * is re-asking, and the only possible second instruction — "return more" — is a
+ * padding request with extra steps. Promoting this one is a decision about all
+ * of them.
+ *
+ * WHAT IT CANNOT DO. It cannot tell whether a beat labelled `limitations` really
+ * discusses one; `role` is the plan's own declaration, and a declaration can be
+ * false. What it checks instead is the part that is mechanical and that no
+ * committed plan has ever got right on its own: that the roles exist, that they
+ * are unique, that the ending is in the right ORDER, and that the closing pair
+ * does not collapse into two of the same picture. A rule about wording would be
+ * met cosmetically, exactly as `scanHeadlines` records a sharpened rule being
+ * answered by swapping one verb.
+ */
+export function scanPaperArc(storyboard: Storyboard, prefs: Prefs): Finding[] {
+  return arcProblems(storyboard, prefs).map((message) => ({
+    severity: "warning" as const,
+    gate: "storyboard" as const,
+    rule: "paper_arc",
+    message,
+  }));
 }
 
 /**

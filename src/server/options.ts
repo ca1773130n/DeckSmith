@@ -196,6 +196,10 @@ export function parseOptions(fields: Record<string, string>): JobOptions {
   if (str(fields.lang) !== undefined) patch.lang = requireLang(str(fields.lang) as string);
   if (str(fields.tone) !== undefined) patch.tone = str(fields.tone);
   if (str(fields.density) !== undefined) patch.density = str(fields.density);
+  // Read here for the same reason `density` is: this function builds an explicit
+  // key-by-key patch, so a preference it does not name is one a caller can post
+  // and never be told was dropped.
+  if (str(fields.genre) !== undefined) patch.genre = str(fields.genre);
   // An empty number input posts "", which `str` reads as absent — and absent is
   // exactly "no target", so an untouched Duration field must not become a 400.
   if (str(fields.duration) !== undefined)

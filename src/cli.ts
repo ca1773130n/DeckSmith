@@ -64,6 +64,7 @@ import {
   readStops,
   scanBeatCount,
   scanHeadlines,
+  scanPaperArc,
   scanRepeatedObject,
   scanUnusedFigures,
   verify,
@@ -189,10 +190,21 @@ const HYPERFRAMES_JSON = `${JSON.stringify(
  * records the preferences the deck was made under.
  */
 function planFlags(cmd: Command): Command {
-  return cmd
-    .option("--lang <bcp47>", "language of the deck's copy")
-    .option("--tone <tone>", "plain | academic | conversational | punchy")
-    .option("--density <level>", "sparse | normal | dense");
+  return (
+    cmd
+      .option("--lang <bcp47>", "language of the deck's copy")
+      .option("--tone <tone>", "plain | academic | conversational | punchy")
+      .option("--density <level>", "sparse | normal | dense")
+      // DECLARED, because it cannot be detected: a ten-role heading lexicon over
+      // all 351 markdown files in this repository found 345 with zero hits, since
+      // the input is an analysis OF a paper and the rewrite drops the headings.
+      // Set it once in a decksmith.config.json above a directory of papers and no
+      // later run needs the flag.
+      .option(
+        "--genre <genre>",
+        "general | paper — paper asks for an intro, background, limitations and conclusion",
+      )
+  );
 }
 
 /**
@@ -280,6 +292,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "lang",
     "tone",
     "density",
+    "genre",
     "duration",
     "narrationDensity",
     "theme",
@@ -397,6 +410,11 @@ imageFlags(
   // is spent narrating a deck that is short of what was asked for.
   for (const f of [
     ...scanBeatCount(storyboard, prefs),
+    // Silent unless `--genre paper` was declared. Here for the same reason
+    // `scanBeatCount` is: the fix is a beat in a file the author has open, and
+    // this is the last moment before a minute of TTS is spent on a deck that
+    // does not end where it was asked to.
+    ...scanPaperArc(storyboard, prefs),
     ...scanHeadlines(storyboard),
     ...scanRepeatedObject(storyboard),
     // A figure the plan ignored is cheapest to fix here, where the answer is one
@@ -522,6 +540,11 @@ lookFlags(
       .requiredOption("-o, --out <dir>", "directory to write the deck into")
       .option("--format <id>", `output profile: ${Object.keys(FORMATS).join(" | ")}`, "deck-16x9")
       .option("--min-weight <n>", "keep only beats at or above this weight — see the budget gate")
+      // On `build` as well as `plan`, so a deck planned as a paper is checked
+      // as one without a config file having to exist. It changes nothing about
+      // what is emitted — the arc is advisory here, and `plan` is where it
+      // shapes the prompt.
+      .option("--genre <genre>", "general | paper — report when a paper deck lacks its arc")
       .option("--narration <file>", `${NARRATION_FILE} from \`decksmith narrate\``)
       .option("--no-narration", "ignore narration sitting beside the storyboard")
       .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
@@ -660,6 +683,16 @@ lookFlags(
     // what the deck still has of its kind — those sentences are the whole reason
     // this may trim at all, so they are printed on every build that trims, not
     // buried in a return value or deferred to a gate that may not run.
+    // THE ARC IS CHECKED ON WHAT SHIPPED, NOT ON WHAT WAS PLANNED, and that is
+    // the whole point of checking it here as well as at `plan`. The floor and
+    // the budget both cut AFTER the storyboard is read, and `protect()` gives a
+    // role the optimiser's protection rather than immunity from the author's
+    // own `--min-weight` — so a plan with a perfect arc can emit a deck that
+    // ends on a bar chart. Scanned against the pre-cut storyboard that deck
+    // reported nothing at all and the gate said PASS, which is the exact shape
+    // of failure this project's first line warns about.
+    for (const f of scanPaperArc({ ...storyboard, beats: cut.kept }, prefs))
+      step(`build: ${f.message}`);
     reportCut(cut);
     if (deck.page) step(`build: navigable deck → ${join(out, DECK_PAGE)}`);
 

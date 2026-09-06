@@ -12,6 +12,7 @@
  */
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
+import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 
 /**
@@ -544,6 +545,68 @@ ${REVEAL_COUNTS}`
  * apply — a deck that never asked for a picture is planned from the same prompt
  * it always was.
  */
+/**
+ * The paper arc, asked for only when the author declared `--genre paper`.
+ *
+ * A BLOCK RATHER THAN A RULE, and that is deliberate twice over. RULE 6 already
+ * owns how a deck opens ("The opening beats establish what problem exists"), and
+ * the header at the top of this file says a prompt with two answers gets one
+ * picked at random — so this block names the four jobs and points AT rule 6
+ * rather than restating its sentence. And a numbered rule would renumber the
+ * eleven below it, which several tests slice by index.
+ *
+ * The wording avoids three live tripwires: no "The tell:" (a test counts
+ * thirteen, one per archetype), no "what was measured" (a test pins exactly one,
+ * and RULE 6 owns it), and it is emitted AFTER the first "RULES" heading, which
+ * another test uses to slice the archetype catalogue.
+ */
+function paperArc(slides: number): string {
+  // FROM THE SAME TABLE THE SCAN READS. Re-deriving `slides >= 8` here is how
+  // the prompt and the gate came to disagree about which roles were asked for.
+  const asked = requiredRoles(slides);
+  const full = asked.includes("intro");
+  return `
+
+PAPER ARC — this source was declared a research paper.
+
+Four beats have a structural job, and each one NAMES its job in \`role\`. Every
+other beat leaves \`role\` off. A role is a job, not a heading: never write
+"Related work" or "Conclusion" as a headline, because RULE 8 still applies to
+all four.
+${
+  full
+    ? `
+  role: "intro"        Near the front. What problem exists and who has it, in
+                       the viewer's own terms. This is the opening RULE 6
+                       already asks for, named so the deck can be checked.
+  role: "background"   In the first three beats. What people did before this
+                       work, and where that ran out. Take it from what the
+                       source itself says about earlier approaches — if the
+                       source says nothing about them, leave the role off
+                       rather than inventing a literature (RULE 3).`
+    : `
+This deck is short, so only the ENDING is required — an opening the deck
+already has is not worth a slide of its own here.`
+}
+  role: "limitations"  THE SECOND-TO-LAST beat. What the work does not do, in
+                       the source's own admission. Not a hedge inside another
+                       beat's sentence: its own slide.
+  role: "conclusion"   THE LAST beat, with nothing after it. What the viewer
+                       should carry away.
+
+  - The closing pair is TWO beats and they must not share an archetype (RULE 1).
+    A limitation the source admits to is usually a panel; the conclusion is the
+    claim the deck lands, so draw it where the source states it — bars, a
+    contrast, the figure that settles it — and fall back to a panel only when it
+    genuinely has no shape.
+  - Give all four a weight of 0.8 or above. A short cut keeps the
+    highest-weighted beats, and a structural beat below 0.8 is one the deck
+    loses at the first budget.
+  - If the source does not support one of these, LEAVE IT OUT. A slide that
+    admits a limitation the paper never admits is worse than no slide.
+`;
+}
+
 function illustrations(images: Prefs["images"]): string {
   return `
 
@@ -584,7 +647,7 @@ export function systemPrompt(prefs: Prefs): string {
   // what it can be is honest, which is why the LENGTH block below now says the
   // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
-  return `${rules(cadenceFor(prefs, plan))}${prefs.images.enabled ? illustrations(prefs.images) : ""}
+  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images) : ""}
 
 PREFERENCES — chosen by the person who asked for this deck.
 ${

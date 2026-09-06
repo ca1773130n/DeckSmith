@@ -176,7 +176,16 @@ export function selectBeats(
   if (!keep) {
     // The protected core alone busts the cap. Give the optimiser everything —
     // an over-length honest answer beats an exception nobody can act on.
-    const all = knapsack(live, len, cap, new Set());
+    // THE ENDS ARE NEVER RELEASED — the note above promises exactly that, and
+    // this path used to break the promise by retrying with an empty set, which
+    // gave up the terminals along with everything else and could return a
+    // one-beat deck with no ending at all. Retry with the terminals alone; only
+    // if even they do not fit does the answer become "everything to the
+    // optimiser", which is the honest over-length answer the note describes.
+    const ends = new Set(
+      [live[0]?.id, live[live.length - 1]?.id].filter((id): id is string => !!id),
+    );
+    const all = knapsack(live, len, cap, ends) ?? knapsack(live, len, cap, new Set());
     const chosen = all ?? [live[0] as Beat];
     return budgetDrops(live, chosen, dropped, storyboard, len, cap, budget, false);
   }
@@ -268,11 +277,52 @@ function protect(live: Beat[], len: (b: Beat) => number, cap: number): Set<strin
   const picture = cheapest && !ids.has(cheapest.id) ? [cheapest] : [];
   for (const b of picture) ids.add(b.id);
 
+  // A DECLARED STRUCTURAL ROLE IS LOAD-BEARING. `--genre paper` asks for a deck
+  // that ends on its limitations and then its conclusion, and the limitations
+  // beat sits at n-1 where nothing protected it: measured on an eight-beat
+  // paper-shaped deck at a 120s cap, it was the beat the optimiser dropped. It
+  // is also typically the deck's lowest-weighted, which the note above says is
+  // "precisely the one a threshold reaches for first".
+  //
+  // Protected here rather than exempted from the FLOOR, and the difference is
+  // deliberate. The floor is the author's own `--min-weight`, and overruling an
+  // instruction someone typed is worse than losing a slide; the floor also runs
+  // in a second place (`planCut`), so exempting it here alone would let a beat
+  // reach the cut having never been staged — budgeted at its authored seconds
+  // instead of its narrated length, and never drawability-checked. A role gets
+  // the optimiser's protection, not immunity from the author.
+  // A PIN IS ONLY A PIN THE OPTIMISER CAN HONOUR. `knapsack` makes a beat with
+  // `inside` admissible only when its container was kept, so pinning a role beat
+  // that dives into an unpinned one states a requirement the DP cannot satisfy —
+  // it returns undefined, and the fallback below then re-runs with NO
+  // protections at all. Measured: a nine-beat paper deck whose limitations beat
+  // dived into the results beat lost its conclusion entirely, and deleting the
+  // single word `role` from that beat fixed it. So a role beat brings its
+  // container with it, up the chain — the schema forces `inside.beat` to be the
+  // immediately preceding beat, so the walk is short and cannot cycle.
+  const byId = new Map(live.map((b) => [b.id, b]));
+  const roled: Beat[] = [];
+  for (const b of live) {
+    if (!b.role) continue;
+    for (
+      let hop: Beat | undefined = b;
+      hop && !ids.has(hop.id);
+      hop = byId.get(hop.inside?.beat ?? "")
+    ) {
+      ids.add(hop.id);
+      roled.push(hop);
+    }
+  }
+
   // A protection that cannot be honoured is not a protection: pretending
   // otherwise makes the optimiser infeasible instead of making the cut worse in
   // a stated way. Terminals are excluded from the list, so they survive it.
   const ends = new Set([first?.id, last?.id]);
-  const releasable = [...tier, ...coverage, ...picture]
+  // ONE list, sorted by value per second — not tiers. The note above records
+  // what tiered release cost: a whole family given up before one expensive
+  // favourite, which at 90 seconds took the demo's only equation. Role beats
+  // join the same list rather than forming a tier above it.
+  const releasable = [...tier, ...coverage, ...picture, ...roled]
     .filter((b) => !ends.has(b.id))
     .sort((a, b) => rate(a) - rate(b) || len(b) - len(a));
   const cost = () => live.filter((b) => ids.has(b.id)).reduce((s, b) => s + len(b), 0);
