@@ -1043,6 +1043,23 @@ describe("the ffmpeg arguments", () => {
     expect(graph).toContain("apad=whole_dur=30.000");
   });
 
+  it("normalises the mix to the delivery target, and measures before it pads", () => {
+    // Summed TTS lands about -21.5 LUFS — measured on the demo — against the
+    // -16 the web normalises to, which is roughly half the perceived loudness
+    // and reads as "no sound" rather than "quiet". No gate here looks at audio,
+    // so nothing said so.
+    const graph = audioGraph([{ file: "a.mp3", delayMs: 0 }], 30);
+    expect(graph).toContain("loudnorm=I=-16:TP=-1.5:LRA=11");
+    // ORDER IS THE POINT. `loudnorm` measures what it is handed, so padding the
+    // track out with silence first would put that silence in the measurement.
+    const norm = graph.indexOf("loudnorm");
+    const pad = graph.indexOf("apad=");
+    expect(norm).toBeGreaterThan(graph.indexOf("amix="));
+    expect(norm).toBeLessThan(pad);
+    // loudnorm hands back its own internal rate; the encoder wants 48 kHz.
+    expect(graph.slice(norm, pad)).toContain("aresample=48000");
+  });
+
   it("shifts the audio inputs past the caption bands", () => {
     // The bands take inputs 1..n, so the mp3s start after them. Off by one here
     // and `adelay` reads a PNG: the video comes out silent with every gate green.

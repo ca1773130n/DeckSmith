@@ -12,6 +12,7 @@
         "headline": "Compact thought collides with dense output",
         "sub": "Dense-Query Continuous Thought Machine (DQ-CTM)"
       },
+      "role": "intro",
       "intent": "Name the tension the paper is about.",
       "narration": "This paper puts a thought process that stays small up against a task whose output has to stay large — every pixel of it.",
       "evidence": [],
@@ -20,6 +21,53 @@
     },
     {
       "id": "b02",
+      "archetype": "callout",
+      "params": {
+        "eyebrow": "What came before",
+        "headline": "Two earlier answers, and what each gives up",
+        "panels": [
+          {
+            "label": "CTM",
+            "lines": [
+              "a compact thought state",
+              "no spatial field at all"
+            ]
+          },
+          {
+            "label": "Window-wise",
+            "lines": [
+              "one summary token per window",
+              "position is pooled away"
+            ]
+          },
+          {
+            "label": "This work",
+            "lines": [
+              "one query per position",
+              "the field survives every tick"
+            ]
+          }
+        ],
+        "note": "The three differ only in what each hands the thought block."
+      },
+      "role": "background",
+      "intent": "Earlier answers solved the shape mismatch by discarding the field; this one does not.",
+      "narration": "Two earlier answers exist, and each gives something up. CTM carries a compact thought state with no spatial field at all, and the window-wise adaptation pools every window down to one summary token, which throws position away. This work keeps one query per position, so the field survives every tick.",
+      "evidence": [
+        {
+          "kind": "figure",
+          "id": "fig-compare"
+        },
+        {
+          "kind": "section",
+          "id": "sec1b"
+        }
+      ],
+      "weight": 0.85,
+      "seconds": 10
+    },
+    {
+      "id": "b03",
       "archetype": "pipeline",
       "params": {
         "eyebrow": "Method",
@@ -63,7 +111,7 @@
       "seconds": 9
     },
     {
-      "id": "b03",
+      "id": "b04",
       "archetype": "annotated-figure",
       "params": {
         "eyebrow": "Architecture",
@@ -108,7 +156,7 @@
       "seconds": 9
     },
     {
-      "id": "b04",
+      "id": "b05",
       "archetype": "grid",
       "params": {
         "eyebrow": "Representation",
@@ -142,7 +190,7 @@
       "seconds": 9
     },
     {
-      "id": "b05",
+      "id": "b06",
       "archetype": "equation-walk",
       "params": {
         "eyebrow": "1 · Persistent dense carrier",
@@ -173,7 +221,7 @@
       "seconds": 9
     },
     {
-      "id": "b06",
+      "id": "b07",
       "archetype": "equation-morph",
       "params": {
         "eyebrow": "1 · Persistent dense carrier",
@@ -214,7 +262,7 @@
       "seconds": 9
     },
     {
-      "id": "b07",
+      "id": "b08",
       "archetype": "stack",
       "params": {
         "eyebrow": "2 · Compact thought",
@@ -245,7 +293,7 @@
       "seconds": 9
     },
     {
-      "id": "b08",
+      "id": "b09",
       "archetype": "claim-figure",
       "params": {
         "eyebrow": "3 · One dense tick",
@@ -269,7 +317,7 @@
       "seconds": 9
     },
     {
-      "id": "b09",
+      "id": "b10",
       "archetype": "bar-compare",
       "params": {
         "eyebrow": "Cost",
@@ -313,7 +361,7 @@
       "seconds": 9
     },
     {
-      "id": "b10",
+      "id": "b11",
       "archetype": "data-table",
       "params": {
         "eyebrow": "Quantitative comparison · ×4",
@@ -343,7 +391,7 @@
       "seconds": 9
     },
     {
-      "id": "b11",
+      "id": "b12",
       "archetype": "line-chart",
       "params": {
         "eyebrow": "Thought sweep · 100 validation images",
@@ -387,7 +435,7 @@
       "seconds": 9
     },
     {
-      "id": "b12",
+      "id": "b13",
       "archetype": "split-compare",
       "params": {
         "eyebrow": "Qualitative",
@@ -422,34 +470,76 @@
       "seconds": 9
     },
     {
-      "id": "b13",
+      "id": "b14",
       "archetype": "callout",
       "params": {
-        "eyebrow": "Read it with care",
-        "headline": "The same experiment reports three different numbers",
+        "eyebrow": "What it does not do",
+        "headline": "Competitive, and still short of the best lightweight models",
         "panels": [
           {
-            "label": "abstract",
+            "label": "the gap",
             "lines": [
-              "PSNR-Y 28.10 → 30.28",
-              "L1 0.0346 → 0.0235"
+              "CATANet averages 29.482",
+              "this method 28.983"
             ]
           },
           {
-            "label": "sweep table",
+            "label": "the ceiling",
             "lines": [
-              "PSNR-Y 28.91 → 30.47",
-              "L1 0.0386 → 0.0229"
+              "each tick buys less",
+              "flat after about four"
+            ]
+          },
+          {
+            "label": "the reporting",
+            "lines": [
+              "abstract says 28.10 → 30.28",
+              "the table says 28.91 → 30.47"
             ]
           }
         ],
-        "note": "The body states a 1.4611 dB gain where the table gives 0.59 dB."
+        "note": "The body claims a 1.4611 dB gain where its own table gives 0.59 dB."
       },
-      "intent": "A caveat a reader must carry into the paper.",
-      "narration": "One warning to carry into the paper itself. The abstract reports this sweep running from 28.10 up to 30.28. The table for the same sweep says 28.91 to 30.47, and the body quotes a gain of 1.46 decibels where the table gives 0.59.",
-      "evidence": [],
-      "weight": 0.7,
-      "seconds": 8
+      "role": "limitations",
+      "intent": "The idea holds, and the honest ceiling is that stronger models remain ahead.",
+      "narration": "The honest ceiling, before the takeaway. CATANet averages 29.482 against this method's 28.983, and each extra tick buys less than the one before it until the curve flattens after about four. The paper's own numbers disagree too: the abstract reports 28.10 to 30.28 where its table says 28.91 to 30.47.",
+      "evidence": [
+        {
+          "kind": "table",
+          "id": "tbl-bench"
+        },
+        {
+          "kind": "section",
+          "id": "sec3"
+        }
+      ],
+      "weight": 0.85,
+      "seconds": 10
+    },
+    {
+      "id": "b15",
+      "archetype": "claim-figure",
+      "params": {
+        "eyebrow": "What to take away",
+        "headline": "A carrier that survives every tick is enough to compete",
+        "claim": "A dense carrier held across ticks and read by a compact thought process matches CNN baselines at a comparable parameter count.",
+        "figureId": "fig-progress"
+      },
+      "role": "conclusion",
+      "intent": "What the viewer should carry away.",
+      "narration": "What to take away. A dense carrier held across every tick, read by a compact thought process, is enough to match CNN baselines at a comparable parameter count.",
+      "evidence": [
+        {
+          "kind": "section",
+          "id": "sec4"
+        },
+        {
+          "kind": "figure",
+          "id": "fig-progress"
+        }
+      ],
+      "weight": 0.9,
+      "seconds": 9
     }
   ]
 }
