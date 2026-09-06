@@ -60,8 +60,33 @@ type Params = BeatOf<"stack">["params"];
 
 /** Plane's right vertex to the label spine. */
 const GAP = 44;
-/** The index numerals get their own left spine; `NUM_X` is their right edge. */
+/**
+ * The index numerals get their own left spine; `NUM_X` is their right edge AT
+ * THE FLAT TYPE FLOOR, and it scales with the type from there.
+ *
+ * It has to scale because the numerals are right-aligned: the glyph grows
+ * LEFTWARD out of this spine, and a tilt raises the solved floor — 47.57px at 12
+ * degrees against 40 flat — so the digit reaches further left while the probe's
+ * dot stays at `PROBE_X`. Measured on the demo's focal hold, the amber dot was
+ * painted into the "4"'s stem: 25 overlapping ink pixels in a 6x9 box, on the
+ * frame the narration lands on and the audience looks at longest.
+ *
+ * NO GATE SAW IT, and that is the reason this is a constant with a story rather
+ * than a number. `content_overlap` compares HTML text blocks; this is two marks
+ * inside one `<svg>`, so the deck reported `PASS — 0 error(s)` over it.
+ *
+ * Proportional rather than a clearance calculation, so the flat case is
+ * arithmetically unchanged — `floor / MIN_FONT` is exactly 1 when nothing
+ * tilted, and every stack deck ever built stays byte-identical.
+ */
 const NUM_X = 48;
+
+/** Where the numerals' right edge lands once the type floor has moved. */
+export function numSpine(floor: number): number {
+  // Two places, like every other emitted coordinate: `n()` prints two decimals,
+  // so rounding here keeps the number the same shape it has always been.
+  return Math.round((NUM_X * floor * 100) / MIN_FONT) / 100;
+}
 
 /** The probe's spine, left of the numerals, and how tall its rule stands. */
 const PROBE_X = 16;
@@ -454,7 +479,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
             );
       const num = text(
         String(i + 1),
-        { x: NUM_X, y: mid },
+        { x: numSpine(L.floor), y: mid },
         { size: L.floor, weight: 600, fill: theme.dim, anchor: "end", vAlign: "middle" },
       );
 

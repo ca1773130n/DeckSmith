@@ -9,7 +9,7 @@
  * interpolation — where the notes are still set under their labels.
  */
 import { describe, expect, it } from "vitest";
-import { stack, stackLayout } from "../src/emit/archetypes/stack.js";
+import { numSpine, stack, stackLayout } from "../src/emit/archetypes/stack.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { tweenText } from "../src/emit/kit.js";
 import { MIN_FONT, textWidth } from "../src/emit/svg.js";
@@ -354,6 +354,60 @@ describe("stack in portrait", () => {
       expect(L.rise).toBeLessThanOrEqual(180);
       expect(L.sy).toBeLessThanOrEqual(100);
       expect(L.t).toBeLessThanOrEqual(18);
+    }
+  });
+});
+
+describe("the numeral spine moves with the type", () => {
+  /**
+   * FOUND ON A FRAME, NOT BY A GATE. At 12 degrees the solved floor rises from
+   * 40px to 47.57px, and the numerals are right-aligned — so the digit grows
+   * LEFTWARD out of its spine into the probe's dot. On the demo's focal hold the
+   * amber dot was painted into the "4"'s stem: five raster columns carrying both
+   * inks, on the frame the narration lands on. `verify` said `PASS — 0 error(s)`,
+   * because `content_overlap` compares HTML text blocks and this is two marks
+   * inside one `<svg>`.
+   */
+  const layout = (tilt?: number) =>
+    stackLayout(
+      {
+        headline: "The thought state is a stack",
+        layers: [
+          { label: "Dense carrier", note: "token count preserved" },
+          { label: "Dense queries", note: "one per position" },
+          { label: "Synchronisation", note: "neuron-level history" },
+          { label: "Compact state", note: "evolves per tick" },
+        ],
+        ...(tilt === undefined ? {} : { tilt }),
+      },
+      FORMATS["deck-16x9"] as Format,
+    );
+
+  it("leaves an untilted deck's numerals exactly where they were", () => {
+    // `floor / MIN_FONT` is exactly 1 flat, so the arithmetic cannot move a byte
+    // of any stack deck ever built. Verified end to end as well: the demo
+    // rebuilt with the tilt removed hashes identically to main's build of it.
+    expect(numSpine(layout().floor)).toBe(48);
+  });
+
+  it("pushes the numerals right in step with the tilted floor", () => {
+    const flat = numSpine(layout().floor);
+    const lean = numSpine(layout(12).floor);
+    expect(lean).toBeGreaterThan(flat);
+    // Proportional: the spine scales exactly as the type did.
+    expect(lean / flat).toBeCloseTo(layout(12).floor / layout().floor, 3);
+  });
+
+  it("keeps the numeral clear of the probe dot at every legal tilt", () => {
+    // The dot sits at PROBE_X (16) with radius 7, so its ink ends at x = 23. A
+    // digit at `floor` is about 0.62em wide, and the numeral is right-aligned on
+    // the spine, so its left edge is the spine minus that. Checked across the
+    // whole 0..18 range the schema allows, because the collision that started
+    // this only showed up at one of them.
+    for (const deg of [undefined, 6, 12, 18]) {
+      const l = layout(deg);
+      const leftEdge = numSpine(l.floor) - l.floor * 0.62;
+      expect(leftEdge).toBeGreaterThan(23);
     }
   });
 });
