@@ -532,13 +532,34 @@ approved but unscheduled, and with one new fact: cell 12 proves the timing half 
 solved (a canvas redrawn from a plugin's `render()` is seek-pure and byte-identical),
 so it joins the same timeline without a second animation model.
 
-> `[UNVERIFIED]` `seektest.mjs` reports cell 12 ink of **5,724 at t=2 on its first
-> pass and 5,825 on its second**, reproducibly across two full re-runs — the same
-> absolute time, two values. In isolation the cell is pure
-> (`review/canvas12.mjs`: 5,825 at t=2 from cold, after t=4, after t=0, with and
-> without suppression), so the discrepancy is unattributed. But "seek-pure and
-> byte-identical" is stated more strongly than the artifact supports. Re-measure
-> before scheduling three.js on it. What cannot be
+> `[RESOLVED 2026-09-06 — the flag is cleared, and the cause was the
+> instrument.]` `seektest.mjs` reported cell 12 ink of 5,724 at t=2 on its first
+> pass and 5,825 on its second, and that was never the canvas. Chrome starts a 2D
+> canvas GPU-accelerated and permanently drops it to CPU raster after exactly TWO
+> `getImageData` readbacks; the two rasterizers antialias the stroke's diagonals
+> differently, and the probe's `alpha > 10` count turned a 0.012% coverage
+> difference into a 101-pixel headline. `seektest` reads six times in one browser,
+> so t=2 was measured once on each backend. `canvas12.mjs` uses
+> `chrome-headless-shell`, which has no GPU rasterizer, so it never saw the split.
+>
+> The cell IS pure, proven at the input rather than at the pixels: the plugin
+> receives amplitude 70.035000000 then 70.000000000 on BOTH passes — exactly the
+> tween arithmetic — and emits an identical 226-command stream. Pixels are
+> byte-identical within a rasterizer (0 of 691,200), and an element screenshot,
+> which never calls `getImageData`, hashes the same across fresh browser
+> launches.
+>
+> **The durable lesson is bigger than the question: `getImageData` mutates the
+> page it measures, permanently.** The screenshot at one t hashes differently
+> before and after three readbacks, so a canvas gate built on readback would
+> report its own side effect. Nothing in `src/` does; keep it that way.
+>
+> Two things this does NOT settle. Everything measured is Canvas2D — a
+> three.js/WebGL cell's determinism is untested, and ANGLE backend and shader
+> precision are separate questions. And sizing the risk from this cell
+> understates it: a rasterizer flip on a 480x360 canvas measures 54 dB, but the
+> same flip full-frame is 43.26 dB, BELOW this deck's own floor.
+> `.planning/2026-09-06-canvas-seek-purity.md` carries the runs. What cannot be
 shared is the picture: a WebGL canvas is **one opaque rectangle** in the DOM
 stacking order. No annotation passes behind the mesh; no mesh occludes a caption.
 Treat it as a **leaf** the vocabulary places and times but never interpenetrates,
@@ -805,7 +826,7 @@ Source: `.planning/VOCABULARY-REVIEW.md`, evidence in
 | 4 | "B is not sandbagged" | **false.** Arm A got 3.0× the specification (32,274 vs 10,638 bytes) |
 | 4 | "arm A's only non-narration defect is a headline over 60 chars" | **false**, and the 60-char check is a proxy that renders fine |
 | 4 | "the failures are all placement, never structure" | **arm B only**, and only as measured |
-| 5 | canvas cell 12 "seek-pure and byte-identical" | **unverified.** Its own artifact reports two values at t=2 |
+| 5 | canvas cell 12 "seek-pure and byte-identical" | ~~unverified~~ → **RESOLVED 2026-09-06, and the claim stands for Canvas2D.** The two values at t=2 were the probe's own `getImageData` flipping Chrome from GPU to CPU raster after two readbacks, not the canvas. See `.planning/2026-09-06-canvas-seek-purity.md` |
 | 7 | "≈ 8–13 weeks" | **cost of starting.** 14–20 weeks with migration and a re-costed Seam B |
 | 8 | "every encouraging number comes from the menu" | **half wrong**; the dangling-reference number is arm B's |
 
