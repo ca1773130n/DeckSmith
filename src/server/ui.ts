@@ -699,6 +699,11 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
           <h2 class="sec" id="lbl-density">Density</h2>
           <div class="seg" id="density" role="radiogroup" aria-labelledby="lbl-density"></div>
         </div>
+        <div>
+          <h2 class="sec" id="lbl-genre">Genre</h2>
+          <div class="seg" id="genre" role="radiogroup" aria-labelledby="lbl-genre"></div>
+          <span class="sub">Paper asks for an intro and background at the front, then limitations and a conclusion at the end. Declared, never guessed.</span>
+        </div>
       </div>
       <div class="row">
         <div>
@@ -1631,6 +1636,11 @@ paintFormats();
 paintThemes();
 paintSeg("tone", ["plain", "academic", "conversational", "punchy"], "plain");
 paintSeg("density", ["sparse", "normal", "dense"], "normal");
+/* DECLARED, NEVER SNIFFED, which is why this is a control and not a detector.
+   A ten-role heading lexicon over all 351 markdown files in the repository
+   scored 345 of them at zero hits: what this tool ingests is an ANALYSIS of a
+   paper, and that rewrite has already dropped the headings a detector needs. */
+paintSeg("genre", ["general", "paper"], "general");
 paintSeg("narrationDensity", ["high", "medium", "low"], "high");
 
 /* Refresh the picker from the server when it can tell us; the inlined table is

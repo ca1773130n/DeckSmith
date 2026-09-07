@@ -115,7 +115,17 @@ console.log("  dist/types/index.d.ts");
 // Here rather than in a test, because `prepare` runs this on the consumer's
 // machine during a git install, where no test suite runs at all.
 const { bin, main, types } = require("../package.json");
-const promised = { ...bin, main, types, "ds-morph": "dist/ds-morph.js" };
+// `deck-runtime` is named here for the same reason `ds-morph` is: it is read at
+// BUILD time by src/cli.ts through `import.meta.url`, so a tarball missing it
+// fails at a user's first navigable deck rather than here. Nothing in
+// package.json points at either, so nothing else would have noticed.
+const promised = {
+  ...bin,
+  main,
+  types,
+  "ds-morph": "dist/ds-morph.js",
+  "deck-runtime": "dist/deck-runtime.js",
+};
 const missing = [];
 for (const [name, file] of Object.entries(promised)) {
   if (!file) continue;

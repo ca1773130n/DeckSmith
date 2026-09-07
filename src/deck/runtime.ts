@@ -197,7 +197,7 @@ interface Frame {
  * `deck.html` from the filesystem gives the iframe an opaque origin and we
  * cannot drive it. `present()` says so out loud rather than rendering blank.
  */
-function frameOf(player: Player): Frame | null {
+export function frameOf(player: Player): Frame | null {
   const iframe =
     player.shadowRoot?.querySelector("iframe") ?? player.querySelector("iframe") ?? null;
   try {
@@ -205,7 +205,26 @@ function frameOf(player: Player): Frame | null {
     const win = iframe?.contentWindow as
       | (Window & { __timelines?: Record<string, Seekable> })
       | null;
-    return doc && win ? { doc, timelines: win.__timelines ?? {} } : null;
+    // READ THROUGH TO THE WINDOW, never a snapshot of it. This used to copy
+    // `win.__timelines` into the returned object, and the copy is taken ONCE, at
+    // `frameOf(player)` below. A composition whose scene scripts had not run at
+    // that instant handed back a frozen empty map — and `paint` then goes on
+    // toggling `display` correctly while every `timelines[sceneId]?.seek(...)`
+    // no-ops, so the deck navigates perfectly and shows every scene at its
+    // `from` state, with nothing to see in any log.
+    //
+    // Today the ordering saves it — deck.html's own DOMContentLoaded, then
+    // `whenReady`, by which point the composition has registered — but that is
+    // a race that has not fired rather than one that cannot. A getter costs
+    // nothing and removes the ordering from the contract.
+    return doc && win
+      ? {
+          doc,
+          get timelines() {
+            return win.__timelines ?? {};
+          },
+        }
+      : null;
   } catch {
     return null; // cross-origin
   }
