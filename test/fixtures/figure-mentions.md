@@ -55,3 +55,11 @@ The error concentrates on edges, which the maps below make obvious.
 ![raw](raw.png)
 
 *Figure 9 — Raw sensor frames, kept for completeness.*
+
+## Leftovers
+
+]
+
+![stray](stray.png)
+
+*A figure whose only neighbour is punctuation.*
