@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Embedding a DeckSmith deck</title>
+
+<!--
+  THIS PAGE IS THE PROOF, NOT A TUTORIAL.
+
+  Everything below is what a third party writes. It loads one module, uses one
+  element, and knows exactly one thing about DeckSmith: where a deck is. It does
+  not know that hyperframes exists, that a deck carries a slideshow island, or
+  that there is a build behind any of it — which is the test the design was
+  chosen against.
+
+  TWO PLAYERS ARE ON THE PAGE ON PURPOSE. `customElements.define` is one
+  registry per document, and the rejected design — hosting the deck's own
+  vendored player in this page — throws on the second one. Driving one deck
+  while the other stays put is the cheapest demonstration that the boundary
+  landed in the right place.
+
+  DECK URLS COME FROM THE PAGE, NOT FROM A CONSTANT. The dev server gives every
+  job an unguessable id and serves its deck at /d/<id>/, so there is no fixed
+  URL a static page could point at. Paste one in, or pass ?a=&b=. Copied next
+  to a built deck and opened over any static server, ./deck/ is the default and
+  the fields can be ignored.
+-->
+
+<style>
+  :root { color-scheme: light dark; --fg:#111318; --dim:#5a6270; --line:#dfe3ea; --bg:#fff; --accent:#2f6df6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e8ecf3; --dim:#98a2b3; --line:#252a33; --bg:#0d1014; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:1180px; margin:0 auto; padding:32px 24px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; letter-spacing:-0.01em; }
+  .lede { color:var(--dim); margin:0 0 22px; max-width:64ch; }
+  pre { background:color-mix(in srgb, var(--fg) 5%, transparent); border:1px solid var(--line);
+        border-radius:10px; padding:14px 16px; overflow:auto; margin:0 0 26px;
+        font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
+
+  form { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 26px; align-items:center; }
+  input { flex:1 1 300px; min-width:0; font:13px ui-monospace,Menlo,monospace; padding:7px 10px;
+          border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--fg); }
+  button { font:inherit; font-size:13px; padding:6px 12px; border:1px solid var(--line);
+           background:var(--bg); color:var(--fg); border-radius:7px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  button:disabled { opacity:.45; cursor:default; }
+
+  .decks { display:grid; gap:26px; grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); }
+  .card { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .bar { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--line);
+         background:color-mix(in srgb, var(--fg) 4%, transparent); }
+  .bar .name { font:12px ui-monospace,Menlo,monospace; color:var(--dim); margin-right:auto;
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .count { font:12px ui-monospace,Menlo,monospace; color:var(--dim); }
+
+  /* The element is a block that fills the box it is given. The deck inside keeps
+     its own aspect ratio, so give the box the deck's. */
+  decksmith-player { display:block; width:100%; aspect-ratio:16/9; background:#0b0d11; }
+
+  .jump { display:flex; flex-wrap:wrap; gap:4px; padding:10px 12px; border-top:1px solid var(--line);
+          max-height:112px; overflow:auto; }
+  .jump button { padding:2px 8px; font:11px ui-monospace,Menlo,monospace; }
+  .jump button[aria-current=true] { border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .notes, .warn { padding:10px 12px; border-top:1px solid var(--line); font-size:13px; }
+  .notes { color:var(--dim); min-height:38px; }
+  .warn { color:#b4690e; display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Embedding a DeckSmith deck</h1>
+  <p class="lede">
+    Everything on this page is what a third party writes. One module, one
+    element, and one thing you have to know — where the deck is.
+  </p>
+  <p class="lede">
+    The numbered buttons are stops, not slides. A deck pauses several times
+    inside one slide, so the counter shows the deck’s own slide number and the
+    stop index side by side.
+  </p>
+
+<pre>&lt;script type="module" src="/player.js"&gt;&lt;/script&gt;
+&lt;decksmith-player deck="/d/&lt;id&gt;/"&gt;&lt;/decksmith-player&gt;</pre>
+
+  <form id="pick">
+    <input id="ua" placeholder="deck URL, e.g. /d/abc123/ or ./deck/" />
+    <input id="ub" placeholder="a second deck URL (optional)" />
+    <button type="submit">Load</button>
+  </form>
+
+  <div class="decks">
+    <div class="card">
+      <div class="bar">
+        <span class="name" id="n1">no deck</span>
+        <button data-act="prev" data-for="p1" disabled>Prev</button>
+        <button data-act="next" data-for="p1" disabled>Next</button>
+        <button data-act="play" data-for="p1" disabled>Play</button>
+        <span class="count" id="c1">–</span>
+      </div>
+      <decksmith-player id="p1"></decksmith-player>
+      <div class="jump" id="j1"></div>
+      <div class="notes" id="s1"></div>
+      <div class="warn" id="w1"></div>
+    </div>
+
+    <div class="card">
+      <div class="bar">
+        <span class="name" id="n2">no deck</span>
+        <button data-act="prev" data-for="p2" disabled>Prev</button>
+        <button data-act="next" data-for="p2" disabled>Next</button>
+        <button data-act="play" data-for="p2" disabled>Play</button>
+        <span class="count" id="c2">–</span>
+      </div>
+      <decksmith-player id="p2"></decksmith-player>
+      <div class="jump" id="j2"></div>
+      <div class="notes" id="s2"></div>
+      <div class="warn" id="w2"></div>
+    </div>
+  </div>
+
+  <p class="lede" style="margin-top:28px">
+    Drive one and the other stays where it is. Each deck is its own document, so
+    two on one page do not fight over a custom-element registry, a stylesheet or
+    a keyboard.
+  </p>
+</main>
+
+<script type="module" src="/player.js"></script>
+<script>
+/* A PLAIN SCRIPT, NOT A MODULE: nothing here imports anything. A consumer wires
+   the element with the DOM API they already have. */
+
+function wire(id, name, count, jump, notes, warn) {
+  var el = document.getElementById(id);
+  var buttons = document.querySelectorAll('[data-for="' + id + '"]');
+
+  el.addEventListener("ds-ready", function (e) {
+    document.getElementById(name).textContent =
+      el.getAttribute("deck") + " — " + e.detail.stops.length + " stops";
+    buttons.forEach(function (b) { b.disabled = false; });
+    var box = document.getElementById(jump);
+    box.textContent = "";
+    e.detail.stops.forEach(function (stop) {
+      var b = document.createElement("button");
+      b.textContent = String(stop.i + 1);
+      b.title = stop.label;
+      b.addEventListener("click", function () { el.go(stop.i); });
+      box.appendChild(b);
+    });
+    mark(box, e.detail.at);
+  });
+
+  /* BOTH NUMBERS, because they disagree and the disagreement is the point. A
+     deck stops several times inside one slide — 46 stops across 15 slides in
+     the demo — so `label`, which is the deck's own "slide / slides" chrome,
+     does not match the jump list, which is one button per stop. Showing only
+     one of them makes clicking button 6 and reading "2 / 15" look like a bug. */
+  el.addEventListener("ds-stop", function (e) {
+    document.getElementById(count).textContent =
+      e.detail.label + " · stop " + (e.detail.at + 1) + "/" + e.detail.total;
+    document.getElementById(notes).textContent = e.detail.notes || "";
+    mark(document.getElementById(jump), e.detail.at);
+    var play = document.querySelector('[data-act=play][data-for="' + id + '"]');
+    if (play) play.textContent = e.detail.playing ? "Pause" : "Play";
+  });
+
+  /* TWO FAILURES, AND THEY ARE NOT THE SAME. `no-bridge` means the deck loaded
+     and did not answer — it was built before the bridge existed, it still
+     plays, and only these controls are dead. `bad-deck-url` means nothing
+     loaded at all. Reporting either as the other sends the reader looking in
+     the wrong place. */
+  el.addEventListener("ds-error", function (e) {
+    var box = document.getElementById(warn);
+    box.style.display = "block";
+    box.textContent =
+      e.detail.reason === "bad-deck-url"
+        ? e.detail.message + " Check the address — a deck URL is a directory, like /d/<id>/ or ./deck/."
+        : "This deck does not answer the player bridge (" + e.detail.reason +
+          "). It still plays, and its own keyboard still works — the controls above cannot drive it.";
+    buttons.forEach(function (b) { b.disabled = true; });
+  });
+}
+
+function mark(box, at) {
+  for (var i = 0; i < box.children.length; i++) {
+    box.children[i].setAttribute("aria-current", String(i === at));
+  }
+}
+
+function reset(id, name, count, jump, notes, warn) {
+  document.getElementById(name).textContent = "no deck";
+  document.getElementById(count).textContent = "–";
+  document.getElementById(jump).textContent = "";
+  document.getElementById(notes).textContent = "";
+  document.getElementById(warn).style.display = "none";
+  document.querySelectorAll('[data-for="' + id + '"]').forEach(function (b) { b.disabled = true; });
+}
+
+/* Setting `deck` on a live element re-mounts it, so loading a second deck is
+   one attribute write — no teardown for the consumer to remember. */
+function load(id, url, parts) {
+  var el = document.getElementById(id);
+  if (!url) { el.removeAttribute("deck"); reset.apply(null, parts); return; }
+  reset.apply(null, parts);
+  el.setAttribute("deck", url);
+}
+
+document.querySelectorAll("[data-act]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var el = document.getElementById(b.dataset.for);
+    if (b.dataset.act === "next") el.next();
+    else if (b.dataset.act === "prev") el.prev();
+    else el.play(b.textContent === "Play");
+  });
+});
+
+var A = ["p1", "n1", "c1", "j1", "s1", "w1"];
+var B = ["p2", "n2", "c2", "j2", "s2", "w2"];
+wire.apply(null, A);
+wire.apply(null, B);
+
+var q = new URLSearchParams(location.search);
+var a = q.get("a") || "";
+var b = q.get("b") || "";
+document.getElementById("ua").value = a;
+document.getElementById("ub").value = b;
+
+document.getElementById("pick").addEventListener("submit", function (e) {
+  e.preventDefault();
+  load("p1", document.getElementById("ua").value.trim(), A);
+  load("p2", document.getElementById("ub").value.trim(), B);
+});
+
+if (a) load("p1", a, A);
+if (b) load("p2", b, B);
+</script>
+</body>
+</html>

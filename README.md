@@ -279,6 +279,8 @@ for pictures still finishes, on the tool's own SVG if it has to.
 | `GET /api/jobs/:id/events` | the same payload as SSE on every change |
 | `GET /api/formats` | the presets, themes, tones, densities and canvas bounds the picker draws from |
 | `GET /d/:id/...` | the built deck, served statically; `/d/:id/deck.html` is the player |
+| `GET /player.js` | the `<decksmith-player>` element, as an ES module — see below |
+| `GET /examples/embed.html` | a page that embeds two decks with it, and the file you copy |
 
 Options on `POST`, all optional, all defaulted server-side: `format`, `width`+`height`,
 `theme`, `slides`, `lang`, `tone`, `density`, `speed`, `narrate`, `voice`, `images`,
@@ -849,6 +851,42 @@ Full writeup, including the control experiment that settled it:
 The corollary is worth internalising before you trust a green gate: `check` has passed
 twice on artifacts that were broken. The gates verify the mechanics of what the structure
 exposes, and a structurally wrong deck exposes nothing to check.
+
+### Embedding a deck in your own page
+
+The same step layer is reachable from outside as a custom element. A consumer learns one
+thing — where the deck is:
+
+```html
+<script type="module" src="/player.js"></script>
+<decksmith-player deck="/d/<id>/"></decksmith-player>
+```
+
+`next()`, `prev()`, `go(i)` and `play(on)` are methods; `ds-ready`, `ds-stop` and
+`ds-error` are events. `ds-ready` carries every stop the deck can land on, which is what
+a jump list is built from. Setting `deck` again swaps the deck in place.
+
+**The iframe stays, and is the module boundary.** It is tempting to mount the deck
+inline instead, and three facts in this tree rule it out. `frameOf` reads
+`contentDocument` and returns null cross-origin while the runtime only warns, so an
+inlined deck served from a CDN would navigate perfectly and paint nothing, silently.
+`customElements.define` is one registry per document, so two decks would be two vendored
+hyperframes bundles and the second `define` throws. And the deck's own chrome is written
+against `100vh` being the box, which is true inside a frame and quietly wrong outside it.
+Keeping the frame leaves the same-origin pair as `deck.html`↔`index.html`, one directory,
+always true — and makes the host link `postMessage`, which does not care about origin.
+
+**Silence is a supported state.** A deck is a static artifact that outlives the tool that
+built it, and every deck built before this change has no bridge in it. The element waits,
+gives up, emits `ds-error` with reason `no-bridge`, and leaves the deck exactly as usable
+as it was — still a deck in a frame, its own keyboard still working. It does not blank and
+it does not throw.
+
+`examples/embed.html` is both the demo the dev server serves at `/examples/embed.html`
+and the file you copy next to a built deck. Nothing in `lint`, `check`, `verify`, `drift`
+or `render` opens a deck page, so a browser pass is the only instrument that can tell you
+any of this works. The design note is
+[`.planning/2026-09-07-player-as-a-module.md`](.planning/2026-09-07-player-as-a-module.md).
 
 ## Invariants the generator enforces
 

@@ -763,6 +763,33 @@ describe("the HTTP surface", () => {
     throw new Error("job never settled");
   }
 
+  /**
+   * BOTH STATIC ROUTES, AND WHY THE ASSERTION IS 500 RATHER THAN 200.
+   *
+   * `/player.js` and `/examples/embed.html` resolve their file relative to
+   * `import.meta.url`, so a shipped `dist/server/http.js` reaches
+   * `dist/deck-player-element.js` and `dist/embed.html` as siblings-of-a-parent.
+   * Run from source, that same expression points into `src/`, where neither
+   * exists — the same source-tree gap the `illustrate` suite below records for
+   * `dist/deck-runtime.js`. So what a source test can prove is that the ROUTE
+   * is there and that its failure is legible: never a 404, and an error that
+   * names the command which produces the file. That the file is produced at all
+   * is gated in scripts/build.mjs, whose `promised` map now includes both.
+   */
+  it.each([
+    ["/player.js", "dist/deck-player-element.js"],
+    ["/examples/embed.html", "dist/embed.html"],
+  ])("routes %s and, missing its artifact, says which build makes it", async (path, artifact) => {
+    const { base } = await serve();
+    const res = await fetch(`${base}${path}`);
+    expect(res.status, `${path} must be routed, not fall through to the 404 arm`).not.toBe(404);
+    if (res.status === 200) return; // A dist-tree run: the artifact is there.
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { message: string; hint: string } };
+    expect(body.error.hint).toContain("npm run build");
+    expect(body.error.hint).toContain(artifact);
+  });
+
   it("publishes the format catalogue the picker needs", async () => {
     const { base } = await serve();
     const body = (await (await fetch(`${base}/api/formats`)).json()) as {

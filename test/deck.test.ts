@@ -6,6 +6,7 @@ import {
   buildStops,
   findStop,
   formatHash,
+  frameOf,
   parseHash,
   planTransition,
   type SlideSpec,
@@ -23,7 +24,13 @@ describe("the bundle deck.html inlines", () => {
     // or to hang `.ds-live` off the root — would put that literal in a
     // root-level HTML file and trip lint's multiple_root_compositions
     // (invariant 9). Scenes are addressed by the ids the island already carries.
-    for (const file of ["runtime.ts", "subtitles.ts"]) {
+    for (const file of [
+      "runtime.ts",
+      "subtitles.ts",
+      "protocol.ts",
+      "player.ts",
+      "player-element.ts",
+    ]) {
       const src = await readFile(new URL(`../src/deck/${file}`, import.meta.url), "utf8");
       expect(src).not.toContain("data-composition-id");
     }
@@ -151,5 +158,46 @@ describe("hash", () => {
     expect(findStop(stops, { slide: 1, fragment: 0 })).toBe(1);
     expect(findStop(stops, { slide: 1, fragment: 7 })).toBe(1);
     expect(findStop(stops, { slide: 9, fragment: 0 })).toBe(-1);
+  });
+});
+
+describe("frameOf reads the composition through the window", () => {
+  /**
+   * The frame used to SNAPSHOT `win.__timelines`, and the snapshot is taken once.
+   * A composition whose scene scripts had not run by then handed back a frozen
+   * empty map: `paint` goes on toggling `display` correctly while every
+   * `seek()` no-ops, so the deck navigates perfectly and shows every scene at
+   * its `from` state — with nothing in any log. Today's ordering saves it; that
+   * is a race that has not fired, not one that cannot.
+   */
+  const fakePlayer = (win: Record<string, unknown>) => {
+    const iframe = { contentDocument: { documentElement: {} }, contentWindow: win };
+    return {
+      querySelector: () => iframe,
+      shadowRoot: null,
+    } as unknown as Parameters<typeof frameOf>[0];
+  };
+
+  it("sees a timeline registered AFTER the frame was taken", () => {
+    const win: Record<string, unknown> = {};
+    const frame = frameOf(fakePlayer(win));
+    expect(frame).not.toBeNull();
+    expect(frame?.timelines).toEqual({});
+    // The composition registers late — which is exactly the ordering the deck
+    // relies on today and the one nothing enforces.
+    const seekable = { seek: () => {} };
+    win.__timelines = { s1: seekable };
+    expect(frame?.timelines.s1).toBe(seekable);
+  });
+
+  it("still returns an empty map when the page never registers one", () => {
+    expect(frameOf(fakePlayer({}))?.timelines).toEqual({});
+  });
+
+  it("is null when the frame cannot be reached at all", () => {
+    const blind = { querySelector: () => null, shadowRoot: null } as unknown as Parameters<
+      typeof frameOf
+    >[0];
+    expect(frameOf(blind)).toBeNull();
   });
 });

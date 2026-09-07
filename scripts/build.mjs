@@ -5,7 +5,7 @@
 // consumer without one. esbuild directly rather than a build framework — there
 // is no fifth case coming.
 import { execFileSync } from "node:child_process";
-import { access, rename, rm } from "node:fs/promises";
+import { access, copyFile, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 
@@ -57,6 +57,32 @@ await build({
   format: "iife",
   minify: true,
 });
+
+// The player, as a module a host page imports — an ESM build, not an IIFE,
+// because the whole point is that a consumer can `import { define }` from it.
+// Two entry points: the class and its guarded `define`, and a two-line
+// side-effecting one that registers the element for a bare <script type=module>.
+for (const [entry, out] of [
+  ["src/deck/player.ts", "dist/deck-player.js"],
+  ["src/deck/player-element.ts", "dist/deck-player-element.js"],
+]) {
+  await build({
+    ...shared,
+    entryPoints: [entry],
+    outfile: out,
+    platform: "browser",
+    target: "es2022",
+    format: "esm",
+    minify: true,
+  });
+}
+
+// The embedding example, copied rather than generated. `files` is
+// ["dist","README.md"], so a page left in examples/ ships to nobody — and the
+// point of this one is that it is the plain HTML a consumer copies, not a page
+// our server renders. Copying keeps one file that is both the served demo and
+// the thing you paste into your own app.
+await copyFile("examples/embed.html", "dist/embed.html");
 
 // The equation morph's runtime, vendored into a deck by the CLI. Same shape as
 // the step layer: an IIFE the composition loads by `<script src>`, so its
@@ -115,7 +141,20 @@ console.log("  dist/types/index.d.ts");
 // Here rather than in a test, because `prepare` runs this on the consumer's
 // machine during a git install, where no test suite runs at all.
 const { bin, main, types } = require("../package.json");
-const promised = { ...bin, main, types, "ds-morph": "dist/ds-morph.js" };
+// `deck-runtime` is named here for the same reason `ds-morph` is: it is read at
+// BUILD time by src/cli.ts through `import.meta.url`, so a tarball missing it
+// fails at a user's first navigable deck rather than here. Nothing in
+// package.json points at either, so nothing else would have noticed.
+const promised = {
+  ...bin,
+  main,
+  types,
+  "ds-morph": "dist/ds-morph.js",
+  "deck-runtime": "dist/deck-runtime.js",
+  "deck-player": "dist/deck-player.js",
+  "deck-player-element": "dist/deck-player-element.js",
+  embed: "dist/embed.html",
+};
 const missing = [];
 for (const [name, file] of Object.entries(promised)) {
   if (!file) continue;

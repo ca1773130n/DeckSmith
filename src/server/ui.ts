@@ -543,6 +543,11 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
   .seg label{padding:9px 12px}
 }
 </style>
+<!-- The player module. Deferred by nature (type=module), so the page paints
+     without it and mount() feature-detects the element rather than assuming it.
+     A stale install with no dist/deck-player-element.js falls back to the
+     iframe and loses nothing. -->
+<script type="module" src="/player.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -699,6 +704,11 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
           <h2 class="sec" id="lbl-density">Density</h2>
           <div class="seg" id="density" role="radiogroup" aria-labelledby="lbl-density"></div>
         </div>
+        <div>
+          <h2 class="sec" id="lbl-genre">Genre</h2>
+          <div class="seg" id="genre" role="radiogroup" aria-labelledby="lbl-genre"></div>
+          <span class="sub">Paper asks for an intro and background at the front, then limitations and a conclusion at the end. Declared, never guessed.</span>
+        </div>
       </div>
       <div class="row">
         <div>
@@ -766,6 +776,10 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
         <button class="iconbtn" id="d-full">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 9V5.5A1.5 1.5 0 015.5 4H9M15 4h3.5A1.5 1.5 0 0120 5.5V9M20 15v3.5a1.5 1.5 0 01-1.5 1.5H15M9 20H5.5A1.5 1.5 0 014 18.5V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           Full screen
+        </button>
+        <button class="iconbtn" id="d-embed" title="Open this deck in the embedding example">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Embed
         </button>
         <button class="iconbtn" id="d-open">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v4.5A1.5 1.5 0 0116.5 20h-11A1.5 1.5 0 014 18.5v-11A1.5 1.5 0 015.5 6H10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1562,6 +1576,28 @@ function mount(kind, r){
     }
     canvas.appendChild(v);
     $("d-who").textContent = String(r.videoUrl).split("/").pop() || "video.mp4";
+  } else if (r.deckUrl && customElements.get("decksmith-player")) {
+    // THE MODULE PATH. Same artifact a third party would import — this page is
+    // the element's first consumer rather than a special case of it, which is
+    // the only way we find out whether the API is usable before someone else
+    // does. Falls through to the iframe below when /player.js did not load, so
+    // a stale install degrades to exactly what it did before.
+    viewer.style.setProperty("--chrome", "0px");
+    var p = document.createElement("decksmith-player");
+    p.setAttribute("deck", String(r.deckUrl).replace(/deck.html$/, ""));
+    p.setAttribute("label", "The built deck");
+    p.style.cssText = "display:block;width:100%;height:100%";
+    p.addEventListener("ds-ready", function(e){
+      $("d-who").textContent = "deck \u00b7 " + e.detail.stops.length + " stops";
+    });
+    p.addEventListener("ds-error", function(e){
+      // Not a failure state for the user: the deck plays, it just cannot be
+      // driven from out here. Say so where the filename goes and move on.
+      $("d-who").textContent = "deck.html";
+      if (window.console) console.info("decksmith-player:", e.detail.reason);
+    });
+    canvas.appendChild(p);
+    $("d-who").textContent = "deck";
   } else if (r.deckUrl) {
     var f = document.createElement("iframe");
     f.src = r.deckUrl;
@@ -1631,6 +1667,11 @@ paintFormats();
 paintThemes();
 paintSeg("tone", ["plain", "academic", "conversational", "punchy"], "plain");
 paintSeg("density", ["sparse", "normal", "dense"], "normal");
+/* DECLARED, NEVER SNIFFED, which is why this is a control and not a detector.
+   A ten-role heading lexicon over all 351 markdown files in the repository
+   scored 345 of them at zero hits: what this tool ingests is an ANALYSIS of a
+   paper, and that rewrite has already dropped the headings a detector needs. */
+paintSeg("genre", ["general", "paper"], "general");
 paintSeg("narrationDensity", ["high", "medium", "low"], "high");
 
 /* Refresh the picker from the server when it can tell us; the inlined table is
@@ -1728,6 +1769,14 @@ on($("d-full"), "click", function(){
   if (document.fullscreenElement) document.exitFullscreen();
   else if (v.requestFullscreen) v.requestFullscreen().catch(function(){ toast("Full screen was blocked"); });
   else toast("This browser will not go full screen");
+});
+/* The embedding example, with this deck already in it. Always the DECK url even
+   on the video tab: the example demonstrates the player element, and there is
+   nothing to embed about an mp4. */
+on($("d-embed"), "click", function(){
+  var url = (mounted.result || {}).deckUrl;
+  if (url) window.open("/examples/embed.html?a=" + encodeURIComponent(url), "_blank", "noopener");
+  else toast("This job produced no deck to embed");
 });
 on($("d-open"), "click", function(){
   var r = mounted.result || {};
