@@ -51,7 +51,9 @@ decksmith unpack  talk.deck        -o reopened/
 ```
 
 - **ingest** — document to `Source`: sections, figures, equations and tables, each with a
-  stable id so a later stage can point back at it.
+  stable id so a later stage can point back at it. Give it an http(s) URL instead of a
+  path and it reads the page in a browser first — see "Ingesting a web page" below, which
+  also says what happens to a video.
 - **plan** — `Source` to `Storyboard`: an ordered list of beats. Each beat carries an
   `intent` (what the viewer should understand), an optional `claim` it is accountable to,
   `evidence` refs into the Source, a `weight`, and an archetype with its parameters.
@@ -107,6 +109,77 @@ decksmith unpack  talk.deck        -o reopened/
   general on this stack.
 - **pack** / **unpack** — the whole deck as one `.deck` file, and back again. See "The
   `.deck` container" below.
+
+### Ingesting a web page
+
+`ingest` takes a URL wherever it takes a file:
+
+```sh
+decksmith ingest https://example.com/the-paper -o source.json
+```
+
+It opens a headless Chrome, puts the page's own bytes into it, and **aborts every request
+the page then makes**. A browser pointed at a stranger's URL is otherwise an open proxy —
+the page says `<img src="http://169.254.169.254/latest/meta-data/">` and the browser
+fetches it from inside your network. So the HTML comes through the same address guard
+everything else here uses, and each figure is fetched afterwards, one at a time, through
+that guard again. That has a cost, and it is stated rather than discovered: a page that assembles its body
+from an external bundle harvests to almost nothing, because that bundle was one of the
+aborted requests. Save the page and ingest the file.
+
+Which part of the page becomes the document is scored the way Readability scores it: strip
+what the tag, the ARIA role or the class name says is chrome, score every paragraph by its
+length and its commas, propagate that up to five levels of ancestor, discount each
+candidate by its link density, then merge the winner with the siblings that score near it.
+That is what keeps a consent banner and a 142-comment thread out of a deck about the
+article. When it is not sure it declines, says so, and leaves the page to a blunter rule —
+believe `<main>`, believe `<article>`, else take the densest container. Either way the
+line after it is the one to read:
+
+```
+ingest: harvested "Sparse attention at scale" — 6 images, 1 clips
+ingest: 9 sections, 6 figures, 0 equations
+```
+
+Nine sections for a nine-section article is the extraction working. Ninety is the page.
+
+**A video has three cases, and they are three different decks.**
+
+- **A file the page serves** — `<video src="…mp4">`, or a link ending in one — is
+  downloaded, measured off its own container, and re-encoded to a VP9 webm no more than
+  1280px on its longest edge, with the audio dropped and the length capped at 60 seconds.
+  It **plays in the presented deck and in the rendered mp4**: the composition holds a real
+  `<video>` seeked on the deck's own clock. The encode is why the cap exists — `render`
+  pre-decodes a clip to one still per output frame before capture begins, at the source's
+  own resolution, so a 4K original writes 4K stills into an 860px plate. **If ffmpeg is
+  not installed the clip is still used**, exactly as the page served it, and the harvest
+  says so in a warning naming what to install. `--no-transcode` asks for that on purpose;
+  `--max-clip-seconds` moves the cap.
+- **A player-page link** — YouTube, Vimeo, Dailymotion, Loom — keeps its still and where
+  to watch it. The **mp4 gets the poster frame**, because that is all a captured document
+  can honestly hold. The **presented deck gets the real player**: `deck.html` carries the
+  embeddable form of that URL, and a `▶ Video` button (or `v`) opens it over the slide,
+  click to play, torn down when you leave the slide. Nothing is fetched until you press
+  it, and `index.html` never gains an iframe — a third-party frame in the captured
+  document would play at wall-clock speed while the deck is being seeked, and refetch
+  itself from the network on every render.
+
+  **The bytes are deliberately not downloaded.** They sit behind a manifest, DRM or terms,
+  and pulling down what a YouTube link stands for is usually against that site's terms.
+  It is the same `embed` policy the container uses — see "bake, link, embed" below — and
+  it is a property of the URL rather than a choice you can make. A host we have no
+  verified embed rule for keeps the poster and the link, and no frame: a URL we invented
+  would 404 inside the frame as a black rectangle with nothing to click.
+- **No video at all** is the ordinary case, and nothing changes. A `<video>` with a poster
+  and no source becomes an ordinary figure, warned; one with neither becomes a line of
+  prose carrying the link, also warned.
+
+The URL-only budgets, each named after the option it sets so that a refusal naming
+`maxAssets` names something findable in `--help`: `--max-assets` (40), `--max-clips` (4),
+`--max-bytes` (96 MB in total), `--max-seconds` (180, wall clock for the whole harvest),
+`--max-clip-seconds` (60, per clip), `--no-transcode`. Every figure, clip or whole video
+left out is printed verbatim before the plan is paid for, which is the only moment anyone
+can act on it.
 
 ### What `build` writes
 

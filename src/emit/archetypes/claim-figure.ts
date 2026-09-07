@@ -98,6 +98,20 @@ interface Plate {
  *
  * The `<img>` branch is byte-for-byte the markup every still has always had, so
  * a deck with no clip in it is the deck it was.
+ *
+ * AND IT STAYS AN `<img>` NOW THAT `deck.html` CAN BUILD A REAL PLAYER FROM THE
+ * SAME FIGURE. `emitDeck` asks `embedUrl` for the frame-able form of this
+ * `href` and writes it into a deck-only island, so a presented deck offers
+ * click-to-play where the mp4 shows the still. None of that reaches here, and it
+ * must not: this markup goes into `index.html`, which is the document the
+ * renderer CAPTURES. A third-party frame there breaks invariant 4 twice over —
+ * virtual time is propagated only into same-origin frames, so the embed would
+ * play at wall-clock speed while the deck is seeked; and the compile-time
+ * localiser has no pattern for an iframe's src, so every render would refetch it
+ * from the network. `scanDeterminism` refuses a literal `<iframe` in a
+ * composition, and test/emit.test.ts ("never embeds a document it does not own")
+ * asserts the vocabulary never writes one — or this figure's watch URL — to
+ * begin with.
  */
 function plate(fig: Figure, sid: string, beatId: string, start: number | undefined): Plate {
   const img = (src: string): Plate => ({

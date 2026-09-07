@@ -11,6 +11,7 @@
  * timeline, wraps whatever the emitter returns, and closes the document.
  */
 import type { z } from "zod";
+import { embedUrl } from "../pack/media.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import { familyFor } from "../source/fonts.js";
 import type { Beat, Format, Inside, Source, Storyboard, segmentSchema } from "../types.js";
@@ -200,6 +201,7 @@ export function emitDeck(
       laid.slides,
       runtimeJs,
       narrationIsland(opts.narration, laid.spoken),
+      videoIsland(laid.embeds),
     ),
   };
 }
@@ -346,6 +348,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
   const slides: SlideInput[] = [];
   /** The narration island's view of the same beats, keyed by scene id. */
   const spoken: Record<string, Segment[]> = {};
+  /** The video island's, same key: the player-page clips a scene draws a still of. */
+  const embeds: Record<string, VideoEmbed> = {};
   const entered = enteredParts(beats);
 
   // Nothing filters for drawability here. `planCut` above has already emitted
@@ -411,6 +415,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
   cuts.forEach((cut, i) => {
     const { beat, sid, dive, inside, duration, start } = cut;
     if (cut.segments?.length) spoken[sid] = cut.segments;
+    const embed = playerEmbed(beat, source);
+    if (embed) embeds[sid] = embed;
 
     // THE HANDOFF, and it is the whole of why this deck no longer cuts to black
     // seven times. Scenes are absolutely positioned clips laid back to back, and
@@ -475,6 +481,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     scenes,
     slides,
     spoken,
+    embeds,
     // The clock after the last scene: the sum the map above finished with, which
     // is the number the second pass used to arrive at by re-adding the same
     // durations in the same order.
@@ -921,12 +928,84 @@ ${json}
     </script>`;
 }
 
+/** One player-page video, as `deck.html` needs it. */
+interface VideoEmbed {
+  /** Already converted to its embeddable form by `embedUrl`; never a watch URL. */
+  url: string;
+  /** The figure's caption, which is what the frame is titled for a screen reader. */
+  title: string;
+}
+
+/**
+ * The player-page video this beat draws, in the form a frame can load — or
+ * nothing, which is the answer for every beat in almost every deck.
+ *
+ * `claim-figure` is the only archetype that draws a clip at all: every other one
+ * refuses a `kind: "clip"` figure by name (see src/emit/archetypes). And a clip
+ * carries `href` exactly when its bytes were unavailable — src/types.ts calls it
+ * "Absent for a clip we hold the file for" — so this is precisely the case where
+ * `claim-figure` emits the poster and nothing else. A clip we HOLD is already a
+ * `<video>` in the composition and needs no third party.
+ *
+ * Asking `embedUrl` here rather than storing an embed URL on the figure keeps
+ * `Source` a description of the document: the host table is one thing, in
+ * src/pack/media.ts, and a source written before it existed converts the same
+ * way a source written after does.
+ */
+function playerEmbed(beat: Beat, source: Source): VideoEmbed | undefined {
+  if (beat.archetype !== "claim-figure") return undefined;
+  const fig = source.figures.find((f) => f.id === beat.params.figureId);
+  if (fig?.kind !== "clip" || fig.href === undefined) return undefined;
+  const url = embedUrl(fig.href);
+  return url === undefined ? undefined : { url, title: fig.caption };
+}
+
+/**
+ * The video island, written into `deck.html` and — this is the whole design —
+ * NEVER into the composition.
+ *
+ * THE ASYMMETRY, FOR WHOEVER IS ABOUT TO REMOVE IT. `index.html` is what the
+ * renderer captures. A third-party iframe there breaks invariant 4 in substance
+ * with every gate green, twice over: capture propagates virtual time only into
+ * SAME-ORIGIN frames, so the embed plays at wall-clock speed while the deck is
+ * seeked frame by frame, and the compile-time localiser has no pattern for an
+ * iframe's src, so every render refetches it from the network. Two renders of
+ * one input then differ, and `drift` is the only thing that would say so —
+ * after the render nobody watched. `scanDeterminism` refuses a literal
+ * `<iframe` in a composition for exactly this reason (src/verify/index.ts), and
+ * test/emit.test.ts pins that the vocabulary never emits one.
+ *
+ * `deck.html` is the other kind of document. It is never captured, never
+ * scanned, and is ALREADY a framing page — the HyperFrames player builds
+ * `<iframe src="index.html">` in it at runtime. So the same frame that is a
+ * defect in the composition is correct here: the mp4 keeps the poster, the
+ * presented deck gets the real player.
+ *
+ * WHY ITS OWN ISLAND AND NOT A FIELD ON `SlideInput`: `emitIsland(slides)` is
+ * called twice — once for the composition when the format is navigable, once
+ * here. Anything added to a slide lands in the RENDERED document too, where
+ * `scanDeterminism` would not catch it (it matches the tag, not a URL) and where
+ * a third-party address has no business sitting in a file that is supposed to be
+ * self-contained. Same reason `narrationIsland` above is its own island, one
+ * level further out.
+ */
+function videoIsland(clips: Record<string, VideoEmbed>): string {
+  if (Object.keys(clips).length === 0) return "";
+  // Same escape as `emitIsland` and `narrationIsland`: a `</script>` inside a
+  // caption would close the island early, and escaping `<` leaves the JSON valid.
+  const json = JSON.stringify({ scenes: clips }, null, 2).replace(/</g, "\\u003c");
+  return `\n    <script type="application/decksmith-video+json">
+${json}
+    </script>`;
+}
+
 function emitDeckPage(
   storyboard: Storyboard,
   format: Format,
   slides: SlideInput[],
   runtimeJs: string,
   narration: string,
+  video: string,
 ): string {
   return `<!doctype html>
 <html lang="${esc(storyboard.lang)}">
@@ -946,7 +1025,7 @@ function emitDeckPage(
       width="${format.width}"
       height="${format.height}"
     ></hyperframes-player>
-${emitIsland(slides)}${narration}
+${emitIsland(slides)}${narration}${video}
     <script>
 ${closeSafe(runtimeJs)}
     </script>

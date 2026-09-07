@@ -40,13 +40,15 @@
  * saving the page and ingesting the file; an SSRF is not fixable at all.
  */
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { fetchGuarded } from "../net/fetch.js";
 import { policyFor } from "../pack/media.js";
 import { chromePath } from "../render/capture.js";
 import { type Figure, figureSchema, type Source } from "../types.js";
 import { type ImageFormat, imageSize, sniffFormat } from "./assets.js";
+import { CONTENT_MARKER, type ContentPick, readContentRegion } from "./readability.js";
+import { transcode } from "./transcode.js";
 
 export interface HarvestOptions {
   /** Cap on the page's own HTML. Generous: a real article ships megabytes of it. */
@@ -67,6 +69,32 @@ export interface HarvestOptions {
    * room for four of those, let alone forty.
    */
   maxClips?: number;
+  /**
+   * Seconds of a downloaded clip that are kept. Longer is TRUNCATED, and the
+   * trim is warned about rather than performed quietly.
+   *
+   * A cap on SECONDS rather than on bytes because seconds are what the render
+   * spends: hyperframes pre-decodes a clip to one still per output frame before
+   * capture begins, so a five-minute video inside a four-minute deck is four
+   * minutes of full-size stills written to disk for a beat that can be sixty
+   * seconds at most (`beatSchema` in src/types.ts caps it there). The default
+   * lives in ./transcode.ts beside the rest of the encode.
+   *
+   * Ignored when `transcode` is false: trimming is something ffmpeg does, and
+   * there is no ffmpeg in that path to do it.
+   */
+  maxClipSeconds?: number;
+  /**
+   * Whether a downloaded clip is re-encoded to a slide-sized VP9 webm at all.
+   * True unless stated, and stating `false` ships the page's own file.
+   *
+   * The reason to turn it off is that the encode is the one part of a harvest
+   * that costs CPU rather than network: a caller re-ingesting the same page ten
+   * times while tuning a plan pays for it ten times, and the deck it is looking
+   * at does not care. The reason to leave it on is everything ./transcode.ts
+   * says — the bytes shipped, and the stills the render writes.
+   */
+  transcode?: boolean;
   /**
    * Total bytes across every asset this harvest downloads.
    *
@@ -241,7 +269,30 @@ export async function harvest(
   });
   const html = decodeHtml(page.bytes, page.contentType, url, warnings);
 
-  const seen = await readInBrowser(html, timeoutMs);
+  const { seen, pick } = await readInBrowser(html, timeoutMs);
+  // WHICH PASS CHOSE THE ARTICLE, SAID OUT LOUD. A harvest that read the page's
+  // comment thread instead of its argument produces a source that parses, plans
+  // and builds — the failure is a deck about the wrong text, and no gate in this
+  // project can see it. So the one place it is visible is here, beside the
+  // section count the CLI prints from the parse.
+  if (!pick.marked) {
+    warnings.push(
+      `the article could not be scored out of this page — ${pick.reason}. The densest ` +
+        "container was taken instead: read the section count below, and if it is the whole " +
+        "page rather than the piece, save the article and ingest the file.",
+    );
+  } else if (pick.mediaDropped > 0) {
+    // Counted rather than discovered, because this is exactly how a clip goes
+    // missing without a trace: the region is chosen, a `<video>` outside it goes
+    // with the chrome, and the deck simply has one fewer figure than the page.
+    // A related-videos rail SHOULD be lost here — which is why it is a warning
+    // naming the number, not a refusal.
+    warnings.push(
+      `${pick.mediaDropped} video or embed(s) sat outside the article region and were ` +
+        "dropped with the page's chrome. If one of them was the video the piece is about, " +
+        "ingest the saved page instead, where the region is the whole document.",
+    );
+  }
   // Relative URLs resolve against the document's `<base>` if it declares one,
   // and otherwise against the URL the bytes CAME FROM — `page.url`, after
   // redirects, not the URL that was asked for. A page that 302s from a share
@@ -313,8 +364,19 @@ function decodeHtml(bytes: Buffer, contentType: string, url: string, warnings: s
  * `domcontentloaded` rather than `load`: everything `load` would additionally
  * wait for is a subresource that has already been aborted, so it buys nothing
  * and costs a timeout on any page whose abort races the lifecycle event.
+ *
+ * TWO EVALUATES, IN THIS ORDER, AND THEY ARE NOT INTERCHANGEABLE. The first
+ * strips the page's chrome and marks the region it scored as the article; the
+ * second walks whatever it finds. Running the walk first would walk the
+ * unstripped page and mark nothing, which is the old behaviour with an extra
+ * round trip. They are two functions rather than one because `readContentRegion`
+ * mutates the document and `readDom` only reads it, and a pass that can decline
+ * has to be able to put the document back before the reader ever sees it.
  */
-async function readInBrowser(html: string, timeoutMs: number): Promise<Seen> {
+async function readInBrowser(
+  html: string,
+  timeoutMs: number,
+): Promise<{ seen: Seen; pick: ContentPick }> {
   const { default: puppeteer } = await import("puppeteer-core");
   const browser = await puppeteer.launch({
     executablePath: await chromePath("read the page with"),
@@ -339,7 +401,14 @@ async function readInBrowser(html: string, timeoutMs: number): Promise<Seen> {
       request.abort().catch(() => {});
     });
     await page.setContent(html, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-    return await page.evaluate(readDom);
+    const pick = await page.evaluate(readContentRegion);
+    // PASSED AS AN ARGUMENT RATHER THAN SPELLED A SECOND TIME. `readDom` may not
+    // close over a module constant — it is serialised and evaluated in the page,
+    // where `CONTENT_MARKER` does not exist — and the obvious fix, writing the
+    // attribute's name out again inside it, is two spellings of one contract that
+    // fail as a wrong answer rather than as an error. `evaluate` clones its
+    // arguments across the boundary, so the constant itself travels.
+    return { seen: await page.evaluate(readDom, CONTENT_MARKER), pick };
   } finally {
     await browser.close().catch(() => {});
   }
@@ -354,8 +423,11 @@ async function readInBrowser(html: string, timeoutMs: number): Promise<Seen> {
  *
  * Its output is deliberately flat. The markdown dialect downstream is itself a
  * flat stream of blocks, and a tree would have to be flattened by something.
+ *
+ * `marker` is `CONTENT_MARKER`, handed across the boundary because this function
+ * cannot reach it — see the call site.
  */
-function readDom(): Seen {
+function readDom(marker: string): Seen {
   /** Boilerplate, chrome, and things with no text. `header` is NOT here: inside
    * an `<article>` it usually holds that article's own title and byline. */
   const SKIP = new Set([
@@ -630,18 +702,29 @@ function readDom(): Seen {
   }
 
   /**
-   * The content region — A HEURISTIC, and deliberately not more than one.
+   * The content region — THE SCORER'S ANSWER, AND THREE RULES FOR WHEN IT HAS
+   * NONE.
    *
-   * Doing this properly is a Readability implementation: hundreds of lines of
-   * scored candidates, class-name allow and deny lists, sibling merging and
-   * per-site quirks, all of it maintained against sites that change. That is not
-   * attempted here. `<main>` and `<article>` are what a page says about itself
-   * and are believed when they hold anything; failing those, the DEEPEST element
-   * carrying the maximal score wins, which is the tightest wrapper around the
-   * body text. `querySelectorAll` is in document order, so ancestors are seen
-   * before their descendants and `>=` keeps the deeper of a tie.
+   * `readContentRegion` (src/source/readability.ts) ran against this document a
+   * moment ago: it stripped the page's chrome, scored every candidate the way
+   * Readability does, and put `marker` on the region it chose. So the first
+   * question is whether it chose one, and the answer is an attribute rather than
+   * a return value because an `Element` cannot cross the `page.evaluate`
+   * boundary.
+   *
+   * THE THREE RULES BELOW ARE STILL LOAD-BEARING, not vestigial. The pass
+   * declines whenever it is not sure — a region under its text floor, a document
+   * with no body, a throw inside the page — and when it declines it restores
+   * every node it removed, so what these see is the document they always saw.
+   * `<main>` and `<article>` are what a page says about itself and are believed
+   * when they hold anything; failing those, the DEEPEST element carrying the
+   * maximal score wins, which is the tightest wrapper around the body text.
+   * `querySelectorAll` is in document order, so ancestors are seen before their
+   * descendants and `>=` keeps the deeper of a tie.
    */
   function pickRoot(): Element {
+    const marked = document.querySelector(`[${marker}]`);
+    if (marked) return marked;
     const main = document.querySelector("main");
     if (main && score(main) > 0) return main;
     const article = document.querySelector("article");
@@ -804,6 +887,90 @@ async function localise(
   };
 
   /**
+   * The page's file, re-encoded to something a deck can afford — or the page's
+   * file, and a sentence saying why it was not.
+   *
+   * THE BOX IS NOT SIZED FROM THE FORMAT, BECAUSE THERE IS NO FORMAT HERE.
+   * `harvest` runs at ingest and a format is chosen at build: `source.json` is
+   * built into `deck-16x9` and `short-9x16` from the same file, by three callers
+   * (the CLI, the MCP and the server) none of which knows which. Sizing to the
+   * format a caller happens to build first would make the clip wrong for the
+   * second, and re-ingesting per format costs the download again. So the target
+   * is ./transcode.ts's own default — one edge for both directions, set above
+   * the largest plate any format offers — and it is stated there rather than
+   * argued twice.
+   *
+   * WHAT IS RETURNED IS MEASURED OFF WHAT IS ON DISK, either way. `types.ts:48`
+   * says a clip figure's box is the VIDEO's own and that every fit, crop and
+   * leader-line fraction downstream is a fraction of it, so the numbers here
+   * have to be the shipped file's rather than the page's.
+   */
+  const shrink = async (
+    url: string,
+    path: string,
+    measured: Measured,
+    what: string,
+  ): Promise<Held> => {
+    if (opts.transcode === false) return { path, ...measured };
+    // NOT `assetName(url, ".webm")`: a page that served a webm would name the
+    // output exactly what the input is called, and ffmpeg would be reading the
+    // file it is writing. The suffix says what the file is, and `basename` is
+    // what `attachClips` carries into the deck, so it stays legible there.
+    const out = join(dir, assetName(url, ".vp9.webm"));
+    let small: Awaited<ReturnType<typeof transcode>>;
+    try {
+      small = await transcode(path, out, {
+        ...(opts.maxClipSeconds === undefined ? {} : { maxSeconds: opts.maxClipSeconds }),
+      });
+    } catch (err) {
+      // `transcode` throws for one thing only — an input it cannot measure —
+      // and these bytes were measured three lines above with the same function,
+      // so this is unreachable as written. It is caught anyway because the
+      // alternative is a clip we successfully downloaded being reported as a
+      // failed download by the handler above, and losing a held clip to a
+      // failed OPTIMISATION is the wrong trade in every case.
+      warnings.push(`${what} was shipped as the page served it: ${why(err)}`);
+      return { path, ...measured };
+    }
+    for (const w of small.warnings) warnings.push(`${what} — ${w}`);
+    if (small.transcoded) {
+      // THE ENCODE CAN MAKE THE FILE BIGGER, AND IT IS NOT A BUG — MEASURED,
+      // 2026-09-08, on en.wikipedia.org/wiki/Slow_motion: a 1920x1080 70.5s
+      // Wikimedia VP9 arrived at 1.42 MB and came back 1280x720, 60s, and
+      // 6.32 MB. Wikimedia encodes once, slowly, offline; this encodes in a
+      // second at `-cpu-used 4` because it runs inside somebody's ingest. On the
+      // same page two other clips halved. So the shrink is in PIXELS, which is
+      // what the render spends — 1280x720 stills instead of 1920x1080 ones, and
+      // 60 seconds of them instead of 70 — and the bytes are a usual consequence
+      // rather than a promised one.
+      //
+      // Reported instead of quietly reversed. Keeping whichever file is smaller
+      // would hand the deck back its 1920x1080 70s original and undo the saving
+      // that was the point, and it would do it silently.
+      const [before, after] = await Promise.all([sizeOf(path), sizeOf(small.path)]);
+      if (before > 0 && after > before) {
+        warnings.push(
+          `${what} — ${basename(small.path)} came back LARGER than the page's own file ` +
+            `(${mb(before)} → ${mb(after)}) at ${small.width}x${small.height}. The encode is ` +
+            "sized for the render, which pre-decodes every clip to one still per output " +
+            "frame, so it still costs less to render; pass --no-transcode if the deck's " +
+            "size is what matters here.",
+        );
+      }
+      // The original is bytes nothing points at any more. It matters because the
+      // MCP zips this directory and the server ships it: a 32 MB source kept
+      // beside its 2 MB replacement is 32 MB carried for nothing.
+      await rm(path, { force: true });
+    }
+    return {
+      path: small.path,
+      width: small.width,
+      height: small.height,
+      ...(small.seconds === undefined ? {} : { seconds: small.seconds }),
+    };
+  };
+
+  /**
    * The video's own bytes, measured off its container before anything is kept.
    *
    * Measured BEFORE the write for the reason `localize` in src/source/assets.ts
@@ -837,7 +1004,7 @@ async function localise(
       const measured = videoSize(bytes);
       const path = join(dir, assetName(url, `.${measured.container}`));
       await writeFile(path, bytes);
-      return { path, ...measured };
+      return await shrink(url, path, measured, what);
     } catch (err) {
       warnings.push(`${what} was not downloaded: ${url} — ${why(err)}`);
       return null;
@@ -983,6 +1150,14 @@ function unheld(policy: ReturnType<typeof policyFor> | null): string {
     return "its URL does not end in a video extension, so what came back could as easily be a page";
   }
   return "the file could not be held";
+}
+
+/** A file's size, or 0 for one that is not there — this is used to compare, not to decide. */
+async function sizeOf(path: string): Promise<number> {
+  return await stat(path).then(
+    (s) => s.size,
+    () => 0,
+  );
 }
 
 /** Megabytes, for a message a person reads while deciding whether to raise a cap. */

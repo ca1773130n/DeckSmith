@@ -7,11 +7,14 @@ import {
   findStop,
   formatHash,
   frameOf,
+  parseClips,
   parseHash,
   planTransition,
   type SlideSpec,
 } from "../src/deck/runtime.js";
-import { PLAYER_FILE } from "../src/emit/composition.js";
+import { emitDeck, PLAYER_FILE } from "../src/emit/composition.js";
+import { EMBED_ORIGINS } from "../src/pack/media.js";
+import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 
 /** Two placed slides, exactly as `emitIsland` writes them. */
 const s1: SlideSpec = { sceneId: "s1", startTime: 0, endTime: 6 };
@@ -199,5 +202,163 @@ describe("frameOf reads the composition through the window", () => {
       typeof frameOf
     >[0];
     expect(frameOf(blind)).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------- player-page video */
+
+/**
+ * A clip whose bytes we could not fetch is a poster everywhere the deck is
+ * RENDERED and the real player everywhere it is PRESENTED. These assert the
+ * seam, from both sides.
+ */
+describe("the player-page video", () => {
+  const source = sourceSchema.parse({
+    id: "src-v",
+    title: "The method, running",
+    lang: "en",
+    sections: [],
+    figures: [
+      // A clip we hold no file for: `href` is the page it lives on, `poster` is
+      // the only thing any format can draw.
+      {
+        id: "f-tube",
+        kind: "clip",
+        src: "clip_000.jpg",
+        poster: "clip_000.jpg",
+        href: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        caption: "Video 1 — the method, running",
+        width: 1280,
+        height: 720,
+      },
+      // Same shape, on a host `embedUrl` refuses to guess at: Twitch needs a
+      // `parent=` naming the page that frames it, which a built deck cannot know.
+      {
+        id: "f-twitch",
+        kind: "clip",
+        src: "clip_001.jpg",
+        poster: "clip_001.jpg",
+        href: "https://www.twitch.tv/videos/123456789",
+        caption: "Video 2 — the baseline",
+        width: 1280,
+        height: 720,
+      },
+    ],
+    equations: [],
+    tables: [],
+  });
+
+  const board = (figureId: string) =>
+    storyboardSchema.parse({
+      sourceId: "src-v",
+      title: "The method, running",
+      beats: [
+        { id: "b0", intent: "Open.", archetype: "title", params: { headline: "A title beat" } },
+        {
+          id: "b1",
+          intent: "Show the method running.",
+          archetype: "claim-figure",
+          params: { headline: "The method runs", claim: "It runs in one pass.", figureId },
+        },
+      ],
+    });
+
+  const deck = (figureId: string) => {
+    const format = FORMATS["deck-16x9"] as Format;
+    return emitDeck(board(figureId), source, format, "/*runtime*/");
+  };
+
+  it("carries the embeddable URL into deck.html, keyed by the scene that draws the still", () => {
+    const page = deck("f-tube").page ?? "";
+    expect(page).toContain('<script type="application/decksmith-video+json">');
+    const island = JSON.parse(
+      /decksmith-video\+json">\s*([\s\S]*?)\s*<\/script>/.exec(page)?.[1] ?? "{}",
+    ) as { scenes: Record<string, { url: string; title: string }> };
+    // `s2`, not `b1`: scene ids are the only key the runtime ever sees, which is
+    // the same translation the narration island performs.
+    expect(Object.keys(island.scenes)).toEqual(["s2"]);
+    expect(island.scenes.s2?.url).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(island.scenes.s2?.title).toBe("Video 1 — the method, running");
+    // The watch URL never travels: an iframe pointed at it is refused by
+    // YouTube's own X-Frame-Options and paints nothing.
+    expect(page).not.toContain("youtube.com/watch");
+  });
+
+  it("says nothing at all about a host it cannot convert", () => {
+    // The clip keeps its poster and the deck keeps quiet, which is the honest
+    // degradation — better than a frame that 404s into a black rectangle.
+    const built = deck("f-twitch");
+    expect(built.page ?? "").not.toContain("decksmith-video+json");
+    expect(built.page ?? "").not.toContain("twitch.tv");
+  });
+
+  /**
+   * INVARIANT 4, IN SUBSTANCE, AND THE ASSERTION THAT MATTERS MOST HERE.
+   *
+   * `index.html` is what `render` captures. A third-party frame in it breaks the
+   * render twice over with every gate green: capture propagates virtual time
+   * only into same-origin frames, so the embed would play at wall-clock speed
+   * under a deck being seeked frame by frame, and the compile-time localiser has
+   * no pattern for an iframe's src, so every render would refetch it from the
+   * network. `drift` is the only gate that could see it, on a render nobody
+   * watched.
+   *
+   * Deliberately broader than `<iframe`: the URL must not be in the rendered
+   * document AT ALL — not in an island, not in a comment, not in a data
+   * attribute — because a self-contained document that names a third party is
+   * one edit away from fetching it.
+   */
+  it("never puts a frame, or a third-party URL, in the document the renderer captures", () => {
+    const { composition } = deck("f-tube");
+    expect(composition).not.toMatch(/<iframe\b/i);
+    expect(composition).not.toContain("decksmith-video+json");
+    expect(composition).not.toContain("youtube");
+    for (const origin of EMBED_ORIGINS) expect(composition).not.toContain(origin);
+    // And the still is still drawn, so the rendered deck lost nothing.
+    expect(composition).toContain('<img src="assets/clip_000.jpg"');
+  });
+
+  it("creates the frame on demand, and never asks for autoplay", async () => {
+    // Read off the source, because the frame only exists after a click, in a
+    // browser, in the one file no gate in this project opens. Three claims. The
+    // tag is never markup: this module is inlined verbatim into deck.html, so a
+    // literal here is a literal in a shipped HTML file — the same reasoning as
+    // the composition-id scan at the top of this suite. The src is the island's
+    // URL untouched, so nobody can quietly append a host's autoplay parameter.
+    // And the feature list withholds autoplay, which is what makes "click to
+    // play" structural rather than a promise.
+    const text = await readFile(new URL("../src/deck/runtime.ts", import.meta.url), "utf8");
+    expect(text).toContain('doc.createElement("iframe")');
+    expect(text).not.toMatch(/<iframe\b/i);
+    expect(text).toContain("frame.src = here.url;");
+    const allow = /frame\.allow = "([^"]*)"/.exec(text)?.[1];
+    expect(allow, "the frame no longer declares an allow list").toBeDefined();
+    expect(allow).not.toContain("autoplay");
+  });
+
+  /** The island is read in a browser, from a file anyone may have edited by hand. */
+  describe("parseClips", () => {
+    it("keeps an https embed and drops everything else", () => {
+      const clips = parseClips(
+        JSON.stringify({
+          scenes: {
+            s1: { url: "https://www.youtube-nocookie.com/embed/abc", title: "One" },
+            // A `javascript:` URL in a frame's src is script the deck runs.
+            s2: { url: "javascript:alert(1)", title: "Two" },
+            s3: { url: "http://insecure.example.com/embed/1", title: "Three" },
+            s4: { title: "No url at all" },
+          },
+        }),
+      );
+      expect(Object.keys(clips)).toEqual(["s1"]);
+      expect(clips.s1).toEqual({ url: "https://www.youtube-nocookie.com/embed/abc", title: "One" });
+    });
+
+    it("is empty for a deck with no island, and for one whose island is broken", () => {
+      expect(parseClips(undefined)).toEqual({});
+      expect(parseClips("")).toEqual({});
+      expect(parseClips("{ not json")).toEqual({});
+      expect(parseClips(JSON.stringify({ scenes: null }))).toEqual({});
+    });
   });
 });
