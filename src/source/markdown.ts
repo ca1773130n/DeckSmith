@@ -222,7 +222,27 @@ function mentionOf(
     const found = before ?? prose.find((p) => p.at > at && name.test(p.text));
     if (found) return found.text;
   }
-  return prose.filter((p) => p.at > opened && p.at < at).at(-1)?.text;
+  const near = prose.filter((p) => p.at > opened && p.at < at).at(-1)?.text;
+  return near !== undefined && isSentence(near) ? near : undefined;
+}
+
+/**
+ * Enough of a sentence to be worth showing the planner.
+ *
+ * ONLY THE POSITIONAL FALLBACK NEEDS THIS. The named branch above accepts a
+ * paragraph because it contains "Figure 2", which is already evidence the
+ * paragraph is about the figure; position alone is evidence of nothing, so it
+ * needs a floor.
+ *
+ * Measured on the Wikipedia article for neural radiance fields, whose only
+ * figure came back with `mention: "]"` — a bracket left over from citation
+ * markup, standing alone as a paragraph, which the prompt then printed as
+ * `the document says: ]`. Three words rather than a character count, because a
+ * real reference has a subject and a verb: "See Figure 2." clears it and no
+ * amount of punctuation does.
+ */
+function isSentence(text: string): boolean {
+  return (text.match(/[\p{L}\p{N}]+/gu) ?? []).length >= 3;
 }
 
 /**

@@ -151,7 +151,22 @@ describe("parseMarkdown and the prose around a figure", () => {
   };
 
   it("lifts every image in document order", () => {
-    expect(src.figures.map((f) => f.id)).toEqual(["fig1", "fig2", "fig3", "fig4", "fig5"]);
+    expect(src.figures.map((f) => f.id)).toEqual(["fig1", "fig2", "fig3", "fig4", "fig5", "fig6"]);
+  });
+
+  /**
+   * MEASURED ON A REAL PAGE. Ingesting the Wikipedia article on neural radiance
+   * fields gave its only figure `mention: "]"` — a leftover bracket from the
+   * citation markup, standing alone as a paragraph, which the positional
+   * fallback then handed to the planner as the sentence the document refers to
+   * the figure with. The prompt prints it as `the document says: ]`.
+   *
+   * The NAMED branch cannot do this: it only accepts a paragraph containing
+   * "Figure 2", which is already evidence the paragraph is about the figure.
+   * Only the unnamed fallback guesses from position, and a guess needs a floor.
+   */
+  it("does not offer punctuation as the sentence a figure is referred to by", () => {
+    expect(placed("fig6").mention).toBeUndefined();
   });
 
   it("puts a figure that opens the document into the preamble section", () => {
