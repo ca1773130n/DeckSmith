@@ -43,6 +43,19 @@ export { parseMarkdown } from "./source/markdown.js";
 export type { ParseOptions } from "./source/markdown.js";
 
 /**
+ * A web page in, a markdown document and a directory of files out — the step
+ * BEFORE `parseMarkdown`, not a replacement for it. Separate because it needs a
+ * browser and the network, which `parseMarkdown` deliberately does not.
+ *
+ * `attachClips` is exported with it because a harvest is not finished without
+ * it: the markdown dialect has no way to say `kind: "clip"`, so a page's videos
+ * come back beside the document and this is what puts them into the source. It
+ * runs BEFORE `fetchFigures`, which passes a clip through untouched.
+ */
+export { attachClips, harvest, toMarkdown } from "./source/harvest.js";
+export type { Block, Harvested, HarvestedClip, HarvestOptions } from "./source/harvest.js";
+
+/**
  * Figures referenced by URL, downloaded beside the source. Separate from
  * `parseMarkdown` because it touches the network and a server may want to fetch
  * through its own client instead.
