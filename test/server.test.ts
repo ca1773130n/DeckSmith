@@ -12,6 +12,7 @@
  * sibling directory it aimed at is still empty afterwards.
  */
 import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,19 +21,21 @@ import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 import { toolSvg } from "../src/images/providers.js";
 import { FORMATS, LEGIBLE_W, MAX_ASPECT, MIN_EDGE, parseMarkdown } from "../src/index.js";
+import { chromePath } from "../src/render/capture.js";
 import { explain } from "../src/server/errors.js";
 import { createDeckServer, parseRange, RateLimiter, safeUrlPath } from "../src/server/http.js";
 import { catalog, MAX_PIXELS, parseOptions } from "../src/server/options.js";
-import { stagesFor } from "../src/server/pipeline.js";
+import { guardFigures, stagesFor } from "../src/server/pipeline.js";
 import { type JobHandle, type JobResult, Queue, QueueFullError } from "../src/server/queue.js";
 import { uiPage } from "../src/server/ui.js";
 import {
   looksLikeZip,
-  parseMultipart,
+  parseSubmission,
   pickMarkdown,
   readBody,
   readZip,
   safeEntryPath,
+  type Upload,
   UploadError,
 } from "../src/server/upload.js";
 
@@ -48,10 +51,14 @@ function multipart(
 ): { body: Buffer; contentType: string } {
   const chunks: Buffer[] = [];
   for (const part of parts) {
-    const disposition = part.filename
+    // `!== undefined`, not truthiness: `filename=""` is exactly what a browser
+    // writes for an <input type=file> nobody chose a file with, and that empty
+    // string still has to arrive as a FILE part rather than as a scalar field.
+    const named = part.filename !== undefined;
+    const disposition = named
       ? `form-data; name="${part.name}"; filename="${part.filename}"`
       : `form-data; name="${part.name}"`;
-    const type = part.filename ? `\r\nContent-Type: ${part.type ?? "text/markdown"}` : "";
+    const type = named ? `\r\nContent-Type: ${part.type ?? "text/markdown"}` : "";
     chunks.push(
       Buffer.from(`--${boundary}\r\nContent-Disposition: ${disposition}${type}\r\n\r\n`, "utf8"),
       Buffer.from(part.value, "utf8"),
@@ -65,6 +72,13 @@ function multipart(
   };
 }
 
+/** The file arm, narrowed, so a test can read `.upload` without a cast. */
+async function parseFile(body: Buffer, contentType: string): Promise<Upload> {
+  const sub = await parseSubmission(body, contentType);
+  if (sub.kind !== "file") throw new Error(`expected a file submission, got ${sub.kind}`);
+  return sub.upload;
+}
+
 describe("multipart", () => {
   it("reads the file part and the scalar fields", async () => {
     const { body, contentType } = multipart([
@@ -72,7 +86,7 @@ describe("multipart", () => {
       { name: "format", value: "short-9x16" },
       { name: "slides", value: "7" },
     ]);
-    const upload = await parseMultipart(body, contentType);
+    const upload = await parseFile(body, contentType);
     expect(upload.filename).toBe("a paper.md");
     expect(new TextDecoder().decode(upload.bytes)).toBe("# Title\n\nSome prose.\n");
     expect(upload.fields).toEqual({ format: "short-9x16", slides: "7" });
@@ -82,24 +96,76 @@ describe("multipart", () => {
     const { body, contentType } = multipart([
       { name: "file", value: "# 한글 제목\n\néé\n", filename: "ko.md" },
     ]);
-    const upload = await parseMultipart(body, contentType);
+    const upload = await parseFile(body, contentType);
     expect(new TextDecoder().decode(upload.bytes)).toContain("한글 제목");
   });
 
   it("names the missing part rather than throwing a TypeError", async () => {
     const { body, contentType } = multipart([{ name: "format", value: "deck-16x9" }]);
-    await expect(parseMultipart(body, contentType)).rejects.toThrow(/no "file" part/);
+    await expect(parseSubmission(body, contentType)).rejects.toThrow(
+      /neither a "file" part nor a "url" field/,
+    );
   });
 
   it("refuses a body that is not multipart", async () => {
-    await expect(parseMultipart(Buffer.from("{}"), "application/json")).rejects.toThrow(
+    await expect(parseSubmission(Buffer.from("{}"), "application/json")).rejects.toThrow(
       /takes a multipart/,
     );
   });
 
   it("says so when the file part is empty", async () => {
     const { body, contentType } = multipart([{ name: "file", value: "", filename: "empty.md" }]);
-    await expect(parseMultipart(body, contentType)).rejects.toThrow(/is empty/);
+    await expect(parseSubmission(body, contentType)).rejects.toThrow(/is empty/);
+  });
+
+  it("reads a url submission and keeps the option fields with it", async () => {
+    const { body, contentType } = multipart([
+      { name: "url", value: " https://example.com/paper " },
+      { name: "format", value: "short-9x16" },
+    ]);
+    const sub = await parseSubmission(body, contentType);
+    expect(sub.kind).toBe("url");
+    // Trimmed, because a pasted link brings whitespace with it more often than not.
+    expect(sub.kind === "url" && sub.url).toBe("https://example.com/paper");
+    expect(sub.fields.format).toBe("short-9x16");
+  });
+
+  it("refuses a request carrying both, and names both halves", async () => {
+    const { body, contentType } = multipart([
+      { name: "file", value: "# P\n", filename: "p.md" },
+      { name: "url", value: "https://example.com/paper" },
+    ]);
+    await expect(parseSubmission(body, contentType)).rejects.toThrow(
+      /both a "file" part and a "url" field/,
+    );
+  });
+
+  /**
+   * THE PART A BROWSER SENDS WHEN NOTHING WAS CHOSEN. An `<input type=file>` with
+   * no selection still serialises — as a File with no name and no bytes — so a
+   * form offering a file OR a url posts the pair on every URL job. Without this,
+   * both of this server's own pages would refuse every link they submitted.
+   */
+  it("does not read an unselected file input as a file", async () => {
+    const { body, contentType } = multipart([
+      { name: "file", value: "", filename: "", type: "application/octet-stream" },
+      { name: "url", value: "https://example.com/paper" },
+    ]);
+    const sub = await parseSubmission(body, contentType);
+    expect(sub.kind).toBe("url");
+  });
+
+  it("refuses a url it will not fetch, before a job is ever made", async () => {
+    const bad: [string, RegExp][] = [
+      ["file:///etc/passwd", /"file:" addresses are not fetched/],
+      ["ftp://example.com/x", /"ftp:" addresses are not fetched/],
+      ["not a url at all", /is not a URL/],
+      [`https://example.com/${"a".repeat(3000)}`, /characters long/],
+    ];
+    for (const [value, message] of bad) {
+      const { body, contentType } = multipart([{ name: "url", value }]);
+      await expect(parseSubmission(body, contentType)).rejects.toThrow(message);
+    }
   });
 
   it("stops reading at the cap instead of buffering the whole upload", async () => {
@@ -840,7 +906,74 @@ describe("the HTTP surface", () => {
     for (const token of ["allow-forms", "allow-popups", "allow-modals", "allow-top-navigation"]) {
       expect(csp).not.toContain(token);
     }
+    /**
+     * `frame-src 'self'`, AND IT MUST NOT BE `'none'` — the same trap as
+     * `allow-same-origin` above, one directive along.
+     *
+     * A deck may not frame a third party, which is what `'none'` sounds like it
+     * says. But deck.html IS a framing document: the HyperFrames player builds
+     * `<iframe src="index.html">` at runtime and drives it through
+     * `contentDocument`. `'none'` blocks that child and every slide renders
+     * blank while the job reports `done` — the failure already measured for the
+     * sandbox list, reachable a second way. Nothing else in this suite would
+     * catch it, because the stub deck this test serves has no iframe in it.
+     */
+    expect(csp).toContain("frame-src 'self'");
+    expect(csp).not.toContain("frame-src 'none'");
     expect(deck.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("refuses a request carrying both a file and a url, without queueing anything", async () => {
+    const { base, queue } = await serve();
+    const res = await post(base, [
+      { name: "file", value: "# P\n", filename: "p.md" },
+      { name: "url", value: "https://example.com/paper" },
+    ]);
+    expect(res.status).toBe(400);
+    expect(res.error?.message).toMatch(/both a "file" part and a "url" field/);
+    expect(res.error?.hint).toMatch(/one or the other/);
+    expect(queue.depth).toBe(0);
+  });
+
+  /**
+   * The URL path through the ROUTES, with the pipeline stubbed: what is asserted
+   * here is the wiring — that a url is accepted, reaches `runPipeline` as a url
+   * and not as an upload, and survives a restart the same way a file does. What
+   * a harvest actually produces is the suite further down, which needs a browser.
+   */
+  it("takes a url, hands the pipeline a url, and resumes one after a restart", async () => {
+    const seen: { upload?: unknown; url?: string }[] = [];
+    const { base, work } = await serve({
+      run: async (job, input) => {
+        seen.push({
+          ...(input.upload ? { upload: input.upload } : {}),
+          ...(input.url ? { url: input.url } : {}),
+        });
+        const { mkdir, writeFile: write } = await import("node:fs/promises");
+        await mkdir(join(job.dir, "deck"), { recursive: true });
+        await write(join(job.dir, "deck", "deck.html"), "<h1>deck</h1>");
+        return { deckUrl: `/d/${job.id}/deck.html`, slides: 4, duration: 12, warnings: [] };
+      },
+    });
+    const { status, id } = await post(base, [
+      { name: "url", value: "https://example.com/paper" },
+      { name: "format", value: "short-9x16" },
+    ]);
+    expect(status).toBe(202);
+    await settle(base, id);
+    expect(seen).toEqual([{ url: "https://example.com/paper" }]);
+
+    // The retry copy is on disk, and it is the URL rather than a file: nothing
+    // named upload.bin, because there are no bytes to keep.
+    expect((await readdir(join(work, id))).sort()).toEqual(["deck", "job.json"]);
+
+    // And /retry starts it again under a new id — the path that was upload-only
+    // before, and that a URL job would otherwise have fallen out of.
+    const retry = await fetch(`${base}/api/jobs/${id}/retry`, { method: "POST" });
+    expect(retry.status).toBe(202);
+    const second = (await retry.json()) as { id: string };
+    await settle(base, second.id);
+    expect(seen[1]).toEqual({ url: "https://example.com/paper" });
   });
 
   it("serves a deck's assets and refuses a path that leaves it", async () => {
@@ -892,7 +1025,11 @@ describe("the HTTP surface", () => {
     // the bytes are — see the ingest suite.)
     const bad = await post(base, [{ name: "notfile", value: "x" }]);
     expect(bad.status).toBe(400);
-    expect(bad.error?.message).toMatch(/no "file" part/);
+    // NEITHER half of the choice, and the message says so rather than naming
+    // only the file — which is what sent someone submitting a URL looking for a
+    // bug in their form encoding. The hint names the other half too.
+    expect(bad.error?.message).toMatch(/neither a "file" part nor a "url" field/);
+    expect(bad.error?.hint).toMatch(/"url" field/);
     expect(queue.depth).toBe(0);
     expect(queue.running).toBeUndefined();
   });
@@ -1040,6 +1177,162 @@ describe("ingest, against real documents", () => {
       figures: unknown[];
     };
     expect(source.figures).toEqual([]);
+  });
+});
+
+/**
+ * The SSRF guard on its own, because its verdict is only ever a warning string
+ * and warnings do not reach a `JobHandle` — a whole `runPipeline` cannot show
+ * which rule fired. Nothing here opens a socket: `guardFigures` resolves and
+ * judges, and `dns.lookup` on a literal address answers without a query.
+ */
+describe("guardFigures", () => {
+  const figures = (n: number, host: string) =>
+    parseMarkdown(
+      `# Title\n\n${Array.from({ length: n }, (_, i) => `![f${i}](http://${host}/i${i}.png)`).join("\n\n")}\n`,
+    );
+
+  it("charges the remote budget only for figures that pass", async () => {
+    const source = figures(45, "169.254.169.254");
+    expect(source.figures).toHaveLength(45);
+    const warnings: string[] = [];
+    const out = await guardFigures(source, await scratch(), true, warnings);
+    expect(out.figures).toEqual([]);
+    /**
+     * THE REGRESSION. The counter used to be incremented BEFORE `reachable`, so
+     * a refusal spent the allowance: from the 41st figure on, the warning
+     * stopped naming the address and started saying "more than 40 remote
+     * figures". A hostile page listing forty private addresses — free to write —
+     * therefore exhausted the budget before one legal figure was considered, and
+     * the deck came out with none of its images.
+     */
+    expect(warnings).toHaveLength(45);
+    expect(warnings.filter((w) => /more than 40 remote figures/.test(w))).toEqual([]);
+    expect(warnings.every((w) => /resolves to a private address \(169/.test(w))).toBe(true);
+  });
+
+  it("still caps how many remote figures it will keep", async () => {
+    // A literal public address, so `dns.lookup` short-circuits and this stays
+    // offline. `guardFigures` only decides; it is `fetchFigures` that would
+    // fetch, and it never runs here.
+    const warnings: string[] = [];
+    const out = await guardFigures(figures(45, "93.184.216.34"), await scratch(), true, warnings);
+    expect(out.figures).toHaveLength(40);
+    expect(warnings).toHaveLength(5);
+    expect(warnings.every((w) => /more than 40 remote figures/.test(w))).toBe(true);
+  });
+
+  it("leaves every remote figure out while remote fetching is off", async () => {
+    const warnings: string[] = [];
+    const out = await guardFigures(figures(3, "example.com"), await scratch(), false, warnings);
+    expect(out.figures).toEqual([]);
+    expect(warnings.every((w) => /does not fetch remote figures/.test(w))).toBe(true);
+  });
+});
+
+/**
+ * The URL path, end to end, against a fixture server on loopback.
+ *
+ * Reaching loopback at all needs `allowLoopback`, which is `fetchGuarded`'s
+ * declared test seam — `PipelineInput.harvest` is how it gets there and nothing
+ * in src/ passes it. A browser is required, and CI has none, so this is gated
+ * exactly the way test/harvest.test.ts gates its own browser half. It stops at
+ * `plan` like the ingest suite above: everything this path has to get right has
+ * already happened by then.
+ */
+const chrome = await chromePath().catch(() => null);
+
+describe.skipIf(chrome === null)("a url job, against a local fixture server", () => {
+  const shut: (() => Promise<void>)[] = [];
+  afterEach(async () => {
+    for (const close of shut.splice(0)) await close();
+  });
+
+  /** Signature, IHDR type and the two extents — everything `imageSize` reads. */
+  function png(width: number, height: number): Buffer {
+    const b = Buffer.alloc(24);
+    b.write("\x89PNG\r\n\x1a\n", 0, "latin1");
+    b.write("IHDR", 12, "latin1");
+    b.writeUInt32BE(width, 16);
+    b.writeUInt32BE(height, 20);
+    return b;
+  }
+
+  async function fixture(): Promise<string> {
+    const image = png(200, 120);
+    const server = createServer((req, res) => {
+      if (req.url === "/fig.png") {
+        res.writeHead(200, { "content-type": "image/png", "content-length": image.length });
+        res.end(image);
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        "<!doctype html><html><head><title>Sparse attention</title></head><body><article>" +
+          "<h1>Sparse attention</h1><p>The pipeline is drawn in Figure 1.</p>" +
+          '<figure><img src="/fig.png" alt="the pipeline">' +
+          "<figcaption>Figure 1 &mdash; end to end</figcaption></figure>" +
+          "<h2>Results</h2><p>It is faster than the dense baseline.</p>" +
+          "</article></body></html>",
+      );
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    shut.push(() => new Promise<void>((r) => server.close(() => r())));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  }
+
+  it("harvests the page into a source with its figure beside it", async () => {
+    const { runPipeline } = await import("../src/server/pipeline.js");
+    const url = await fixture();
+    const dir = await scratch();
+    const log: string[] = [];
+    const handle: JobHandle = {
+      id: "test",
+      dir,
+      begin: (s) => {
+        if (s === "plan") throw new Error("STOP: reached plan");
+      },
+      done: () => {},
+      skip: () => {},
+      log: (l) => log.push(l),
+    };
+    const error = await runPipeline(handle, {
+      url,
+      options: parseOptions({}),
+      // OFF, and it makes no difference: the harvest has already turned the
+      // page's image into a local file, so nothing downstream sees a URL.
+      fetchRemoteFigures: false,
+      harvest: { allowLoopback: true },
+    }).then(
+      () => undefined,
+      (e: Error) => e,
+    );
+    expect(error?.message).toBe("STOP: reached plan");
+    expect(log.join(" ")).toMatch(/harvested http:\/\/127\.0\.0\.1/);
+
+    const source = JSON.parse(await readFile(join(dir, "src", "source.json"), "utf8")) as {
+      title: string;
+      sections: unknown[];
+      figures: { src: string; caption: string; width: number; height: number }[];
+    };
+    expect(source.title).toBe("Sparse attention");
+    expect(source.sections.length).toBeGreaterThan(1);
+    /**
+     * THE FIGURE IS THE ASSERTION THAT MATTERS. `harvest` writes its assets to
+     * ABSOLUTE paths and cites them that way, and `guardFigures` used to resolve
+     * every non-URL src as relative to the upload root — which turned
+     * `/var/.../upload/assets/a.png` into `<root>/var/...` and dropped the
+     * figure as "not in the upload" on every URL job, silently, with the deck
+     * still building.
+     */
+    expect(source.figures).toHaveLength(1);
+    expect(source.figures[0]).toMatchObject({
+      caption: "Figure 1 — end to end",
+      width: 200,
+      height: 120,
+    });
+    const asset = await readFile(join(dir, "src", "assets", source.figures[0]?.src ?? ""));
+    expect(asset.length).toBe(24);
   });
 });
 
@@ -1205,6 +1498,19 @@ describe("the server's imports survive the build", () => {
     // The stand-in is ~5 KB; the real page is ~59 KB. A page that fell back to
     // the stand-in would still be valid HTML and still answer 200.
     expect(html.length).toBeGreaterThan(20_000);
+  });
+
+  it("offers a page as well as a file, and never posts both", () => {
+    const html = uiPage();
+    expect(html).toContain('id="url" name="url"');
+    /**
+     * `submit()` HAS TO UNPICK THE BROWSER'S SERIALISATION HERE. Hiding `#pick`
+     * does not take its fields out of the form, so a link typed and then a file
+     * chosen would post the pair — which the server refuses, correctly, with a
+     * 400 the person did nothing to deserve.
+     */
+    expect(html).toContain('fd.delete("url")');
+    expect(html).toContain('fd.set("url", link)');
   });
 
   it("interpolates the canvas bounds it will enforce into the size inputs", () => {

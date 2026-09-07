@@ -2,9 +2,10 @@
  * What arrives on the socket, treated as hostile.
  *
  * Three jobs, in order: get the bytes off the wire without letting the sender
- * choose how much memory we spend, turn them into a file and a set of fields,
- * and — if the file is a zip — get its contents onto disk without letting an
- * entry name decide where "onto disk" is.
+ * choose how much memory we spend, turn them into a `Submission` — a file or a
+ * URL, never both and never neither, plus the option fields — and, if the file
+ * is a zip, get its contents onto disk without letting an entry name decide
+ * where "onto disk" is.
  *
  * Everything here is pure except `readBody`, which is why the zip half can be
  * tested against an actually malicious archive with no server running.
@@ -119,7 +120,35 @@ export interface Upload {
 }
 
 /**
- * multipart/form-data, with no dependency.
+ * What one POST carries: a document, or the address of one.
+ *
+ * A union rather than two optional fields on one record, because "exactly one of
+ * these" IS the rule, and a shape that can hold both — or neither — is a shape
+ * every reader downstream has to re-check. `parseSubmission` is the last place
+ * that can still answer the client, so both refusals live there and nothing
+ * after it asks the question again.
+ *
+ * `fields` is on both arms because the option fields belong to the REQUEST, and a
+ * URL submission has them just as an upload does. On the file arm it is the very
+ * same object as `upload.fields`, not a copy — read either; `Upload` keeps its
+ * own reference because src/mcp/tools.ts builds one without ever seeing a form.
+ */
+export type Submission =
+  | { kind: "file"; upload: Upload; fields: Record<string, string> }
+  | { kind: "url"; url: string; fields: Record<string, string> };
+
+/**
+ * A `url` field longer than this is not an address someone pasted.
+ *
+ * Browsers stop honouring URLs somewhere past 32 KB and servers stop accepting
+ * them long before that; 2048 is the length every proxy in the world agrees on.
+ * The cap is here rather than at the fetch because this string is echoed back in
+ * refusals and written into `job.json`.
+ */
+const MAX_URL_CHARS = 2048;
+
+/**
+ * multipart/form-data, with no dependency, and the exactly-one rule enforced.
  *
  * `new Response(body, { headers }).formData()` is undici's parser, which ships
  * in Node — measured against a hand-built body with a filename containing a
@@ -127,11 +156,11 @@ export interface Upload {
  * with the right bytes. It throws a bare TypeError on a malformed body, which
  * is not a sentence anyone can act on, so it is translated here.
  */
-export async function parseMultipart(body: Buffer, contentType: string): Promise<Upload> {
+export async function parseSubmission(body: Buffer, contentType: string): Promise<Submission> {
   if (!/^multipart\/form-data\s*;/i.test(contentType)) {
     throw new UploadError(
       "This endpoint takes a multipart/form-data upload.",
-      'Post a form with a "file" part holding the document, e.g. `curl -F file=@paper.md`.',
+      'Post a form with a "file" part holding the document, e.g. `curl -F file=@paper.md`, or a "url" field naming a page.',
       415,
     );
   }
@@ -162,10 +191,34 @@ export async function parseMultipart(body: Buffer, contentType: string): Promise
     // The named part wins; any other file part is ignored rather than guessed at.
     if (key === "file") file = value;
   });
+  // AN UNSELECTED <input type="file"> IS STILL A PART. A browser serialises an
+  // empty file input as a `File` with no name and no bytes, so any form that
+  // offers a file OR a url — which both of this server's pages now are — posts
+  // the pair every time and would trip the "both" refusal below on every URL
+  // job. This exact shape is the browser saying "nothing was chosen"; a real
+  // upload always carries a name, so an actually-empty named file still gets
+  // its own message further down.
+  if (file && file.size === 0 && file.name === "") file = undefined;
+
+  // EXACTLY ONE, and each refusal names which of the two mistakes was made.
+  // "Both" has no defensible tie-break — silently preferring either one builds a
+  // deck from a source the caller did not choose and never says so — and
+  // "neither" is the empty request, which used to read as `no "file" part` and
+  // sent anyone submitting a URL looking for a bug in their form encoding.
+  const url = (fields.url ?? "").trim();
+  if (url !== "") {
+    if (file) {
+      throw new UploadError(
+        'The request carries both a "file" part and a "url" field.',
+        "Send one or the other: the file to build from a document you have, the url to build from a page.",
+      );
+    }
+    return { kind: "url", url: checkedUrl(url), fields };
+  }
   if (!file) {
     throw new UploadError(
-      'The upload has no "file" part.',
-      'Name the document part "file" — .md, .markdown, .txt, or a .zip containing one.',
+      'The request carries neither a "file" part nor a "url" field.',
+      'Name the document part "file" — .md, .markdown, .txt, or a .zip containing one — or send a "url" field holding an http(s) page address.',
     );
   }
   if (file.size === 0) {
@@ -175,10 +228,47 @@ export async function parseMultipart(body: Buffer, contentType: string): Promise
     );
   }
   return {
-    filename: file.name || "upload",
-    bytes: new Uint8Array(await file.arrayBuffer()),
+    kind: "file",
+    upload: {
+      filename: file.name || "upload",
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      fields,
+    },
     fields,
   };
+}
+
+/**
+ * The `url` field, or a refusal that says what is wrong with it.
+ *
+ * Judged HERE rather than at the fetch so the answer is a 400 on the POST the
+ * person is watching, not a job that queues, starts, and dies at ingest a minute
+ * later. `fetchGuarded` still re-judges the scheme and everything else — this is
+ * the legible half of a check that is enforced twice, not the only one.
+ */
+function checkedUrl(url: string): string {
+  if (url.length > MAX_URL_CHARS) {
+    throw new UploadError(
+      `That "url" field is ${url.length} characters long.`,
+      `A page address is at most ${MAX_URL_CHARS}. Paste the link itself rather than a document that contains one.`,
+    );
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new UploadError(
+      `"${url.slice(0, 120)}" is not a URL.`,
+      "Paste the whole address, starting with https://.",
+    );
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new UploadError(
+      `"${parsed.protocol}" addresses are not fetched.`,
+      "Only http:// and https:// pages are harvested. For anything else, save the document and upload the file.",
+    );
+  }
+  return url;
 }
 
 /** A zip starts "PK". Asked before unzipping so a PDF reads as a PDF. */

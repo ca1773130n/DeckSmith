@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { catalog, parseOptions } from "./options.js";
 import { type PipelineInput, runPipeline, stagesFor } from "./pipeline.js";
 import { type JobHandle, type JobResult, type JobView, Queue, QueueFullError } from "./queue.js";
-import { parseMultipart, readBody, type Upload, UploadError } from "./upload.js";
+import { parseSubmission, readBody, type Submission, UploadError } from "./upload.js";
 
 /** base64url of 16 random bytes. Unguessable, URL-safe, and a legal path segment. */
 const ID = /^[A-Za-z0-9_-]{22}$/;
@@ -62,13 +62,20 @@ const KEEP = "job.json";
 const RAW = "upload.bin";
 
 interface Kept {
+  /**
+   * The file's name, or the URL when the job was submitted as one. It is a
+   * LABEL — what the interrupted-job view shows the person who came back — and
+   * `url` below, not this, is what says which kind of job it was.
+   */
   filename: string;
   fields: Record<string, string>;
   createdAt: number;
+  /** Set for a URL job, and then there is no `upload.bin` beside this file. */
+  url?: string;
 }
 
 /**
- * Put the upload on disk before the job starts.
+ * Put the submission on disk before the job starts.
  *
  * The queue lives in memory, so a restart forgets every running job — that part
  * is by design and cheap to accept. Losing the user's FILE with it is not: it is
@@ -77,27 +84,64 @@ interface Kept {
  * `ingest` so the window where a crash costs the file is zero rather than a few
  * hundred milliseconds.
  *
+ * A URL job keeps the same shape for the same reason, minus the bytes: the URL
+ * IS the document as far as a retry is concerned, and re-harvesting it is what
+ * running it again means. So `/api/jobs/:id` reports it as `interrupted` and
+ * `/retry` resumes it exactly as it resumes an upload — no second code path, and
+ * no kind of job that answers 404 to a browser that is still polling.
+ *
  * Best effort. A deck that cannot write its retry copy should still be built.
  */
-async function keepUpload(dir: string, upload: Upload): Promise<void> {
+async function keepSubmission(dir: string, sub: Submission): Promise<void> {
   try {
     await mkdir(dir, { recursive: true });
-    const kept: Kept = { filename: upload.filename, fields: upload.fields, createdAt: Date.now() };
+    const kept: Kept =
+      sub.kind === "url"
+        ? { filename: sub.url, fields: sub.fields, createdAt: Date.now(), url: sub.url }
+        : { filename: sub.upload.filename, fields: sub.fields, createdAt: Date.now() };
     await writeFile(join(dir, KEEP), JSON.stringify(kept));
-    await writeFile(join(dir, RAW), upload.bytes);
+    if (sub.kind === "file") await writeFile(join(dir, RAW), sub.upload.bytes);
   } catch {
     /* not worth failing a job over */
   }
 }
 
-async function readKept(dir: string): Promise<{ kept: Kept; bytes: Buffer } | null> {
+/**
+ * The kept job, rebuilt into the same `Submission` the parser would have made.
+ *
+ * Returning the submission rather than the raw pieces is what keeps `again()`
+ * from re-deciding which kind of job this was: the shape that decision was
+ * recorded in is the shape it comes back as.
+ */
+async function readKept(dir: string): Promise<{ kept: Kept; again: Submission } | null> {
   try {
     const kept = JSON.parse(await readFile(join(dir, KEEP), "utf8")) as Kept;
     if (typeof kept?.filename !== "string" || typeof kept?.fields !== "object") return null;
-    return { kept, bytes: await readFile(join(dir, RAW)) };
+    if (typeof kept.url === "string") {
+      return { kept, again: { kind: "url", url: kept.url, fields: kept.fields } };
+    }
+    const bytes = await readFile(join(dir, RAW));
+    return {
+      kept,
+      again: {
+        kind: "file",
+        upload: { filename: kept.filename, bytes, fields: kept.fields },
+        fields: kept.fields,
+      },
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * The half of `PipelineInput` that says where the document comes from.
+ *
+ * One function so `submit` and `again` cannot drift on it — the retry path
+ * having quietly become upload-only is exactly the bug this shape prevents.
+ */
+function sourceOf(sub: Submission): Pick<PipelineInput, "upload" | "url"> {
+  return sub.kind === "url" ? { url: sub.url } : { upload: sub.upload };
 }
 
 export function createDeckServer(opts: ServeOptions): { server: Server; queue: Queue } {
@@ -207,8 +251,9 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
       const view = ID.test(id) ? queue.view(id) : undefined;
       if (view) return send(res, 200, view);
       // Known to the disk but not to the queue: the process that was running it
-      // has been replaced. The upload survived, so this is a resumable state and
-      // not a 404 — answering 404 here is what left a browser polling forever.
+      // has been replaced. The submission survived — the file's bytes, or the URL
+      // to fetch again — so this is a resumable state and not a 404. Answering
+      // 404 here is what left a browser polling forever.
       const kept = ID.test(id) ? await readKept(join(resolve(opts.work), id)) : null;
       if (kept) {
         return send(res, 200, {
@@ -249,9 +294,16 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
     // someone who had never started a job. Nothing costly has happened until
     // `queue.submit` below, and request volume is already bounded by the
     // per-minute limiter in `handle`, so nothing is exposed by counting later.
+    //
+    // WHAT BOUNDS A URL JOB, since `maxUploadBytes` does not. It bounds this
+    // REQUEST — a `url` field is sixty bytes and never comes near it — and
+    // nothing more, because the bytes a URL job spends are fetched later, from a
+    // server this one does not control. `HARVEST_LIMITS` in ./pipeline.ts is the
+    // limit that stands in its place, and it states the bound in all three units
+    // this one does not reach: bytes, request count and wall time.
     const body = await readBody(req, opts.maxUploadBytes);
-    const upload = await parseMultipart(body, req.headers["content-type"] ?? "");
-    const options = parseOptions(upload.fields);
+    const sub = await parseSubmission(body, req.headers["content-type"] ?? "");
+    const options = parseOptions(sub.fields);
 
     if (!jobs.take(ipOf(req))) {
       return send(res, 429, {
@@ -264,20 +316,24 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
 
     const id = randomBytes(16).toString("base64url");
     const dir = join(resolve(opts.work), id);
-    await keepUpload(dir, upload);
+    await keepSubmission(dir, sub);
     const view = queue.submit({
       id,
       dir,
       stages: stagesFor(options),
       run: (job) =>
         (opts.run ?? runPipeline)(job, {
-          upload,
+          ...sourceOf(sub),
           options,
           fetchRemoteFigures: opts.fetchRemoteFigures,
         }),
     });
+    const what =
+      sub.kind === "url"
+        ? sub.url
+        : `${sub.upload.filename} (${Math.round(sub.upload.bytes.length / 1024)} KB)`;
     opts.log(
-      `job ${id}: ${upload.filename} (${Math.round(upload.bytes.length / 1024)} KB) → ${options.formatId}${options.narrate ? " +narration" : ""}${options.video ? " +video" : ""}${options.images ? " +illustrations" : ""}, position ${view.queuePosition ?? 0}`,
+      `job ${id}: ${what} → ${options.formatId}${options.narrate ? " +narration" : ""}${options.video ? " +video" : ""}${options.images ? " +illustrations" : ""}, position ${view.queuePosition ?? 0}`,
     );
     send(res, 202, { id, queuePosition: view.queuePosition ?? 0 });
   }
@@ -296,8 +352,8 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
     if (!kept) {
       return send(res, 404, {
         error: {
-          message: "That upload is no longer on the server.",
-          hint: "Choose the file again.",
+          message: "That job is no longer on the server.",
+          hint: "Choose the file again, or paste the address again.",
         },
       });
     }
@@ -309,27 +365,23 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
         },
       });
     }
-    const upload: Upload = {
-      filename: kept.kept.filename,
-      bytes: kept.bytes,
-      fields: kept.kept.fields,
-    };
-    const options = parseOptions(upload.fields);
+    const sub = kept.again;
+    const options = parseOptions(sub.fields);
     const id = randomBytes(16).toString("base64url");
     const dir = join(resolve(opts.work), id);
-    await keepUpload(dir, upload);
+    await keepSubmission(dir, sub);
     const view = queue.submit({
       id,
       dir,
       stages: stagesFor(options),
       run: (job) =>
         (opts.run ?? runPipeline)(job, {
-          upload,
+          ...sourceOf(sub),
           options,
           fetchRemoteFigures: opts.fetchRemoteFigures,
         }),
     });
-    opts.log(`job ${id}: retry of ${old} — ${upload.filename} → ${options.formatId}`);
+    opts.log(`job ${id}: retry of ${old} — ${kept.kept.filename} → ${options.formatId}`);
     send(res, 202, { id, queuePosition: view.queuePosition ?? 0 });
   }
 
@@ -478,8 +530,20 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
       // all — which is the reachable half of the same-origin problem, closed for
       // one directive. The other half, a deck reading another deck's DOM, still
       // needs the separate origin described below.
+      //
+      // `frame-src 'self'`, AND IT MUST NOT BE `'none'`. The intent is the one
+      // `'none'` sounds like — a deck may not frame a third party, whatever an
+      // emitter or an uploaded SVG managed to put in it — but `deck.html` IS a
+      // framing document: the HyperFrames player builds `<iframe
+      // src="index.html">` at runtime and drives it through `contentDocument`,
+      // which is the whole reason `allow-same-origin` is in the sandbox list
+      // above. `frame-src 'none'` blocks that child, and the failure it produces
+      // is the one already measured and written up two paragraphs up — every
+      // slide blank, the job `done`, every file a 200, the console empty. So the
+      // directive is `'self'`: same-origin composition allowed, and every
+      // off-site origin refused, which is the half worth refusing.
       headers["content-security-policy"] =
-        "sandbox allow-scripts allow-same-origin allow-downloads; connect-src 'none'";
+        "sandbox allow-scripts allow-same-origin allow-downloads; connect-src 'none'; frame-src 'self'";
       // A deck is one origin's private artifact; nothing off-site should be able
       // to pull its bytes into a page it controls.
       headers["cross-origin-resource-policy"] = "same-site";
@@ -691,8 +755,16 @@ async function uiPage(log: (line: string) => void): Promise<string> {
 
 /**
  * Enough of an uploader to prove the API end to end without the other agent's
- * page: pick a file, pick a format, watch the stages, get the links. Deliberately
- * plain — it is a stand-in, not a design.
+ * page: pick a file OR paste a URL, pick a format, watch the stages, get the
+ * links. Deliberately plain — it is a stand-in, not a design.
+ *
+ * THE FILE INPUT IS NO LONGER `required`, and that is the point of this edit.
+ * This page is served whenever `import("./ui.js")` throws, which has happened in
+ * production for a reason no gate could see — so a feature that only the real
+ * uploader offers is a feature that silently disappears on the day the import
+ * breaks. With `required` on the file and no url field, the browser refused to
+ * submit a URL job at all. Neither field is required here; sending neither is a
+ * 400 whose message says which half to add, and this page renders that message.
  */
 const FALLBACK_PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -707,10 +779,11 @@ const FALLBACK_PAGE = `<!doctype html>
  .err{background:#fee;border:1px solid #c00;padding:.75rem;border-radius:6px}
 </style></head><body>
 <h1>DeckSmith</h1>
-<p>A document in, an animated deck out. Markdown, or a zip holding one.</p>
+<p>A document in, an animated deck out. Markdown, a zip holding one, or the address of a page.</p>
 <form id="f">
   <fieldset><legend>Document</legend>
-    <input type="file" name="file" accept=".md,.markdown,.txt,.zip" required>
+    <label>File <input type="file" name="file" accept=".md,.markdown,.txt,.zip"></label>
+    <label>or URL <input type="url" name="url" placeholder="https://example.com/article" style="width:22rem;max-width:100%"></label>
   </fieldset>
   <fieldset><legend>Options</legend>
     <label>Format <select name="format" id="format"></select></label>

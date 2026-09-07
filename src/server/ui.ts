@@ -19,7 +19,8 @@
  * src/types.ts cannot leave a stale tile here.
  *
  * WHAT THE PAGE ASSUMES OF THE SERVER — the HTTP contract, and nothing else:
- *   POST /api/jobs             multipart, field `file` + option fields -> { id }
+ *   POST /api/jobs             multipart, field `file` OR field `url` — exactly
+ *                              one — plus the option fields -> { id }
  *   GET  /api/jobs/:id         the job record (state, stage, steps, log, error, result)
  *   GET  /api/jobs/:id/events  SSE of the same payload — OPTIONAL, see `watch()`
  *   GET  /api/formats          the preset table — OPTIONAL, see FALLBACK_FORMATS
@@ -320,6 +321,18 @@ h2.sec{font-size:11.5px;font-weight:650;letter-spacing:.13em;text-transform:uppe
 .drop em{color:var(--accent);font-style:normal;text-decoration:underline;text-underline-offset:3px}
 .drop small{display:block;margin-top:16px;color:var(--sub);font-size:12px;letter-spacing:.01em}
 
+/* The other way in: a page instead of a file. It sits BESIDE the drop zone with
+   a rule either side of "or", rather than under a label of its own, because the
+   server takes exactly one of the two and a stacked second field reads as a
+   second thing to fill in. The box itself matches .custom input — the same panel,
+   hairline and radius — so the two text fields on this page are one control. */
+.orurl{display:flex;align-items:center;gap:12px;margin-top:14px}
+.orsep{flex:none;color:var(--sub);font-size:11.5px;font-weight:650;letter-spacing:.12em;text-transform:uppercase}
+.orurl input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:11px 13px;font:inherit;color:var(--fg)}
+.orurl input::placeholder{color:var(--sub)}
+.orurl input:hover{border-color:var(--dim)}
+.orurl input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+
 /* ------------------------------------------------------------- file card */
 .file{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--rule);border-radius:16px;background:var(--panel);padding:15px 16px}
 .fileicon{flex:none;width:38px;height:38px;border-radius:9px;background:var(--tint);color:var(--accent);display:grid;place-items:center;font-size:11px;font-weight:700;letter-spacing:.04em}
@@ -594,6 +607,15 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
          dead key press to anyone driving by keyboard. -->
     <input type="file" id="fileinput" class="sr" tabindex="-1" aria-label="Choose a document"
            accept=".md,.markdown,.txt,.zip,text/markdown,text/plain,application/zip">
+    <!-- A page instead of a file. name="url" so the FormData built from this
+         form carries it with no help; submit() still removes it when a file
+         won, because hidden on the container above does NOT take a field out
+         of the form and the server refuses a request carrying both. -->
+    <div class="orurl">
+      <span class="orsep">or</span>
+      <input type="url" id="url" name="url" inputmode="url" autocomplete="url" spellcheck="false"
+             placeholder="Paste a link to an article" aria-label="Or paste a link to a page">
+    </div>
   </div>
 
   <div id="chosen" hidden>
@@ -1098,6 +1120,10 @@ function setFile(f){
     return;
   }
   file = f;
+  /* One or the other, and the page says so by emptying the field it did not
+     take. Leaving both filled in would show two answers to a question the
+     server only lets you answer once. */
+  $("url").value = "";
   var isZip = /\\.zip$/i.test(f.name);
   $("f-kind").textContent = isZip ? "ZIP" : (f.name.split(".").pop() || "MD").toUpperCase().slice(0, 4);
   $("f-name").textContent = f.name;
@@ -1178,16 +1204,42 @@ function paintZip(names){
   }
 }
 
+/* ------------------------------------------------------------- the page */
+/**
+ * The URL half of the same choice.
+ *
+ * looksLikeUrl is deliberately shallow — it gates the button and nothing else.
+ * The real judgement is checkedUrl in src/server/upload.ts, which answers a 400
+ * this page already knows how to render; a second, cleverer copy of that rule
+ * here would be a second rule to keep in step, and the one that decides is the
+ * server's.
+ */
+function urlValue(){ return $("url").value.trim(); }
+function looksLikeUrl(s){ return /^https?:\\/\\/\\S+$/i.test(s); }
+
+function setUrl(u){
+  /* clearFile() un-hides #pick, which is where the url box lives — so a link
+     dropped while a file was chosen replaces it rather than landing out of sight. */
+  if (file) clearFile();
+  $("url").value = u;
+  refreshAction();
+  $("url").focus();
+}
+
 /* ------------------------------------------------------------- action state */
 function refreshAction(){
   var s = currentSize();
-  var ready = !!file && !sizeProblem(s.w, s.h);
+  var link = urlValue();
+  var ready = (!!file || looksLikeUrl(link)) && !sizeProblem(s.w, s.h);
   $("go").disabled = !ready;
   $("golabel").textContent = $("video").checked ? "Generate deck and video" : "Generate deck";
   var est = $("video").checked ? "about four minutes" : "about two minutes";
+  /* A half-typed link gets its own sentence. "Choose a document to begin" under
+     a box the person has just typed into reads as the page not having noticed. */
   $("gohint").textContent = ready
     ? "Takes " + est + ". Keep this tab open."
-    : "Choose a document to begin.";
+    : (link ? "A link has to start with http:// or https://."
+            : "Choose a document, or paste a link, to begin.");
 }
 
 /* ------------------------------------------------------------- submit */
@@ -1199,13 +1251,19 @@ function refreshAction(){
  * being added to the markup and quietly never reaching the server.
  */
 function submit(){
-  if (!file) return;
+  var link = urlValue();
+  if (!file && !looksLikeUrl(link)) return;
   var size = currentSize();
   var fd = new FormData($("compose"));
 
-  // 1. The file. Deliberately not a named input: a DROPPED file never lands in
-  //    <input type=file>, so there is exactly one source of truth for it.
-  fd.append("file", file, file.name);
+  // 1. The document: a file OR a url, and the server refuses a request carrying
+  //    both. The file is appended by hand because a DROPPED file never lands in
+  //    <input type=file>, so there is exactly one source of truth for it; the
+  //    url is deleted rather than left alone because #pick being hidden does
+  //    NOT take its fields out of the form, so a file chosen after a link was
+  //    typed would post the pair and be refused.
+  if (file) { fd.delete("url"); fd.append("file", file, file.name); }
+  else fd.set("url", link);
 
   // 2. Format. "custom" is this page's word, not the API's — it means a preset
   //    plus an explicit canvas. The size pair is absent for every other format
@@ -1233,7 +1291,7 @@ function submit(){
   jobId = null;
   lastJob = null;
   paintSteps(plannedSteps(), null);
-  $("r-stage").textContent = "Uploading";
+  $("r-stage").textContent = file ? "Uploading" : "Reading the page";
   $("r-log").textContent = "";
   $("r-clock").textContent = "0:00";
   show("v-run");
@@ -1713,20 +1771,21 @@ on($("f-clear"), "click", clearFile);
 var depth = 0;
 ["dragenter","dragover"].forEach(function(ev){
   on(window, ev, function(e){
-    if (!hasFiles(e)) return;
+    if (!draggable(e)) return;
     e.preventDefault();
     if (ev === "dragenter") depth++;
     if (!$("pick").hidden || ev === "dragenter") drop.classList.add("over");
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
   });
 });
-on(window, "dragleave", function(e){ if (hasFiles(e) && --depth <= 0) { depth = 0; drop.classList.remove("over"); } });
+on(window, "dragleave", function(e){ if (draggable(e) && --depth <= 0) { depth = 0; drop.classList.remove("over"); } });
 on(window, "drop", function(e){
-  if (!hasFiles(e)) return;
+  if (!draggable(e)) return;
   e.preventDefault();
   depth = 0;
   drop.classList.remove("over");
-  setFile(e.dataTransfer.files[0]);
+  if (hasFiles(e)) setFile(e.dataTransfer.files[0]);
+  else setUrl(droppedUrl(e));
 });
 function hasFiles(e){
   var dt = e.dataTransfer;
@@ -1734,7 +1793,23 @@ function hasFiles(e){
   if (dt.types && Array.prototype.indexOf.call(dt.types, "Files") >= 0) return true;
   return !!(dt.files && dt.files.length);
 }
+/* A DRAGGED LINK IS ALSO ACCEPTED, and taking it is partly defensive: dropping
+   a link anywhere on this page used to be a plain browser NAVIGATION, which
+   walks away from a half-filled form and, mid-build, from a running job. The
+   first line of text/uri-list is the URL; the rest of that format is comments. */
+function droppedUrl(e){
+  var dt = e.dataTransfer;
+  var raw = (dt.getData("text/uri-list") || dt.getData("text/plain") || "").split("\\n")[0].trim();
+  return raw;
+}
+function draggable(e){
+  if (hasFiles(e)) return true;
+  var dt = e.dataTransfer;
+  if (!dt || !dt.types) return false;
+  return Array.prototype.indexOf.call(dt.types, "text/uri-list") >= 0;
+}
 
+on($("url"), "input", refreshAction);
 on($("cw"), "input", refreshSize);
 on($("ch"), "input", refreshSize);
 on($("slides"), "input", function(){ $("slidesout").textContent = $("slides").value + " slides"; });
@@ -1783,9 +1858,15 @@ on($("d-open"), "click", function(){
   var url = mounted.kind === "video" ? r.videoUrl : r.deckUrl;
   if (url) window.open(url, "_blank", "noopener");
 });
-on($("d-again"), "click", function(){ clearFile(); show("v-compose"); });
-on($("e-reset"), "click", function(){ clearFile(); show("v-compose"); });
-on($("e-retry"), "click", function(){ if (file) submit(); else show("v-compose"); });
+/* "Start over" empties BOTH halves of the choice — a link left in the box after
+   a finished job is the next job nobody meant to submit. */
+function startOver(){ clearFile(); $("url").value = ""; refreshAction(); show("v-compose"); }
+on($("d-again"), "click", startOver);
+on($("e-reset"), "click", startOver);
+on($("e-retry"), "click", function(){
+  if (file || looksLikeUrl(urlValue())) submit();
+  else show("v-compose");
+});
 
 /* Leaving mid-build loses the job, so say so. Only while one is live. */
 on(window, "beforeunload", function(e){

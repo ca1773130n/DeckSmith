@@ -9,13 +9,14 @@
  *
  * Layout under the job directory. Only `deck/` is ever served:
  *
- *   upload/   what arrived, unpacked. Never served, never on a URL.
+ *   upload/   what arrived, unpacked — or, for a URL job, what was harvested
+ *             from the page. Never served, never on a URL.
  *   src/      source.json and its assets/, generated pictures included
  *   audio/    narration.json and the mp3s
  *   deck/     the built deck, plus video.mp4, video.srt and deck.deck
  */
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type AssetRequest,
   assertRefsResolve,
@@ -24,6 +25,9 @@ import {
   type DeckNarration,
   durationPlan,
   fetchFigures,
+  type Harvested,
+  type HarvestOptions,
+  harvest,
   hasIllustrations,
   type ImageProvider,
   illustrate,
@@ -59,25 +63,85 @@ const NARRATION_FILE = "narration.json";
 const MAX_REMOTE_FIGURES = 40;
 
 /**
+ * THIS IS WHAT REPLACES `maxUploadBytes` FOR A URL JOB, and it has to, because
+ * nothing else on that path bounds anything.
+ *
+ * An upload is bounded before it is accepted: `readBody` refuses past
+ * `ServeOptions.maxUploadBytes` chunk by chunk, and `readZip` bounds what those
+ * bytes may become. A URL job arrives as a 60-byte field and then goes and
+ * fetches whatever the page names, so the size of the job is decided AFTER the
+ * request was accepted, by a stranger's server. These three numbers are the
+ * whole bound, in the three units that matter:
+ *
+ *   bytes    `maxBytes` for the page + `maxAssetBytes` x `maxAssets` for the
+ *            rest: 4 MB + 24 x 8 MB = 196 MB worst case, against the 20 MB an
+ *            upload gets. Deliberately looser — an article's figures are the
+ *            point of harvesting one — and still finite.
+ *   requests 1 for the page, at most `maxAssets` after it, and ZERO from the
+ *            browser, which aborts every request it makes (see harvest.ts).
+ *   time     `timeoutMs` is per fetch and they run in sequence, so the arithmetic
+ *            worst case is (1 page + 1 browser + 24 assets) x 12s = 312s. That
+ *            is a bound, but it is not a bound anyone would accept on a queue
+ *            that runs one job at a time, so `harvestBounded` puts a hard
+ *            deadline over the whole call as well.
+ *
+ * Tighter than harvest.ts's own defaults (8 MB / 32 MB / 20s / 40) on every axis
+ * because those are the CLI's, where a person is watching one page they chose;
+ * these are a public endpoint's, where they are not.
+ */
+const HARVEST_LIMITS: HarvestOptions = {
+  maxBytes: 4 * 1024 * 1024,
+  maxAssetBytes: 8 * 1024 * 1024,
+  timeoutMs: 12_000,
+  maxAssets: 24,
+};
+
+/** The wall-clock ceiling on one harvest, however the per-fetch budget is spent. */
+const HARVEST_DEADLINE_MS = 90_000;
+
+/**
  * Formats whose file is uploaded to a feed, where a sidecar .srt is dropped on
  * the way in. Keyed by the id the REQUEST named, so a resized short still counts.
  */
 const FEED_FORMATS = new Set(["short-9x16", "post-1x1"]);
 
 export interface PipelineInput {
-  upload: Upload;
+  /**
+   * The document that arrived, when a file was posted. Exactly one of this and
+   * `url` is set — `parseSubmission` is what guarantees it, and `ingest` refuses
+   * loudly rather than guessing if a direct caller hands it both or neither.
+   */
+  upload?: Upload;
+  /** The page to harvest, when a URL was posted instead of a file. */
+  url?: string;
   options: JobOptions;
   /**
    * Whether a figure named by an http(s) URL may be downloaded.
    *
-   * OFF by default, and that is a security decision, not a performance one. The
-   * document is a stranger's; `![](http://169.254.169.254/latest/meta-data/)` is
-   * a request this process would make from inside the network it runs in, and a
-   * hostname allowlist does not close it because DNS can answer differently the
-   * second time. Off, the figure is dropped and named in the warnings. On (the
-   * owner's own box, own papers), it is fetched with a count and a timeout.
+   * ON by default — src/server/main.ts sets `DECKSMITH_FETCH_FIGURES` to true —
+   * because a paper's markdown links its images and a deck that silently drops
+   * them is not the deck anyone asked for. The flag is therefore NOT the guard;
+   * `guardFigures` below is, and it refuses any URL resolving to a private,
+   * loopback or link-local address before the fetch is attempted.
+   *
+   * When it is on, the fetch itself is `fetchGuarded` in src/net/fetch.ts by way
+   * of `fetchFigures`: a 32 MB streaming cap and a 20s whole-call timeout at the
+   * socket, with the connection PINNED to the address that was validated. That
+   * last part is what closed the DNS-rebinding hole an earlier version of this
+   * comment called unclosable. `MAX_REMOTE_FIGURES` below is the count.
+   *
+   * Off, a remote figure is dropped and named in the warnings.
    */
   fetchRemoteFigures: boolean;
+  /**
+   * Caps for the harvest of `url`, overriding `HARVEST_LIMITS`.
+   *
+   * TEST SEAM, the same shape as `imageChain` and `run` below. It is the only
+   * way to point a harvest at a `node:http` server on loopback, which is what
+   * test/server.test.ts needs to drive this path with no network. Nothing in
+   * src/ sets it, so production always gets `HARVEST_LIMITS` exactly.
+   */
+  harvest?: HarvestOptions;
   /**
    * The rungs `illustrate` draws through. A test injects the tool's own SVG and
    * nothing else; absent, the stage resolves its providers from the environment
@@ -330,8 +394,44 @@ async function ingest(
   const root = resolve(dirs.upload);
   let docPath: string;
 
-  if (looksLikeZip(input.upload.bytes)) {
-    const { files, warnings: zipWarnings } = readZip(input.upload.bytes);
+  // EXACTLY ONE OF THE TWO, said out loud. Unreachable through the HTTP surface
+  // — `parseSubmission` decided it and answered 400 — so this is for a direct
+  // caller of `runPipeline`, and the alternative is a job that quietly builds
+  // from whichever field the code below happens to read first.
+  const upload = input.upload;
+  const bothOrNeither = new UploadError(
+    "A job needs exactly one of an upload and a url.",
+    "PipelineInput carries `upload` or `url`; it was handed both, or neither.",
+    500,
+  );
+
+  if (input.url !== undefined) {
+    if (upload !== undefined) throw bothOrNeither;
+    // Assets land under the upload directory like a zip's figures do, so the one
+    // containment rule in `guardFigures` covers both and there is no second
+    // notion of "inside the job". `harvest` writes ABSOLUTE paths and its
+    // markdown cites them as such, which is why that guard resolves an absolute
+    // src rather than treating it as relative to the root.
+    const harvested = await harvestBounded(input.url, join(root, "assets"), {
+      ...HARVEST_LIMITS,
+      ...input.harvest,
+    });
+    warnings.push(...harvested.warnings);
+    docPath = join(root, "document.md");
+    await writeFile(docPath, harvested.markdown);
+    job.log(
+      `ingest: harvested ${input.url} — "${harvested.title}", ${harvested.assets.length} asset(s)`,
+    );
+    if (harvested.markdown.trim() === "") {
+      throw new UploadError(
+        `Nothing readable came back from ${input.url}.`,
+        "A page that builds its body from a third-party script harvests to nothing, because the harvester runs none of them — that trade is written up at the top of src/source/harvest.ts. Save the page as markdown and upload the file instead.",
+      );
+    }
+  } else if (upload === undefined) {
+    throw bothOrNeither;
+  } else if (looksLikeZip(upload.bytes)) {
+    const { files, warnings: zipWarnings } = readZip(upload.bytes);
     warnings.push(...zipWarnings);
     for (const [rel, bytes] of Object.entries(files)) {
       const to = resolve(join(root, rel));
@@ -348,15 +448,15 @@ async function ingest(
       `ingest: unpacked ${Object.keys(files).length} file(s), reading ${pickMarkdown(files)}`,
     );
   } else {
-    const ext = (input.upload.filename.match(/\.[^.\\/]+$/)?.[0] ?? "").toLowerCase();
+    const ext = (upload.filename.match(/\.[^.\\/]+$/)?.[0] ?? "").toLowerCase();
     if (ext && !MARKDOWN_EXTS.includes(ext)) {
       throw new UploadError(
-        `"${input.upload.filename}" is a ${ext} file.`,
+        `"${upload.filename}" is a ${ext} file.`,
         `DeckSmith reads ${MARKDOWN_EXTS.join(", ")} or a .zip containing one. Export the document to markdown first.`,
       );
     }
     docPath = join(root, "document.md");
-    await writeFile(docPath, input.upload.bytes);
+    await writeFile(docPath, upload.bytes);
   }
 
   const text = await readFile(docPath, "utf8");
@@ -382,9 +482,51 @@ async function ingest(
   const guarded = await guardFigures(parsed, root, input.fetchRemoteFigures, warnings);
   // Only now does anything touch the filesystem on a figure's behalf, and every
   // `src` it will read is an absolute path this function chose.
-  const source = await fetchFigures(guarded, join(resolve(dirs.src), "assets"));
+  // `warnings`, not the default. Without it `fetchFigures` reports its drops to
+  // console.warn, which on a server is a line in stderr that the person waiting
+  // for the deck never sees — and the drops it reports are the ones the job's
+  // own "(n left out)" count is derived from.
+  const source = await fetchFigures(guarded, join(resolve(dirs.src), "assets"), warnings);
   await writeJson(join(dirs.src, "source.json"), source);
   return source;
+}
+
+/**
+ * `harvest`, with a wall clock over it.
+ *
+ * The caps in `HARVEST_LIMITS` are per fetch, and the arithmetic worst case they
+ * add up to is five minutes on a queue that runs ONE job at a time — so a single
+ * slow page would hold every other submission behind it for that long. This is
+ * the ceiling that makes the wait bounded in the unit a person waiting actually
+ * has.
+ *
+ * A race does not cancel the harvest; it stops waiting for it. What that costs
+ * is one Chrome and one in-flight fetch continuing to unwind in the background,
+ * and `readInBrowser` closes its browser in a `finally`, so the process is not
+ * left holding it. The alternative — threading an AbortSignal through harvest —
+ * is a change to a file this workstream does not own, for a case that ends the
+ * job either way.
+ */
+async function harvestBounded(url: string, dir: string, opts: HarvestOptions): Promise<Harvested> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new UploadError(
+            `${url} took longer than ${HARVEST_DEADLINE_MS / 1000}s to read.`,
+            "The page or its images are answering too slowly to build a deck from. Save the page as markdown and upload the file instead.",
+            504,
+          ),
+        ),
+      HARVEST_DEADLINE_MS,
+    );
+  });
+  try {
+    return await Promise.race([harvest(url, dir, opts), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -401,11 +543,19 @@ async function ingest(
  * the address it resolves to rather than by how it is spelled — an allowlist of
  * names cannot do that.
  *
- * Honest about its limit: a name that resolves to a public address here and a
- * private one when `fetch` looks again is not stopped by this (DNS rebinding).
- * Closing that needs the request pinned to the address already resolved, which
- * Node's fetch does not expose. This blocks the whole naive class, which is what
- * a document with a URL in it actually is.
+ * WHAT THIS IS AND IS NOT, since an earlier version of this note oversold it.
+ * It used to say the rebinding gap — a name that resolves to a public address
+ * here and a private one when the socket looks again — was unclosable, because
+ * `fetch` cannot be told which address to connect to. That is still true of
+ * `fetch` and no longer true of this project: `fetchGuarded` in src/net/fetch.ts
+ * is `node:http`, whose `lookup` hook pins the connection to the address it
+ * already validated, and that is the fetch `fetchFigures` uses. So the guard
+ * that matters is there, not here.
+ *
+ * This one stays because it runs BEFORE the count is spent and before anything
+ * is written, so a document full of inward-pointing URLs is answered with
+ * warnings rather than with forty socket errors. Two checks of the same rule,
+ * and the one at the socket is the one that has to hold.
  */
 const BLOCKED = [
   /^10\./,
@@ -456,8 +606,13 @@ async function reachable(url: string): Promise<string | null> {
  *
  * Dropped figures leave before the planner sees the source, so no beat can cite
  * one and `assertRefsResolve` has nothing to fail on.
+ *
+ * EXPORTED FOR ITS TEST, like `safeUrlPath` and `parseRange` in ./http.ts. Its
+ * warnings are the only evidence of which rule fired, and they do not reach a
+ * `JobHandle` — so reading them through a whole `runPipeline` is impossible and
+ * the alternative was to leave the guard untested.
  */
-async function guardFigures(
+export async function guardFigures(
   source: Source,
   root: string,
   allowRemote: boolean,
@@ -476,7 +631,7 @@ async function guardFigures(
         );
         continue;
       }
-      if (++remote > MAX_REMOTE_FIGURES) {
+      if (remote >= MAX_REMOTE_FIGURES) {
         warnings.push(
           `figure ${figure.id} was left out: more than ${MAX_REMOTE_FIGURES} remote figures`,
         );
@@ -487,6 +642,15 @@ async function guardFigures(
         warnings.push(`figure ${figure.id} was left out: ${host(src)} ${why}`);
         continue;
       }
+      // CHARGED ONLY FOR FIGURES THAT PASS, and the order is the whole point.
+      // Incrementing above `reachable` meant every REFUSAL spent the allowance
+      // too: a document listing 40 private addresses — which is a hostile
+      // document, and free to write — exhausted the budget before the first
+      // legal figure was even considered, and the deck came out with none of
+      // its images and forty warnings nobody would read to the end of. The cap
+      // exists to bound how many fetches happen; a figure that is refused here
+      // is a figure that is never fetched.
+      remote++;
       figures.push(figure);
       continue;
     }
@@ -495,9 +659,14 @@ async function guardFigures(
       continue;
     }
 
-    // A relative path, which is what a zip's own figures look like. Resolve it
-    // inside the upload and refuse anything that lands outside.
-    const abs = resolve(join(root, src.replace(/^\.?\//, "")));
+    // A relative path, which is what a zip's own figures look like — or an
+    // ABSOLUTE one, which is what a harvest's are: `harvest` writes its assets
+    // under this same root and cites them by full path, and treating one of
+    // those as relative-to-root produced `<root>/private/tmp/.../a.png` and a
+    // figure dropped as "not in the upload" on every URL job. Either way the
+    // containment check below is what decides, so an absolute path pointing
+    // anywhere else is refused exactly as it was before.
+    const abs = isAbsolute(src) ? resolve(src) : resolve(join(root, src.replace(/^\.?\//, "")));
     if (!insideRoot(root, abs)) {
       warnings.push(`figure ${figure.id} was left out: "${src}" points outside the upload`);
       continue;
