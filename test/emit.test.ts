@@ -6,10 +6,19 @@
  * that is the only place they are observable without a browser.
  */
 import { describe, expect, it } from "vitest";
+import { emitScene } from "../src/emit/archetypes/index.js";
 import { emitComposition, planCut } from "../src/emit/composition.js";
-import { DIM, spotlighter, type Tween, tweenText, words } from "../src/emit/kit.js";
+import {
+  DIM,
+  type EmitContext,
+  spotlighter,
+  type Tween,
+  tweenText,
+  words,
+} from "../src/emit/kit.js";
 import { travel } from "../src/emit/svg.js";
-import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
+import { resolveTheme } from "../src/emit/theme.js";
+import { beatSchema, FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 
 /** `FORMATS` is keyed by string, so every lookup is `Format | undefined`. */
 function format(id: string): Format {
@@ -608,5 +617,228 @@ describe("the reveal verbs", () => {
       );
       expect(words("   ")).toBe("");
     });
+  });
+});
+
+/**
+ * A CLIP ON A SLIDE, asserted on the emitted document.
+ *
+ * A clip is a figure (src/types.ts), so nothing upstream of `emit` knows whether
+ * the picture moves — which means the branch is here, and so is the only place
+ * it is observable without a browser. Every assertion below was a silent failure
+ * first: a `<video>` with no timing renders as a still, an `<img>` pointed at an
+ * mp4 draws nothing, and a note pinned to a moving picture is right for one
+ * frame.
+ */
+describe("clips", () => {
+  const clipSource = sourceSchema.parse({
+    id: "src-2",
+    title: "The method, running",
+    lang: "en",
+    sections: [],
+    figures: [
+      {
+        id: "f-still",
+        src: "figure_000.jpg",
+        caption: "Figure 2 — the pipeline",
+        width: 1600,
+        height: 900,
+      },
+      // The clip we hold the file for: `href` absent, which is what says so.
+      {
+        id: "f-clip",
+        kind: "clip",
+        src: "clip_000.mp4",
+        poster: "clip_000.jpg",
+        caption: "Video 1 — the method, running",
+        width: 1920,
+        height: 1080,
+        seconds: 12.44,
+      },
+      // The clip we do not: a player page, and a still of it.
+      {
+        id: "f-page",
+        kind: "clip",
+        src: "clip_001.jpg",
+        poster: "clip_001.jpg",
+        href: "https://example.com/watch",
+        caption: "Video 2 — the baseline",
+        width: 1280,
+        height: 720,
+        seconds: 8,
+      },
+    ],
+    equations: [],
+    tables: [],
+  });
+
+  /**
+   * A title beat, then the beat under test — so the scene under test is `s2` and
+   * begins at composition second 7, which is the only way an absolute
+   * `data-start` can be told apart from a scene-relative one.
+   */
+  function second(archetype: string, params: unknown) {
+    return storyboardSchema.parse({
+      sourceId: "src-2",
+      title: "The method, running",
+      beats: [
+        { id: "b0", intent: "Open.", archetype: "title", params: { headline: "A title beat" } },
+        { id: "b1", intent: "Show the method running.", archetype, params },
+      ],
+    });
+  }
+
+  const claim = (figureId: string) =>
+    emitComposition(
+      second("claim-figure", {
+        headline: "The method runs",
+        claim: "It runs in one pass.",
+        figureId,
+      }),
+      clipSource,
+      format("deck-16x9"),
+    );
+
+  it("plays a clip we hold, muted and paused on its own still", () => {
+    const doc = claim("f-clip");
+    const tag = doc.match(/<video[^>]*>/)?.[0] ?? "";
+
+    expect(tag).toContain('src="assets/clip_000.mp4"');
+    expect(tag).toContain('poster="assets/clip_000.jpg"');
+    // ABSOLUTE, and this is the assertion that keeps it so. The runtime seeks
+    // `video[data-start]` on the DECK's clock (`currentTime = t - data-start`),
+    // and this scene begins at 7s — so a `0` here is a clip seeked into a window
+    // that closed before its own scene opened, which renders as one frozen frame
+    // with every gate green. Measured; see the emitter.
+    expect(tag).toContain('data-start="7"');
+    expect(doc).toMatch(/id="s2"[\s\S]*?data-start="7"/);
+    expect(tag).toContain('preload="auto"');
+    expect(tag).toContain("playsinline");
+    // Muted is what makes the compiler write `data-has-audio="false"`: the one
+    // audio track belongs to the narration.
+    expect(tag).toMatch(/\smuted>/);
+    // Neither belongs in a composition: `autoplay` fights the seek, `controls`
+    // paints a browser's chrome into every rendered frame.
+    expect(tag).not.toContain("autoplay");
+    expect(tag).not.toContain("controls");
+    // No second element pretending to be the same figure.
+    expect(doc).not.toContain('<img src="assets/clip_000');
+
+    // The height cap and the ambient drift name the tag that is actually there.
+    // Written for `img` they would be a cap that does not apply — a 1920x1080
+    // video at natural size, off the canvas — and a drift rule that animates
+    // nothing.
+    expect(doc).toMatch(/\.figwrap video\{max-width:100%;max-height:\d+px/);
+    expect(doc).toContain(".ds-live #s2-f video{animation:ds-drift");
+    expect(doc).not.toContain(".figwrap img{");
+  });
+
+  it("shows the still, as an ordinary image, for a clip that lives on a page", () => {
+    const doc = claim("f-page");
+
+    // Not an error path: the still is everything any format can show of it, and
+    // `renderSource` already promised the planner exactly that.
+    expect(doc).toContain('<img src="assets/clip_001.jpg" alt="Video 2 — the baseline" />');
+    expect(doc).not.toContain("<video");
+    expect(doc).toMatch(/\.figwrap img\{max-width:100%;max-height:\d+px/);
+  });
+
+  it("refuses a clip that is neither a file nor a still, and says which step fixes it", () => {
+    const bare = sourceSchema.parse({
+      ...clipSource,
+      figures: [
+        {
+          id: "f-page",
+          kind: "clip",
+          src: "clip_001.mp4",
+          href: "https://example.com/watch",
+          caption: "Video 2 — the baseline",
+          width: 1280,
+          height: 720,
+        },
+      ],
+    });
+
+    expect(() =>
+      emitComposition(
+        second("claim-figure", {
+          headline: "The method runs",
+          claim: "It runs in one pass.",
+          figureId: "f-page",
+        }),
+        bare,
+        format("deck-16x9"),
+      ),
+    ).toThrow(/claim-figure b1: figure "f-page" is a clip we hold no file for and no still of/);
+  });
+
+  it("refuses a clip in annotated-figure, by name, and names the way out", () => {
+    expect(() =>
+      emitComposition(
+        second("annotated-figure", {
+          headline: "The method runs",
+          figureId: "f-clip",
+          notes: [{ x: 0.5, y: 0.5, text: "Here" }],
+        }),
+        clipSource,
+        format("deck-16x9"),
+      ),
+    ).toThrow(/annotated-figure b1: figure "f-clip" is a clip[\s\S]*use claim-figure/);
+  });
+
+  it("refuses a clip in split-compare, by side, and names the way out", () => {
+    expect(() =>
+      emitComposition(
+        second("split-compare", {
+          headline: "Before and after",
+          left: { label: "Before", figureId: "f-clip" },
+          right: { label: "After", lines: ["One pass"] },
+        }),
+        clipSource,
+        format("deck-16x9"),
+      ),
+    ).toThrow(/split-compare b1: the left figure "f-clip" is a clip[\s\S]*use claim-figure/);
+  });
+
+  it("refuses a clip when nobody has said where the scene starts", () => {
+    // The shell always says (`layout` passes the running clock, `planCut` passes
+    // a provisional 0), so this is the bare `emitScene` caller — an archetype
+    // test, or a future caller that builds its own context. Guessing a start
+    // would put the clip on a clock of its own; the refusal names the input.
+    const beat = beatSchema.parse({
+      id: "b1",
+      intent: "Show the method running.",
+      archetype: "claim-figure",
+      params: { headline: "The method runs", claim: "It runs in one pass.", figureId: "f-clip" },
+    });
+    const ctx = {
+      source: clipSource,
+      format: format("deck-16x9"),
+      theme: resolveTheme("ink"),
+      sid: "s1",
+    };
+
+    // CAST, because `EmitContext.start` is required and TypeScript would refuse
+    // this call — which is the point: the compiler is the first gate and this
+    // assertion is the second, for a JavaScript caller who never met the first.
+    expect(() => emitScene(beat, ctx as unknown as EmitContext)).toThrow(
+      /nobody said when this scene starts/,
+    );
+    // With the clock in hand it draws, and writes exactly what it was given.
+    expect(emitScene(beat, { ...ctx, start: 12.5 }).html).toContain('data-start="12.5"');
+  });
+
+  /**
+   * Invariant 4's other half. A third-party frame is fetched live on every
+   * render and capture never reaches its clock, so a deck that embeds one is
+   * non-deterministic with every gate green — `scanDeterminism` refuses it now
+   * (test/verify.test.ts), and this is the assertion that the vocabulary never
+   * emits one to begin with. It starts honest: nothing under src/emit writes the
+   * tag today.
+   */
+  it("never embeds a document it does not own", () => {
+    expect(html).not.toMatch(/<iframe\b/i);
+    expect(claim("f-clip")).not.toMatch(/<iframe\b/i);
+    expect(claim("f-page")).not.toMatch(/<iframe\b/i);
   });
 });

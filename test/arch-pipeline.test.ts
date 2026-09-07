@@ -39,6 +39,7 @@ const ctx = (sid = "s3"): EmitContext => ({
   format,
   theme,
   sid,
+  start: 0,
 });
 
 type Params = BeatOf<"pipeline">["params"];

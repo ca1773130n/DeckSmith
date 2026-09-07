@@ -667,6 +667,20 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
       `annotated-figure ${beat.id}: no figure "${p.figureId}" in source ${ctx.source.id}`,
     );
   }
+  // A CLIP IS A FIGURE AND THIS ARCHETYPE STILL CANNOT TAKE ONE. Everything
+  // below pins notes to fractions of one frame: `planFigure` solves a layout
+  // against the figure's intrinsic box, and each leader lands on a point the
+  // plan chose while looking at a picture that does not move. Over a clip the
+  // notes are correct for whichever frame happens to be showing and wrong for
+  // every other one — which is a slide that lints, renders and reads as
+  // annotated evidence, and is the exact shape of defect this project keeps
+  // writing experiments about. Refuse by name instead.
+  if (fig.kind === "clip") {
+    throw new Error(
+      `annotated-figure ${beat.id}: figure "${fig.id}" is a clip, and notes can only be pinned to a still — ` +
+        `use claim-figure, which plays it, or point this beat at the clip's poster as a figure of its own`,
+    );
+  }
 
   // Cropping changes both the aspect the layout solves for and the coordinate
   // space the notes live in. Do both here, once, so everything downstream keeps

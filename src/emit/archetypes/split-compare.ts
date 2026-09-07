@@ -128,6 +128,17 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     if (fig.width <= 0 || fig.height <= 0) {
       throw new Error(`split-compare ${beat.id}: figure "${fig.id}" has no usable dimensions`);
     }
+    // A CLIP IS A FIGURE AND THIS SIDE STILL CANNOT HOLD ONE. The panel draws
+    // its picture as an SVG `<image>` (see `image` above), which is a raster
+    // primitive: hand it an mp4 and the side goes blank, sized and captioned as
+    // though the evidence were there. Nothing downstream can see that, so the
+    // refusal is here and it names the way out.
+    if (fig.kind === "clip") {
+      throw new Error(
+        `split-compare ${beat.id}: the ${NAME[i]} figure "${fig.id}" is a clip, and a side draws a still <image> — ` +
+          `use claim-figure, which plays it, or point this side at the clip's poster as a figure of its own`,
+      );
+    }
     return fig;
   });
   sides.forEach((side, i) => {

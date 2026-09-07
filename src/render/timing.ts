@@ -224,7 +224,9 @@ function holdsFor(
   sid: string,
   speed: number,
 ): { holds: number[]; open: number } {
-  const ctx: EmitContext = { source, format, theme, sid };
+  // `start: 0`: only `holds` and `open` leave this function, both of which are
+  // scene-relative, so the absolute clock is not one of its inputs.
+  const ctx: EmitContext = { source, format, theme, sid, start: 0 };
   // `stageScene` is the one place pacing happens, shared with `planCut` and
   // `layout`, so the manifest cannot describe a scene the deck did not build —
   // and on a linear format there is no island for `assertHoldsAgree` to catch a

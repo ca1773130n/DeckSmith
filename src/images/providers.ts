@@ -15,9 +15,9 @@
  *
  * Every provider reports the size it knows for itself: rasters through
  * `imageSize`, whose header sniff is also the server's only type check on a
- * stranger's figure and stays raster-only for that reason; the tool's SVG from
- * its own viewBox. A size that cannot be read is a rung failure, not a figure
- * with a guessed aspect.
+ * stranger's figure; the tool's SVG from its own root element, through the
+ * `svgSize` re-exported below. A size that cannot be read is a rung failure,
+ * not a figure with a guessed aspect.
  */
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -91,8 +91,9 @@ function picturePrompt(req: ImageRequest): string {
 }
 
 /**
- * A raster the way `imageSize` sees it. GIF is sniffed there but not admitted
- * here: no backend returns one, and a figure's mime is a closed set.
+ * A raster the way `imageSize` sees it. GIF, WebP, AVIF and SVG are sniffed
+ * there but not admitted here: no backend returns one, and a figure's mime is a
+ * closed set.
  */
 function raster(bytes: Buffer, from: string): ImageResult {
   const mime =
@@ -409,12 +410,20 @@ export function drawSvg(req: ImageRequest): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${parts.join("")}</svg>\n`;
 }
 
-/** The size the tool wrote into its own SVG. `imageSize` is raster-only on purpose. */
-export function svgSize(bytes: Buffer): { width: number; height: number } {
-  const m = /viewBox="0 0 (\d+) (\d+)"/.exec(bytes.toString("utf8", 0, 200));
-  if (!m) throw new Error("svg has no viewBox");
-  return { width: Number(m[1]), height: Number(m[2]) };
-}
+/**
+ * The size an SVG declares, for `sizeOf` in ./illustrate.ts and for anything
+ * else that already imports this module.
+ *
+ * It USED to live here, as a regex for `viewBox="0 0 %d %d"` over the first 200
+ * bytes — four integers, no units, no preamble — which is exactly the SVG
+ * `drawSvg` above writes and nothing else. Figure ingest needs to measure an SVG
+ * a stranger wrote, so the reader was generalised and moved to src/source/assets.ts
+ * beside the other formats. It moved THERE rather than staying here because
+ * that module imports nothing but node and the schemas: the reverse would put
+ * the Codex runner and this file's OpenAI adapter on the import path of every
+ * source parse, for two integers.
+ */
+export { svgSize } from "../source/assets.js";
 
 /** The last rung. Pure, so it cannot fail, so `illustrate` always finishes. */
 export function toolSvg(): ImageProvider {

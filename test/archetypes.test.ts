@@ -25,9 +25,30 @@ const source: Source = {
   lang: "en",
   sections: [],
   figures: [
-    { id: "f1", src: "figure_000.jpg", caption: "A <wide> figure", width: 1980, height: 1000 },
-    { id: "f2", src: "figure_001.jpg", caption: "A square one", width: 1000, height: 1000 },
-    { id: "f3", src: "figure_002.jpg", caption: "A strip", width: 1980, height: 520 },
+    {
+      id: "f1",
+      kind: "image",
+      src: "figure_000.jpg",
+      caption: "A <wide> figure",
+      width: 1980,
+      height: 1000,
+    },
+    {
+      id: "f2",
+      kind: "image",
+      src: "figure_001.jpg",
+      caption: "A square one",
+      width: 1000,
+      height: 1000,
+    },
+    {
+      id: "f3",
+      kind: "image",
+      src: "figure_002.jpg",
+      caption: "A strip",
+      width: 1980,
+      height: 520,
+    },
   ],
   equations: [
     {
@@ -58,7 +79,7 @@ const format: Format = {
   navigable: true,
 };
 
-const ctx = (sid: string): EmitContext => ({ source, format, theme, sid });
+const ctx = (sid: string): EmitContext => ({ source, format, theme, sid, start: 0 });
 
 /**
  * The `{from}, {to}` pair of every `tl.fromTo(...)` in some emitted code. Brace

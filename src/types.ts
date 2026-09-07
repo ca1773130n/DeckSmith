@@ -22,9 +22,34 @@ export const refSchema = z.object({
 
 export const figureSchema = z.object({
   id: z.string(),
+  /**
+   * WHAT THE ASSET IS. A CLIP IS A FIGURE.
+   *
+   * A harvested page hands back stills and video in one pass, and the obvious
+   * shape for the video — a fifth `Source` array and a fifth `refSchema` kind —
+   * costs every layer that already knows what a figure is: the inventory
+   * `renderSource` prints, `assertRefsResolve`, the archetypes that take a
+   * `figureId`, and the pack. All of them would need a second word for "the
+   * thing this beat points at", and `refSchema` is a CLOSED enum of four kinds
+   * that a fifth entry would put into every stored plan's schema. A clip is a
+   * rectangle with intrinsic pixels and a caption that a beat points at, which
+   * is what a figure is; what differs is one branch at emit.
+   *
+   * DEFAULTED rather than required, and that is the whole point of the field
+   * being an enum with a default: every `source.json` written before clips
+   * existed parses unchanged and comes back an `image`, which is what it has
+   * always been.
+   */
+  kind: z.enum(["image", "clip"]).default("image"),
   /** Path relative to the deck's asset directory. */
   src: z.string(),
   caption: z.string(),
+  /**
+   * The intrinsic pixel size layout keys off — for a clip, the VIDEO's own
+   * dimensions, not the poster's. Every fit, crop and leader-line fraction
+   * downstream is expressed against this box, so a clip whose poster was
+   * letterboxed to another shape would put every annotation in the wrong place.
+   */
   width: z.int().positive(),
   height: z.int().positive(),
   /**
@@ -43,6 +68,25 @@ export const figureSchema = z.object({
   sectionId: z.string().optional(),
   /** The sentence or paragraph that refers to it, verbatim from the document. */
   mention: z.string().optional(),
+  // THE THREE FIELDS ONLY A CLIP USES. All optional, for the same reason `kind`
+  // is defaulted: an image carries none of them, and a source written before
+  // clips existed parses into exactly the object it always did.
+  /**
+   * The local still that represents the clip — what the deck shows before
+   * anyone presses play, and what stands in wherever the video cannot run at
+   * all. A clip whose video could not be downloaded is this still and nothing
+   * else, so it is the picture the beat is really planned around.
+   */
+  poster: z.string().optional(),
+  /** How long the clip runs. Seconds, as measured off the file, never guessed. */
+  seconds: z.number().positive().optional(),
+  /**
+   * The page the video lives ON, when the video itself is not a file we can
+   * fetch — a player page, an embed, anything whose terms or DRM make the bytes
+   * unavailable. Then `poster` is all the deck can show, and this is where a
+   * viewer goes to watch the thing. Absent for a clip we hold the file for.
+   */
+  href: z.string().optional(),
 });
 
 export const equationSchema = z.object({

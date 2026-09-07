@@ -33,6 +33,7 @@ const ctx = (sid: string): EmitContext => ({
   format,
   theme,
   sid,
+  start: 0,
 });
 
 type Params = BeatOf<"stack">["params"];

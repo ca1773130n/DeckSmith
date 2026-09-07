@@ -24,9 +24,30 @@ const source: Source = {
   lang: "en",
   sections: [],
   figures: [
-    { id: "tall", src: "figure_000.jpg", caption: "A <tall> crop", width: 900, height: 1200 },
-    { id: "wide", src: "figure_001.jpg", caption: "A wide strip", width: 2400, height: 600 },
-    { id: "square", src: "figure_002.jpg", caption: "A square one", width: 1000, height: 1000 },
+    {
+      id: "tall",
+      kind: "image",
+      src: "figure_000.jpg",
+      caption: "A <tall> crop",
+      width: 900,
+      height: 1200,
+    },
+    {
+      id: "wide",
+      kind: "image",
+      src: "figure_001.jpg",
+      caption: "A wide strip",
+      width: 2400,
+      height: 600,
+    },
+    {
+      id: "square",
+      kind: "image",
+      src: "figure_002.jpg",
+      caption: "A square one",
+      width: 1000,
+      height: 1000,
+    },
   ],
   equations: [],
   tables: [],
@@ -39,7 +60,7 @@ const format: Format = {
   minWeight: 0,
   navigable: true,
 };
-const ctx = (sid: string): EmitContext => ({ source, format, theme, sid });
+const ctx = (sid: string): EmitContext => ({ source, format, theme, sid, start: 0 });
 const core = { intent: "i", evidence: [], weight: 0.5, seconds: 9 };
 
 type Beat = BeatOf<"split-compare">;
@@ -428,7 +449,7 @@ describe("split-compare", () => {
  */
 describe("split-compare in portrait", () => {
   const short = FORMATS["short-9x16"] as Format;
-  const tallCtx = (sid: string): EmitContext => ({ source, format: short, theme, sid });
+  const tallCtx = (sid: string): EmitContext => ({ source, format: short, theme, sid, start: 0 });
   // Derived, not 220: `.scene`'s padding is a FRACTION of the canvas, so a
   // literal here pins the gutter to whatever 16:9 happened to use and fails
   // the moment the margin scales with the format.

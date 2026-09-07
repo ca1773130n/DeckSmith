@@ -26,6 +26,7 @@ describe("equation-morph", () => {
     format: FORMATS["deck-16x9"] as Format,
     theme: ink,
     sid,
+    start: 0,
   });
   const beat = (terms: Term[], seconds = 9) =>
     ({

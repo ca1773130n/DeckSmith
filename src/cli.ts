@@ -13,8 +13,9 @@
  * stack trace: a failure here is a bad document or a bad path, not a bug the
  * user can read.
  */
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
@@ -40,6 +41,7 @@ import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
 import { fetchFigures } from "./source/assets.js";
 import { bundleFont } from "./source/fonts.js";
+import { attachClips, type HarvestedClip, type HarvestOptions, harvest } from "./source/harvest.js";
 import { parseMarkdown } from "./source/markdown.js";
 import {
   type Beat,
@@ -326,6 +328,63 @@ function stated<K extends keyof Prefs>(prefs: Prefs, key: K): Prefs[K] | undefin
   return prefs[key] === DEFAULTS[key] ? undefined : prefs[key];
 }
 
+/** What `ingest` reads. Commander hands every option back as a string. */
+interface IngestFlags {
+  out: string;
+  lang?: string;
+  maxAssets?: string;
+  maxClips?: string;
+  maxBytes?: string;
+  maxSeconds?: string;
+}
+
+/**
+ * Whether the input names a page rather than a file.
+ *
+ * A POSITIONAL RATHER THAN A `--url` FLAG, and that is a decision. `ingest`
+ * takes the document; a URL is a spelling of where the document is, not a
+ * different kind of request — every other verb here takes its input positionally
+ * for the same reason. A flag would make the positional optional and invent two
+ * states nothing else in this CLI has: neither given, and both given.
+ *
+ * `http:` and `https:` only, because those are the two schemes `harvest` will
+ * fetch. Anything else falls through to `readFile`, which refuses it with a
+ * message naming the path — which is the right answer for `file:///paper.md`.
+ */
+function url(input: string): boolean {
+  return /^https?:\/\//i.test(input);
+}
+
+/**
+ * The `--max-*` flags as `HarvestOptions`.
+ *
+ * An unstated cap stays unstated rather than being filled in here: the defaults
+ * belong to `harvest`, which is also what the server and the MCP call, and a
+ * second copy of them in this file is a second thing to keep true.
+ */
+function budget(o: IngestFlags): HarvestOptions {
+  const maxAssets = positive(o.maxAssets, "--max-assets");
+  const maxClips = positive(o.maxClips, "--max-clips");
+  const maxTotalBytes = positive(o.maxBytes, "--max-bytes");
+  const seconds = positive(o.maxSeconds, "--max-seconds");
+  return {
+    ...(maxAssets === undefined ? {} : { maxAssets }),
+    ...(maxClips === undefined ? {} : { maxClips }),
+    ...(maxTotalBytes === undefined ? {} : { maxTotalBytes }),
+    ...(seconds === undefined ? {} : { maxWallMs: seconds * 1000 }),
+  };
+}
+
+/** A numeric flag, refused by name rather than read as NaN and silently ignored. */
+function positive(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`${flag} takes a positive number; got "${value}".`);
+  }
+  return n;
+}
+
 /* -------------------------------------------------------------------- verbs */
 
 const program = new Command();
@@ -336,26 +395,74 @@ program
 
 program
   .command("ingest")
-  .description("Parse a document into source.json, localising its figures and font.")
-  .argument("<input>", "source document (markdown)")
+  .description("Parse a document or a web page into source.json, localising its figures and font.")
+  .argument("<input>", "the document: a markdown file, or an http(s) URL to read the page at")
   .requiredOption("-o, --out <file>", "where to write source.json")
   .option("--lang <bcp47>", "override the sniffed language")
-  .action(async (input: string, o: { out: string; lang?: string }) => {
-    const md = await readFile(resolve(input), "utf8").catch(() => {
-      throw new Error(`Cannot read ${input}.`);
-    });
-    const parsed = parseMarkdown(md, { lang: o.lang });
+  // URL-only budgets, and every one of them is checked inside `harvest` and
+  // nowhere else — no gate downstream can tell a deck harvested inside its caps
+  // from one harvested outside them. Named after the options they set so that
+  // the refusal a harvest prints ("raise maxAssets") names something findable in
+  // `--help`.
+  .option("--max-assets <n>", "URL only: figures to download (maxAssets; default 40)")
+  .option("--max-clips <n>", "URL only: videos to download as clips (maxClips; default 4)")
+  .option("--max-bytes <n>", "URL only: bytes to download in total (maxTotalBytes; default 96 MB)")
+  .option(
+    "--max-seconds <n>",
+    "URL only: wall clock for the whole harvest (maxWallMs; default 180)",
+  )
+  .action(async (input: string, o: IngestFlags) => {
     const assets = join(dirname(resolve(o.out)), "assets");
+    // A page's files are downloaded into a directory of their own and copied out
+    // of it: `fetchFigures` copies the images the markdown references, and
+    // `attachClips` copies the videos it cannot reference. What is left when
+    // both have run is duplicates of what now sits in `assets`.
+    const scratch = url(input) ? await mkdtemp(join(tmpdir(), "decksmith-harvest-")) : undefined;
+    try {
+      let md: string;
+      let clips: readonly HarvestedClip[] = [];
+      if (scratch === undefined) {
+        md = await readFile(resolve(input), "utf8").catch(() => {
+          throw new Error(`Cannot read ${input}.`);
+        });
+      } else {
+        step(`ingest: reading ${input} — this opens a browser and takes a moment`);
+        const page = await harvest(input, scratch, budget(o));
+        // VERBATIM AND ALL OF THEM. Each one is a figure, a clip or a whole
+        // video that the deck will not have, and the only moment anybody can act
+        // on that is before the plan is paid for. A harvest that silently
+        // dropped half a page is the failure this project keeps having.
+        for (const warning of page.warnings) step(`ingest:   ${warning}`);
+        step(
+          `ingest: harvested "${page.title}" — ${page.assets.length} images, ${page.clips.length} clips`,
+        );
+        md = page.markdown;
+        clips = page.clips;
+      }
+      const parsed = parseMarkdown(md, { lang: o.lang });
 
-    step(
-      `ingest: ${parsed.sections.length} sections, ${parsed.figures.length} figures, ${parsed.equations.length} equations`,
-    );
-    const source = await fetchFigures(parsed, assets);
-    const bundle = await bundleFont(source.lang, glyphs(source), join(assets, "fonts"));
-    if (bundle) step(`ingest: bundled ${bundle.family} for ${source.lang}`);
+      step(
+        `ingest: ${parsed.sections.length} sections, ${parsed.figures.length} figures, ${parsed.equations.length} equations`,
+      );
+      // BEFORE `fetchFigures`, which passes a clip through untouched — see
+      // `attachClips`. A no-op for a markdown file, which has no clips.
+      const withClips = await attachClips(parsed, clips, assets);
+      // COLLECTED AND PRINTED, not swallowed. A figure that could not be fetched
+      // is dropped rather than fatal, which is right — one dead image URL on a
+      // harvested page must not lose the other twenty — but a drop nobody is
+      // told about is the silent failure this project keeps finding. The server
+      // path already threads its own array through; the CLI's reader is stderr.
+      const dropped: string[] = [];
+      const source = await fetchFigures(withClips, assets, dropped);
+      for (const why of dropped) step(`ingest: ${why}`);
+      const bundle = await bundleFont(source.lang, glyphs(source), join(assets, "fonts"));
+      if (bundle) step(`ingest: bundled ${bundle.family} for ${source.lang}`);
 
-    await writeJson(o.out, source);
-    step(`ingest: wrote ${o.out}`);
+      await writeJson(o.out, source);
+      step(`ingest: wrote ${o.out}`);
+    } finally {
+      if (scratch !== undefined) await rm(scratch, { recursive: true, force: true });
+    }
   });
 
 imageFlags(
@@ -1244,7 +1351,7 @@ function withMinWeight(format: Format, raw: string | undefined): Format {
 async function copyAssets(
   sourceDir: string,
   out: string,
-  figures: readonly { src: string }[],
+  figures: readonly { src: string; poster?: string }[],
 ): Promise<void> {
   const from = join(sourceDir, "assets");
   if (!(await stat(from).catch(() => null))) {
@@ -1262,7 +1369,19 @@ async function copyAssets(
   //
   // `fonts/` is the one directory that comes along, because `refreshFont` writes
   // the subsetted bundle into it and the stylesheet names its own files.
-  const wanted = new Set(figures.map((f) => f.src.replace(/^\.?\//, "")));
+  //
+  // A CLIP CONTRIBUTES TWO FILES, and forgetting the second is a 404 at run time
+  // rather than a build error: `poster` is what the video shows before its first
+  // frame decodes, and what a player-page clip degrades to when there is no
+  // downloadable file at all. Named here because this set is the ONLY thing that
+  // reaches the built deck — a poster left out is simply absent, and the deck's
+  // own runtime reports it as `http_error 404`, a long way from this line.
+  const wanted = new Set(
+    figures
+      .flatMap((f) => [f.src, f.poster])
+      .filter((n) => n !== undefined)
+      .map((n) => n.replace(/^\.?\//, "")),
+  );
   await mkdir(join(out, "assets"), { recursive: true });
   let copied = 0;
   for (const name of wanted) {

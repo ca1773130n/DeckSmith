@@ -5,6 +5,7 @@
  * parameter: EXPERIMENT-002 full-bled a 1.98-aspect figure and pushed its
  * caption 200px off-canvas. Only a genuine strip earns the full width.
  */
+import type { Figure } from "../../types.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, words } from "../kit.js";
 import { faceOf, wrap } from "../svg.js";
@@ -75,6 +76,100 @@ const BESIDE_COL = 560;
  * has on hand.
  */
 const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
+
+/** What the plate holds, and the tag its height cap and its drift rule name. */
+interface Plate {
+  html: string;
+  /** `img` or `video`. One CSS rule is written, for whichever is actually there. */
+  el: "img" | "video";
+}
+
+/**
+ * A CLIP WE HOLD THE FILE FOR IS A `<video>`. EVERYTHING ELSE IS AN `<img>`.
+ *
+ * A PLAYER-PAGE CLIP IS NOT AN ERROR PATH, and that is the whole of why this
+ * branches on `href` rather than on `kind`. `href` is present exactly when the
+ * video's bytes were unavailable — src/types.ts calls it "Absent for a clip we
+ * hold the file for" — and the still is then everything any format can show,
+ * which is what `renderSource` already promises the planner in those words
+ * ("its still is all any format will ever show"). Refusing there would delete a
+ * beat the planner was told it could spend, over a picture that draws perfectly
+ * well.
+ *
+ * The `<img>` branch is byte-for-byte the markup every still has always had, so
+ * a deck with no clip in it is the deck it was.
+ */
+function plate(fig: Figure, sid: string, beatId: string, start: number | undefined): Plate {
+  const img = (src: string): Plate => ({
+    html: `<img src="assets/${esc(src)}" alt="${esc(fig.caption)}" />`,
+    el: "img",
+  });
+  if (fig.kind !== "clip") return img(fig.src);
+  if (fig.href !== undefined) {
+    // Nothing to draw, said with the one instruction that fixes it. A clip with
+    // neither bytes nor a still is a harvest that half-ran; the beat is not the
+    // thing that is wrong, so the message names the figure and the step.
+    if (fig.poster === undefined) {
+      throw new Error(
+        `claim-figure ${beatId}: figure "${fig.id}" is a clip we hold no file for and no still of — ` +
+          `re-ingest it so its poster is measured, or point the beat at a figure this deck has`,
+      );
+    }
+    return img(fig.poster);
+  }
+
+  // MUTED, AND THAT IS A DECISION ABOUT THE ONE AUDIO TRACK rather than about
+  // taste. hyperframes muxes a clip's audio only where the tag says
+  // `data-has-audio="true"`, and its compiler derives that attribute from this
+  // one: a muted tag compiles to `data-has-audio="false"`. The deck already
+  // spends its single track on narration, so an unmuted clip would put the
+  // paper's own soundtrack underneath the voice explaining it.
+  //
+  // NO `autoplay` AND NO `controls`. The deck holds a clip paused on its poster
+  // until someone presses play — again the promise `renderSource` makes to the
+  // planner — and `controls` would paint a browser's own chrome into every
+  // rendered frame.
+  //
+  // `data-start` IS LOAD-BEARING, NOT DECORATION, AND IT IS ABSOLUTE. The
+  // runtime seeks `video[data-start]` and nothing else, and it reads the value
+  // as a second on the DECK's clock: `currentTime = t − data-start`. So a clip
+  // that declares a scene-relative start is seeked into a window that closed
+  // before its own scene opened, and the plate holds the clip's last frame for
+  // the length of the beat with every gate green.
+  //
+  // MEASURED at 0.8.27, because the alternative reads as correct. hyperframes'
+  // compiler injects `data-start="0" data-hf-auto-start=""` into a media tag
+  // that declares no timing, and its runtime resolves that marker against the
+  // enclosing `[data-composition-id]` — this scene's wrapper — so the marker
+  // ought to be enough. It is not: on a two-beat deck whose clip runs red, then
+  // green, then blue, two seconds each, with the claim-figure scene starting at
+  // 7s, the marker rendered BLUE at composition 9.5s, 10.5s and 12.5s — one
+  // frozen frame, the clip having ended at second 6 — while `data-start="7"`
+  // rendered green, green, blue, which is clip seconds 2.5, 3.5 and 5.5.
+  //
+  // `ctx.start` is that number, already rounded to invariant 10's three places
+  // by the shell, and it is the SAME number the scene wrapper publishes. It is
+  // optional on `EmitContext` because eleven other archetypes never ask for it —
+  // so a clip refuses by name rather than guessing when nobody has said.
+  //
+  // INVARIANT 11 IS NOT BROKEN HERE, AND MUST NOT BE "FIXED" INTO BEING. The
+  // clip advances because the runtime's media adapter writes `currentTime` from
+  // OUTSIDE the timeline, per captured frame; nothing on this scene's timeline
+  // touches the element. The obvious improvement — an `onUpdate` that pushes
+  // `currentTime` — is exactly the callback invariant 11 forbids, and it would
+  // buy a seek the runtime already performs at 24x the non-reproducible frames.
+  if (start === undefined) {
+    throw new Error(
+      `claim-figure ${beatId}: figure "${fig.id}" is a clip, and nobody said when this scene starts — ` +
+        "the video is seeked on the deck's absolute clock, so `EmitContext.start` has to be passed",
+    );
+  }
+  const poster = fig.poster === undefined ? "" : ` poster="assets/${esc(fig.poster)}"`;
+  return {
+    html: `<video id="${sid}-v" src="assets/${esc(fig.src)}"${poster} data-start="${start}" preload="auto" playsinline muted></video>`,
+    el: "video",
+  };
+}
 
 export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   const { sid, theme } = ctx;
@@ -164,7 +259,8 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // left. Same words, same measure, same size.
   const claim = `<div class="claim" id="${sid}-c">${words(p.claim)}</div>`;
   // `figure.src` is relative to the deck's asset directory.
-  const figure = `<div class="figwrap" id="${sid}-f"><img src="assets/${esc(fig.src)}" alt="${esc(fig.caption)}" /></div>`;
+  const held = plate(fig, sid, beat.id, ctx.start);
+  const figure = `<div class="figwrap" id="${sid}-f">${held.html}</div>`;
   const caption = `<div class="caption" id="${sid}-cap">${esc(fig.caption)}</div>`;
 
   // PORTRAIT: claim, then figure, then caption, each across the whole box. Side
@@ -238,12 +334,22 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // Height-capped rather than width-driven: a square figure in the beside
       // layout would otherwise be ~970px tall and run off the canvas. The cap is
       // the measured remainder, not a constant — see `figMax`.
-      `.figwrap img{max-width:100%;max-height:${figMax}px;width:auto;height:auto;display:block}`,
+      //
+      // NAMED FOR THE TAG THAT IS ACTUALLY THERE rather than written for both.
+      // A rule listing `img, video` would move the bytes of every deck we have
+      // ever built to describe an element almost none of them contain, and a
+      // rule naming only `img` over a clip is a cap that silently does not
+      // apply — the video would render at its natural 1920x1080 and run off the
+      // canvas, which is invariant-5 territory that no gate reads.
+      `.figwrap ${held.el}{max-width:100%;max-height:${figMax}px;width:auto;height:auto;display:block}`,
       `.caption{font-size:${BODY_SIZE}px;line-height:${BODY_LH};color:${theme.dim};margin-top:16px}`,
       // The image, not its wrapper: the wrapper's entrance already writes
       // `transform`. 1.2% of the 550px cap is 3.3px a side, which the wrapper's
-      // 16px padding absorbs — the swell can never reach the canvas edge.
-      ambient(sid, "-f img", DRIFT),
+      // 16px padding absorbs — the swell can never reach the canvas edge. Same
+      // reason as the cap above for naming the tag: a drift rule aimed at `img`
+      // over a `<video>` is one ambient rule that animates nothing, and the
+      // slide reads as dead rather than as held.
+      ambient(sid, `-f ${held.el}`, DRIFT),
     ].join("\n"),
   };
 };

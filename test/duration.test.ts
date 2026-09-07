@@ -683,6 +683,7 @@ describe("slidesFor", () => {
     sections: [{ id: "a", depth: 1, heading: "h", text: "x".repeat(chars) }],
     figures: Array.from({ length: figures }, (_, i) => ({
       id: `f${i}`,
+      kind: "image",
       src: "u",
       caption: "c",
       width: 10,

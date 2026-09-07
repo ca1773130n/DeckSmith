@@ -256,7 +256,17 @@ export function planCut(
     const segments = opts.narration?.beats[beat.id];
     let scene: Scene;
     try {
-      ({ scene } = stageScene(emitScene(beat, { source, format, theme, sid: `s${i + 1}` }), speed));
+      // `start: 0` is as provisional as the scene id beside it, and for the same
+      // reason: this pass exists to learn how long a beat runs, over a cut that
+      // has not happened yet, and it throws every scene it emits away. The only
+      // emitter that reads it is `claim-figure` placing a clip on the deck's
+      // clock, and it must not refuse here — a beat this pass could not draw is
+      // dropped from the deck, so a refusal over a number nobody reads would
+      // delete the beat from the build it was measuring.
+      ({ scene } = stageScene(
+        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0 }),
+        speed,
+      ));
     } catch (err) {
       // Without a hook the error propagates exactly as it always has, which is
       // what every test and every library caller expects.
@@ -348,9 +358,22 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
   // outlast the NEXT one — so how long the next scene runs has to be known
   // before this one can be written. Everything a scene needs on its own is
   // settled here; nothing that depends on a neighbour is.
+
+  // THE DECK'S CLOCK, ACCUMULATED ONCE. It used to be summed in the second pass
+  // below, which was fine while nothing an emitter wrote depended on it — and
+  // stopped being fine the moment one did: a `<video>` is timed by the runtime
+  // rather than by its scene's timeline, so `claim-figure` has to write the
+  // ABSOLUTE second the scene begins (see `EmitContext.start`). Summing it a
+  // second time here, beside a sum that already existed, is the shape of defect
+  // this file already warns about twice, so the second pass reads what this one
+  // recorded instead. Same order, same unrounded running sum, same bytes.
+  let at = 0;
   const cuts = beats.map((beat, i) => {
     const sid = `s${i + 1}`;
-    const ctx: EmitContext = { source, format, theme, sid };
+    // Rounded to invariant 10's three places, so the number an archetype writes
+    // and the number `sceneHtml` publishes as this scene's `data-start` are ONE
+    // number rather than two roundings of one.
+    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at) };
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
@@ -366,25 +389,27 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     const dive: Dive | undefined = inside
       ? { t0: rnd(seconds), dur: rnd(MOVE_SECONDS * speed), fade: rnd(FADE_SECONDS * speed) }
       : undefined;
-    return {
-      beat,
-      sid,
-      scene,
-      segments,
-      inside,
-      dive,
-      duration: dive ? seconds + diveTail(dive) : seconds,
-    };
+    const duration = dive ? seconds + diveTail(dive) : seconds;
+    // Where this scene starts, kept with the scene rather than recomputed. The
+    // camera's tail is part of what this beat costs the deck, so it is inside
+    // the sum — exactly as the pass below used to add it.
+    //
+    // Un-annotated decks must accumulate EXACTLY as they did before any of this
+    // existed — rounding the running sum here, rather than only where it is
+    // printed, moves bytes on any deck whose beat lengths came from measured
+    // speech. So the sum stays raw and only `ctx.start` above is rounded.
+    const start = at;
+    at += duration;
+    return { beat, sid, scene, segments, inside, dive, duration, start };
   });
 
-  let start = 0;
   // Whether ANY scene deferred its timeline behind a measurement. `readyGate`
   // needs to know, and it must be told: an extra link in that chain on a deck
   // with no builders to await would move bytes in every deck we have shipped.
   let builds = false;
   const plugins = new Set<string>();
   cuts.forEach((cut, i) => {
-    const { beat, sid, dive, inside, duration } = cut;
+    const { beat, sid, dive, inside, duration, start } = cut;
     if (cut.segments?.length) spoken[sid] = cut.segments;
 
     // THE HANDOFF, and it is the whole of why this deck no longer cuts to black
@@ -438,11 +463,6 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
       notes: beat.narration ?? beat.intent,
       holds: scene.holds,
     });
-    // Un-annotated decks must accumulate EXACTLY as they did before this
-    // existed — rounding the running sum here, rather than only where it is
-    // printed, moves bytes on any deck whose beat lengths came from measured
-    // speech. So the camera adds its own tail and nothing else changes.
-    start += duration;
   });
 
   return {
@@ -455,7 +475,10 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     scenes,
     slides,
     spoken,
-    total: start,
+    // The clock after the last scene: the sum the map above finished with, which
+    // is the number the second pass used to arrive at by re-adding the same
+    // durations in the same order.
+    total: at,
     cut,
     builds,
     plugins,

@@ -23,11 +23,12 @@
  * the symptom is a Korean paper narrated in English. Absence is the signal.
  */
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, resolve, sep } from "node:path";
+import { zipSync } from "fflate";
 import { z } from "zod";
-import { durationPlan, FORMATS, THEME_NAMES } from "../index.js";
+import { durationPlan, FORMATS, type HarvestOptions, harvest, THEME_NAMES } from "../index.js";
 import { catalog, parseOptions } from "../server/options.js";
 import { runPipeline, stagesFor } from "../server/pipeline.js";
 import { type JobView, Queue } from "../server/queue.js";
@@ -153,6 +154,65 @@ function fieldsFor(s: Settings): Record<string, string> {
   return f;
 }
 
+/**
+ * What a harvest may spend when the caller is an agent waiting on a tool call.
+ *
+ * Tighter than the CLI's defaults on every axis, and for reasons the CLI does
+ * not have. The whole harvest has to fit inside ONE upload, so the byte budget
+ * sits under `MAX_UPLOAD_BYTES` with room left for the document. The call BLOCKS
+ * until the harvest finishes, so the wall clock is a minute rather than three.
+ * And NO video is downloaded — `maxClips: 0` — because this path ships the page
+ * as a markdown document and the dialect has no way to say `kind: "clip"`: the
+ * mp4 would be fetched only to be dropped at the zip. Videos still arrive as
+ * their still image and a link, which is what markdown can carry.
+ */
+const PAGE_BUDGET: HarvestOptions = {
+  maxAssetBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+  maxWallMs: 60_000,
+  maxClips: 0,
+  refs: "relative",
+};
+
+/**
+ * A page, packed into the container the pipeline already knows how to open.
+ *
+ * A ZIP RATHER THAN A NEW DOOR INTO THE PIPELINE. `runPipeline` already takes an
+ * upload, unpacks a zip into the job's own directory and resolves each figure's
+ * relative path inside it — which is exactly the shape a harvest has. Going in
+ * that way inherits the zip-slip lock and the figure fence that door already
+ * carries, and leaves the server surface alone. `refs: "relative"` is the half
+ * that makes it work: `guardFigures` refuses an absolute path, so a markdown
+ * pointing into this machine's temp directory would arrive with every figure
+ * dropped and every gate green.
+ *
+ * The harvest directory goes as soon as its bytes are in memory. The job unpacks
+ * its own copy, so keeping a second one is keeping a stale one.
+ */
+async function readPage(
+  url: string,
+  work: string,
+): Promise<{ zip: Uint8Array; warnings: string[] }> {
+  await mkdir(work, { recursive: true });
+  const dir = await mkdtemp(join(work, "harvest-"));
+  try {
+    const page = await harvest(url, dir, PAGE_BUDGET);
+    const files: Record<string, Uint8Array> = {
+      "document.md": new TextEncoder().encode(page.markdown),
+    };
+    for (const asset of page.assets) files[basename(asset)] = await readFile(asset);
+    const warnings = [...page.warnings];
+    if (page.clips.length > 0) {
+      warnings.push(
+        `${page.clips.length} video(s) travel as their still image and a link only: this tool ships the page as a markdown document, which has no way to say kind: "clip". \`decksmith ingest <url>\` keeps them as clips.`,
+      );
+    }
+    return { zip: zipSync(files), warnings };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 export const capabilitiesSchema = z.object({});
 
 export const estimateSchema = z.object({
@@ -165,6 +225,12 @@ export const createSchema = z.object({
     .optional()
     .describe("Absolute path to a markdown file. Must sit under the server's root."),
   document_text: z.string().optional().describe("The markdown itself, if you have no file."),
+  document_url: z
+    .string()
+    .optional()
+    .describe(
+      "An http(s) page to read the document out of. The page is fetched through the same guard as every other URL, opened in a browser that is allowed to request nothing, and reduced to its prose, tables, code and figures; the figures are downloaded and measured here. Videos come back as their still image and a link — the deck cannot play a video it reached this way. Anything the harvest left out is listed in harvest_warnings on the answer.",
+    ),
   settings: settingsSchema.optional(),
   wait_seconds: z
     .number()
@@ -297,8 +363,9 @@ export function deckTools(opts: McpOptions) {
 
     /** Submit a document, wait a bounded slice, report. */
     async create(input: z.infer<typeof createSchema>) {
-      if (!input.document_path === !input.document_text) {
-        throw new Error("Pass exactly one of document_path or document_text.");
+      const given = [input.document_path, input.document_text, input.document_url].filter(Boolean);
+      if (given.length !== 1) {
+        throw new Error("Pass exactly one of document_path, document_text or document_url.");
       }
       const settings = input.settings ?? {};
       const options = parseOptions(fieldsFor(settings));
@@ -333,13 +400,30 @@ export function deckTools(opts: McpOptions) {
         }
       }
 
-      const filename = input.document_path ? input.document_path.split(sep).pop() : "document.md";
-      const bytes = file
-        ? await readFile(file)
-        : new TextEncoder().encode(input.document_text as string);
+      // AFTER the fence and the prereq check, and before anything is queued: a
+      // harvest opens a browser and makes requests, which is not work to do on
+      // behalf of a job that was going to be refused anyway.
+      const page =
+        input.document_url === undefined
+          ? undefined
+          : await readPage(input.document_url, opts.work);
+
+      const filename = page
+        ? "page.zip"
+        : input.document_path
+          ? input.document_path.split(sep).pop()
+          : "document.md";
+      const bytes = page
+        ? page.zip
+        : file
+          ? await readFile(file)
+          : new TextEncoder().encode(input.document_text as string);
       if (bytes.byteLength > MAX_UPLOAD_BYTES) {
         throw new Error(
-          `Document is ${(bytes.byteLength / 1e6).toFixed(1)} MB, over the ${(MAX_UPLOAD_BYTES / 1e6).toFixed(0)} MB cap.`,
+          `Document is ${(bytes.byteLength / 1e6).toFixed(1)} MB, over the ${(MAX_UPLOAD_BYTES / 1e6).toFixed(0)} MB cap.` +
+            (page
+              ? " Harvest fewer figures with a smaller maxAssets, or save the page and edit it."
+              : ""),
         );
       }
 
@@ -360,7 +444,12 @@ export function deckTools(opts: McpOptions) {
             fetchRemoteFigures: true,
           }),
       });
-      return this.status({ job_id: id, wait_seconds: input.wait_seconds });
+      const view = await this.status({ job_id: id, wait_seconds: input.wait_seconds });
+      // What the page did NOT give up, carried on the answer rather than logged
+      // somewhere nobody reads. Every entry is a figure or a video this deck
+      // will not have, and the moment to act on that is before a Codex plan is
+      // paid for.
+      return page === undefined ? view : { ...view, harvest_warnings: page.warnings };
     },
 
     /** Poll, blocking up to `wait_seconds` for the job to move on. */

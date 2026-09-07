@@ -513,6 +513,52 @@ describe("scanDeterminism", () => {
       ),
     ).toEqual([]);
   });
+
+  /**
+   * Invariant 4 says "no network AT RENDER TIME", and until this rule existed it
+   * only said it about JavaScript. A third-party frame is fetched live on every
+   * render — two renders a day apart are two different documents — and capture
+   * never reaches its clock, so whatever is inside is not on this deck's
+   * timeline at all. Every gate is green over it.
+   *
+   * The CDN script rides along in the same document ON PURPOSE. The naive
+   * version of this rule is a remote-`src` pattern, which would condemn the tag
+   * the test above pins and contradict the table's own comment; matching the TAG
+   * is what keeps the two apart, and this is where that stays proven.
+   */
+  it("catches a third-party iframe, and still leaves the CDN script beside it alone", () => {
+    const html = [
+      `<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>`,
+      `<div class="scene clip">`,
+      `  <iframe src="https://example.com/embed/7" width="960" height="540"></iframe>`,
+      `</div>`,
+    ].join("\n");
+
+    expect(scanDeterminism(html, "index.html")).toEqual([
+      {
+        severity: "error",
+        gate: "determinism",
+        rule: "third_party_iframe",
+        message:
+          "index.html:3 embeds `<iframe` at render time, so two renders of this deck will not be identical. " +
+          "Bake what the frame was showing into the deck instead: a still as a figure, or a clip claim-figure can play.",
+      },
+    ]);
+  });
+
+  it("does not read the word iframe as a tag", () => {
+    // The wrapper's own runtime builds a frame with `createElement("iframe")`,
+    // and an archetype's comment may say the word. Neither is a document this
+    // deck fetches, and a rule that cannot tell them apart would fail every
+    // build for prose. (`deck.html` is not scanned at all — see
+    // `readCompositions` — so this is belt and braces, deliberately.)
+    expect(
+      scanDeterminism(
+        `<script>var f = document.createElement("iframe");</script>\n<!-- iframes are refused -->`,
+        "index.html",
+      ),
+    ).toEqual([]);
+  });
 });
 
 /** Minimal valid params per archetype — enough to satisfy the schema, no more. */

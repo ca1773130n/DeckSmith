@@ -102,7 +102,7 @@ const format: Format = {
   navigable: true,
 };
 
-const ctx = (sid = "s1"): EmitContext => ({ source, format, theme, sid });
+const ctx = (sid = "s1"): EmitContext => ({ source, format, theme, sid, start: 0 });
 
 type DataTable = BeatOf<"data-table">;
 

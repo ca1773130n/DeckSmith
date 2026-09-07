@@ -36,7 +36,7 @@ const format: Format = {
   navigable: true,
 };
 
-const ctx = (sid: string): EmitContext => ({ source, format, theme, sid });
+const ctx = (sid: string): EmitContext => ({ source, format, theme, sid, start: 0 });
 
 type Bar = BeatOf<"bar-compare">;
 
@@ -431,7 +431,7 @@ describe("bar-compare", () => {
  */
 describe("bar-compare in portrait", () => {
   const short = FORMATS["short-9x16"] as Format;
-  const tallCtx = (sid: string): EmitContext => ({ source, format: short, theme, sid });
+  const tallCtx = (sid: string): EmitContext => ({ source, format: short, theme, sid, start: 0 });
   // Derived, not 220: `.scene`'s padding is a FRACTION of the canvas, so a
   // literal here pins the gutter to whatever 16:9 happened to use and fails
   // the moment the margin scales with the format.
