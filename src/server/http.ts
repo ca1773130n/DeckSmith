@@ -165,6 +165,32 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
           }),
       );
     }
+    // The embedding example, beside the module it demonstrates. Served from
+    // dist/ for the same reason /player.js is: what a reader opens here and
+    // what they copy into their own app are one file, so the demo cannot drift
+    // from the documentation. It takes deck URLs from its own form or query
+    // string — job ids are unguessable by design, so there is no fixed deck
+    // URL to bake in, and no listing endpoint that could hand out someone
+    // else's.
+    if (req.method === "GET" && path === "/examples/embed.html") {
+      const file = fileURLToPath(new URL("../embed.html", import.meta.url));
+      return readFile(file).then(
+        (html) => {
+          res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-cache",
+          });
+          res.end(html);
+        },
+        () =>
+          send(res, 500, {
+            error: {
+              message: "The embedding example is missing from this install.",
+              hint: 'Run "npm run build" — dist/embed.html is copied by scripts/build.mjs.',
+            },
+          }),
+      );
+    }
     if (req.method === "POST" && path === "/api/jobs") {
       return submit(req, res);
     }

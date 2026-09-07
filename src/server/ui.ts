@@ -777,6 +777,10 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 9V5.5A1.5 1.5 0 015.5 4H9M15 4h3.5A1.5 1.5 0 0120 5.5V9M20 15v3.5a1.5 1.5 0 01-1.5 1.5H15M9 20H5.5A1.5 1.5 0 014 18.5V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           Full screen
         </button>
+        <button class="iconbtn" id="d-embed" title="Open this deck in the embedding example">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Embed
+        </button>
         <button class="iconbtn" id="d-open">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v4.5A1.5 1.5 0 0116.5 20h-11A1.5 1.5 0 014 18.5v-11A1.5 1.5 0 015.5 6H10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Open
@@ -1765,6 +1769,14 @@ on($("d-full"), "click", function(){
   if (document.fullscreenElement) document.exitFullscreen();
   else if (v.requestFullscreen) v.requestFullscreen().catch(function(){ toast("Full screen was blocked"); });
   else toast("This browser will not go full screen");
+});
+/* The embedding example, with this deck already in it. Always the DECK url even
+   on the video tab: the example demonstrates the player element, and there is
+   nothing to embed about an mp4. */
+on($("d-embed"), "click", function(){
+  var url = (mounted.result || {}).deckUrl;
+  if (url) window.open("/examples/embed.html?a=" + encodeURIComponent(url), "_blank", "noopener");
+  else toast("This job produced no deck to embed");
 });
 on($("d-open"), "click", function(){
   var r = mounted.result || {};

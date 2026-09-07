@@ -5,7 +5,7 @@
 // consumer without one. esbuild directly rather than a build framework — there
 // is no fifth case coming.
 import { execFileSync } from "node:child_process";
-import { access, rename, rm } from "node:fs/promises";
+import { access, copyFile, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 
@@ -77,6 +77,13 @@ for (const [entry, out] of [
   });
 }
 
+// The embedding example, copied rather than generated. `files` is
+// ["dist","README.md"], so a page left in examples/ ships to nobody — and the
+// point of this one is that it is the plain HTML a consumer copies, not a page
+// our server renders. Copying keeps one file that is both the served demo and
+// the thing you paste into your own app.
+await copyFile("examples/embed.html", "dist/embed.html");
+
 // The equation morph's runtime, vendored into a deck by the CLI. Same shape as
 // the step layer: an IIFE the composition loads by `<script src>`, so its
 // globals exist before any scene script runs.
@@ -146,6 +153,7 @@ const promised = {
   "deck-runtime": "dist/deck-runtime.js",
   "deck-player": "dist/deck-player.js",
   "deck-player-element": "dist/deck-player-element.js",
+  embed: "dist/embed.html",
 };
 const missing = [];
 for (const [name, file] of Object.entries(promised)) {

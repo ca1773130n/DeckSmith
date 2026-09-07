@@ -108,9 +108,34 @@ export class DecksmithPlayer extends HTMLElement {
   #mount(): void {
     const deck = this.getAttribute("deck");
     if (!deck) return;
+
     // The deck page, not the composition: `index.html` is what the RENDERER
     // captures and has no navigation in it at all.
-    const src = new URL("deck.html", new URL(deck, location.href)).href;
+    //
+    // GUARDED, because `new URL` THROWS on a base it cannot resolve against —
+    // `javascript:` and `data:` are opaque, so both raise a TypeError here
+    // rather than producing a URL. Unguarded, that exception escapes
+    // `attributeChangedCallback` into the custom-element reaction queue, where
+    // it surfaces as an uncaught error and nothing else: no frame, no event,
+    // and a host that is still waiting for one. A host whose deck URL comes
+    // from a route parameter or a paste box will hit this. Note what the throw
+    // is NOT: it is not a security boundary. A `javascript:` URL cannot execute
+    // from an iframe `src` set this way, and the mount would fail regardless —
+    // this turns a silent failure into a reported one.
+    let src: string;
+    try {
+      src = new URL("deck.html", new URL(deck, location.href)).href;
+    } catch {
+      this.dispatchEvent(
+        new CustomEvent("ds-error", {
+          detail: {
+            reason: "bad-deck-url",
+            message: `"${deck}" is not a URL a deck can be loaded from.`,
+          },
+        }),
+      );
+      return;
+    }
 
     const frame = document.createElement("iframe");
     frame.src = src;
