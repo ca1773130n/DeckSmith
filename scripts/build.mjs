@@ -58,6 +58,25 @@ await build({
   minify: true,
 });
 
+// The player, as a module a host page imports — an ESM build, not an IIFE,
+// because the whole point is that a consumer can `import { define }` from it.
+// Two entry points: the class and its guarded `define`, and a two-line
+// side-effecting one that registers the element for a bare <script type=module>.
+for (const [entry, out] of [
+  ["src/deck/player.ts", "dist/deck-player.js"],
+  ["src/deck/player-element.ts", "dist/deck-player-element.js"],
+]) {
+  await build({
+    ...shared,
+    entryPoints: [entry],
+    outfile: out,
+    platform: "browser",
+    target: "es2022",
+    format: "esm",
+    minify: true,
+  });
+}
+
 // The equation morph's runtime, vendored into a deck by the CLI. Same shape as
 // the step layer: an IIFE the composition loads by `<script src>`, so its
 // globals exist before any scene script runs.
@@ -125,6 +144,8 @@ const promised = {
   types,
   "ds-morph": "dist/ds-morph.js",
   "deck-runtime": "dist/deck-runtime.js",
+  "deck-player": "dist/deck-player.js",
+  "deck-player-element": "dist/deck-player-element.js",
 };
 const missing = [];
 for (const [name, file] of Object.entries(promised)) {

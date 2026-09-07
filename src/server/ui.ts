@@ -543,6 +543,11 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
   .seg label{padding:9px 12px}
 }
 </style>
+<!-- The player module. Deferred by nature (type=module), so the page paints
+     without it and mount() feature-detects the element rather than assuming it.
+     A stale install with no dist/deck-player-element.js falls back to the
+     iframe and loses nothing. -->
+<script type="module" src="/player.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -1567,6 +1572,28 @@ function mount(kind, r){
     }
     canvas.appendChild(v);
     $("d-who").textContent = String(r.videoUrl).split("/").pop() || "video.mp4";
+  } else if (r.deckUrl && customElements.get("decksmith-player")) {
+    // THE MODULE PATH. Same artifact a third party would import — this page is
+    // the element's first consumer rather than a special case of it, which is
+    // the only way we find out whether the API is usable before someone else
+    // does. Falls through to the iframe below when /player.js did not load, so
+    // a stale install degrades to exactly what it did before.
+    viewer.style.setProperty("--chrome", "0px");
+    var p = document.createElement("decksmith-player");
+    p.setAttribute("deck", String(r.deckUrl).replace(/deck.html$/, ""));
+    p.setAttribute("label", "The built deck");
+    p.style.cssText = "display:block;width:100%;height:100%";
+    p.addEventListener("ds-ready", function(e){
+      $("d-who").textContent = "deck \u00b7 " + e.detail.stops.length + " stops";
+    });
+    p.addEventListener("ds-error", function(e){
+      // Not a failure state for the user: the deck plays, it just cannot be
+      // driven from out here. Say so where the filename goes and move on.
+      $("d-who").textContent = "deck.html";
+      if (window.console) console.info("decksmith-player:", e.detail.reason);
+    });
+    canvas.appendChild(p);
+    $("d-who").textContent = "deck";
   } else if (r.deckUrl) {
     var f = document.createElement("iframe");
     f.src = r.deckUrl;

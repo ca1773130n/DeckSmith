@@ -21,6 +21,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { catalog, parseOptions } from "./options.js";
 import { type PipelineInput, runPipeline, stagesFor } from "./pipeline.js";
 import { type JobHandle, type JobResult, type JobView, Queue, QueueFullError } from "./queue.js";
@@ -138,6 +139,31 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
     }
     if (req.method === "GET" && path === "/api/formats") {
       return send(res, 200, catalog());
+    }
+    // The player module, served from our own dist beside this file — the same
+    // `import.meta.url` shape src/server/main.ts and src/cli.ts already use to
+    // reach dist/ from dist/server/. Served rather than inlined so the page's
+    // <script type="module"> and a third party's import are the same artifact.
+    if (req.method === "GET" && path === "/player.js") {
+      const file = fileURLToPath(new URL("../deck-player-element.js", import.meta.url));
+      return readFile(file).then(
+        (js) => {
+          res.writeHead(200, {
+            "content-type": "text/javascript; charset=utf-8",
+            // A build artifact whose name never changes, so it must not be
+            // cached across a version bump.
+            "cache-control": "no-cache",
+          });
+          res.end(js);
+        },
+        () =>
+          send(res, 500, {
+            error: {
+              message: "The player module is missing from this install.",
+              hint: 'Run "npm run build" — dist/deck-player-element.js is produced by scripts/build.mjs.',
+            },
+          }),
+      );
     }
     if (req.method === "POST" && path === "/api/jobs") {
       return submit(req, res);

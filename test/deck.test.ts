@@ -24,7 +24,13 @@ describe("the bundle deck.html inlines", () => {
     // or to hang `.ds-live` off the root — would put that literal in a
     // root-level HTML file and trip lint's multiple_root_compositions
     // (invariant 9). Scenes are addressed by the ids the island already carries.
-    for (const file of ["runtime.ts", "subtitles.ts"]) {
+    for (const file of [
+      "runtime.ts",
+      "subtitles.ts",
+      "protocol.ts",
+      "player.ts",
+      "player-element.ts",
+    ]) {
       const src = await readFile(new URL(`../src/deck/${file}`, import.meta.url), "utf8");
       expect(src).not.toContain("data-composition-id");
     }

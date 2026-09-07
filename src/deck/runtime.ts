@@ -17,6 +17,7 @@
  * deck. Zero dependencies, and every DOM lookup is defensive — this ships inside
  * artifacts that will outlive our control.
  */
+import { CHANNEL, type FromDeck, isOurs } from "./protocol.js";
 import {
   activeCue,
   audioSrc,
@@ -649,6 +650,50 @@ async function start(doc: Document): Promise<void> {
     }
   };
 
+  /**
+   * THE HOST BRIDGE. Silent until a host says hello, and harmless when nobody
+   * ever does — a deck opened directly has no parent to talk to and this costs
+   * it one comparison per step.
+   *
+   * `hostOrigin` starts null and is set ONLY from the handshake. Nothing is ever
+   * posted to "*": a stop carries the slide's speaker notes, and any page can
+   * put a deck in a frame, so a wildcard post would hand an arbitrary framer the
+   * presenter's notes.
+   */
+  let hostOrigin: string | null = null;
+  const post = (msg: FromDeck) => {
+    if (hostOrigin === null || parent === window) return;
+    parent.postMessage(msg, hostOrigin);
+  };
+
+  addEventListener("message", (e: MessageEvent) => {
+    // Only our parent, only our channel. A deck shares its window with nothing
+    // else, but it may be framed by a page that talks to other frames.
+    if (e.source !== parent || parent === window || !isOurs(e.data)) return;
+    const msg = e.data;
+    if (msg.type === "hello") {
+      hostOrigin = e.origin;
+      post({
+        channel: CHANNEL,
+        type: "ready",
+        stops: stops.map((s, i) => ({
+          i,
+          label: `${s.slide + 1} / ${(stops[stops.length - 1] as Stop).slide + 1}`,
+          notes: s.notes,
+        })),
+        at,
+      });
+      return;
+    }
+    // A command before the handshake is not answered, because there is nowhere
+    // safe to answer to.
+    if (hostOrigin !== e.origin) return;
+    if (msg.type === "next") go(at + 1);
+    else if (msg.type === "prev") go(at - 1);
+    else if (msg.type === "go") go(msg.at, true);
+    else if (msg.type === "play") setPlaying(msg.on);
+  });
+
   /** `instant` marks a jump rather than a step: Home/End, deep link, hashchange. */
   const go = (next: number, instant = false) => {
     at = Math.max(0, Math.min(stops.length - 1, next));
@@ -695,6 +740,15 @@ async function start(doc: Document): Promise<void> {
     }
 
     history.replaceState(null, "", formatHash(stop));
+    post({
+      channel: CHANNEL,
+      type: "stop",
+      at,
+      total: stops.length,
+      label: `${stop.slide + 1} / ${(stops[stops.length - 1] as Stop).slide + 1}`,
+      notes: stop.notes,
+      playing,
+    });
     ui.fill.style.transform = `scaleX(${(at + 1) / stops.length})`;
     ui.count.textContent = `${stop.slide + 1} / ${(stops[stops.length - 1] as Stop).slide + 1}`;
     ui.notes.textContent = stop.notes;
