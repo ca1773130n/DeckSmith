@@ -336,6 +336,9 @@ interface IngestFlags {
   maxClips?: string;
   maxBytes?: string;
   maxSeconds?: string;
+  maxClipSeconds?: string;
+  /** `--no-transcode` — commander defaults this to true and only ever sets false. */
+  transcode?: boolean;
 }
 
 /**
@@ -367,11 +370,17 @@ function budget(o: IngestFlags): HarvestOptions {
   const maxClips = positive(o.maxClips, "--max-clips");
   const maxTotalBytes = positive(o.maxBytes, "--max-bytes");
   const seconds = positive(o.maxSeconds, "--max-seconds");
+  const maxClipSeconds = positive(o.maxClipSeconds, "--max-clip-seconds");
   return {
     ...(maxAssets === undefined ? {} : { maxAssets }),
     ...(maxClips === undefined ? {} : { maxClips }),
     ...(maxTotalBytes === undefined ? {} : { maxTotalBytes }),
     ...(seconds === undefined ? {} : { maxWallMs: seconds * 1000 }),
+    ...(maxClipSeconds === undefined ? {} : { maxClipSeconds }),
+    // Only the negative travels. Commander fills `--no-` flags in as `true`, and
+    // passing that through would state a default in this file that belongs to
+    // `harvest` — which is also what the server and the MCP call.
+    ...(o.transcode === false ? { transcode: false } : {}),
   };
 }
 
@@ -411,6 +420,16 @@ program
     "--max-seconds <n>",
     "URL only: wall clock for the whole harvest (maxWallMs; default 180)",
   )
+  // The two clip flags. They are not budgets on this process the way the four
+  // above are — they are budgets on the RENDER, which is where a clip is really
+  // spent: every second of it is pre-decoded to one still per output frame
+  // before capture begins. Named the same way regardless, after the options they
+  // set, so a warning that says "maxSeconds" names something in `--help`.
+  .option(
+    "--max-clip-seconds <n>",
+    "URL only: seconds of each clip kept, the rest trimmed (maxClipSeconds; default 60)",
+  )
+  .option("--no-transcode", "URL only: ship each clip as the page served it, unshrunk")
   .action(async (input: string, o: IngestFlags) => {
     const assets = join(dirname(resolve(o.out)), "assets");
     // A page's files are downloaded into a directory of their own and copied out

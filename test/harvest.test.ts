@@ -391,7 +391,9 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
           <nav><a href="/">Home</a> <a href="/about">About the lab</a></nav>
           <main>
             <h1>Sparse attention at scale</h1>
-            <p>The method is summarised here.</p>
+            <p>The method is summarised here, at the length a summary runs to, because
+              the content pass declines under 250 characters and a page that only just
+              clears its floor is a fixture that breaks on somebody else's edit.</p>
             <h2>Method</h2>
             <p>We compare against <a href="/baseline">the baseline</a> in Figure 1.</p>
             <figure>
@@ -493,11 +495,19 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
 
   it("refuses a figure pointing at the metadata service, and keeps the rest of the page", async () => {
     const one = await serve({
+      // LONG ENOUGH TO BE SCORED, which the readability pass needs and the old
+      // one-subtraction heuristic did not: under its text floor the pass
+      // declines, and a decline is itself a warning — which would make the
+      // count below two and say nothing about the guard.
       "/page": html(`<!doctype html><html><body><main>
           <h1>Nearly harmless</h1>
-          <p>A paragraph long enough to make this the content region.</p>
+          <p>A paragraph long enough to be scored as prose, which means past the
+            floor the content pass sets, with commas in it, because punctuation is
+            one of the things that tells an argument from a rail of headlines.</p>
           <p><img src="http://169.254.169.254/latest/meta-data/" alt="the metadata service"></p>
-          <p>And the article continues afterwards.</p>
+          <p>And the article continues afterwards, at the same length again, so
+            that the region this all sits in is unambiguously the piece rather
+            than the page that happens to be wrapped around it.</p>
         </main></body></html>`),
     });
     const dir = await work();
@@ -511,7 +521,7 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
     expect(got.warnings[0]).toMatch(/169\.254\.169\.254.*link-local/);
     expect(got.assets).toEqual([]);
     expect(parseMarkdown(got.markdown).figures).toEqual([]);
-    expect(got.markdown).toContain("And the article continues afterwards.");
+    expect(got.markdown).toContain("And the article continues afterwards,");
   });
 
   /** The page every video test below drives, with one of each shape on it. */
@@ -617,6 +627,44 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
     }
   });
 
+  /**
+   * THE WIRING, NOT THE ENCODE. What a transcode does to real pixels is
+   * test/transcode.test.ts's, which builds its input with ffmpeg and skips
+   * itself when there is none. What is asserted here is that a downloaded clip
+   * goes through it at all, and — the part that matters on somebody's laptop —
+   * that a clip SURVIVES when it does not work.
+   *
+   * The fixtures are hand-built container headers with no media in them, so the
+   * encode cannot succeed on any machine: with no ffmpeg it is skipped, and with
+   * ffmpeg it fails on the first frame. Both degrade to the page's own file, and
+   * both say so in the same words — which is what makes this assertion mean the
+   * same thing on a machine with ffmpeg and on CI, where there is neither that
+   * nor a browser.
+   */
+  it("keeps the clip, and says so, when the encode cannot be done", async () => {
+    const one = await serve(videos());
+
+    const got = await harvest(`${one.base}/page`, await work(), local);
+
+    // Unchanged, and measured: the box downstream annotates against is still the
+    // one the container declared, not a guess left behind by a failed encode.
+    expect(got.clips[0]).toMatchObject({ width: 1280, height: 720, seconds: 12 });
+    expect(got.clips[0]?.file).toMatch(/\.mp4$/);
+    expect(got.warnings.some((w) => /was shipped as the page served it/.test(w))).toBe(true);
+  });
+
+  it("does not reach for ffmpeg at all when transcoding is off", async () => {
+    const one = await serve(videos());
+
+    const got = await harvest(`${one.base}/page`, await work(), { ...local, transcode: false });
+
+    expect(got.clips[0]).toMatchObject({ width: 1280, height: 720, seconds: 12 });
+    // No attempt, so nothing to explain — the caller asked for the page's file
+    // and got it. `--no-transcode` that still warned would be a flag that does
+    // not do what it says.
+    expect(got.warnings.some((w) => /was shipped as the page served it/.test(w))).toBe(false);
+  });
+
   it("downloads no video at all when told not to, and names the cap that stopped it", async () => {
     // The MCP's own budget: the server ingests a markdown document, which has no
     // way to say `kind: "clip"`, so fetching the mp4 would be megabytes pulled to
@@ -636,9 +684,14 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
     const one = await serve({
       "/page": html(`<!doctype html><html><body><main>
           <h1>Two figures</h1>
-          <p>A paragraph long enough to make this the content region of the page.</p>
+          <p>A paragraph long enough to be scored as prose, which means past the
+            floor the content pass sets, with commas in it, because punctuation is
+            one of the things that tells an argument from a rail of headlines.</p>
           <p><img src="/first.png" alt="the first figure"></p>
           <p><img src="/second.png" alt="the second figure"></p>
+          <p>A second paragraph, the same length again, so that the region is
+            over the pass's text floor and the only warning this harvest has to
+            give is the one about the budget.</p>
         </main></body></html>`),
       "/first.png": { type: "image/png", body: png(700, 400) },
       "/second.png": { type: "image/png", body: png(700, 400) },
@@ -712,15 +765,72 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
     expect(got.title).toBe("The densest container wins");
     expect(got.markdown).toContain("This paragraph is prose rather than links");
     expect(got.markdown).not.toContain("Another paper about attention");
+    // UNDER THE SCORER'S TEXT FLOOR, so this page is the retry rather than the
+    // pass — the three rules above are what read it, and the harvest says so
+    // instead of leaving a reader to assume the better instrument ran.
+    expect(got.warnings.some((w) => /could not be scored out of this page/.test(w))).toBe(true);
+  });
+
+  /**
+   * THE SHAPE THE OLD HEURISTIC LOSES ON, which is why the readability pass
+   * exists at all. `score` is one subtraction — block text less link text — so a
+   * consent dialog is neither skipped (it wears no tag in SKIP) nor scored down
+   * (it is prose), and a comment thread of real paragraphs beats the article it
+   * hangs under simply by being longer. The old rule then picks the wrapper that
+   * holds all three, and the deck is planned around the comments.
+   */
+  it("leaves the cookie banner and the comment thread out of the article", async () => {
+    const one = await serve({
+      "/page": html(`<!doctype html><html><head><title>The result | The Lab</title></head><body>
+          <div id="page">
+            <div class="cookie-consent" role="dialog">
+              <p>We use cookies, and similar technologies, to measure how this page is
+                read, and we would very much like your consent before continuing.</p>
+            </div>
+            <div class="post-body">
+              <h1>The result holds at scale</h1>
+              <p>The method is one pass over the sequence, and the result holds at every
+                width we could afford to train, which is the claim this piece makes.</p>
+              <p>What follows is the evidence for it, in the order it was gathered, with
+                the two ablations that did not work reported beside the one that did.</p>
+            </div>
+            <div id="comments">
+              <h2>142 comments</h2>
+              <p>First, and this is obviously wrong, because the baseline was not tuned,
+                which anyone who has trained one of these would have noticed immediately.</p>
+              <p>Replying to the above, at exactly the length people reply at, with commas
+                in it, because a comment thread is prose and that is the whole problem.</p>
+            </div>
+          </div>
+        </body></html>`),
+    });
+
+    const got = await harvest(`${one.base}/page`, await work(), local);
+
+    expect(got.markdown).toContain("The method is one pass over the sequence");
+    expect(got.markdown).not.toContain("142 comments");
+    expect(got.markdown).not.toContain("the baseline was not tuned");
+    expect(got.markdown).not.toContain("similar technologies");
+    // The pass carried it, so there is no decline to report.
+    expect(got.warnings).toEqual([]);
+    // And what the CLI prints from the parse is the piece: one section, headed
+    // by the article's own `<h1>` rather than by the site's tab title.
+    const parsed = parseMarkdown(got.markdown);
+    expect(parsed.sections.map((s) => s.heading)).toEqual(["The result holds at scale"]);
   });
 
   it("drops a tracking pixel rather than planning a slide around it", async () => {
     const one = await serve({
       "/page": html(`<!doctype html><html><body><main>
           <h1>Furniture</h1>
-          <p>A paragraph long enough to make this the content region of the page.</p>
+          <p>A paragraph long enough to be scored as prose, which means past the
+            floor the content pass sets, with commas in it, because punctuation is
+            one of the things that tells an argument from a rail of headlines.</p>
           <p><img src="/spacer.gif" alt="spacer"></p>
           <p><img src="/real.png" alt="the actual figure"></p>
+          <p>A second paragraph, the same length again, so that the region is
+            over the pass's text floor and the first warning here is the one
+            about the pixel.</p>
         </main></body></html>`),
       "/spacer.gif": { type: "image/gif", body: png(1, 1) },
       "/real.png": { type: "image/png", body: png(700, 400) },

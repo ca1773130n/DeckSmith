@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { type Fetcher, isEmbed, mediaSummary, planMedia, policyFor } from "../src/pack/media.js";
+import {
+  EMBED_ORIGINS,
+  embedUrl,
+  type Fetcher,
+  isEmbed,
+  mediaSummary,
+  planMedia,
+  policyFor,
+} from "../src/pack/media.js";
 import { type Pack, readPack, writePack } from "../src/pack/pack.js";
 import { PACK_VERSION, prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
 
@@ -77,6 +85,102 @@ describe("policyFor", () => {
     expect(policyFor("/Users/someone/deck/assets/fig.jpg", "link")).toBe("bake");
     expect(policyFor("assets/fig.jpg", "link")).toBe("bake");
     expect(policyFor("data:image/png;base64,AAAA", "link")).toBe("bake");
+  });
+});
+
+/**
+ * A watch URL in a frame is not a player: YouTube's own `X-Frame-Options`
+ * refuses `/watch`, and `vimeo.com/ID` is a page with a comment thread on it.
+ * These are the rules that convert one into the other, and — more important —
+ * the hosts where we decline to guess, because a path we invented 404s inside a
+ * frame as a black rectangle with nothing in any console.
+ */
+describe("embedUrl", () => {
+  it("converts every YouTube share shape to the nocookie player", () => {
+    // The nocookie host defers the tracking cookie until the viewer presses
+    // play, which is the whole reason it is preferred over youtube.com.
+    for (const url of [
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://youtu.be/dQw4w9WgXcQ",
+      "https://www.youtube.com/embed/dQw4w9WgXcQ",
+      "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+      "https://m.youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+    ]) {
+      expect(embedUrl(url), url).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    }
+  });
+
+  it("keeps an unlisted Vimeo's hash, without which the player says it cannot find it", () => {
+    expect(embedUrl("https://vimeo.com/76979871")).toBe(
+      "https://player.vimeo.com/video/76979871?dnt=1",
+    );
+    expect(embedUrl("https://vimeo.com/76979871/abc123def4")).toBe(
+      "https://player.vimeo.com/video/76979871?h=abc123def4&dnt=1",
+    );
+    expect(embedUrl("https://player.vimeo.com/video/76979871?h=abc123def4")).toBe(
+      "https://player.vimeo.com/video/76979871?h=abc123def4&dnt=1",
+    );
+  });
+
+  it("converts Dailymotion and Loom share URLs", () => {
+    expect(embedUrl("https://www.dailymotion.com/video/x7tgad0")).toBe(
+      "https://www.dailymotion.com/embed/video/x7tgad0",
+    );
+    expect(embedUrl("https://dai.ly/x7tgad0")).toBe(
+      "https://www.dailymotion.com/embed/video/x7tgad0",
+    );
+    expect(embedUrl("https://www.loom.com/share/0a1b2c3d4e5f")).toBe(
+      "https://www.loom.com/embed/0a1b2c3d4e5f",
+    );
+  });
+
+  it("returns undefined rather than guessing a URL that would 404 in a frame", () => {
+    for (const url of [
+      // A host whose embed needs something the URL does not carry: Twitch wants
+      // `parent=` naming the page that frames it (a built deck cannot know what
+      // will serve it), Wistia's player lives on a per-account subdomain,
+      // Bilibili takes aid/bvid as query, SoundCloud's widget takes an API
+      // resource URL. `isEmbed` still calls them players — they are — so the
+      // clip keeps its poster and its link, which is the honest degradation.
+      "https://www.twitch.tv/videos/123456789",
+      "https://home.wistia.com/medias/e4a27b971d",
+      "https://www.bilibili.com/video/BV1xx411c7mD",
+      "https://soundcloud.com/artist/track",
+      "https://www.tiktok.com/@someone/video/7112233445566778899",
+      // Player hosts, but not a video page: a profile, a channel, the root.
+      "https://vimeo.com/someuser",
+      "https://www.youtube.com/@someone",
+      "https://www.youtube.com/watch?list=PL123",
+      // Not a player host at all, and not a URL at all.
+      "https://example.com/watch?v=dQw4w9WgXcQ",
+      "assets/clip_000.mp4",
+      "javascript:alert(1)",
+      "",
+    ]) {
+      expect(embedUrl(url), url).toBeUndefined();
+    }
+    // And the ones that ARE players stay players: no conversion is not the same
+    // as no policy, and their bytes are still not ours to download.
+    expect(policyFor("https://www.twitch.tv/videos/123456789", "bake")).toBe("embed");
+    expect(isEmbed("https://home.wistia.com/medias/e4a27b971d")).toBe(true);
+  });
+
+  it("names every origin it can produce, because the served deck's CSP is that list", () => {
+    // The failure this catches: a host added to the table, forgotten in
+    // `frame-src`, and refused by the browser as an empty rectangle. Asserted
+    // over the conversions rather than over the constant, so the constant cannot
+    // be right about a rule that no longer exists.
+    for (const url of [
+      "https://youtu.be/dQw4w9WgXcQ",
+      "https://vimeo.com/76979871",
+      "https://dai.ly/x7tgad0",
+      "https://www.loom.com/share/0a1b2c3d4e5f",
+    ]) {
+      const embed = embedUrl(url) ?? "";
+      expect(EMBED_ORIGINS, url).toContain(new URL(embed).origin);
+    }
+    expect(EMBED_ORIGINS.every((o) => o.startsWith("https://"))).toBe(true);
   });
 });
 

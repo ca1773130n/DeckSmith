@@ -655,13 +655,17 @@ describe("clips", () => {
         height: 1080,
         seconds: 12.44,
       },
-      // The clip we do not: a player page, and a still of it.
+      // The clip we do not: a player page, and a still of it. A YouTube URL
+      // rather than a generic one BECAUSE `embedUrl` CONVERTS IT — `deck.html`
+      // builds a real frame for exactly this figure, so the assertion that the
+      // composition carries neither the frame nor the address has something to
+      // fail against.
       {
         id: "f-page",
         kind: "clip",
         src: "clip_001.jpg",
         poster: "clip_001.jpg",
-        href: "https://example.com/watch",
+        href: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         caption: "Video 2 — the baseline",
         width: 1280,
         height: 720,
@@ -835,10 +839,28 @@ describe("clips", () => {
    * (test/verify.test.ts), and this is the assertion that the vocabulary never
    * emits one to begin with. It starts honest: nothing under src/emit writes the
    * tag today.
+   *
+   * THE URL AS WELL AS THE TAG, and that half is new. `deck.html` now converts a
+   * player-page clip's `href` into an embeddable URL and hands it to the runtime,
+   * which builds the frame there — so the pressure to "just put it in the slide
+   * too" is real for the first time, and one line in `plate()` is all it would
+   * take. A watch URL in the composition would not trip `scanDeterminism`, which
+   * matches the tag and not an address; nothing else looks. So it is asserted
+   * here, where the composition is a string.
    */
   it("never embeds a document it does not own", () => {
+    const page = claim("f-page");
     expect(html).not.toMatch(/<iframe\b/i);
     expect(claim("f-clip")).not.toMatch(/<iframe\b/i);
-    expect(claim("f-page")).not.toMatch(/<iframe\b/i);
+    expect(page).not.toMatch(/<iframe\b/i);
+    // The still, and nothing standing behind it.
+    expect(page).toContain('<img src="assets/clip_001.jpg"');
+    // The ID and the converted host, not the word "YouTube": a real caption can
+    // legitimately say it — the first page ingested through this path captioned
+    // its clip "YouTube video player", from the embed's own `title` — and an
+    // assertion that a caption can trip is an assertion that gets deleted.
+    expect(page).not.toContain("dQw4w9WgXcQ");
+    expect(page).not.toContain("youtube-nocookie");
+    expect(page).not.toContain("/watch?v=");
   });
 });

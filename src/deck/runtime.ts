@@ -303,6 +303,31 @@ const CSS = `
   border-left:9px solid currentColor;border-top:6px solid transparent;border-bottom:6px solid transparent}
 .ds-play[data-on="1"]::before{margin-left:0;width:8px;height:10px;border:0;
   background:linear-gradient(to right,currentColor 0 3px,transparent 3px 5px,currentColor 5px 8px)}
+/* THE PLAYER-PAGE VIDEO, and everything it needs lives INSIDE .ds-chrome. That
+   buys two things without writing them twice: the click-to-advance handler
+   already skips anything the chrome contains, and pointer-events are already off
+   everywhere the overlay is not.
+
+   A LIGHTBOX RATHER THAN AN OVERLAY ALIGNED TO THE POSTER, deliberately. The
+   poster is an image inside the player's iframe, drawn at 1920x1080 and scaled
+   to the viewport by the player; putting a rectangle exactly over it means the
+   iframe's own rect times the player's scale, recomputed on resize, on
+   fullscreen (the "f" key), and again whenever .ds-cap shrinks the player to
+   make room for subtitles. That arithmetic is right at one window size and
+   silently wrong at every other, and no gate here opens deck.html to notice. The
+   lightbox is the same size wherever the poster is. */
+.ds-video{position:absolute;right:106px;bottom:6px;height:26px;padding:0 12px;border:0;
+  border-radius:13px;background:rgba(255,255,255,.10);color:#fff;cursor:pointer;
+  pointer-events:auto;opacity:.55;font:inherit;line-height:26px;
+  transition:opacity .15s,background-color .15s}
+.ds-video:hover{opacity:1;background:rgba(255,255,255,.2)}
+.ds-video[hidden]{display:none}
+.ds-film{position:fixed;inset:0;display:grid;place-items:center;
+  background:rgba(0,0,0,.88);pointer-events:auto}
+.ds-film iframe{width:min(92vw,158vh);aspect-ratio:16/9;border:0;background:#000}
+.ds-shut{position:absolute;top:16px;right:16px;width:34px;height:34px;padding:0;border:0;
+  border-radius:50%;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;
+  font:inherit;line-height:34px}
 .ds-notes{position:absolute;left:0;right:0;bottom:0;max-height:38vh;overflow:auto;
   padding:20px 24px;background:rgba(10,10,10,.92);font-size:19px;line-height:1.6;
   white-space:pre-wrap;pointer-events:auto}
@@ -350,7 +375,9 @@ function mountChrome(doc: Document) {
   chrome.className = "ds-chrome";
   chrome.innerHTML =
     '<div class="ds-bar"><i></i></div><button class="ds-play" type="button" ' +
-    'aria-label="Play the deck"></button><div class="ds-count"></div><div class="ds-flags"></div>' +
+    'aria-label="Play the deck"></button><button class="ds-video" type="button" hidden>' +
+    "Video</button>" +
+    '<div class="ds-count"></div><div class="ds-flags"></div>' +
     '<div class="ds-subs" hidden></div><div class="ds-notes" hidden></div>';
   doc.body.append(chrome);
 
@@ -358,6 +385,7 @@ function mountChrome(doc: Document) {
     chrome,
     fill: chrome.querySelector("i") as HTMLElement,
     play: chrome.querySelector(".ds-play") as HTMLButtonElement,
+    video: chrome.querySelector(".ds-video") as HTMLButtonElement,
     count: chrome.querySelector(".ds-count") as HTMLElement,
     notes: chrome.querySelector(".ds-notes") as HTMLElement,
     flags: chrome.querySelector(".ds-flags") as HTMLElement,
@@ -375,6 +403,12 @@ interface Voice {
    * be where playback quietly stops forever.
    */
   at: (stop: Stop) => boolean;
+  /**
+   * Stop talking without arriving anywhere. The deck has ONE audio track and
+   * `claim-figure` already spends it on narration — see its `muted` note — so
+   * anything else that wants to make a sound has to take it first.
+   */
+  hush: () => void;
   toggleMute: () => void;
   toggleSubtitles: () => void;
   /** Called when the segment for the CURRENT stop finishes of its own accord. */
@@ -385,6 +419,7 @@ interface Voice {
 
 const SILENT: Voice = {
   at: () => false,
+  hush: () => {},
   toggleMute: () => {},
   toggleSubtitles: () => {},
   onEnded: () => {},
@@ -531,6 +566,10 @@ function mountVoice(
 
   return {
     at: speak,
+    // The same teardown a step performs, without the arrival: `silence()` pauses
+    // and drops the source, so a `play()` still in flight cannot resolve into
+    // the middle of whatever took the track.
+    hush: silence,
     onEnded: (fn) => {
       ended = fn;
     },
@@ -554,6 +593,174 @@ function mountVoice(
   };
 }
 
+/* ------------------------------------------------------------------- Video */
+
+/** Selector for the island `emitDeckPage` writes. Absent from every deck without a clip. */
+const VIDEO_ISLAND = 'script[type="application/decksmith-video+json"]';
+
+/** One player-page video, keyed in the island by the scene that draws its still. */
+export interface ClipSpec {
+  /** Already in embeddable form — `embedUrl` in src/pack/media.ts did that at build time. */
+  url: string;
+  /** The figure's caption. It titles the frame, which is all a screen reader gets. */
+  title: string;
+}
+
+/**
+ * Read the island, defensively, for the same reason `parseNarration` is
+ * defensive: a deck built before this existed has no island, and one built by a
+ * newer emitter may carry fields this reader has never heard of. Neither may do
+ * anything worse than leave the poster alone.
+ */
+export function parseClips(json: string | null | undefined): Record<string, ClipSpec> {
+  if (!json) return {};
+  const found: Record<string, ClipSpec> = {};
+  try {
+    const parsed = JSON.parse(json) as { scenes?: Record<string, Partial<ClipSpec>> };
+    for (const [sid, clip] of Object.entries(parsed?.scenes ?? {})) {
+      // `https:` AND NOTHING ELSE. This string becomes a frame's `src`, and a
+      // `javascript:` URL there would make the island a script the deck runs —
+      // the island is emitted by us today, and a deck is a file that gets copied,
+      // edited and served by people who are not us.
+      if (typeof clip?.url === "string" && /^https:\/\//i.test(clip.url)) {
+        found[sid] = {
+          url: clip.url,
+          title: typeof clip.title === "string" ? clip.title : "Video",
+        };
+      }
+    }
+  } catch {
+    return {};
+  }
+  return found;
+}
+
+interface Clips {
+  /** Arriving at a stop: close whatever was open, offer this stop's video if it has one. */
+  at: (stop: Stop) => void;
+  /** Open it, or close it if it is open. What the button and `v` both call. */
+  toggle: () => void;
+  /** Close an open player. `false` when there was nothing open, so Escape can fall through. */
+  close: () => boolean;
+}
+
+const NO_CLIPS: Clips = { at: () => {}, toggle: () => {}, close: () => false };
+
+/**
+ * The third-party player, in `deck.html` and nowhere else.
+ *
+ * THE ASYMMETRY IS THE WHOLE DESIGN, AND THIS IS THE FILE THAT ACTS ON IT. A
+ * clip whose bytes we could not fetch is a poster in the composition and stays
+ * one: `index.html` is what `render` captures, virtual time propagates only into
+ * same-origin frames, and the compile-time localiser has no pattern for an
+ * iframe — so an embed there would play at wall-clock speed, refetch itself from
+ * the network on every render, and be refused outright by `scanDeterminism`.
+ * `deck.html` is never captured and never scanned, and is already a framing
+ * document — the player builds its own frame around `index.html` there — so the
+ * frame that is a defect one file over is correct here. See `videoIsland` in
+ * src/emit/composition.ts for the long version.
+ *
+ * The tag is never written as markup, and test/deck.test.ts pins that: this
+ * module is inlined verbatim into `deck.html`, so a literal in it is a literal
+ * in a shipped HTML file — the same reasoning that keeps the composition-id
+ * attribute out of this bundle, one test up.
+ *
+ * CLICK TO PLAY, AND `allow` IS WHERE THAT IS ENFORCED rather than promised.
+ * The frame is created by the click, its src is the island's URL verbatim, and
+ * it is granted no autoplay feature — so even a host that would like to start
+ * on load cannot. A deck that makes noise the moment it opens is a bug, and
+ * five of them at once is the same bug five times.
+ *
+ * LOADED ON DEMAND, which is not only politeness. A YouTube or Vimeo frame is
+ * several hundred KB of player and a live connection the instant it exists, so
+ * five live frames in a twelve-slide deck is megabytes fetched before slide two,
+ * five third-party origins told what is being presented and when, and five
+ * players in the document at once. The viewer asked for one video; they get one.
+ *
+ * REMOVING THE FRAME IS THE ONLY WAY TO STOP IT. The player is cross-origin and
+ * we hold no handle on it — no pause, no postMessage we are entitled to send —
+ * so leaving a stop tears the element out. Without that, the video keeps talking
+ * underneath the next slide.
+ */
+function mountClips(
+  doc: Document,
+  clips: Record<string, ClipSpec>,
+  ui: { chrome: HTMLElement; video: HTMLButtonElement },
+  /** Called before a player opens, so the deck can put down the audio track. */
+  taken: () => void,
+): Clips {
+  let box: HTMLElement | null = null;
+  let here: ClipSpec | null = null;
+
+  const close = (): boolean => {
+    if (!box) return false;
+    box.remove();
+    box = null;
+    return true;
+  };
+
+  const open = () => {
+    if (!here || box) return;
+    taken();
+    box = doc.createElement("div");
+    box.className = "ds-film";
+    const frame = doc.createElement("iframe");
+    frame.src = here.url;
+    // The only thing a screen reader is given: a cross-origin frame is opaque,
+    // so its title is the whole of what the caption said about the video.
+    frame.title = here.title;
+    // NARROW ON PURPOSE. `fullscreen` because the player's own button is inside
+    // the frame and dead without it; nothing else, and `autoplay` least of all —
+    // see the click-to-play note above. The deck's OWN sandbox (a CSP directive
+    // on the served response, which nested contexts inherit) already withholds
+    // popups, forms, modals and top-navigation from it, so the embed's
+    // "watch on the site" chrome is inert.
+    frame.allow = "fullscreen";
+    frame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+    const shut = doc.createElement("button");
+    shut.type = "button";
+    shut.className = "ds-shut";
+    shut.textContent = "✕";
+    shut.setAttribute("aria-label", "Close the video");
+    shut.addEventListener("click", (e) => {
+      e.stopPropagation();
+      close();
+    });
+    box.append(frame, shut);
+    ui.chrome.append(box);
+    // Focus lands OUTSIDE the frame, so Escape and the arrow keys still reach
+    // the deck's own handlers. A click into the player hands the keyboard to the
+    // player, which is what a viewer watching a video means by it.
+    shut.focus();
+  };
+
+  const toggle = () => {
+    if (!close()) open();
+  };
+
+  // `stopPropagation`, exactly as `.ds-play` does: the deck advances on a click
+  // in the outer third, and this click must not also step. It also keeps the
+  // gesture away from the document-level `unlock` listener, which would restart
+  // the narration that `taken()` has just stopped, over the video.
+  ui.video.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggle();
+  });
+
+  return {
+    at: (stop) => {
+      // Unconditional, including a re-clamp at the last stop: an open frame that
+      // outlives the slide it belongs to is the failure worth being blunt about.
+      close();
+      here = clips[stop.sceneId] ?? null;
+      ui.video.hidden = here === null;
+      if (here) ui.video.setAttribute("aria-label", `Play the video: ${here.title}`);
+    },
+    toggle,
+    close,
+  };
+}
+
 function typing(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? ""));
@@ -572,6 +779,19 @@ async function start(doc: Document): Promise<void> {
   // Absent island = the silent deck we shipped before narration existed.
   const narration = parseNarration(doc.querySelector(NARRATION_ISLAND)?.textContent);
   const voice = narration ? mountVoice(doc, narration, ui) : SILENT;
+  // Absent island = a deck with no player-page clip in it, which is almost every
+  // deck. `NO_CLIPS` keeps the button hidden and costs `go` one call per step.
+  const found = parseClips(doc.querySelector(VIDEO_ISLAND)?.textContent);
+  const clips =
+    Object.keys(found).length === 0
+      ? NO_CLIPS
+      : mountClips(doc, found, ui, () => {
+          // The deck has one audio track. Narration stops so the video can have
+          // it, and autoplay stops because a deck that steps to the next slide
+          // while someone is watching a video is a deck fighting its viewer.
+          voice.hush();
+          setPlaying(false);
+        });
   let at = 0;
   // Resolved once the player has built its iframe, below.
   let frame: Frame | null = null;
@@ -727,6 +947,9 @@ async function start(doc: Document): Promise<void> {
       spoken = at;
       speaking = voice.at(stop);
     }
+    // Unguarded, unlike the voice: this tears an open player down, and a frame
+    // that survives into the next slide keeps playing under it.
+    clips.at(stop);
     // Autoplay's clock. A narrated stop is timed by its own audio, which is the
     // whole timing model of this project — speech drives the deck. A silent one
     // has no `ended` to wait for, so it gets the gap the author left before the
@@ -802,6 +1025,15 @@ async function start(doc: Document): Promise<void> {
         break;
       case "p":
         setPlaying(!playing);
+        break;
+      case "v":
+        clips.toggle();
+        break;
+      case "Escape":
+        // Ours only while a player is open. Otherwise fall through untouched —
+        // Escape is also how a browser leaves fullscreen, and swallowing it
+        // would trap a presenter there.
+        if (!clips.close()) return;
         break;
       case "f": {
         const fs = doc.fullscreenElement

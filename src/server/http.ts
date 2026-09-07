@@ -30,6 +30,32 @@ import { parseSubmission, readBody, type Submission, UploadError } from "./uploa
 /** base64url of 16 random bytes. Unguessable, URL-safe, and a legal path segment. */
 const ID = /^[A-Za-z0-9_-]{22}$/;
 
+/**
+ * What a served deck may put in a frame: itself, and the video players.
+ *
+ * COPIED FROM `EMBED_ORIGINS` IN src/pack/media.ts RATHER THAN IMPORTED, and the
+ * BUILD is what says so. This directory is transpiled file by file with no
+ * bundling, so every import specifier survives verbatim into dist/server/ — and
+ * `../pack/media.js` exists in source and not in the build, which is
+ * ERR_MODULE_NOT_FOUND on the next request with every gate green. That failure
+ * has already happened here once, over `../emit/themes/index.js`; the gate that
+ * now stops it is "the server's imports survive the build" in
+ * test/server.test.ts, and the library reaches this directory only through
+ * ../index.js, which does not carry this constant.
+ *
+ * So the two lists are pinned equal by a test in the same suite instead: it
+ * imports `EMBED_ORIGINS` from source and asserts this directive names exactly
+ * `'self'` and those origins. Adding a host to the embed table and forgetting it
+ * here fails that test rather than a viewer's deck.
+ */
+const FRAME_SRC = [
+  "'self'",
+  "https://www.youtube-nocookie.com",
+  "https://player.vimeo.com",
+  "https://www.dailymotion.com",
+  "https://www.loom.com",
+].join(" ");
+
 export interface ServeOptions {
   port: number;
   host: string;
@@ -542,8 +568,36 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
       // slide blank, the job `done`, every file a 200, the console empty. So the
       // directive is `'self'`: same-origin composition allowed, and every
       // off-site origin refused, which is the half worth refusing.
+      //
+      // PLUS THE PLAYER ORIGINS, AND NOTHING ELSE — `FRAME_SRC` above. A clip
+      // whose bytes we could not fetch is a poster in the composition; in the
+      // PRESENTED deck the runtime opens the real player in a frame, on the
+      // viewer's click (src/deck/runtime.ts). That frame needs its origin named
+      // here. Not `*`, not a bare `https:`: either would re-open exactly the
+      // hole `'self'` was closing, since a deck is a stranger's document and an
+      // uploaded SVG is a document too.
+      //
+      // WHAT THE SANDBOX DOES TO THAT NESTED FRAME, because a sandboxed frame
+      // that cannot load its child is the silent failure this project keeps
+      // finding. Sandbox flags are inherited by nested browsing contexts, so the
+      // player runs with exactly `allow-scripts allow-same-origin
+      // allow-downloads`. Scripts run and it keeps its OWN origin — cross-origin
+      // to the deck, so `allow-same-origin` grants it nothing here — which is
+      // what playback needs. MEASURED, on a served deck driven with Chrome
+      // 145 headless: the YouTube embed loads, paints its poster and its
+      // controls, and is pixel-identical to the same frame served with no CSP
+      // at all; an origin the directive does not name is refused outright
+      // ("Framing 'https://example.com/' violates ... frame-src"). What stays
+      // withheld bites only the embed's chrome: with no `allow-popups` and no
+      // `allow-top-navigation`, clicking its "watch on YouTube" pill opened no
+      // tab and moved the deck nowhere. `connect-src 'none'` does NOT reach
+      // inside the player — CSP is not inherited across an origin, only the
+      // sandbox flags are — so the player's own XHRs are its business.
+      // Fullscreen is a permissions-policy feature
+      // rather than a sandbox token, and the runtime asks for it on the frame's
+      // `allow` attribute.
       headers["content-security-policy"] =
-        "sandbox allow-scripts allow-same-origin allow-downloads; connect-src 'none'; frame-src 'self'";
+        `sandbox allow-scripts allow-same-origin allow-downloads; connect-src 'none'; frame-src ${FRAME_SRC}`;
       // A deck is one origin's private artifact; nothing off-site should be able
       // to pull its bytes into a page it controls.
       headers["cross-origin-resource-policy"] = "same-site";

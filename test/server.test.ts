@@ -21,6 +21,7 @@ import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 import { toolSvg } from "../src/images/providers.js";
 import { FORMATS, LEGIBLE_W, MAX_ASPECT, MIN_EDGE, parseMarkdown } from "../src/index.js";
+import { EMBED_ORIGINS } from "../src/pack/media.js";
 import { chromePath } from "../src/render/capture.js";
 import { explain } from "../src/server/errors.js";
 import { createDeckServer, parseRange, RateLimiter, safeUrlPath } from "../src/server/http.js";
@@ -920,6 +921,19 @@ describe("the HTTP surface", () => {
      */
     expect(csp).toContain("frame-src 'self'");
     expect(csp).not.toContain("frame-src 'none'");
+    /**
+     * AND THE PLAYER ORIGINS, WHICH IS THE WHOLE OF WHAT `frame-src` MAY NAME.
+     *
+     * A presented deck opens a player-page video in a frame on the viewer's
+     * click (src/deck/runtime.ts), so its origin has to be allowed. The list is
+     * `EMBED_ORIGINS`, derived from the per-host embed rules — asserted as an
+     * exact set rather than by `toContain`, because the failure worth catching
+     * here is the widening nobody meant: a `*`, a bare `https:`, or an origin
+     * left over from a rule that no longer exists. Any of those hands every
+     * uploaded document the right to frame whatever it likes.
+     */
+    const frameSrc = /frame-src ([^;]*)/.exec(csp)?.[1]?.trim().split(" ");
+    expect(frameSrc).toEqual(["'self'", ...EMBED_ORIGINS]);
     expect(deck.headers.get("x-content-type-options")).toBe("nosniff");
   });
 

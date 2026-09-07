@@ -104,6 +104,180 @@ export function isEmbed(url: string): boolean {
 }
 
 /**
+ * AN EMBED URL IS NOT A WATCH URL, and nothing else in this project converts
+ * one into the other.
+ *
+ * `isEmbed` above answers "are these bytes ours to download" — they are not.
+ * This answers the question a PRESENTED deck asks next: then what may I put in
+ * a frame? The two are different documents. `youtube.com/watch?v=ID` inside an
+ * iframe is refused by YouTube's own `X-Frame-Options`; `vimeo.com/ID` is a page
+ * with a header, a comment thread and no player API. Only a per-host rule turns
+ * the first into the second.
+ *
+ * A HOST WITH NO RULE GETS `undefined`, NOT A GUESS. A path we invented 404s
+ * inside a frame, which paints a black rectangle with no console error, no
+ * failed gate, and nothing for a viewer to click — the exact shape of silent
+ * failure this project keeps finding. A poster and a link are a worse deck than
+ * a working embed and a much better deck than an empty box.
+ *
+ * NOT CONVERTED, AND EACH FOR ITS OWN REASON. Twitch requires a `parent=` query
+ * naming the page that frames it, which a built deck cannot know — it is a file
+ * that gets served from whatever host the presenter has. Wistia's embed lives
+ * under a per-account subdomain that the share URL does not carry. Bilibili's
+ * player takes `aid`/`bvid`/`cid` as query parameters rather than a path.
+ * SoundCloud's widget takes an API resource URL, and is audio besides. TikTok
+ * and Streamable have embed forms this rule has not been verified against, and
+ * an unverified rule is the guess the paragraph above refuses.
+ */
+interface Embeddable {
+  /** Scheme and host the frame is served from — what `frame-src` has to allow. */
+  origin: string;
+  /** The embeddable URL for this page, or undefined when it is not a video page. */
+  embed: (u: URL) => string | undefined;
+}
+
+/** Path segments, empties dropped: `/video/x7t/` -> `["video", "x7t"]`. */
+function segments(u: URL): string[] {
+  return u.pathname.split("/").filter(Boolean);
+}
+
+/**
+ * An id we are willing to interpolate into a URL. Every host below names a video
+ * with an opaque token, so anything outside this alphabet is either a page that
+ * is not a video or a string trying to write a different URL than the rule
+ * intends.
+ */
+function token(raw: string | null | undefined): string | undefined {
+  return raw && /^[A-Za-z0-9_-]{1,64}$/.test(raw) ? raw : undefined;
+}
+
+/**
+ * `youtube-nocookie.com`, which is the same player on a host that defers
+ * YouTube's tracking cookies until the viewer actually presses play. A deck is
+ * opened on somebody else's laptop, and a slide nobody played should not have
+ * written an ad profile for them.
+ */
+const YOUTUBE_EMBED = "https://www.youtube-nocookie.com";
+const youtube = (id: string | undefined) =>
+  id === undefined ? undefined : `${YOUTUBE_EMBED}/embed/${id}`;
+
+const YOUTUBE: Embeddable = {
+  origin: YOUTUBE_EMBED,
+  embed: (u) => {
+    const seg = segments(u);
+    const path = seg[0];
+    return youtube(
+      token(
+        path === "watch"
+          ? u.searchParams.get("v")
+          : path === "embed" || path === "shorts" || path === "live" || path === "v"
+            ? seg[1]
+            : undefined,
+      ),
+    );
+  },
+};
+
+/** `youtu.be/ID` — the whole path is the id, and it is the shape a share button gives. */
+const YOUTU_BE: Embeddable = {
+  origin: YOUTUBE_EMBED,
+  embed: (u) => youtube(token(segments(u)[0])),
+};
+
+const VIMEO_EMBED = "https://player.vimeo.com";
+
+const VIMEO: Embeddable = {
+  origin: VIMEO_EMBED,
+  embed: (u) => {
+    const seg = segments(u);
+    // `player.vimeo.com/video/ID` is already the player; `vimeo.com/ID` is the
+    // page around it. Both end in the same numeric id. A path that is not a
+    // number is a channel, a group or a user profile, so it is not converted.
+    const [head, next] = seg[0] === "video" ? [seg[1], seg[2]] : [seg[0], seg[1]];
+    if (head === undefined || !/^\d+$/.test(head)) return undefined;
+    // AN UNLISTED VIDEO IS `vimeo.com/ID/HASH`, AND THE HASH IS NOT DECORATION:
+    // dropped, the player answers "we can't find that page" — a private video
+    // that plays from the paper's own page and not from the deck. It travels as
+    // `h` on the embed.
+    const hash = token(next ?? u.searchParams.get("h"));
+    // `dnt=1` is Vimeo's own do-not-track parameter, taken for the same reason
+    // the nocookie host is above: this is the privacy-preserving variant the
+    // host offers, and the viewer did not ask to be measured by reading a slide.
+    return `${VIMEO_EMBED}/video/${head}?${hash ? `h=${hash}&` : ""}dnt=1`;
+  },
+};
+
+const DAILYMOTION_EMBED = "https://www.dailymotion.com";
+const dailymotion = (id: string | undefined) =>
+  id === undefined ? undefined : `${DAILYMOTION_EMBED}/embed/video/${id}`;
+
+const DAILYMOTION: Embeddable = {
+  origin: DAILYMOTION_EMBED,
+  embed: (u) => {
+    const seg = segments(u);
+    return dailymotion(
+      token(seg[0] === "video" ? seg[1] : seg[0] === "embed" ? seg[2] : undefined),
+    );
+  },
+};
+
+/** `dai.ly/ID` is Dailymotion's own shortener, and the id is the whole path. */
+const DAI_LY: Embeddable = {
+  origin: DAILYMOTION_EMBED,
+  embed: (u) => dailymotion(token(segments(u)[0])),
+};
+
+const LOOM: Embeddable = {
+  origin: "https://www.loom.com",
+  embed: (u) => {
+    const seg = segments(u);
+    const id = token(seg[0] === "share" || seg[0] === "embed" ? seg[1] : undefined);
+    return id === undefined ? undefined : `https://www.loom.com/embed/${id}`;
+  },
+};
+
+/** Keyed by the same hosts `PLAYERS` lists, so a rule can only exist for a player page. */
+const EMBEDS: Record<string, Embeddable> = {
+  "youtube.com": YOUTUBE,
+  "youtube-nocookie.com": YOUTUBE,
+  "youtu.be": YOUTU_BE,
+  "vimeo.com": VIMEO,
+  "dailymotion.com": DAILYMOTION,
+  "dai.ly": DAI_LY,
+  "loom.com": LOOM,
+};
+
+/**
+ * Every origin an embed can come from, deduped.
+ *
+ * DERIVED FROM THE RULES ABOVE RATHER THAN RESTATED BESIDE THEM, because the
+ * served deck's `frame-src` names exactly this list (src/server/http.ts): a host
+ * added here and forgotten there is a frame the browser refuses, and CSP refuses
+ * it the way CSP refuses everything — an empty rectangle and a line in a console
+ * nobody has open.
+ */
+export const EMBED_ORIGINS: readonly string[] = [
+  ...new Set(Object.values(EMBEDS).map((e) => e.origin)),
+];
+
+/** The embeddable form of a player page, or undefined when we cannot say. */
+export function embedUrl(url: string): string | undefined {
+  const host = hostOf(url);
+  if (host === null) return undefined;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return undefined;
+  }
+  // `hostOf` also answers for `ftp:` and other schemes; a frame src has to be
+  // one a browser will fetch.
+  if (u.protocol !== "https:" && u.protocol !== "http:") return undefined;
+  const rule = Object.entries(EMBEDS).find(([h]) => host === h || host.endsWith(`.${h}`))?.[1];
+  return rule?.embed(u);
+}
+
+/**
  * The final policy for one asset.
  *
  * Baking requires confidence that the URL points at a file. A local path or a
