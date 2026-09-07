@@ -91,14 +91,41 @@ export { scanTypeFloor, TYPE_FLOOR_PX } from "./typefloor.js";
  * Sources of per-render variance. Only render-time calls matter, so a CDN
  * `<script src>` is fine and `fetch()` is not — the former is fetched once by the
  * compiler, the latter resolves differently on every frame.
+ *
+ * The third entry of each row is the VERB the finding uses, and the fourth — only
+ * the last rule has one — is the sentence that says what to do instead. Both
+ * exist because the last rule is not a call. Everything above it is JavaScript
+ * this deck runs, and "stop calling it" needs no explaining; an `<iframe>` is a
+ * second document, and what replaces it is not obvious. The distinction is also
+ * why the table cannot simply grow a "remote src" pattern: that would condemn
+ * the CDN `<script src>` the paragraph above deliberately allows, and the test
+ * that pins it.
+ *
+ * WHY THE IFRAME BELONGS HERE AT ALL. It is invariant 4 broken in substance with
+ * every gate green: the third party is fetched LIVE on every render, so two
+ * renders a day apart are two different documents, and capture never reaches the
+ * frame's own clock — `beginFrame` drives this document's timeline, not a
+ * stranger's, so whatever is inside plays at wall-clock speed or not at all. A
+ * `fetch()` at least fails loudly when the network is gone; an iframe paints
+ * something plausible.
  */
-const NONDETERMINISM: ReadonlyArray<[RegExp, string]> = [
-  [/\bMath\.random\s*\(/, "math_random"],
-  [/\bDate\.now\s*\(/, "date_now"],
-  [/\bnew\s+Date\s*\(\s*\)/, "date_now"],
-  [/\bperformance\.now\s*\(/, "performance_now"],
-  [/\bfetch\s*\(/, "runtime_fetch"],
-  [/\bXMLHttpRequest\b/, "runtime_fetch"],
+const NONDETERMINISM: ReadonlyArray<readonly [RegExp, string, string, string?]> = [
+  [/\bMath\.random\s*\(/, "math_random", "calls"],
+  [/\bDate\.now\s*\(/, "date_now", "calls"],
+  [/\bnew\s+Date\s*\(\s*\)/, "date_now", "calls"],
+  [/\bperformance\.now\s*\(/, "performance_now", "calls"],
+  [/\bfetch\s*\(/, "runtime_fetch", "calls"],
+  [/\bXMLHttpRequest\b/, "runtime_fetch", "calls"],
+  // The TAG, matched with a word boundary so `<iframes>` and the word "iframe"
+  // in a comment or a `createElement("iframe")` in the wrapper's own runtime are
+  // not it. `deck.html` is never scanned at all (`readCompositions`), which is
+  // what keeps the player's own frame out of this.
+  [
+    /<iframe\b/i,
+    "third_party_iframe",
+    "embeds",
+    "Bake what the frame was showing into the deck instead: a still as a figure, or a clip claim-figure can play.",
+  ],
 ];
 
 /**
@@ -955,14 +982,16 @@ const STOP = new Set([
 export function scanDeterminism(html: string, file: string): Finding[] {
   const findings: Finding[] = [];
   const lines = html.split("\n");
-  for (const [pattern, rule] of NONDETERMINISM) {
+  for (const [pattern, rule, verb, remedy] of NONDETERMINISM) {
     const i = lines.findIndex((line) => pattern.test(line));
     if (i < 0) continue;
     findings.push({
       severity: "error",
       gate: "determinism",
       rule,
-      message: `${file}:${i + 1} calls \`${lines[i]?.match(pattern)?.[0]}\` at render time, so two renders of this deck will not be identical.`,
+      message:
+        `${file}:${i + 1} ${verb} \`${lines[i]?.match(pattern)?.[0]}\` at render time, so two renders of this deck will not be identical.` +
+        (remedy ? ` ${remedy}` : ""),
     });
   }
   return findings;

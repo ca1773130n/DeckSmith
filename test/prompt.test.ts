@@ -19,7 +19,9 @@ const source: Source = {
   title: "t",
   lang: "en",
   sections: [{ id: "sec", depth: 1, heading: "H", text: "t" }],
-  figures: [{ id: "fig", src: "f.jpg", caption: "c", width: 1000, height: 600 }],
+  figures: [
+    { id: "fig", kind: "image" as const, src: "f.jpg", caption: "c", width: 1000, height: 600 },
+  ],
   equations: [
     { id: "eq", tex: "y = \\mathcal{E}(x) + \\mathcal{W}(z)", display: true },
     { id: "eq2", tex: "y - \\mathcal{W}(z) = \\mathcal{E}(x)", display: true },
@@ -42,6 +44,7 @@ const ctx = {
   format: FORMATS["deck-16x9"] as Format,
   theme: ink,
   sid: "s1",
+  start: 0,
 } as const;
 const beat = (archetype: string, params: unknown) =>
   ({
@@ -267,6 +270,7 @@ describe("the figure inventory", () => {
   });
   const arch = {
     id: "fig-arch",
+    kind: "image" as const,
     src: "a.jpg",
     caption: "Figure 2 — One tick.",
     width: 1373,

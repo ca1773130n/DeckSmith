@@ -31,6 +31,7 @@ import {
   hasIllustrations,
   type ImageProvider,
   illustrate,
+  isBlockedAddress,
   narrate,
   PACK_VERSION,
   type Pack,
@@ -557,15 +558,6 @@ async function harvestBounded(url: string, dir: string, opts: HarvestOptions): P
  * warnings rather than with forty socket errors. Two checks of the same rule,
  * and the one at the socket is the one that has to hold.
  */
-const BLOCKED = [
-  /^10\./,
-  /^127\./,
-  /^169\.254\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^192\.168\./,
-  /^0\./,
-];
-
 async function reachable(url: string): Promise<string | null> {
   let host: string;
   try {
@@ -582,13 +574,15 @@ async function reachable(url: string): Promise<string | null> {
   } catch {
     return "does not resolve";
   }
+  // ONE ADDRESS POLICY, NOT TWO. This used to carry its own six-regex BLOCKED
+  // list, which had already drifted from the one at the socket: it did not know
+  // the IPv4-mapped IPv6 form, CGNAT, or the benchmarking range. The result was
+  // not a hole — `fetchGuarded` still refused those at connect time — but it was
+  // worse than a hole to read, because a figure would pass this check silently
+  // and then die later with a message from somewhere else entirely.
   for (const addr of addrs) {
-    if (BLOCKED.some((re) => re.test(addr))) return `resolves to a private address (${addr})`;
-    // IPv6 loopback, link-local and unique-local.
-    const v6 = addr.toLowerCase();
-    if (v6 === "::1" || v6.startsWith("fe80:") || v6.startsWith("fc") || v6.startsWith("fd")) {
-      return `resolves to a private address (${addr})`;
-    }
+    const why = isBlockedAddress(addr);
+    if (why) return `resolves to a private address (${addr})`;
   }
   return addrs.length === 0 ? "does not resolve" : null;
 }

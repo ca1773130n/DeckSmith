@@ -32,7 +32,14 @@ const source: Source = {
   lang: "en",
   sections: [],
   figures: [
-    { id: "fig", src: "f.png", caption: "Figure 1 — a caption.", width: 1298, height: 578 },
+    {
+      id: "fig",
+      kind: "image",
+      src: "f.png",
+      caption: "Figure 1 — a caption.",
+      width: 1298,
+      height: 578,
+    },
   ],
   equations: [
     {
@@ -56,7 +63,7 @@ const source: Source = {
 const tall = FORMATS["short-9x16"] as Format;
 const wide = FORMATS["deck-16x9"] as Format;
 const square = FORMATS["post-1x1"] as Format;
-const ctx = (format = tall, sid = "s1"): EmitContext => ({ source, format, theme, sid });
+const ctx = (format = tall, sid = "s1"): EmitContext => ({ source, format, theme, sid, start: 0 });
 
 describe("isPortrait", () => {
   it("is true only where the canvas is taller than it is wide", () => {

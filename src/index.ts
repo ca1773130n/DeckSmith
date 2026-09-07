@@ -61,6 +61,10 @@ export type { Block, Harvested, HarvestedClip, HarvestOptions } from "./source/h
  * through its own client instead.
  */
 export { fetchFigures } from "./source/assets.js";
+// THE ONE ADDRESS POLICY. Exported because the server's own pre-flight check
+// (`reachable` in src/server/pipeline.ts) must answer the same question the
+// socket answers, and the server reaches the library only through this barrel.
+export { fetchGuarded, isBlockedAddress } from "./net/fetch.js";
 
 /**
  * Subset a CJK webfont over the glyphs a deck actually renders. Exported

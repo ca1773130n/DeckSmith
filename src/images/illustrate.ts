@@ -129,6 +129,9 @@ export async function illustrate(
         const picture = await draw(provider, req, name, opts.assetsDir);
         const figure: Figure = {
           id: slot.figureId,
+          // An illustration is always a still: every provider draws a picture,
+          // and there is no rung that returns a video.
+          kind: "image",
           src: picture.src,
           caption: slot.brief.caption,
           width: picture.width,

@@ -86,6 +86,9 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
       for (const img of images) {
         const figure: Figure = {
           id: `fig${figures.length + 1}`,
+          // Markdown carries no video: an image node is an image. A clip only
+          // ever enters through `harvest`, which sets this itself.
+          kind: "image",
           src: img.url,
           caption: caption ?? img.alt ?? "",
           // 1x1 until assets.ts reads the actual bytes. The schema has no "unknown",
@@ -147,11 +150,37 @@ export function parseMarkdown(md: string, opts: ParseOptions = {}): Source {
 /**
  * A script sniff, not language detection. All it has to decide is which family
  * `fonts.ts` must subset and ship, and that question only has four answers.
+ *
+ * A SHARE OF THE TEXT, NOT A SINGLE CHARACTER. This used to answer on one match
+ * anywhere in the document, which is right for a hand-authored analysis — those
+ * are written in one language — and wrong the moment the input is a harvested
+ * web page. Measured on the first real page URL ingest was pointed at: the
+ * English Wikipedia article on Gaussian splatting carries THREE CJK characters
+ * across twelve sections, in a citation and an interface string, and the old
+ * test answered `zh`. That bundles the wrong font and narrates an English
+ * article in Chinese, from three characters out of twenty thousand.
+ *
+ * The threshold is deliberately LOW. A document genuinely in one of these
+ * scripts is dense in it — even a Korean paper quoting English method names runs
+ * far above this — so 2% separates "written in" from "mentions", with a wide
+ * margin on both sides and no need to be cleverer than that.
+ *
+ * Precedence is unchanged and still matters: Japanese is kana AND kanji, so it
+ * must be asked before Han or every Japanese document reads as Chinese.
  */
+const SCRIPT_SHARE = 0.02;
+
 function sniffLang(md: string): string {
-  if (/[가-힣]/.test(md)) return "ko";
-  if (/[぀-ヿ]/.test(md)) return "ja";
-  if (/[一-鿿]/.test(md)) return "zh";
+  // Whitespace excluded so indentation and line breaks do not dilute the share;
+  // everything else counts, because punctuation and Latin are exactly what a
+  // mixed document is mixed WITH.
+  const total = md.replace(/\s+/g, "").length;
+  if (total === 0) return "en";
+  const share = (re: RegExp) => (md.match(re)?.length ?? 0) / total;
+
+  if (share(/[가-힣]/g) >= SCRIPT_SHARE) return "ko";
+  if (share(/[぀-ヿ]/g) >= SCRIPT_SHARE) return "ja";
+  if (share(/[一-鿿]/g) >= SCRIPT_SHARE) return "zh";
   return "en";
 }
 

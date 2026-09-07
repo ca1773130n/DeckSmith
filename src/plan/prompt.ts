@@ -741,7 +741,8 @@ function languageName(tag: string): string {
  *
  * The figure block carries two facts beyond the caption — the section the image
  * sat under and the prose that refers to it — because a planner that cannot see
- * the picture has nothing else to decide what the picture is FOR.
+ * the picture has nothing else to decide what the picture is FOR. A clip carries
+ * one more: what the deck can actually show of it, which is a still.
  */
 export function renderSource(source: Source): string {
   const out = [
@@ -766,9 +767,49 @@ export function renderSource(source: Source): string {
     // this line exists so the model can notice it has planned around three of
     // four pictures, which it cannot do from a list it never counted.
     out.push(`${n === 1 ? "1 figure" : `${n} figures`} in this document.`);
+    // WHAT A CLIP COSTS, said once and only where there is one.
+    //
+    // A clip IS a figure — same ids, same `figureId`, same archetypes — so no
+    // rule above needs a second sentence for it, and RULE 2 already forbids
+    // citing an id that is not here. What the model cannot work out for itself
+    // is what the deck does with the thing, and that is the whole decision:
+    // a beat planned around motion, over a picture that holds still, narrates
+    // something the audience never sees.
+    //
+    // Absent when the inventory has no clip in it, which is every source that
+    // predates them: the prompt those decks are planned from is byte-for-byte
+    // what it was.
+    if (source.figures.some((f) => f.kind === "clip")) {
+      out.push(
+        "",
+        "A CLIP is a figure whose asset is video. Cite it exactly as you cite any other",
+        "figure — `figureId` on the beat, `[figure id]` in evidence — and pick it for the",
+        "same reason: it is the picture that carries the point.",
+        "WHAT IT COSTS, and it decides whether a beat is worth spending on one: the deck",
+        "holds a clip PAUSED AND MUTED, so a viewer clicking through sees one frame until",
+        "they press play, and the rendered video shows that same frame unless the clip is",
+        "a file this deck actually holds. A clip listed as watchable only at a link is a",
+        "page whose video we could not download, and its still is all any format will ever",
+        "show. So write the beat for the FRAME: claim what the picture states, and never",
+        "narrate a motion the still does not.",
+      );
+    }
     const headings = new Map(source.sections.map((s) => [s.id, s.heading]));
     for (const f of source.figures) {
-      out.push("", `[figure ${f.id}] ${f.width}x${f.height} — ${f.caption}`);
+      // MARKED WHERE THE ID IS. The model scans this list for something to cite,
+      // and a fact that changes whether the beat can be spent belongs on the
+      // line it stops at rather than under it. An image's line is unchanged.
+      const size =
+        f.kind === "clip"
+          ? `CLIP ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`}`
+          : `${f.width}x${f.height}`;
+      out.push("", `[figure ${f.id}] ${size} — ${f.caption}`);
+      // The video we do not hold. Said next to the id because it is the one
+      // property of this figure that no later line can repair: the beat can
+      // still be planned, and it will be a still whatever anyone builds.
+      if (f.kind === "clip" && f.href) {
+        out.push(`  watchable only at ${f.href} — the deck shows its still, never the video`);
+      }
       const heading = f.sectionId === undefined ? undefined : headings.get(f.sectionId);
       // WHERE IT SITS, then WHAT THE DOCUMENT SAYS ABOUT IT. The model cannot
       // see the image; these two lines are everything it has for deciding which

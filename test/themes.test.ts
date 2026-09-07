@@ -49,7 +49,7 @@ const beat = beatSchema.parse({
 }) as Beat & { archetype: "title" };
 
 function scene(theme: DeckTheme, sid = "s1"): Scene {
-  const ctx: EmitContext = { source, format, theme, sid };
+  const ctx: EmitContext = { source, format, theme, sid, start: 0 };
   return title(beat, ctx);
 }
 

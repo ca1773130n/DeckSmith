@@ -36,7 +36,7 @@ const format: Format = {
   minWeight: 0,
   navigable: true,
 };
-const ctx = (sid: string): EmitContext => ({ source, format, theme, sid });
+const ctx = (sid: string): EmitContext => ({ source, format, theme, sid, start: 0 });
 
 const core = { intent: "i", evidence: [], weight: 0.5, seconds: 12 };
 
@@ -343,7 +343,7 @@ describe("grid alignment", () => {
   it("puts the field flush left in both formats, gutter or no gutter", () => {
     for (const fmt of [format, tall]) {
       for (const b of [minimal, maximal]) {
-        const html = grid(b, { source, format: fmt, theme, sid: "s4" }).html;
+        const html = grid(b, { source, format: fmt, theme, sid: "s4", start: 0 }).html;
         // MARGIN, and nothing more: half a region's outline lies outside the
         // field, and that is the only inset the field is owed.
         expect(firstCellX(html)).toBeCloseTo(6, 6);
@@ -387,7 +387,7 @@ describe("grid alignment", () => {
       regions: [{ x: 0, y: 0, w: 2, h: 2, label: "window", tone: "a" }],
       note: "The source defines windowing as W(F).",
     });
-    const html = grid(square, { source, format: tall, theme, sid: "s4" }).html;
+    const html = grid(square, { source, format: tall, theme, sid: "s4", start: 0 }).html;
     expect(html).not.toContain("growbeside");
   });
 
@@ -437,7 +437,7 @@ describe("grid alignment", () => {
             ],
             note,
           });
-          const html = grid(b, { source, format: fmt, theme, sid: "s4" }).html;
+          const html = grid(b, { source, format: fmt, theme, sid: "s4", start: 0 }).html;
           if (!html.includes("growbeside")) continue;
           const where = `${cols}x${rows} ${fmt.id} "${note.slice(0, 20)}"`;
           const fieldW = Number(/class="gwrap" style="width:(\d+)px/.exec(html)?.[1]);

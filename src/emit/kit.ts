@@ -154,6 +154,47 @@ export interface EmitContext {
    * `hyperframes lint` rejects it (`unscoped_gsap_selector`).
    */
   sid: string;
+  /**
+   * WHERE THIS SCENE BEGINS ON THE DECK'S OWN CLOCK, in seconds, ALREADY ROUNDED
+   * to invariant 10's three places — the identical number the scene wrapper
+   * publishes as `data-start`. Write it; do not round it again, because two
+   * roundings of one number is how a byte moves.
+   *
+   * Everything else an archetype emits is scene-relative, and that is the right
+   * default: an emitter that knew where it sat in the deck would be an emitter a
+   * cut could invalidate. ONE thing is not expressible that way. A `<video>` is
+   * timed by the RUNTIME, not by this scene's timeline, and the runtime reads
+   * `data-start` as an ABSOLUTE composition second — so a clip that declares a
+   * scene-relative start is seeked into a window that has already passed.
+   *
+   * MEASURED, because the alternative looked right on paper. hyperframes'
+   * compiler injects `data-start="0" data-hf-auto-start=""` into a media tag
+   * that declares no timing, and its runtime resolves that marker against the
+   * enclosing `[data-composition-id]`, which is exactly this scene — so the
+   * marker ought to have been enough. Rendered at 0.8.27, on a two-beat deck
+   * whose clip is red for 2s, green for 2s then blue for 2s and whose second
+   * scene starts at 7s: with the marker the plate is BLUE at composition 9.5s,
+   * 10.5s and 12.5s — the clip's last frame, frozen, because the render placed
+   * it at second 0 and it had ended before the scene began. With `data-start="7"`
+   * the same frames are green, green, blue: clip seconds 2.5, 3.5 and 5.5. Every
+   * gate is green over both.
+   *
+   * OPTIONAL, because the shell is not the only caller: an archetype test calls
+   * `emitScene` with a context it builds by hand, and twelve of the thirteen
+   * emitters have no use for this. The one that does refuses by name when it is
+   * missing rather than inventing a second, i.e. wrong, clock. `planCut` passes
+   * a provisional 0 for the same reason it passes provisional scene ids — its
+   * pass exists to measure holds, and every scene it emits is thrown away.
+   */
+  //
+  // REQUIRED, not optional, and that is the point. It was optional until a clip
+  // deck was first built end to end: `composition.ts` passed the real number,
+  // and `narrate`, `refs` and `timing` each built a context without one, so a
+  // deck whose figure was a clip drew correctly and then refused at NARRATION
+  // time — a stage away from the omission, with a message about a scene that was
+  // about to be thrown away. A measurement pass that genuinely does not care
+  // says `start: 0` and says it on purpose; the compiler now asks.
+  start: number;
 }
 
 /* ------------------------------------------------- the animation vocabulary */

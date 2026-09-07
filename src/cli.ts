@@ -447,7 +447,14 @@ program
       // BEFORE `fetchFigures`, which passes a clip through untouched — see
       // `attachClips`. A no-op for a markdown file, which has no clips.
       const withClips = await attachClips(parsed, clips, assets);
-      const source = await fetchFigures(withClips, assets);
+      // COLLECTED AND PRINTED, not swallowed. A figure that could not be fetched
+      // is dropped rather than fatal, which is right — one dead image URL on a
+      // harvested page must not lose the other twenty — but a drop nobody is
+      // told about is the silent failure this project keeps finding. The server
+      // path already threads its own array through; the CLI's reader is stderr.
+      const dropped: string[] = [];
+      const source = await fetchFigures(withClips, assets, dropped);
+      for (const why of dropped) step(`ingest: ${why}`);
       const bundle = await bundleFont(source.lang, glyphs(source), join(assets, "fonts"));
       if (bundle) step(`ingest: bundled ${bundle.family} for ${source.lang}`);
 
@@ -1344,7 +1351,7 @@ function withMinWeight(format: Format, raw: string | undefined): Format {
 async function copyAssets(
   sourceDir: string,
   out: string,
-  figures: readonly { src: string }[],
+  figures: readonly { src: string; poster?: string }[],
 ): Promise<void> {
   const from = join(sourceDir, "assets");
   if (!(await stat(from).catch(() => null))) {
@@ -1362,7 +1369,19 @@ async function copyAssets(
   //
   // `fonts/` is the one directory that comes along, because `refreshFont` writes
   // the subsetted bundle into it and the stylesheet names its own files.
-  const wanted = new Set(figures.map((f) => f.src.replace(/^\.?\//, "")));
+  //
+  // A CLIP CONTRIBUTES TWO FILES, and forgetting the second is a 404 at run time
+  // rather than a build error: `poster` is what the video shows before its first
+  // frame decodes, and what a player-page clip degrades to when there is no
+  // downloadable file at all. Named here because this set is the ONLY thing that
+  // reaches the built deck — a poster left out is simply absent, and the deck's
+  // own runtime reports it as `http_error 404`, a long way from this line.
+  const wanted = new Set(
+    figures
+      .flatMap((f) => [f.src, f.poster])
+      .filter((n) => n !== undefined)
+      .map((n) => n.replace(/^\.?\//, "")),
+  );
   await mkdir(join(out, "assets"), { recursive: true });
   let copied = 0;
   for (const name of wanted) {

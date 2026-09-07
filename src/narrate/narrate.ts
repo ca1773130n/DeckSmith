@@ -53,7 +53,9 @@ export function stopCount(holds: readonly number[]): number {
  * job one stage early, with the hook the caller had passed never reached.
  */
 export function stopsFor(beat: Beat, source: Source, format: Format, sid = "s1"): number {
-  const ctx: EmitContext = { source, format, theme: ink, sid };
+  // `start: 0` because this counts STOPS and throws the scene away — the clock
+  // a clip would be seeked on is not consulted and not published.
+  const ctx: EmitContext = { source, format, theme: ink, sid, start: 0 };
   try {
     return stopCount(emitScene(beat, ctx).holds);
   } catch {

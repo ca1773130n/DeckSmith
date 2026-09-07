@@ -25,6 +25,7 @@ const STAGE_W = 1700;
 
 const wide: Figure = {
   id: "f1",
+  kind: "image",
   src: "figure_000.png",
   caption: "Figure 3: overall architecture, with the residual groups marked.",
   width: 1600,
@@ -50,7 +51,7 @@ const format: Format = {
   minWeight: 0,
   navigable: true,
 };
-const ctx: EmitContext = { source, format, theme: ink, sid: "s3" };
+const ctx: EmitContext = { source, format, theme: ink, sid: "s3", start: 0 };
 
 type Params = BeatOf<"annotated-figure">["params"];
 
@@ -479,7 +480,14 @@ describe("annotated-figure scene", () => {
 const deckFormat = FORMATS["deck-16x9"] ?? format;
 
 describe("crop", () => {
-  const fig = { id: "f1", src: "f.png", caption: "A four-panel figure", width: 1600, height: 800 };
+  const fig: Figure = {
+    id: "f1",
+    kind: "image",
+    src: "f.png",
+    caption: "A four-panel figure",
+    width: 1600,
+    height: 800,
+  };
   const src: Source = {
     id: "s",
     title: "t",
@@ -505,7 +513,7 @@ describe("crop", () => {
           notes: [{ x: 0.15, y: 0.25, text: "the left panel" }],
         },
       },
-      { sid: "s2", theme: ink, format: deckFormat, source: src },
+      { sid: "s2", theme: ink, format: deckFormat, source: src, start: 0 },
     );
 
   it("scales the image up and clips to the region, so its own type is legible", () => {

@@ -211,7 +211,9 @@ export function assertInsideResolves(storyboard: Storyboard, source: Source): vo
     let parts: Readonly<Record<string, string>> | undefined;
     try {
       const sid = `s${i}`;
-      const scene = emitScene(previous, { source, format, theme: ink, sid });
+      // `start: 0`: this reads element ids out of the html to answer what a
+      // camera could enter, and the deck it measures has not been cut yet.
+      const scene = emitScene(previous, { source, format, theme: ink, sid, start: 0 });
       drawn = enterableIds(sid, scene.html).map((id) => id.replace(`${sid}-`, ""));
       parts = scene.parts;
     } catch {

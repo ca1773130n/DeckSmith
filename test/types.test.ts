@@ -21,6 +21,7 @@ import {
   MIN_EDGE,
   prefsSchema,
   resizeFormat,
+  sourceSchema,
   splitCompareParamsSchema,
 } from "../src/types.js";
 import { VERSION } from "../src/version.js";
@@ -295,6 +296,81 @@ describe("data-table row selection", () => {
     const empty = dataTableParamsSchema.safeParse({ ...base, rows: [] });
     expect(empty.success).toBe(false);
     expect(empty.success ? [] : empty.error.issues.map((i) => i.path)).toEqual([["rows"]]);
+  });
+});
+
+/**
+ * A CLIP IS A FIGURE, and the only thing that makes that safe is that every
+ * source written before clips existed still means exactly what it meant.
+ *
+ * The alternative was a fifth `Source` array and a fifth `refSchema` kind, which
+ * would have put a new word into `assertRefsResolve`, the inventory, every
+ * archetype that takes a `figureId`, and the schema of every stored plan. What
+ * is pinned here is the cheap half of that bargain: the fields a clip needs are
+ * defaulted or optional, so a `source.json` from before them parses unchanged.
+ */
+describe("figure kinds", () => {
+  const still = { id: "f1", src: "figure_000.jpg", caption: "A figure", width: 1000, height: 600 };
+  const source = (figure: Record<string, unknown>) => ({
+    id: "s",
+    title: "t",
+    sections: [],
+    figures: [figure],
+    equations: [],
+    tables: [],
+  });
+
+  it("reads a source that predates clips as the images it always was", () => {
+    // THE WHOLE POINT OF THE DEFAULT. Every stored source, every fixture and
+    // every hand-written source.json omits `kind`, and each one has to come back
+    // an image rather than as a third state every reader downstream has to
+    // handle. The other three fields stay ABSENT: an image has no poster, no
+    // duration and no page it lives on, and defaulting them would invent facts.
+    const parsed = sourceSchema.parse(source(still));
+    const figure = parsed.figures[0];
+    expect(figure?.kind).toBe("image");
+    expect(figure && "poster" in figure).toBe(false);
+    expect(figure && "seconds" in figure).toBe(false);
+    expect(figure && "href" in figure).toBe(false);
+    // And nothing else moved: the fields the layout keys off are what they were.
+    expect(figure).toMatchObject(still);
+  });
+
+  it("carries a clip's poster, duration and page, and keeps the video's own pixels", () => {
+    const parsed = sourceSchema.parse(
+      source({
+        ...still,
+        kind: "clip",
+        src: "clip_000.mp4",
+        poster: "clip_000.jpg",
+        seconds: 12.4,
+        href: "https://example.com/watch",
+        width: 1920,
+        height: 1080,
+      }),
+    );
+    expect(parsed.figures[0]).toMatchObject({
+      kind: "clip",
+      poster: "clip_000.jpg",
+      seconds: 12.4,
+      href: "https://example.com/watch",
+      // The VIDEO's dimensions, not the poster's — every crop and leader-line
+      // fraction downstream is expressed against this box.
+      width: 1920,
+      height: 1080,
+    });
+  });
+
+  it("refuses a kind nobody emits and a duration that is not one", () => {
+    // An enum, so a typo is caught rather than carried: "video" reaching the
+    // emitter would take the image branch and paint a still with no play control.
+    expect(sourceSchema.safeParse(source({ ...still, kind: "video" })).success).toBe(false);
+    expect(sourceSchema.safeParse(source({ ...still, kind: "clip", seconds: 0 })).success).toBe(
+      false,
+    );
+    expect(sourceSchema.safeParse(source({ ...still, kind: "clip", seconds: -3 })).success).toBe(
+      false,
+    );
   });
 });
 

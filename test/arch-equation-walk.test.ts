@@ -19,6 +19,7 @@ describe("equation-walk term matching", () => {
     format: FORMATS["deck-16x9"] as Format,
     theme: ink,
     sid: "s1",
+    start: 0,
   });
   const walk = (terms: Term[]) =>
     ({
