@@ -1,17 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildStops,
+  dwellMs,
   findStop,
   formatHash,
   frameOf,
+  mountVoice,
   parseClips,
   parseHash,
   planTransition,
+  refused,
   type SlideSpec,
+  type Stop,
 } from "../src/deck/runtime.js";
+import type { Narration } from "../src/deck/subtitles.js";
 import { emitDeck, PLAYER_FILE } from "../src/emit/composition.js";
 import { EMBED_ORIGINS } from "../src/pack/media.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
@@ -202,6 +207,283 @@ describe("frameOf reads the composition through the window", () => {
       typeof frameOf
     >[0];
     expect(frameOf(blind)).toBeNull();
+  });
+});
+
+describe("a play() rejection says which of two failures it was", () => {
+  /**
+   * The deck used to treat EVERY rejection as the autoplay policy. A deck whose
+   * audio directory did not get copied therefore told the viewer "press any key
+   * for sound" forever, and every keypress ran `unlock` -> `speak` against the
+   * same missing file and failed identically. The message was not just unhelpful,
+   * it blamed the wrong thing — and every gate was green, because nothing in this
+   * suite opens deck.html or plays a sound.
+   */
+  it("reads the autoplay policy as blocked", () => {
+    expect(refused(new DOMException("play() failed", "NotAllowedError"))).toBe(true);
+  });
+
+  it("does not read a file it can never play as blocked", () => {
+    // What a missing segment did when someone ran one, rather than what the spec
+    // says: an unfetchable source rejects with this name and leaves
+    // `audio.error.code` at 4. One run, on one machine, in a headless browser
+    // whose engine and version were not recorded, and it never produced the
+    // other failure to compare against — see `refused` for why a record that
+    // thin is still safe to build on, and for what it does not license claiming.
+    expect(refused(new DOMException("no supported source", "NotSupportedError"))).toBe(false);
+  });
+
+  it("fails SAFE on a name no engine here has produced", () => {
+    // Rejection names vary by engine. An unknown one degrades to what shipped
+    // before this split, which still recovers on the first gesture; guessing the
+    // other way would leave a recoverable deck permanently silent.
+    for (const err of [
+      new DOMException("who knows", "AbortError"),
+      { name: 42 },
+      {},
+      null,
+      undefined,
+      "not an error at all",
+    ]) {
+      expect(refused(err)).toBe(true);
+    }
+  });
+});
+
+/* ------------------------------------------------- a segment that will not play */
+
+/**
+ * The smallest `<audio>` `mountVoice` actually uses, with `play()` deliberately
+ * left open: every failure this describes is decided AFTER the call returns, and
+ * that gap is the bug. Hand-rolled rather than pulled from a DOM library because
+ * this suite runs on bare node and adding one for six tests is the larger change.
+ */
+class FakeAudio {
+  preload = "";
+  muted = false;
+  src = "";
+  currentTime = 0;
+  ended = false;
+  paused = true;
+  /** One entry per `play()`, settled by the test whenever it likes. */
+  readonly plays: { ok: () => void; fail: (err: unknown) => void }[] = [];
+  play(): Promise<void> {
+    this.paused = false;
+    return new Promise<void>((resolve, reject) => {
+      this.plays.push({ ok: () => resolve(), fail: reject });
+    });
+  }
+  pause() {
+    this.paused = true;
+  }
+  load() {}
+  removeAttribute() {
+    this.src = "";
+  }
+  addEventListener() {}
+}
+
+const NARRATED: Narration = {
+  voice: "test",
+  dir: "audio",
+  scenes: { s1: [{ stop: 0, audio: "s1-0.mp3", cues: [] }] },
+};
+
+const STOP: Stop = { t: 0, slide: 0, fragment: 0, notes: "", sceneId: "s1" };
+
+function mountFakeVoice() {
+  const audio = new FakeAudio();
+  const flags = { textContent: "" };
+  const subs = { textContent: "", hidden: false };
+  const doc = {
+    createElement: () => audio,
+    body: { append: () => {} },
+    documentElement: { classList: { toggle: () => {} } },
+  } as unknown as Document;
+  const ui = { subs: subs as unknown as HTMLElement, flags: flags as unknown as HTMLElement };
+  return { audio, flags, voice: mountVoice(doc, NARRATED, ui) };
+}
+
+/** `play()`'s handlers are microtasks; a macrotask is after all of them. */
+const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+describe("a stop whose sound never arrives", () => {
+  beforeAll(() => {
+    // `mountVoice` follows the audio clock on rAF, which bare node does not have.
+    // The loop is not what these tests are about: give it an id, never call back.
+    globalThis.requestAnimationFrame = (() => 1) as typeof globalThis.requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof globalThis.cancelAnimationFrame;
+  });
+  afterAll(() => {
+    Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+    Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
+  });
+
+  it("says so, and never claims a key will fix it", async () => {
+    const { audio, flags, voice } = mountFakeVoice();
+    expect(voice.at(STOP)).toBe(true);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    expect(flags.textContent).toBe("narration unavailable");
+  });
+
+  it("is retried by a gesture, so a connection that dropped for a moment recovers", async () => {
+    // The case this is for is not the missing file — it is the missing file's
+    // twin. A two-second wifi drop and a one-off 503 reject `play()` with the
+    // same `NotSupportedError`, and the deck had no way back from either:
+    // `unlock` looked only at `blocked`, so one bad moment left the narration
+    // silent for the rest of the session.
+    const { audio, flags, voice } = mountFakeVoice();
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    // Nothing retries unasked — an absent file must not be re-requested forever.
+    expect(audio.plays).toHaveLength(1);
+    voice.unlock();
+    expect(audio.plays).toHaveLength(2);
+    audio.plays[1]?.ok();
+    await settle();
+    expect(flags.textContent).toBe("");
+  });
+
+  it("stays honest when the retry fails the same way", async () => {
+    const { audio, flags, voice } = mountFakeVoice();
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    voice.unlock();
+    expect(audio.plays).toHaveLength(2);
+    audio.plays[1]?.fail(new DOMException("still not there", "NotSupportedError"));
+    await settle();
+    expect(flags.textContent).toBe("narration unavailable");
+  });
+
+  it("leaves a segment that IS playing alone, so ordinary keys stay ordinary", async () => {
+    // `unlock` runs on every keydown and every click. Widening it past `blocked`
+    // is only safe while a stop that is speaking is untouched — otherwise
+    // pressing `n` for the notes would start the sentence over.
+    const { audio, voice } = mountFakeVoice();
+    voice.at(STOP);
+    audio.plays[0]?.ok();
+    await settle();
+    voice.unlock();
+    voice.unlock();
+    expect(audio.plays).toHaveLength(1);
+  });
+
+  it("tells autoplay, which is otherwise waiting for an `ended` that cannot come", async () => {
+    // `at` answers synchronously about whether a segment EXISTS, and `play()`
+    // rejects a beat later. So `go` armed no dwell timer for this stop, and a
+    // source that failed to load fires no `ended`: autoplay stopped dead on that
+    // slide, forever, with the play button still lit.
+    const { audio, voice } = mountFakeVoice();
+    let unheard = 0;
+    voice.onSettled((heard) => {
+      if (!heard) unheard += 1;
+    });
+    expect(voice.at(STOP)).toBe(true);
+    expect(unheard).toBe(0);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    expect(unheard).toBe(1);
+  });
+
+  it("hands the clock back when the retry works, so it cannot cut its own sentence", async () => {
+    // The hazard of the two fixes together. The dwell timer armed while this
+    // stop was silent is still pending when a gesture gets the segment playing,
+    // and left alone it would advance the deck a second and a half into a
+    // sentence that had only just started.
+    const { audio, voice } = mountFakeVoice();
+    const said: boolean[] = [];
+    voice.onSettled((heard) => said.push(heard));
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    voice.unlock();
+    audio.plays[1]?.ok();
+    await settle();
+    expect(said).toEqual([false, true]);
+  });
+
+  it("tells it for a refusal too, because a refused deck is exactly as silent", async () => {
+    const { audio, voice } = mountFakeVoice();
+    let unheard = 0;
+    voice.onSettled((heard) => {
+      if (!heard) unheard += 1;
+    });
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("play() failed", "NotAllowedError"));
+    await settle();
+    expect(unheard).toBe(1);
+  });
+});
+
+/* ------------------------------------------- and what autoplay does about it */
+
+/**
+ * The other half of the same fix. Above, `mountVoice` learns that the segment
+ * never played and says so; here is what hearing that is supposed to change.
+ * Split out as a pure decision for the reason `refused` was: the code that acts
+ * on it lives in `start`, which needs a browser.
+ */
+describe("autoplay's dwell clock", () => {
+  it("waits out the gap the author left when the stop has nothing to say", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 3000 })).toBe(3000);
+  });
+
+  it("sets no timer for a stop that is speaking, because `ended` is its clock", () => {
+    expect(dwellMs({ playing: true, heard: true, gapMs: 3000 })).toBeNull();
+  });
+
+  it("sets none at all unless the deck is playing itself", () => {
+    // Autoplay is a mode. Someone standing in front of the deck talking over it
+    // must never have a slide move under them.
+    expect(dwellMs({ playing: false, heard: false, gapMs: 3000 })).toBeNull();
+    expect(dwellMs({ playing: false, heard: true, gapMs: 3000 })).toBeNull();
+  });
+
+  it("holds a floor, so back-to-back fragments do not flick past unread", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 0 })).toBe(1500);
+    expect(dwellMs({ playing: true, heard: false, gapMs: 200 })).toBe(1500);
+  });
+
+  it("caps a long hold, which is the author pausing rather than a wait to sit out", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 30_000 })).toBe(8000);
+  });
+
+  it("turns on the clock for a stop that claimed a segment and then could not play it", () => {
+    // The dead-lock. `voice.at` answers synchronously about whether a segment
+    // EXISTS, so arrival passes `heard: true` and no timer is set; `play()`
+    // rejects a beat later; a source that never loaded fires no `ended`. Asking
+    // again with the settled answer is the only thing that gets a self-playing
+    // deck off that slide, and the flip has to work in both directions — a
+    // segment retried by a gesture is speaking now, and the timer armed while it
+    // was silent would cut the sentence it has just started.
+    expect(dwellMs({ playing: true, heard: true, gapMs: 4000 })).toBeNull();
+    expect(dwellMs({ playing: true, heard: false, gapMs: 4000 })).toBe(4000);
+    expect(dwellMs({ playing: true, heard: true, gapMs: 4000 })).toBeNull();
+  });
+
+  it("is reached from both callers, and from nowhere else", async () => {
+    // Read off the source, in the pattern the video-frame test below uses and
+    // for the same reason: this wiring is inside `start`, which builds chrome,
+    // reads islands and talks to `<hyperframes-player>` — a browser, in the one
+    // file no gate in this project opens. The decision above is pure and proves
+    // the policy; nothing but this proves the policy is ever consulted.
+    //
+    // Which is not hypothetical. A review of the previous commit no-op'd BOTH of
+    // these call sites and all thirty-five tests passed, because every one of
+    // them stopped at the signal and none reached its consumer. Text matching is
+    // brittle against a rename, and that is the price of the only check there is.
+    const text = await readFile(new URL("../src/deck/runtime.ts", import.meta.url), "utf8");
+    // Arrival, with what `voice.at` said; then again, with what `play()` did.
+    expect(text).toMatch(/settleDwell\(speaking\)/);
+    expect(text).toMatch(/voice\.onSettled\(settleDwell\)/);
+    // And both of those land on the decision, not on a timer of their own.
+    expect(text).toMatch(/const settleDwell = \(heard: boolean\)/);
+    expect(text).toMatch(/dwellMs\(\{[^}]*\bheard\b[^}]*\}\)/);
+    expect(text).toMatch(/setTimeout\(advance, ms\)/);
+    expect(text.match(/setTimeout\(advance/g)).toHaveLength(1);
   });
 });
 
