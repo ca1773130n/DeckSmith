@@ -8,7 +8,7 @@
  */
 import type { Emitter } from "../kit.js";
 import { contentW, esc } from "../kit.js";
-import { DRAW_FROM, DRAW_TO, faceOf, nv, textWidth, travel, wrap } from "../svg.js";
+import { DRAW_FROM, DRAW_TO, faceOf, nv, reshape, textWidth, travel, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -41,6 +41,19 @@ const READOUT_LH = 1.35;
  * budget it declines goes back to the slide as margin, which reads as air.
  */
 const TALL_ASPECT = 1.15;
+
+/**
+ * How long the baseline curve takes to become the result, and how far it fades
+ * once it has been left behind.
+ *
+ * 1.2s is slow enough that the eye can follow one point moving rather than see a
+ * cut, and short enough that the beat still has room for its own dots and values
+ * afterwards. 0.28 leaves the ghost legible as a shape while making it
+ * unmistakably the thing that is no longer being asserted — at 0 it is a cut, at
+ * 0.5 the two curves compete.
+ */
+const RESHAPE_SECONDS = 1.2;
+const GHOST_OPACITY = 0.28;
 
 export interface Scale {
   min: number;
@@ -112,7 +125,13 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   // a label the browser then draws past the frame.
   const face = faceOf(theme.fontStack);
 
-  const scale = chartScale(p.points.map((pt) => pt.y));
+  // BOTH SERIES, or the baseline draws outside its own plot. The schema has
+  // already established that `compare` runs over the same x labels, so the only
+  // thing the second series can change is the y range — and a scale fitted to
+  // one of two curves is the hardcoded axis this file's header warns about,
+  // arrived at from the other direction.
+  const cmp = p.compare;
+  const scale = chartScale([...p.points, ...(cmp?.points ?? [])].map((pt) => pt.y));
   const box = contentW(ctx.format);
   // PORTRAIT: the readout goes UNDER the chart. Beside it, the readout's 460px
   // took more than half of the 860px box and left the plot 400 wide — five
@@ -225,7 +244,10 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     )
     .join("");
 
-  const path = p.points.map((pt, i) => `${i === 0 ? "M" : "L"}${n(x(i))},${n(y(pt.y))}`).join(" ");
+  const pathOf = (pts: readonly { y: number }[]) =>
+    pts.map((pt, i) => `${i === 0 ? "M" : "L"}${n(x(i))},${n(y(pt.y))}`).join(" ");
+  const path = pathOf(p.points);
+  const basePath = cmp ? pathOf(cmp.points) : "";
 
   const dots = p.points
     .map(
@@ -333,6 +355,53 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       ? `<circle id="${sid}-ring" cx="${n(first.x)}" cy="${n(first.y)}" r="20" fill="none" stroke="${theme.tones.b}" stroke-width="5" opacity="0" />`
       : "";
 
+  /**
+   * THE RESHAPE, DRAWN AS THREE PATHS RATHER THAN ONE.
+   *
+   * `-base` is drawn on and never reshaped; `-line` is reshaped and never drawn
+   * on; `-target` is geometry only, carrying the final `d` for MorphSVG to read.
+   *
+   * THE HAZARD THAT SPLIT WAS FOR, AND NO LINT SEES IT. DrawSVG and MorphSVG
+   * write different GSAP properties, so `overlapping_gsap_tweens` stays quiet
+   * about the two of them on one element — but after `drawSVG: 100%` GSAP leaves
+   * `stroke-dasharray` at the OLD path's length, and reshaping to a longer path
+   * then leaves the tail unpainted: inside the frame, above the type floor, and
+   * invisible to every gate. Sequencing around it would work until someone
+   * changed the sequence. Two elements cannot interact.
+   *
+   * `-target` is `stroke="none"`: present for `document.querySelector`, painting
+   * nothing. Not `display:none`, which some browsers refuse to measure.
+   */
+  const lineTag = (part: string, d: string, extra = "") =>
+    `<path class="chartline" id="${sid}-${part}" d="${d}" fill="none" stroke="${theme.accent}"${extra} />`;
+  const chartlines = cmp
+    ? [
+        lineTag("base", basePath),
+        lineTag("line", basePath, ' opacity="0"'),
+        `<path id="${sid}-target" d="${path}" fill="none" stroke="none" />`,
+      ].join("\n    ")
+    : lineTag("line", path);
+
+  // The ghost's name, set at the END of the baseline curve and anchored there,
+  // so it spans leftwards into the plot and cannot hang past `padR` the way a
+  // middle-anchored label on the last x would. Vertically it goes on the side of
+  // the baseline AWAY from the result, which is the side the endpoint's own
+  // value label is not on.
+  const lastI = p.points.length - 1;
+  const ghostLabel = (() => {
+    if (!cmp) return "";
+    const cy = y(cmp.points[lastI]?.y ?? 0);
+    const above = cy < y(p.points[lastI]?.y ?? 0);
+    const by = above ? Math.max(44, cy - 26) : Math.min(cy + 52, H - PAD.b + 4);
+    const w = runW(cmp.label);
+    if (w > plotW) {
+      throw new Error(
+        `line-chart ${beat.id}: the compare label "${cmp.label}" is ${Math.ceil(w)}px against the ${Math.floor(plotW)}px of plot it is set in. Shorten it.`,
+      );
+    }
+    return `\n    <text class="ghostlab" id="${sid}-ghostlab" text-anchor="end" x="${n(x(lastI))}" y="${n(by)}">${esc(cmp.label)}</text>`;
+  })();
+
   const readout = p.readout
     ? `\n  <div class="readout" id="${sid}-read">${esc(p.readout)}</div>`
     : "";
@@ -346,7 +415,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
          the svg and the layout gate reports container_overflow. -->
     <text class="axname" x="0" y="42">${esc(p.yLabel)}</text>
     <text class="axname" x="${n(PAD.l + plotW / 2)}" y="${H - 16}" text-anchor="middle">${esc(p.xLabel)}</text>
-    <path class="chartline" id="${sid}-line" d="${path}" fill="none" stroke="${theme.accent}" />
+    ${chartlines}${ghostLabel}
     <g>${dots}</g>
     ${ring}
     <g class="ptlab" text-anchor="middle">${values}</g>
@@ -356,9 +425,38 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
 
   const draw = 0.8;
   const step = Math.min(0.45, 1.8 / p.points.length);
+  /** When the baseline curve is whole and named — the moment before it is left behind. */
+  const lift = draw + 1.8;
+  /**
+   * When the curve on screen is the one the dots, values and ring are about.
+   *
+   * Without a comparison that is the instant the draw-on starts, and everything
+   * rides the stroke as it is laid down. With one it is the instant the reshape
+   * LANDS: the ring's route comes from `p.points`, so starting it any earlier
+   * walks the final route over an intermediate curve — a marker beside its own
+   * line, in frame, above the type floor, and green everywhere.
+   */
+  const settled = cmp ? lift + 0.5 + RESHAPE_SECONDS : draw;
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
-    tween(`#${sid}-line`, DRAW_FROM, { ...DRAW_TO, duration: 1.8, ease: "none" }, draw),
+    tween(
+      `#${sid}-${cmp ? "base" : "line"}`,
+      DRAW_FROM,
+      { ...DRAW_TO, duration: 1.8, ease: "none" },
+      draw,
+    ),
+  ];
+  if (cmp) {
+    tl.push(
+      tween(`#${sid}-ghostlab`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, draw + 0.4),
+      // The copy lifts off — same geometry, so the half-second reads as one line
+      // separating from itself rather than as a second line arriving.
+      tween(`#${sid}-line`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, lift),
+      tween(`#${sid}-base`, { opacity: 1 }, { opacity: GHOST_OPACITY, duration: 0.5 }, lift),
+      reshape(`#${sid}-line`, `#${sid}-target`, lift + 0.5, RESHAPE_SECONDS, true),
+    );
+  }
+  tl.push(
     tween(
       `#${sid} .dot`,
       // Origin in both halves, or GSAP's smoothOrigin compensates the change with
@@ -366,41 +464,53 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       // polyline they mark, inside the frame and so invisible to every gate.
       { opacity: 0, scale: 0, transformOrigin: "center" },
       { opacity: 1, scale: 1, transformOrigin: "center", duration: 0.3, stagger: step },
-      draw,
+      settled,
     ),
-    tween(`#${sid} .pv`, { opacity: 0 }, { opacity: 1, duration: 0.3, stagger: step }, draw + 0.2),
-  ];
+    tween(
+      `#${sid} .pv`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.3, stagger: step },
+      settled + 0.2,
+    ),
+  );
   if (deltas) {
     tl.push(
       tween(
         `#${sid} .dv`,
         { opacity: 0, y: -10 },
         { opacity: 1, y: 0, duration: 0.35, stagger: step },
-        draw + 0.6,
+        settled + 0.6,
       ),
     );
   }
 
   // The ring rides the same 1.8s the line takes to draw, point by point, so it
   // is always at the head of the stroke rather than racing it or trailing it.
+  // With a comparison there is no stroke to ride — the curve is already whole by
+  // then — and it reads instead as the reader going back over what the reshape
+  // just produced, point by point, as each value appears.
   if (p.points.length > 1) {
     const route = p.points.map((pt, i) => ({ x: nv(x(i) - first.x), y: nv(y(pt.y) - first.y) }));
     tl.push(
-      tween(`#${sid}-ring`, { opacity: 0 }, { opacity: 1, duration: 0.25 }, draw),
-      ...travel(`#${sid}-ring`, route, draw, 1.8),
+      tween(`#${sid}-ring`, { opacity: 0 }, { opacity: 1, duration: 0.25 }, settled),
+      ...travel(`#${sid}-ring`, route, settled, 1.8),
       // And it leaves once the curve is whole: a marker parked on the last
       // point for the rest of the beat reads as a defect, not as emphasis.
       tween(
         `#${sid}-ring`,
         { opacity: 1 },
         { opacity: 0, duration: 0.4, immediateRender: false },
-        draw + 1.8,
+        settled + 1.8,
       ),
     );
   }
 
-  const drawn = draw + step * p.points.length + 0.4;
-  const holds = [drawn];
+  const drawn = settled + step * p.points.length + 0.4;
+  // TWO STOPS WHEN THERE IS A COMPARISON, and `REVEALS["line-chart"]` says so.
+  // The baseline alone is a claim in its own right — it is what the result is
+  // measured against — so it gets the pause that lets a sentence be said over
+  // it, rather than being drawn and abandoned inside one breath.
+  const holds = cmp ? [lift, drawn] : [drawn];
   if (p.readout) {
     tl.push(
       // It enters from wherever it sits: from the right when it is beside the
@@ -415,6 +525,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   return {
     html,
     tl,
+    // Named only when a beat actually reshapes, which is what keeps MorphSVG's
+    // 21,195 bytes off every deck that does not. See `PLUGINS` in composition.ts.
+    ...(cmp ? { plugins: ["morphSVG"] } : {}),
     holds: holdsWithin(holds, beat.seconds),
     css: [
       chromeCss(theme),
@@ -439,6 +552,12 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       `.axname{font-size:40px;fill:${theme.muted};font-weight:500}`,
       `.ptlab{font-size:40px;fill:${theme.fg};font-weight:600}`,
       `.delta{font-size:40px;fill:${theme.tones.b};font-weight:600}`,
+      // Only when there is a ghost to name. An unconditional rule would move the
+      // stylesheet bytes of every line chart ever built for a part they do not
+      // draw, which is the whole thing `Scene.plugins` is careful about one
+      // level up. `muted`, not `dim`: it names a series, so it is read, and the
+      // curve it names is the thing that has been faded, not its label.
+      ...(cmp ? [`.ghostlab{font-size:40px;fill:${theme.muted};font-weight:600}`] : []),
       // 1.7 set the two lines of a wrapped readout 68px apart, which reads as two
       // unrelated fragments rather than one sentence. 1.35 keeps it a paragraph.
       `.readout{font-size:${BODY_SIZE}px;line-height:${READOUT_LH};color:${theme.muted};max-width:${READOUT_W}px}`,

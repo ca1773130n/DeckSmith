@@ -53,6 +53,13 @@ absolute time.** It costs one command.
 - MorphSVG (21,195) and MotionPath (22,002) are in the same tarball and are **not**
   vendored. Nothing emits them yet, and an unused plugin is 43KB every deck pays
   for. They arrive with the verbs that need them.
+
+  **SUPERSEDED for MorphSVG on 2026-09-08.** It is vendored now, behind the
+  plugin table in `composition.ts`, and costs 0 bytes on a deck that does not
+  reshape — verified against a pinned digest rather than argued. The rule above
+  is unchanged; the table is how it is kept. MotionPath is still not vendored,
+  and was rejected rather than deferred. See
+  `2026-09-08-reshape-seam.md`.
 - `drawFrom(length)` is gone, and with it the arithmetic that fed it: the polyline
   segment sum in `line-chart`, `perimeter()` in `grid`, `leadLen`, and the
   `Math.hypot(...) + b.w` in `annotated-figure`. Five call sites now emit

@@ -156,24 +156,36 @@ async function vendorKatex(out: string): Promise<void> {
  * Pinned by package.json rather than by a URL, so the version that renders is
  * the version that was installed and tested. See the note on GSAP_SRC in
  * src/emit/composition.ts for why this is not left to the compiler's inliner.
+ *
+ * WHAT THE HEAD LOADS, AND NOTHING ELSE. `composition` is read rather than
+ * `laid.plugins` threaded out of `emit`, because the question this is answering
+ * is literally "which of these does the page ask for" — and asking the page
+ * cannot drift from the page. It also makes the conditional plugins honest on
+ * disk as well as in the head: MorphSVG is 21,195 bytes that a deck without a
+ * reshape neither loads NOR carries, which is the rule `PLUGINS` states.
  */
-async function vendorScripts(out: string): Promise<void> {
+async function vendorScripts(out: string, composition: string): Promise<void> {
   const require = createRequire(import.meta.url);
   await mkdir(join(out, "vendor"), { recursive: true });
+  const wanted = (name: string) => composition.includes(`./vendor/${name}`);
   for (const [pkg, rel, name] of [
     ["gsap/package.json", "dist/gsap.min.js", "gsap.min.js"],
     ["gsap/package.json", "dist/DrawSVGPlugin.min.js", "DrawSVGPlugin.min.js"],
+    ["gsap/package.json", "dist/MorphSVGPlugin.min.js", "MorphSVGPlugin.min.js"],
     ["katex/package.json", "dist/katex.min.js", "katex.min.js"],
   ] as const) {
+    if (!wanted(name)) continue;
     const from = join(dirname(require.resolve(pkg)), rel);
     await cp(from, join(out, "vendor", name));
   }
   // Ours, not a package's: the morph runtime is built beside dist/cli.js by
   // scripts/build.mjs, exactly as the step layer is.
-  await cp(
-    fileURLToPath(new URL("./ds-morph.js", import.meta.url)),
-    join(out, "vendor", "ds-morph.js"),
-  );
+  if (wanted("ds-morph.js")) {
+    await cp(
+      fileURLToPath(new URL("./ds-morph.js", import.meta.url)),
+      join(out, "vendor", "ds-morph.js"),
+    );
+  }
 }
 
 /** Enough for `hyperframes check` to recognise a project and find the assets. */
@@ -797,7 +809,7 @@ lookFlags(
       await cp(playerBundle(), join(out, PLAYER_FILE));
     }
     await vendorKatex(out);
-    await vendorScripts(out);
+    await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures);
     if (found && narration) await copyAudio(dirname(found), narration, out);
     const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]

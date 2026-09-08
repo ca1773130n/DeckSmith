@@ -76,18 +76,34 @@ const GSAP_SRC = "./vendor/gsap.min.js";
  * 894.3, 1344.3, 1764.3px of dash, linear and visible throughout — rather than
  * taken from the roadmap, which asserted it about a different plugin.
  *
- * 4,351 bytes, +6% on gsap.min.js's 72,779. MorphSVG (21,195) and MotionPath
- * (22,002) ship in the same tarball and are NOT vendored: nothing emits them
- * yet, and an unused plugin is 43KB every deck pays for.
+ * 4,351 bytes, +6% on gsap.min.js's 72,779, and unconditional because every
+ * drawing archetype draws something on. MotionPath (22,002) ships in the same
+ * tarball and is still NOT vendored: nothing emits it, and an unused plugin is
+ * bytes every deck pays for. MorphSVG is vendored, but only through the table
+ * below — see it for how that rule is kept rather than argued around.
  */
 const DRAWSVG_SRC = "./vendor/DrawSVGPlugin.min.js";
 /**
- * The equation morph's runtime — ours, built by `scripts/build.mjs` from
- * `src/emit/morph-runtime.ts` and vendored beside GSAP by the CLI. Loaded ONLY
- * when a scene names it (`Scene.plugins`), so every deck without a morph is
- * byte-for-byte what it was.
+ * THE PLUGIN TABLE: everything a scene may name in `Scene.plugins`, and the two
+ * lines the head emits for it.
+ *
+ * `dsMorph` — the equation morph's runtime, ours, built by `scripts/build.mjs`
+ * from `src/emit/morph-runtime.ts` — proved the mechanism: a runtime loaded only
+ * when some scene asks for it, so a deck that asks for none is byte-for-byte
+ * what it was. `morphSVG` is here on exactly those terms, and that is what makes
+ * vendoring it legal under the rule DRAWSVG_SRC states: 21,195 bytes on a deck
+ * that reshapes, and not one byte on any other. `test/wiring.test.ts` holds that
+ * line against a pinned hash rather than trusting the reading.
+ *
+ * EMITTED IN THIS OBJECT'S OWN ORDER, not the Set's. `laid.plugins` is filled in
+ * scene order, so two storyboards whose beats differ only in position would
+ * otherwise emit the same script tags in a different order — a byte move with no
+ * cause behind it, which is a day spent in `drift` finding out there was none.
  */
-const MORPH_SRC = "./vendor/ds-morph.js";
+const PLUGINS: Readonly<Record<string, { src: string; global: string }>> = {
+  dsMorph: { src: "./vendor/ds-morph.js", global: "DSMorphPlugin" },
+  morphSVG: { src: "./vendor/MorphSVGPlugin.min.js", global: "MorphSVGPlugin" },
+};
 const KATEX_JS = "./vendor/katex.min.js";
 const KATEX_CSS = "./katex/katex.min.css";
 
@@ -719,10 +735,17 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     family && !fontFace ? `\n    <link rel="stylesheet" href="${FONT_BUNDLE_HREF}" />` : "";
   const island = format.navigable ? `\n${emitIsland(slides)}` : "";
   // Registered before any scene script runs, for the same reason DrawSVG is: a
-  // `dsMorph` tween built before `registerPlugin` is one GSAP does not know.
-  const morph = laid.plugins.has("dsMorph")
-    ? `\n    <script src="${MORPH_SRC}"></script>\n    <script>gsap.registerPlugin(DSMorphPlugin);</script>`
-    : "";
+  // `dsMorph` or `morphSVG` tween built before `registerPlugin` is one GSAP does
+  // not know. A scene's IIFE builds its timeline inline as the document parses,
+  // so late registration is not late — it is silently nothing, with the element
+  // still in the DOM and every gate green over it.
+  const plugins = Object.entries(PLUGINS)
+    .filter(([name]) => laid.plugins.has(name))
+    .map(
+      ([, p]) =>
+        `\n    <script src="${p.src}"></script>\n    <script>gsap.registerPlugin(${p.global});</script>`,
+    )
+    .join("");
 
   return `<!doctype html>
 <html lang="${esc(storyboard.lang)}" data-resolution="${orientation}">
@@ -732,7 +755,7 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     <meta name="viewport" content="width=${format.width}, height=${format.height}" />
     <script src="${GSAP_SRC}"></script>
     <script src="${DRAWSVG_SRC}"></script>
-    <script>gsap.registerPlugin(DrawSVGPlugin);</script>${morph}
+    <script>gsap.registerPlugin(DrawSVGPlugin);</script>${plugins}
     <link rel="stylesheet" href="${KATEX_CSS}" />
     <script src="${KATEX_JS}"></script>${fontLink}${fontFace}
     <style>

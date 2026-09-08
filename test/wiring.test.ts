@@ -12,6 +12,7 @@
  * Nothing here touches the network: narration is a hand-written fixture in the
  * exact shape `narrate` returns.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   DECK_PAGE,
@@ -92,6 +93,58 @@ function narrationIsland(page: string): {
   );
   return m ? JSON.parse(m[1] ?? "") : null;
 }
+
+/* ------------------------------------------------------------- the plugin table */
+
+/**
+ * THE GUARANTEE THE PLUGIN TABLE EXISTS TO KEEP, pinned to a hash rather than
+ * argued about.
+ *
+ * `PLUGINS` in composition.ts lets MorphSVG be vendored at all — 21,195 bytes
+ * on a deck that reshapes, zero on every other — and "zero on every other" is
+ * a claim about bytes, so it is checked against bytes. The digest below is
+ * `emitComposition`'s output for this storyboard at aac1b67, taken before the
+ * table existed. A change that moves it is a change that charged every deck for
+ * a plugin it does not load, whatever the reason looked like at the time.
+ *
+ * `ds-morph` already held this line the same way. If you have deliberately
+ * changed what an un-reshaped deck emits, re-take the digest and say so in the
+ * commit — do not delete the test.
+ */
+const CHARTED = storyboardSchema.parse({
+  ...storyboard,
+  beats: [
+    ...storyboard.beats,
+    {
+      id: "b3",
+      intent: "Plot the sweep.",
+      archetype: "line-chart",
+      seconds: 14,
+      params: {
+        headline: "Each extra step buys less",
+        xLabel: "Steps",
+        yLabel: "PSNR (dB)",
+        points: [
+          { x: "T=0", y: 28.91 },
+          { x: "T=1", y: 29.84 },
+          { x: "T=2", y: 30.47 },
+        ],
+      },
+    },
+  ],
+});
+
+describe("a deck that reshapes nothing", () => {
+  it("is byte-for-byte what it was before MorphSVG was vendored", () => {
+    const html = emitComposition(CHARTED, source, deck);
+    expect(createHash("sha256").update(html).digest("hex")).toBe(
+      "b8ebf8f382cb05c66680fecc0dca96060e4a2b8c6a43d07ef591b54ad42e1d8a",
+    );
+    expect(Buffer.byteLength(html, "utf8")).toBe(14226);
+    expect(html).not.toContain("MorphSVGPlugin");
+    expect(html).not.toContain("morphSVG");
+  });
+});
 
 /* ------------------------------------------------------------------- themes */
 

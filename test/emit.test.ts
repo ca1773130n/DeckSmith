@@ -16,7 +16,7 @@ import {
   tweenText,
   words,
 } from "../src/emit/kit.js";
-import { travel } from "../src/emit/svg.js";
+import { reshape, travel } from "../src/emit/svg.js";
 import { resolveTheme } from "../src/emit/theme.js";
 import { beatSchema, FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 
@@ -433,6 +433,60 @@ describe("the DrawSVG seam", () => {
     expect(out).toMatch(/DSMorph\.build\(document\.getElementById\("s3-morph"\)\)/);
   });
 
+  it("loads MorphSVG only for a deck that reshapes, and before any scene script", () => {
+    // Same promise as the morph runtime's, and the same reason it is worth a
+    // test of its own: MorphSVG is 21,195 bytes, and the plugin table is the
+    // whole of what makes vendoring it legal under "an unused plugin is bytes
+    // every deck pays for".
+    expect(html).not.toContain("MorphSVGPlugin");
+    const reshaped = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        ...storyboard.beats,
+        {
+          id: "b3",
+          intent: "Show what pretraining buys.",
+          archetype: "line-chart",
+          seconds: 14,
+          params: {
+            headline: "Each extra step buys less",
+            xLabel: "Steps",
+            yLabel: "PSNR (dB)",
+            points: [
+              { x: "T=0", y: 28.91 },
+              { x: "T=1", y: 29.84 },
+              { x: "T=2", y: 30.47 },
+            ],
+            compare: {
+              label: "Without pretraining",
+              points: [
+                { x: "T=0", y: 27.4 },
+                { x: "T=1", y: 28.02 },
+                { x: "T=2", y: 28.4 },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    const out = emitComposition(reshaped, source, format("deck-16x9"));
+    const gsapAt = out.indexOf("vendor/gsap.min.js");
+    const pluginAt = out.indexOf("vendor/MorphSVGPlugin.min.js");
+    const registerAt = out.indexOf("registerPlugin(MorphSVGPlugin)");
+    const firstScene = out.indexOf("__timelines");
+    // Order is the whole of it, exactly as for DrawSVG: a scene's IIFE builds
+    // its timeline inline, so a `morphSVG` tween created before the plugin is
+    // registered animates nothing while the path stays in the DOM and every
+    // gate stays green.
+    expect(pluginAt).toBeGreaterThan(gsapAt);
+    expect(registerAt).toBeGreaterThan(pluginAt);
+    expect(firstScene).toBeGreaterThan(registerAt);
+    // The table's order, not the scene's: `laid.plugins` is a Set filled in
+    // scene order, and two storyboards differing only in beat position must not
+    // emit the same two script tags in different orders.
+    expect(out.indexOf("registerPlugin(DrawSVGPlugin)")).toBeLessThan(pluginAt);
+  });
+
   it("never feeds a stroke a length the emitter computed", () => {
     // The point of the seam: no archetype should be summing segment lengths or
     // computing a rounded-rect perimeter to feed `strokeDasharray` any more. If
@@ -604,6 +658,35 @@ describe("the reveal verbs", () => {
       expect(legs).toHaveLength(2);
       expect(() => travel("#s3-pulse", [o, o], 0, 1)).toThrow(/two distinct points/);
       expect(() => travel("#s3-pulse", elbow, 0, 0)).toThrow(/no time/);
+    });
+  });
+
+  describe("reshape", () => {
+    it("starts from the element's own shape, with the vertex correspondence pinned", () => {
+      const t = reshape("#s3-line", "#s3-target", 0.1 + 0.2, 1.2, true);
+      // The self-referential `from` is the spike's construction
+      // (experiments/013-vocabulary/gaps/spike/index.html:147) and the reason
+      // this is a `fromTo` at all: MorphSVG's natural spelling is a bare `to`,
+      // which is a `from()` wearing different clothes.
+      expect(tweenText(t)).toBe(
+        'tl.fromTo("#s3-line", { morphSVG: { shape: "#s3-line", shapeIndex: 0 } }, ' +
+          '{ morphSVG: { shape: "#s3-target", shapeIndex: 0 }, duration: 1.2, ease: "power2.inOut" }, 0.3);',
+      );
+      // 0.1 + 0.2 is 0.30000000000000004; invariant 10 is what stops that from
+      // moving a byte on a rebuild.
+      expect(t.at).toBe(0.3);
+    });
+
+    it("declines to render immediately when it is not the first on that property", () => {
+      // Invariant 2.5, hand-written at every site that needs it: a second
+      // immediate render on one (element, property) establishes its start state
+      // at build time and undoes the first.
+      expect(reshape("#s3-line", "#s3-b", 2, 1, false).to.immediateRender).toBe(false);
+      expect(reshape("#s3-line", "#s3-b", 2, 1, true).to.immediateRender).toBeUndefined();
+    });
+
+    it("refuses a reshape with no time to happen in", () => {
+      expect(() => reshape("#s3-line", "#s3-target", 0, 0, true)).toThrow(/no time/);
     });
   });
 

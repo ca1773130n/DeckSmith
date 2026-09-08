@@ -16,6 +16,7 @@ import {
   type Format,
   isCustom,
   LEGIBLE_W,
+  lineChartParamsSchema,
   MAX_ASPECT,
   MAX_EDGE,
   MIN_EDGE,
@@ -296,6 +297,80 @@ describe("data-table row selection", () => {
     const empty = dataTableParamsSchema.safeParse({ ...base, rows: [] });
     expect(empty.success).toBe(false);
     expect(empty.success ? [] : empty.error.issues.map((i) => i.path)).toEqual([["rows"]]);
+  });
+});
+
+/**
+ * A COMPARISON IS BETWEEN THE SAME x VALUES OR IT IS NOT A COMPARISON.
+ *
+ * The emitter reshapes point i of the baseline onto point i of the result, so a
+ * mismatched pair of series is a smooth, convincing lie: both curves fit the
+ * plot, both clear the type floor, and `drift` renders the same wrong thing
+ * twice. Refused here rather than in `plan/refs.ts` because `compare.points`
+ * are literals, not ids into `source` — there is no dangling reference for that
+ * gate to resolve, and a params invariant belongs where a bad plan fails before
+ * a beat has been spent on it.
+ */
+describe("line-chart's second series", () => {
+  const base = {
+    headline: "H",
+    xLabel: "x",
+    yLabel: "y",
+    points: [
+      { x: "T=0", y: 1 },
+      { x: "T=1", y: 2 },
+      { x: "T=2", y: 3 },
+    ],
+  };
+  const compare = (points: { x: string; y: number }[]) => ({
+    ...base,
+    compare: { label: "Baseline", points },
+  });
+
+  it("validates a chart with no comparison, exactly as before", () => {
+    const parsed = lineChartParamsSchema.safeParse(base);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success ? "compare" in parsed.data : true).toBe(false);
+  });
+
+  it("takes a second series over the same axis", () => {
+    expect(
+      lineChartParamsSchema.safeParse(
+        compare([
+          { x: "T=0", y: 0.5 },
+          { x: "T=1", y: 1.5 },
+          { x: "T=2", y: 2.2 },
+        ]),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("refuses a second series of a different length", () => {
+    const short = lineChartParamsSchema.safeParse(
+      compare([
+        { x: "T=0", y: 0.5 },
+        { x: "T=1", y: 1.5 },
+      ]),
+    );
+    expect(short.success).toBe(false);
+    expect(short.success ? [] : short.error.issues.map((i) => i.path)).toEqual([
+      ["compare", "points"],
+    ]);
+  });
+
+  it("refuses a second series over different categories, naming the one that differs", () => {
+    const off = lineChartParamsSchema.safeParse(
+      compare([
+        { x: "T=0", y: 0.5 },
+        { x: "T=9", y: 1.5 },
+        { x: "T=2", y: 2.2 },
+      ]),
+    );
+    expect(off.success).toBe(false);
+    expect(off.success ? [] : off.error.issues.map((i) => i.path)).toEqual([
+      ["compare", "points", 1, "x"],
+    ]);
+    expect(off.success ? "" : (off.error.issues[0]?.message ?? "")).toContain('"T=9"');
   });
 });
 

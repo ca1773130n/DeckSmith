@@ -96,6 +96,43 @@ describe("assertRefsResolve", () => {
 
     expect(() => assertRefsResolve(broken, source)).toThrow(/evidence.*eq-psnr/s);
   });
+
+  it("has nothing to resolve in a line chart's second series", () => {
+    // A CHANGE DELIBERATELY NOT MADE, recorded where a reader would look for it.
+    // `line-chart.compare` was the fifth of five places the reshape was expected
+    // to touch, and it is the one that legitimately collapses: `compare.points`
+    // are LITERALS — numbers and category names the plan wrote down — not ids
+    // into `source`, so there is no reference here for this gate to dangle.
+    //
+    // What can actually go wrong with them — a series of the wrong length, or
+    // one over different categories — is a params invariant, and
+    // `lineChartParamsSchema` refuses it before a beat has been spent on it
+    // (test/types.test.ts). Adding a case to the switch above would be a gate
+    // that can never fire, which is worse than no gate: it reads as coverage.
+    const chart = {
+      id: "b05-chart",
+      intent: "i",
+      weight: 0.5,
+      archetype: "line-chart",
+      params: {
+        headline: "H",
+        xLabel: "Steps",
+        yLabel: "PSNR (dB)",
+        points: [
+          { x: "T=0", y: 28.91 },
+          { x: "T=1", y: 30.47 },
+        ],
+        compare: {
+          label: "Without pretraining",
+          points: [
+            { x: "T=0", y: 27.4 },
+            { x: "T=1", y: 28.4 },
+          ],
+        },
+      },
+    };
+    expect(() => assertRefsResolve(plan(beat, chart), source)).not.toThrow();
+  });
 });
 
 /**

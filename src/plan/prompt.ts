@@ -40,7 +40,7 @@ export const REVEALS: Record<string, string> = {
   "equation-walk": "one per term",
   "equation-morph": "2",
   "data-table": "one per highlighted row, plus 1",
-  "line-chart": "1",
+  "line-chart": "1, or 2 when compare is given",
   callout: "one per panel",
   pipeline: "one per stage",
   "annotated-figure": "one per note, plus 1",
@@ -185,6 +185,16 @@ DRAWING ARCHETYPES — reach here first
                  scale, over training. Points come from the source's numbers;
                  deltas, if given, are the steps between consecutive points, so
                  there is always one fewer.
+                 \`compare\` adds a SECOND CONDITION over the same axis — the tell
+                 there is THE SAME QUANTITY MEASURED TWO WAYS, a baseline and the
+                 result, where what the source is claiming is the change in the
+                 SHAPE of the curve and not two numbers. Its \`label\` names the
+                 baseline ("without pretraining", "FP32") and is drawn on the
+                 slide. \`compare.points\` must carry the SAME x values, in the
+                 same order, as \`points\`; the baseline is drawn first, then the
+                 curve reshapes into \`points\` and leaves the baseline behind. Do
+                 not use it for two unrelated series that happen to share an
+                 axis — nothing reshapes into something it is not a version of.
 
 DESCRIBING ARCHETYPES — the fallbacks
 

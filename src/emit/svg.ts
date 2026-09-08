@@ -82,6 +82,69 @@ export const DRAW_FROM: Vars = { drawSVG: "0%" };
 export const DRAW_TO: Vars = { drawSVG: "100%" };
 
 /**
+ * WHICH VERTEX OF THE START SHAPE IS CARRIED TO WHICH VERTEX OF THE END SHAPE.
+ *
+ * MorphSVG defaults this to `"auto"`, which SEARCHES: `_getClosestShapeIndex`
+ * walks every rotation of the start segment summing point-to-point movement and
+ * keeps the cheapest (MorphSVGPlugin.js:555-561). A search at render time is the
+ * same class of hazard as the cold-worker glyph in `2026-09-04-equation-morph.md`
+ * — one that can answer differently in two workers rasterising the same deck —
+ * and it buys nothing here, because both shapes are polylines authored left to
+ * right from the same x positions, so point 0 already corresponds to point 0.
+ *
+ * Pinned, therefore, and pinned at the call site rather than through
+ * `MorphSVGPlugin.defaultMap` so that a reader of the emitted tween can see it.
+ */
+const SHAPE_INDEX = 0;
+
+/**
+ * ONE SHAPE BECOMES ANOTHER — a baseline curve lifting off its own position and
+ * settling into the result, leaving whatever was drawn under it behind.
+ *
+ * The from-vars are SELF-REFERENTIAL: `{ morphSVG: { shape: target } }` means
+ * "start from the `d` you were authored with". That is the construction
+ * `experiments/013-vocabulary/gaps/spike/index.html:147` measured, and it is the
+ * only one that keeps invariant 2 checkable by `tsc` — MorphSVG's natural
+ * spelling is a bare `to`, which is a `from()` wearing different clothes.
+ * `_parseShape` reads `data-original` when the shape names the target itself
+ * (MorphSVGPlugin.js), so the start is the authored path however many times the
+ * tween is re-initialised under a seek.
+ *
+ * `to` NAMES A SELECTOR, so the end shape lives in the document as a hidden
+ * sibling rather than as a path string in the timeline. Two copies of the same
+ * geometry — one in the `d` attribute, one in the tween — is the duplication
+ * `drawFrom` was retired for.
+ *
+ * Safe under capture for the reason DrawSVG is: a plugin's `render()` is part of
+ * being seeked where a callback is not. Measured for THIS plugin in a deck, not
+ * inherited from that one — `.planning/2026-09-08-reshape-seam.md`.
+ *
+ * ONE CALL PER (ELEMENT, MORPH). `first` is false for any reshape that is not
+ * the element's first on `morphSVG`; a second immediate render on one property
+ * would establish its start state at build time and undo the first.
+ */
+export function reshape(
+  target: string,
+  to: string,
+  at: number,
+  seconds: number,
+  first: boolean,
+): Tween {
+  if (!(seconds > 0)) throw new Error(`reshape ${target}: ${seconds}s is no time to reshape in`);
+  return fromTo(
+    target,
+    { morphSVG: { shape: target, shapeIndex: SHAPE_INDEX } },
+    {
+      morphSVG: { shape: to, shapeIndex: SHAPE_INDEX },
+      duration: sec(seconds),
+      ease: "power2.inOut",
+      ...(first ? {} : { immediateRender: false }),
+    },
+    sec(at),
+  );
+}
+
+/**
  * Something travels a polyline — a pulse along an arrow, a marker ring along a
  * curve, a highlight down a divider: one `x`/`y` `fromTo` per leg, each leg's
  * share of `seconds` proportional to its length, `ease: "none"` until the last
