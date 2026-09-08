@@ -1,18 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildStops,
   findStop,
   formatHash,
   frameOf,
+  mountVoice,
   parseClips,
   parseHash,
   planTransition,
   refused,
   type SlideSpec,
+  type Stop,
 } from "../src/deck/runtime.js";
+import type { Narration } from "../src/deck/subtitles.js";
 import { emitDeck, PLAYER_FILE } from "../src/emit/composition.js";
 import { EMBED_ORIGINS } from "../src/pack/media.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
@@ -204,26 +207,6 @@ describe("frameOf reads the composition through the window", () => {
     >[0];
     expect(frameOf(blind)).toBeNull();
   });
-
-  it("answers about the player as it is now, so a failed reach can be retried", () => {
-    // What `start`'s `reach` rests on. It used to call this once, at startup: an
-    // iframe whose document was not readable at that instant left the rest of
-    // the session navigating against `frame === null`, painting nothing, with
-    // one console.warn to show for it. Retrying is only worth anything if a
-    // second call can answer differently — which it can, because `frameOf` reads
-    // the live element rather than anything it cached.
-    const iframe: { contentDocument: unknown; contentWindow: unknown } = {
-      contentDocument: null,
-      contentWindow: null,
-    };
-    const player = { querySelector: () => iframe, shadowRoot: null } as unknown as Parameters<
-      typeof frameOf
-    >[0];
-    expect(frameOf(player)).toBeNull();
-    iframe.contentDocument = { documentElement: {} };
-    iframe.contentWindow = {};
-    expect(frameOf(player)).not.toBeNull();
-  });
 });
 
 describe("a play() rejection says which of two failures it was", () => {
@@ -260,6 +243,174 @@ describe("a play() rejection says which of two failures it was", () => {
     ]) {
       expect(refused(err)).toBe(true);
     }
+  });
+});
+
+/* ------------------------------------------------- a segment that will not play */
+
+/**
+ * The smallest `<audio>` `mountVoice` actually uses, with `play()` deliberately
+ * left open: every failure this describes is decided AFTER the call returns, and
+ * that gap is the bug. Hand-rolled rather than pulled from a DOM library because
+ * this suite runs on bare node and adding one for six tests is the larger change.
+ */
+class FakeAudio {
+  preload = "";
+  muted = false;
+  src = "";
+  currentTime = 0;
+  ended = false;
+  paused = true;
+  /** One entry per `play()`, settled by the test whenever it likes. */
+  readonly plays: { ok: () => void; fail: (err: unknown) => void }[] = [];
+  play(): Promise<void> {
+    this.paused = false;
+    return new Promise<void>((resolve, reject) => {
+      this.plays.push({ ok: () => resolve(), fail: reject });
+    });
+  }
+  pause() {
+    this.paused = true;
+  }
+  load() {}
+  removeAttribute() {
+    this.src = "";
+  }
+  addEventListener() {}
+}
+
+const NARRATED: Narration = {
+  voice: "test",
+  dir: "audio",
+  scenes: { s1: [{ stop: 0, audio: "s1-0.mp3", cues: [] }] },
+};
+
+const STOP: Stop = { t: 0, slide: 0, fragment: 0, notes: "", sceneId: "s1" };
+
+function mountFakeVoice() {
+  const audio = new FakeAudio();
+  const flags = { textContent: "" };
+  const subs = { textContent: "", hidden: false };
+  const doc = {
+    createElement: () => audio,
+    body: { append: () => {} },
+    documentElement: { classList: { toggle: () => {} } },
+  } as unknown as Document;
+  const ui = { subs: subs as unknown as HTMLElement, flags: flags as unknown as HTMLElement };
+  return { audio, flags, voice: mountVoice(doc, NARRATED, ui) };
+}
+
+/** `play()`'s handlers are microtasks; a macrotask is after all of them. */
+const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+describe("a stop whose sound never arrives", () => {
+  beforeAll(() => {
+    // `mountVoice` follows the audio clock on rAF, which bare node does not have.
+    // The loop is not what these tests are about: give it an id, never call back.
+    globalThis.requestAnimationFrame = (() => 1) as typeof globalThis.requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof globalThis.cancelAnimationFrame;
+  });
+  afterAll(() => {
+    Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+    Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
+  });
+
+  it("says so, and never claims a key will fix it", async () => {
+    const { audio, flags, voice } = mountFakeVoice();
+    expect(voice.at(STOP)).toBe(true);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    expect(flags.textContent).toBe("narration unavailable");
+  });
+
+  it("is retried by a gesture, so a connection that dropped for a moment recovers", async () => {
+    // The case this is for is not the missing file — it is the missing file's
+    // twin. A two-second wifi drop and a one-off 503 reject `play()` with the
+    // same `NotSupportedError`, and the deck had no way back from either:
+    // `unlock` looked only at `blocked`, so one bad moment left the narration
+    // silent for the rest of the session.
+    const { audio, flags, voice } = mountFakeVoice();
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    // Nothing retries unasked — an absent file must not be re-requested forever.
+    expect(audio.plays).toHaveLength(1);
+    voice.unlock();
+    expect(audio.plays).toHaveLength(2);
+    audio.plays[1]?.ok();
+    await settle();
+    expect(flags.textContent).toBe("");
+  });
+
+  it("stays honest when the retry fails the same way", async () => {
+    const { audio, flags, voice } = mountFakeVoice();
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    voice.unlock();
+    expect(audio.plays).toHaveLength(2);
+    audio.plays[1]?.fail(new DOMException("still not there", "NotSupportedError"));
+    await settle();
+    expect(flags.textContent).toBe("narration unavailable");
+  });
+
+  it("leaves a segment that IS playing alone, so ordinary keys stay ordinary", async () => {
+    // `unlock` runs on every keydown and every click. Widening it past `blocked`
+    // is only safe while a stop that is speaking is untouched — otherwise
+    // pressing `n` for the notes would start the sentence over.
+    const { audio, voice } = mountFakeVoice();
+    voice.at(STOP);
+    audio.plays[0]?.ok();
+    await settle();
+    voice.unlock();
+    voice.unlock();
+    expect(audio.plays).toHaveLength(1);
+  });
+
+  it("tells autoplay, which is otherwise waiting for an `ended` that cannot come", async () => {
+    // `at` answers synchronously about whether a segment EXISTS, and `play()`
+    // rejects a beat later. So `go` armed no dwell timer for this stop, and a
+    // source that failed to load fires no `ended`: autoplay stopped dead on that
+    // slide, forever, with the play button still lit.
+    const { audio, voice } = mountFakeVoice();
+    let unheard = 0;
+    voice.onSettled((heard) => {
+      if (!heard) unheard += 1;
+    });
+    expect(voice.at(STOP)).toBe(true);
+    expect(unheard).toBe(0);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    expect(unheard).toBe(1);
+  });
+
+  it("hands the clock back when the retry works, so it cannot cut its own sentence", async () => {
+    // The hazard of the two fixes together. The dwell timer armed while this
+    // stop was silent is still pending when a gesture gets the segment playing,
+    // and left alone it would advance the deck a second and a half into a
+    // sentence that had only just started.
+    const { audio, voice } = mountFakeVoice();
+    const said: boolean[] = [];
+    voice.onSettled((heard) => said.push(heard));
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("no supported source", "NotSupportedError"));
+    await settle();
+    voice.unlock();
+    audio.plays[1]?.ok();
+    await settle();
+    expect(said).toEqual([false, true]);
+  });
+
+  it("tells it for a refusal too, because a refused deck is exactly as silent", async () => {
+    const { audio, voice } = mountFakeVoice();
+    let unheard = 0;
+    voice.onSettled((heard) => {
+      if (!heard) unheard += 1;
+    });
+    voice.at(STOP);
+    audio.plays[0]?.fail(new DOMException("play() failed", "NotAllowedError"));
+    await settle();
+    expect(unheard).toBe(1);
   });
 });
 

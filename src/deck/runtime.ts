@@ -417,7 +417,7 @@ function mountChrome(doc: Document) {
 
 /* -------------------------------------------------------------- Narration */
 
-interface Voice {
+export interface Voice {
   /**
    * Arrive at a stop: cut whatever was speaking, start this stop from zero.
    * Returns whether this stop has anything to say — autoplay needs to know,
@@ -435,7 +435,23 @@ interface Voice {
   toggleSubtitles: () => void;
   /** Called when the segment for the CURRENT stop finishes of its own accord. */
   onEnded: (fn: () => void) => void;
-  /** First real gesture: retry a segment the autoplay policy refused. */
+  /**
+   * Called when the CURRENT stop's `play()` settles, with whether there is going
+   * to be a sound. Autoplay needs it because `at` answers one beat too early:
+   * `at` says a segment EXISTS, and `play()` says whether it can be heard.
+   *
+   * BOTH answers matter. False means no `ended` will ever fire, so a deck
+   * playing itself must fall back to its own clock or sit on that slide forever
+   * with the button lit. True is how it gives that clock back — a segment
+   * retried after a dropped connection is speaking now, and a timer armed while
+   * it was silent would cut the sentence it just started.
+   */
+  onSettled: (fn: (heard: boolean) => void) => void;
+  /**
+   * A real gesture: retry the segment for the stop we are on. Covers the
+   * autoplay policy, which is what it was written for, and a file that failed to
+   * load — see `refused` for why the second one is never retried unasked.
+   */
   unlock: () => void;
 }
 
@@ -445,6 +461,7 @@ const SILENT: Voice = {
   toggleMute: () => {},
   toggleSubtitles: () => {},
   onEnded: () => {},
+  onSettled: () => {},
   unlock: () => {},
 };
 
@@ -453,13 +470,19 @@ const SILENT: Voice = {
  * never be able to play? Pure, so the classification is testable without a
  * browser; the element that produces the rejection is not.
  *
- * The two need telling apart because only one of them is recoverable. The
- * policy is: the first gesture retries the segment and it speaks. A segment
- * whose file never arrived is not — `unlock` would re-request the same missing
- * bytes on every keypress, forever, while the strip went on asking for a key
- * that cannot help. Telling that viewer to press something is not merely
- * unhelpful, it names the wrong culprit, and no gate here can see it: nothing
- * in the suite opens deck.html or plays a sound.
+ * The two need telling apart because they are not the same failure and must not
+ * be reported as one. The policy is recoverable by construction: the first
+ * gesture retries the segment and it speaks, so "press any key for sound" is
+ * simply true. A file that did not load MIGHT be — a two-second wifi drop and a
+ * one-off 503 look exactly like this from here — but it is just as likely a deck
+ * whose audio directory never got copied, and telling THAT viewer to press a key
+ * names the wrong culprit and goes on being wrong every time they try.
+ *
+ * So this split decides what the strip says, and whether anything retries
+ * unasked. It does NOT decide whether a person may retry: a gesture re-arms
+ * either failure (see `unlock`), because someone asking is not the same as us
+ * guessing. And no gate here can see any of it — nothing in the suite opens
+ * deck.html or plays a sound.
  *
  * `NotSupportedError` is the unplayable one. MEASURED on 2026-09-08 in headless
  * Chromium 1234 rather than taken from the spec: a source that cannot be fetched
@@ -494,8 +517,12 @@ export function refused(err: unknown): boolean {
  * started alongside `play()` agrees with the audio right up until the first
  * stall, and then never again — and a stall is exactly when a viewer is looking
  * at the subtitle to find out what they missed.
+ *
+ * Exported, with `Voice`, only so a test can drive its failure paths: everything
+ * that matters below happens after `play()` rejects, and nothing else in this
+ * module can hand it that promise. `start` is the only caller.
  */
-function mountVoice(
+export function mountVoice(
   doc: Document,
   narration: Narration,
   ui: { subs: HTMLElement; flags: HTMLElement },
@@ -517,8 +544,10 @@ function mountVoice(
   let blocked = false;
   /**
    * Set when the segment's own file could not be played. Deliberately NOT
-   * `blocked`: nothing a viewer does fixes a file that is not there, so this one
-   * must never reach `unlock`.
+   * `blocked`, because only `blocked` may promise a viewer that a key will help.
+   * A gesture retries this one too — the same rejection is what a dropped
+   * connection produces — but nothing retries it on its own, so an absent file
+   * is asked for once per arrival and once per gesture rather than forever.
    */
   let unplayable = false;
   /** Shown once and never again — a nag is worse than silence. */
@@ -598,6 +627,9 @@ function mountVoice(
     if (!blocked) ended();
   });
 
+  /** Its counterpart: whether this stop's segment is going to be heard at all. */
+  let settled: (heard: boolean) => void = () => {};
+
   const speak = (stop: Stop): boolean => {
     const mine = ++epoch;
     here = stop;
@@ -623,6 +655,7 @@ function mountVoice(
         blocked = false;
         unplayable = false;
         flags();
+        settled(true);
       },
       (err: unknown) => {
         // Autoplay refused, or the file is missing. Either way navigation has
@@ -638,6 +671,10 @@ function mountVoice(
         cues = [];
         paint();
         flags();
+        // Whoever is driving is timing this stop by a sound that is not coming.
+        // Reported for BOTH failures: a refusal leaves the deck exactly as
+        // silent as a missing file, and `ended` fires for neither.
+        settled(false);
       },
     );
     if (raf === 0) raf = requestAnimationFrame(follow);
@@ -653,6 +690,9 @@ function mountVoice(
     onEnded: (fn) => {
       ended = fn;
     },
+    onSettled: (fn) => {
+      settled = fn;
+    },
     toggleMute: () => {
       muted = !muted;
       audio.muted = muted;
@@ -664,8 +704,16 @@ function mountVoice(
       paint();
       flags();
     },
+    // Both recoverable failures, retried only when a person asks for it.
+    // `unplayable` is here because the rejection that means "this file is not
+    // there" is also what a network that dropped for two seconds produces, and
+    // `blocked` used to be the only state this looked at — so one bad moment
+    // left the deck silent for the rest of the session with no way back. If the
+    // file really is gone the retry rejects again and puts the same honest flag
+    // back, which is exactly why it is safe to offer and still wrong to take
+    // unasked.
     unlock: () => {
-      if (!blocked || !here) return;
+      if (!here || !(blocked || unplayable)) return;
       blocked = false;
       flags();
       speak(here);
@@ -873,8 +921,28 @@ async function start(doc: Document): Promise<void> {
           setPlaying(false);
         });
   let at = 0;
-  // Reached once the player has built its iframe, below — and retried after
-  // that, see `reach`.
+  /**
+   * The composition, resolved ONCE and only after `whenReady`, below.
+   *
+   * Making this lazy — reach for the frame on the first step that needs one — is
+   * the tempting fix for "what if it is not readable yet", and it is wrong.
+   * `<hyperframes-player>` builds its iframe in its CONSTRUCTOR, so until the
+   * composition navigation commits, `contentDocument` is already a perfectly
+   * readable `about:blank`. Every handler below — keydown, click, hashchange,
+   * the host bridge — is registered BEFORE `await whenReady(player)`, and
+   * `whenReady` polls on a 200ms interval for up to five seconds. So one Space,
+   * one click or one host `go` inside that window would latch the throwaway
+   * document for the rest of the session: a deck that steps perfectly, paints
+   * nothing, and never puts `.ds-live` on the real composition, which by
+   * invariant 6 leaves every ambient rule inert too. Measured on 2026-09-08 in
+   * headless Chromium 145 against an iframe built like the player's: at the outer
+   * document's DOMContentLoaded the frame's document is `about:blank`, and the
+   * one that commits later is a DIFFERENT object.
+   *
+   * A retry is only safe if it asks WHICH document it got, not merely whether it
+   * got one. Until something checks for the composition, once-after-ready is the
+   * construction that cannot latch the wrong answer.
+   */
   let frame: Frame | null = null;
   /** Composition time currently painted. Mid-flight this is between stops. */
   let shown = 0;
@@ -883,31 +951,10 @@ async function start(doc: Document): Promise<void> {
   /** Last stop handed to the voice. -1 so the opening stop always speaks. */
   let spoken = -1;
 
-  /**
-   * The composition, kept once it can be had. Retried rather than resolved once,
-   * because `frameOf` answers about THIS instant: an iframe whose document is
-   * not readable yet returns null, and a single attempt at startup would leave
-   * the rest of the session navigating against `frame === null` — a deck that
-   * steps perfectly and paints nothing, which is the failure this module exists
-   * to prevent, reached by a different route than the one `frameOf` describes.
-   */
-  const reach = (): Frame | null => {
-    if (frame) return frame;
-    frame = frameOf(player);
-    // The ambient CSS is gated on `.ds-live`, and only a presented deck sets it:
-    // `render`/`check`/`snapshot` see a still document and stay byte-identical.
-    // It goes on at the FIRST successful reach wherever that happens — hang it
-    // off startup alone and a frame that arrives late is driven correctly with
-    // every ambient rule still inert, which no gate here can see either.
-    frame?.doc.documentElement.classList.add("ds-live");
-    return frame;
-  };
-
   /** Land on `t` and hand the player's clock the same answer. */
   const cutTo = (t: number) => {
     player.seek(t);
-    const f = reach();
-    if (f) paint(f, slides, t);
+    if (frame) paint(frame, slides, t);
     shown = t;
   };
 
@@ -958,6 +1005,29 @@ async function start(doc: Document): Promise<void> {
     if (!playing) return;
     if (at + 1 < stops.length) go(at + 1);
     else setPlaying(false); // the end is a stop, not a loop
+  };
+  /**
+   * Autoplay's clock for the stop we are on. A narrated stop is timed by its own
+   * audio — speech drives the deck, which is the whole timing model of this
+   * project — so it waits for `ended` instead. Anything else gets the gap the
+   * author left before the next stop, the same number the linear render used.
+   *
+   * Armed from two places, and the second one is the point. `go` arms it for a
+   * stop with nothing to say. `voice.onSettled` arms it for a stop that HAD
+   * something to say and then could not say it: `voice.at` answers synchronously
+   * about whether a segment EXISTS, while `play()` rejects a beat later, so at
+   * `go` time a segment whose file is missing is indistinguishable from a
+   * working one. Without that second call, a deck playing itself waits for an
+   * `ended` that can never arrive and stops dead on that slide — forever, with
+   * the play button still lit — which is what shipped before this.
+   */
+  const armDwell = () => {
+    clearDwell();
+    if (!playing) return;
+    const stop = stops[at] as Stop;
+    const next = stops[at + 1];
+    const gap = next ? (next.t - stop.t) * 1000 : 0;
+    dwell = setTimeout(advance, Math.min(8000, Math.max(1500, gap)));
   };
   const setPlaying = (on: boolean) => {
     playing = on;
@@ -1032,11 +1102,7 @@ async function start(doc: Document): Promise<void> {
       typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const plan = planTransition(shown, stop.t, { reducedMotion });
     // No frame means nothing to paint, so there is nothing to animate either.
-    // Through `reach` rather than the cached `frame`, for the same reason
-    // `cutTo` does: a frame that only became readable after startup should
-    // animate this step, not the one after it.
-    const f = reach();
-    if (plan.animate && !instant && f) glide(f, stop.t, plan.durationMs);
+    if (plan.animate && !instant && frame) glide(frame, stop.t, plan.durationMs);
     else cutTo(stop.t);
 
     // After the transition is decided, as the frame it lands on begins: the
@@ -1056,17 +1122,11 @@ async function start(doc: Document): Promise<void> {
     // Unguarded, unlike the voice: this tears an open player down, and a frame
     // that survives into the next slide keeps playing under it.
     clips.at(stop);
-    // Autoplay's clock. A narrated stop is timed by its own audio, which is the
-    // whole timing model of this project — speech drives the deck. A silent one
-    // has no `ended` to wait for, so it gets the gap the author left before the
-    // next stop, which is the same number the linear render would have used.
-    // Without this, playback stops dead on the first slide nobody narrated.
-    clearDwell();
-    if (playing && !speaking) {
-      const next = stops[at + 1];
-      const gap = next ? (next.t - stop.t) * 1000 : 0;
-      dwell = setTimeout(advance, Math.min(8000, Math.max(1500, gap)));
-    }
+    // Autoplay's clock — see `armDwell`. A stop that speaks is timed by its own
+    // audio and waits for `ended`; a stop with nothing to say gets the timer now,
+    // and a stop that turns out to be unable to speak gets it from `onSettled`.
+    if (speaking) clearDwell();
+    else armDwell();
 
     history.replaceState(null, "", formatHash(stop));
     post({
@@ -1087,6 +1147,15 @@ async function start(doc: Document): Promise<void> {
   // handler is installed once and asks `playing` each time rather than being
   // attached and detached, which is one fewer thing to get out of step.
   voice.onEnded(advance);
+  // `voice.at` answered before `play()` did, so this is where a stop's timing is
+  // actually decided. Silent after all: the dwell clock, because no `ended` is
+  // coming. Speaking after all — a segment retried by a gesture once the network
+  // came back — takes that clock away again, or a timer armed while it was
+  // silent would cut short the sentence it just started.
+  voice.onSettled((heard) => {
+    if (heard) clearDwell();
+    else armDwell();
+  });
   ui.play.addEventListener("click", (e) => {
     e.stopPropagation(); // the deck advances on click; this button must not
     setPlaying(!playing);
@@ -1173,12 +1242,14 @@ async function start(doc: Document): Promise<void> {
   if (typeof player.seek !== "function") return;
   player.pause?.();
 
-  if (!reach()) {
+  frame = frameOf(player);
+  // The ambient CSS is gated on `.ds-live`, and only a presented deck sets it:
+  // `render`/`check`/`snapshot` see a still document and stay byte-identical.
+  frame?.doc.documentElement.classList.add("ds-live");
+  if (!frame) {
     // Without the frame every seek lands on an unpainted composition. Saying so
     // beats the alternative, which is a deck that navigates perfectly and shows
-    // nothing — the failure this whole module exists to prevent. Warned once,
-    // here, and not from `reach`: cross-origin never recovers, so a warning per
-    // step would only bury the first one.
+    // nothing — the failure this whole module exists to prevent.
     console.warn("[decksmith] composition unreachable; serve the deck over http, not file://");
   }
 
