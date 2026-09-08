@@ -252,8 +252,15 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   /** One answer to "how wide is this", shared with every other archetype. */
   const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
   const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
-  /** The same, at `.axname`'s declared 500 — the one run here that is not 400. */
+  /** The same, at `.axname`'s declared 500. */
   const nameW = (s: string) => textWidth(s, LABEL_SIZE, 500, 0, false, face);
+  /**
+   * And at `.ghostlab`'s 600. Measuring the ghost with `runW` under-charges its
+   * width, so the predicate accepts a candidate the browser then overprints — the
+   * same weight mismatch the perturbation sweep already found once in `stack`,
+   * measured at 600 and drawn at 700 so its second line printed through the note.
+   */
+  const ghostW = (s: string) => textWidth(s, LABEL_SIZE, 600, 0, false, face);
 
   // The category names were the six collisions left after the values were
   // thinned: "T=9" through "T=15" printing into each other along the bottom of a
@@ -533,7 +540,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const lastI = p.points.length - 1;
   const ghost = (() => {
     if (!cmp) return undefined;
-    const w = runW(cmp.label);
+    const w = ghostW(cmp.label);
     if (w > plotW) {
       throw new Error(
         `line-chart ${beat.id}: the compare label "${cmp.label}" is ${Math.ceil(w)}px against the ${Math.floor(plotW)}px of plot it is set in. Shorten it.`,

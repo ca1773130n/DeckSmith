@@ -109,6 +109,11 @@ const settlesAt = (t: Tween, n: number) => ends(t) + Number(t.to.stagger ?? 0) *
 
 const FACE = faceOf(theme.fontStack);
 const runW = (s: string) => textWidth(s, 40, 400, 0, false, FACE);
+/** `.axname` is painted at 500 and `.ghostlab` at 600. Charging either of them
+ *  at 400 recovers a box narrower than the one on the page, which is how a
+ *  collision test can pass over markup that overprints. */
+const nameW = (s: string) => textWidth(s, 40, 500, 0, false, FACE);
+const ghostW = (s: string) => textWidth(s, 40, 600, 0, false, FACE);
 interface Box {
   x: number;
   y: number;
@@ -125,7 +130,7 @@ const ghostBox = (html: string): Box | undefined => {
     html,
   );
   if (!m) return undefined;
-  const w = runW(m[4] as string);
+  const w = ghostW(m[4] as string);
   const cx = Number(m[2]);
   return { x: m[1] === "start" ? cx : cx - w, y: Number(m[3]) - 40, w, h: 40 };
 };
@@ -140,7 +145,7 @@ const valueBoxes = (html: string): Box[] =>
 const axisNameBox = (html: string): Box => {
   const m = /<text class="axname" x="0" y="42">([^<]*)</.exec(html);
   if (!m) throw new Error("no y-axis name in the emitted svg");
-  return { x: 0, y: 2, w: runW(m[1] as string), h: 40 };
+  return { x: 0, y: 2, w: nameW(m[1] as string), h: 40 };
 };
 
 /** The vertices of one emitted polyline, read straight out of its own `d`. */
@@ -568,6 +573,25 @@ describe("the baseline's label", () => {
         });
       }
     }
+  });
+
+  it("charges the compare label the weight it is painted at, not a lighter one", () => {
+    // `.ghostlab` sets font-weight:600, and the refusal measured it with `runW`
+    // at 400 — so a label the plot cannot hold was accepted and then printed
+    // past the axis, which is the one thing the refusal exists to stop.
+    //
+    // MEASURED here, deck-16x9: at 75 characters this label is 1440.41px at 400
+    // and 1483.63px at 600, and the plot is 1472.84-1483.63px wide. One weight
+    // fits and the other does not, which is what makes this case discriminate:
+    // charged at 400 the emitter accepts it, charged at 600 it refuses.
+    //
+    // The same mismatch has bitten this file's neighbours before — the
+    // perturbation sweep found `stack` measured at 600 and drawn at 700, whose
+    // second line printed through the note beneath it.
+    const label = "Without pretraining ".repeat(20).slice(0, 75).trim();
+    expect(() =>
+      lineChart(beat({ ...COMPARED.params, compare: { label, points: BASELINE } }), ctx()),
+    ).toThrow(/compare label/);
   });
 
   it("refuses a label too wide for the plot rather than printing it past the axis", () => {
