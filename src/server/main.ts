@@ -26,11 +26,25 @@ import { fileURLToPath } from "node:url";
 // Through the bundle, never a deep path: `build:server` transpiles without
 // bundling, so `../narrate/tts.js` would survive into dist/server/ and resolve
 // to nothing. `test/server.test.ts` fails the build for it, and caught this.
-import { imageChain, prefsSchema, resolveImageBackend, resolveProvider } from "../index.js";
+import {
+  guardTmpdir,
+  imageChain,
+  prefsSchema,
+  resolveImageBackend,
+  resolveProvider,
+} from "../index.js";
 import { createDeckServer } from "./http.js";
 import { MAX_UPLOAD_BYTES } from "./upload.js";
 
 const env = process.env;
+
+// BEFORE `options`, and the ordering is load-bearing rather than tidy: `work`
+// below reads `tmpdir()` at module load and `mkdirSync` runs eleven lines later,
+// so a guard placed after this block would not merely compute the wrong path —
+// it would have already created `<repo>/decksmith-server/` on disk. That
+// directory is also the one `.gitignore` never caught, because the pattern is
+// `decksmith-server-*/` and wants the dash.
+guardTmpdir();
 
 const options = {
   port: int(env.PORT, 8475),

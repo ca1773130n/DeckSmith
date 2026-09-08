@@ -277,6 +277,20 @@ export type { AssetRequest, Fetcher, Media, MediaPlan } from "./pack/media.js";
 export { CONFIG_FILE, loadPrefs } from "./prefs.js";
 export type { Prefs, PrefsPatch } from "./prefs.js";
 
+/**
+ * The `TMPDIR` guard, exported because `src/server/main.ts` has no other way to
+ * reach it: `build:server` transpiles without bundling, so a deep import there
+ * would survive into `dist/server/` and resolve to nothing. It fails the house
+ * rule for this file — nobody outside asked for it — and it is here anyway,
+ * because the alternative is a second copy of the guard living under `server/`.
+ *
+ * A CONSUMER SHOULD NEVER NEED TO CALL IT. It is a no-op in a published install
+ * (see src/tmpdir.ts for why), and importing this module does not run it: an
+ * absent `TMPDIR` is inherited by every child process, which is not something a
+ * library import may decide for its host.
+ */
+export { guardTmpdir } from "./tmpdir.js";
+
 /* ------------------------------------------------------------------- types */
 
 /**

@@ -43,6 +43,7 @@ import { fetchFigures } from "./source/assets.js";
 import { bundleFont } from "./source/fonts.js";
 import { attachClips, type HarvestedClip, type HarvestOptions, harvest } from "./source/harvest.js";
 import { parseMarkdown } from "./source/markdown.js";
+import { guardTmpdir } from "./tmpdir.js";
 import {
   type Beat,
   canvasWarnings,
@@ -73,6 +74,13 @@ import {
   verify,
 } from "./verify/index.js";
 import { VERSION } from "./version.js";
+
+// First, because `tmpdir()` is read at CALL time and this file has no `main()`
+// to put it at the top of: `harvest` mkdtemps under it, and so do `codex.ts`,
+// `providers.ts` and `drift.ts` on the way through. A deep import rather than
+// the barrel because that is what every other line above does — `cli.ts` has
+// never gone through `./index.js`.
+guardTmpdir();
 
 type Narration = z.infer<typeof narrationSchema>;
 

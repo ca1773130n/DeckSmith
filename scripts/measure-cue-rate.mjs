@@ -33,7 +33,6 @@
  * copies: a harness that measures a slightly different quantity than the code
  * does is how a constant ends up true of nothing.
  */
-import "./tmpdir.mjs";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,9 +42,17 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
-const WORK = process.argv[2] ?? join(tmpdir(), "decksmith-cue-rate");
 
-const { parseCues, p95CueRate, SPEECH_CPS } = await import(join(REPO, "dist", "index.js"));
+// `guardTmpdir` comes off the same import for the same reason the constants do:
+// it lives in src/tmpdir.ts now, `scripts/` cannot import TypeScript, and a
+// second copy in plain node would be a guard that stops matching. Called before
+// WORK, because that line reads `tmpdir()`.
+const { guardTmpdir, parseCues, p95CueRate, SPEECH_CPS } = await import(
+  join(REPO, "dist", "index.js")
+);
+guardTmpdir();
+
+const WORK = process.argv[2] ?? join(tmpdir(), "decksmith-cue-rate");
 
 /** Must match `RATE_STEPS` and `CUE_OVERHEAD` in src/plan/duration.ts. */
 const RATE_STEPS = [

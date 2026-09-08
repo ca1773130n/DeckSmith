@@ -37,32 +37,43 @@ demo/deck/
 demo/audio/
 *.deck
 
-# Test scratch that lands HERE rather than in /tmp. `mkdtemp(join(tmpdir(), …))`
-# resolves against TMPDIR, and some sandboxes point TMPDIR at the working
-# directory — which put 335 of these in the tree before anyone noticed. Ignored
-# rather than fixed in the tests: on a machine with a normal TMPDIR they are
-# already in /var/folders and the OS reaps them.
+# Scratch that lands HERE rather than in /tmp. `mkdtemp(join(tmpdir(), …))`
+# resolves against TMPDIR, and agent sessions in this repo run with TMPDIR
+# pointing at the working directory.
 #
-# THE LIST HAS TO BE COMPLETE OR IT IS WORSE THAN NOTHING. It covered three of
-# the seven prefixes, so 2333 directories accumulated and `git add -A` swept 14
-# files out of four of them into four separate commits — an MCP upload fixture,
-# a storyboard schema and two pairs of verify frames, none of which anything
-# reads. Every prefix any of these mkdtemp calls uses belongs here.
-decksmith-image-*/
-decksmith-narrate-*/
-decksmith-pack-*/
-decksmith-plan-*/
-decksmith-server-*/
-ds-images-*/
-# render.test.ts writes a playback dir per case and does not clean up after itself
-ds-playback-*/
-ds-mcp-*/
-ds-prov-*/
+# THIS IS NO LONGER THE FIX, and it was never a good one. `guardTmpdir` in
+# src/tmpdir.ts unsets such a TMPDIR, and the CLI, the MCP server, the HTTP
+# server and the vitest setup file all call it, so nothing we start writes here
+# any more. What is left below is a backstop with two honest jobs: it keeps the
+# 2,306 directories that predate the guard out of `git status` until someone
+# sweeps them, and it covers processes we do not start.
+#
+# THE OLD LIST WAS INCOMPLETE, which is why it is gone. It named ten prefixes and
+# missed eight more — `decksmith-harvest-`, `decksmith-drift-`,
+# `decksmith-assets-`, `decksmith-transcode-`, `decksmith-prefs-`, `ds-harvest-`,
+# and the two FIXED names `decksmith-mcp` and `decksmith-server`, which slipped
+# through because `decksmith-server-*/` wants the dash. 2,333 directories
+# accumulated behind that gap and `git add -A` swept 14 files out of four of them
+# into four separate commits. Two globs cannot go stale the way a list of
+# eighteen does, so these are globs; add nothing here without the same property.
+decksmith-*/
+ds-*/
+# Chrome's own profile directory, and hyperframes' render scratch. Both are
+# mkdtemp'd by libraries under whatever TMPDIR the process has — ours is fixed by
+# then, but these lines have not been re-measured against a poisoned session.
 hf-*/
-node-compile-cache/
-# Chrome's own profile directory, mkdtemp'd by puppeteer under the same TMPDIR
 puppeteer_dev_chrome_profile-*/
+# NOT reachable by the guard, for two different reasons, and both measured
+# rather than assumed. `node-compile-cache/` is ours but arrives TOO EARLY:
+# node enables its compile cache at process startup, before any setup file or
+# entry point can run, so it still appears in the tree on a poisoned
+# `npx vitest run` with the guard working perfectly. `tsx-*/` is not ours at all
+# — there is no tsx in this repo — and belongs to whatever launched the session.
+node-compile-cache/
 tsx-*/
+# No producer found in src/, scripts/, the justfile or CI, and no such directory
+# on disk. Predates the rest of this block; left because nobody can name what
+# made it.
 .scratch/
 
 # `.planning/` itself IS tracked — the experiment records and design notes in it

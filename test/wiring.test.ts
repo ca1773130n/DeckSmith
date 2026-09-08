@@ -12,6 +12,8 @@
  * Nothing here touches the network: narration is a hand-written fixture in the
  * exact shape `narrate` returns.
  */
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   DECK_PAGE,
@@ -298,5 +300,81 @@ describe("scanNarration", () => {
   it("reports an island it cannot read rather than falling silent", () => {
     const broken = `<script type="application/decksmith-narration+json">{nope}</script>`;
     expect(scanNarration(broken, new Set())[0]?.rule).toBe("island_unparseable");
+  });
+});
+
+/**
+ * The TMPDIR guard, asserted where it is JOINED rather than where it works.
+ *
+ * `src/tmpdir.ts` is tested on its own in test/tmpdir.test.ts. What is only
+ * observable here is whether the three executables actually call it, and there
+ * is no other way to see that: a missing call throws nothing, fails nothing and
+ * changes no output — scratch directories simply start appearing in the checkout
+ * again, which is how 2,306 of them accumulated the first time. There is also no
+ * single module all three share (`version.ts` misses the server, `index.ts`
+ * misses the CLI), so the wiring is three explicit call sites and this is what
+ * holds them there.
+ *
+ * Reading the source rather than running the binaries: each entry module ends by
+ * connecting a transport, starting a listener or parsing argv, so importing one
+ * to observe it is not a test, it is launching the program.
+ */
+describe("TMPDIR guard wiring", () => {
+  /**
+   * The module's source with its comments removed. Load-bearing, not tidiness:
+   * every one of these files explains the guard in a comment ABOVE the call, and
+   * those comments name `tmpdir()`. Searching the raw text would find the prose
+   * first and conclude the call came too late.
+   */
+  async function entry(file: string): Promise<string> {
+    const text = await readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+    return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+  }
+
+  /**
+   * Per entry point: the module, and the first thing in it that reads a scratch
+   * root. The guard has to come first — in `server/main.ts` a late call would
+   * not merely compute the wrong path, `mkdirSync` would already have created
+   * `<repo>/decksmith-server/` on disk.
+   */
+  const entries: [file: string, reads: RegExp][] = [
+    ["cli.ts", /\btmpdir\(\)/],
+    ["mcp/main.ts", /\bdefaultWork\(\)/],
+    ["server/main.ts", /\btmpdir\(\)/],
+  ];
+
+  it.each(entries)("%s calls the guard before it reads a scratch root", async (file, reads) => {
+    const text = await entry(file);
+    // Column zero: a call nested inside a handler would run once per invocation
+    // and, in two of the three, long after the work root was decided.
+    const called = text.search(/^guardTmpdir\(\);$/m);
+    expect(called).toBeGreaterThan(-1);
+    // Named twice — imported and invoked. Counted rather than matched against
+    // an import line, because the server's is wrapped across five of them and a
+    // formatter is allowed to move it.
+    expect(text.match(/\bguardTmpdir\b/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(text.search(reads)).toBeGreaterThan(called);
+  });
+
+  it("exports the guard from the barrel without running it", async () => {
+    const text = await entry("index.ts");
+    expect(text).toContain('export { guardTmpdir } from "./tmpdir.js";');
+    expect(text).not.toMatch(/^guardTmpdir\(\);$/m);
+  });
+
+  it("does not touch the environment when the library is merely imported", async () => {
+    // The reason the barrel exports rather than calls. An absent TMPDIR is
+    // inherited by every child process, so a library that unset it on import
+    // would be making that decision for a host that only wanted `emitDeck`.
+    const saved = process.env.TMPDIR;
+    const poisoned = fileURLToPath(new URL("../", import.meta.url));
+    process.env.TMPDIR = poisoned;
+    try {
+      await import("../src/index.js");
+      expect(process.env.TMPDIR).toBe(poisoned);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
   });
 });
