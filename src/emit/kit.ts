@@ -378,9 +378,15 @@ export interface Scene {
   measure?: string[];
   /**
    * Vendored runtimes this scene's tweens need registered before its script
-   * runs — `"dsMorph"` for the equation morph. The shell loads a runtime only
-   * when some scene names it, so a deck that names none is byte-for-byte what
-   * it was.
+   * runs — `"dsMorph"` for the equation morph, `"morphSVG"` for a reshape. The
+   * shell loads a runtime only when some scene names it, so a deck that names
+   * none is byte-for-byte what it was.
+   *
+   * `PLUGINS` in `composition.ts` is the ONE place a name resolves, and it is
+   * the list to read before returning this field: the type is
+   * `readonly string[]`, so a name that table does not know is a typo no
+   * compiler can see, and the shell refuses it there rather than emitting a
+   * scene whose plugin tween animates nothing.
    */
   plugins?: readonly string[];
   /**

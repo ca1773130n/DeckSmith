@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { lineChart } from "../src/emit/archetypes/line-chart.js";
 import type { EmitContext, Theme, Tween } from "../src/emit/kit.js";
+import { faceOf, textWidth } from "../src/emit/svg.js";
 import type { BeatOf, Format, Source } from "../src/types.js";
 import { beatSchema, FORMATS } from "../src/types.js";
 
@@ -93,6 +94,48 @@ const COMPARED = beat({
 const morphOf = (tl: Tween[]) => tl.find((t) => "morphSVG" in t.to);
 /** A tween's scheduled end, which is the only thing "after" can mean here. */
 const ends = (t: Tween) => t.at + Number(t.to.duration);
+
+/**
+ * The LAST instant a staggered tween is still moving, upper-bounded by `n`.
+ *
+ * A `Tween` carries a selector rather than the elements it will match, so the
+ * stagger's own length is not in it. Overstating `n` can only make this
+ * assertion stricter, which is the safe direction for "nothing is still moving
+ * at the hold".
+ */
+const settlesAt = (t: Tween, n: number) => ends(t) + Number(t.to.stagger ?? 0) * Math.max(0, n - 1);
+
+/* ---- the painted boxes, read back out of the svg the same way the gate would */
+
+const FACE = faceOf(theme.fontStack);
+const runW = (s: string) => textWidth(s, 40, 400, 0, false, FACE);
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+/** `overlaps` from line-chart.ts, on boxes recovered from the emitted markup. */
+const hits = (a: Box, b: Box) =>
+  Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 8 &&
+  Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 8;
+
+const ghostBox = (html: string): Box | undefined => {
+  const m = /id="s2-ghostlab" text-anchor="(start|end)" x="([\d.]+)" y="([\d.]+)">([^<]*)</.exec(
+    html,
+  );
+  if (!m) return undefined;
+  const w = runW(m[4] as string);
+  const cx = Number(m[2]);
+  return { x: m[1] === "start" ? cx : cx - w, y: Number(m[3]) - 40, w, h: 40 };
+};
+const valueBoxes = (html: string): Box[] =>
+  [...html.matchAll(/<text class="pv"( text-anchor="start")? x="([\d.]+)" y="([\d.]+)">([^<]*)</g)]
+    .map((m) => ({ start: m[1] !== undefined, cx: Number(m[2]), by: Number(m[3]), t: m[4] ?? "" }))
+    .map(({ start, cx, by, t }) => {
+      const w = runW(t);
+      return { x: start ? cx : cx - w / 2, y: by - 40, w, h: 40 };
+    });
 
 /* -------------------------------------------------------- no comparison, no cost */
 
@@ -206,6 +249,97 @@ describe("a line chart against a baseline", () => {
   });
 });
 
+/* ------------------------------------------------------------------ the schedule */
+
+describe("a compare schedule against the beat it was planned for", () => {
+  /**
+   * How many elements each staggered selector will match, so `settlesAt` can be
+   * given a bound rather than a guess. Four points, four dots, four values (all
+   * four fit at 16:9), three deltas.
+   */
+  const matched = (target: string) => (target.includes(".dv") ? 3 : 4);
+
+  it("puts every hold on a settled frame, at every length it accepts", () => {
+    // THE FAILURE THIS IS FOR. Held at their authored lengths the reshape's spans
+    // put the second hold at 6.5s for ANY chart of four points or more, whatever
+    // `beat.seconds` said — so at `seconds: 5`, the lower bound `prompt.ts` gives
+    // the planner, `holdsWithin` clamped it to 4.85 and the stop landed on one dot
+    // of four, one value of four, and the ring parked mid-curve. `beatSeconds`
+    // returns the authored value on a silent deck and no verify rule compares a
+    // scene's duration to the end of its own timeline, so every gate was green.
+    for (let s = 4.9; s <= 14; s = Math.round((s + 0.05) * 100) / 100) {
+      for (const readout of [undefined, "Two points of PSNR for one epoch."]) {
+        let scene: ReturnType<typeof lineChart>;
+        try {
+          scene = lineChart(
+            beat({ ...COMPARED.params, ...(readout ? { readout } : {}) }, s),
+            ctx(),
+          );
+        } catch {
+          // Refused, which is the other half of the contract — asserted below.
+          continue;
+        }
+        const last = scene.holds[scene.holds.length - 1] as number;
+        // Inside the window, to `holdsWithin`'s own rounding — and the loop below
+        // is what says it got there by fitting rather than by being clamped to it.
+        expect(last).toBeLessThanOrEqual(Math.round((s - 0.15) * 100) / 100);
+        for (const t of scene.tl) {
+          expect(settlesAt(t, matched(t.target))).toBeLessThanOrEqual(last + 1e-9);
+        }
+      }
+    }
+  });
+
+  it("compresses rather than truncating, and stops compressing once it fits", () => {
+    const holds = (s: number) => lineChart(beat(COMPARED.params, s), ctx()).holds;
+    // Short: both stops move in, and the first one — the baseline standing alone
+    // — arrives earlier because the draw-on is the span that gives first.
+    expect(holds(5)).toEqual([1.8, 4.85]);
+    expect(holds(6)).toEqual([1.95, 5.85]);
+    // Long: the authored schedule, unchanged, however much room is left over.
+    expect(holds(7)).toEqual([2.6, 6.5]);
+    expect(holds(12)).toEqual(holds(7));
+    expect(holds(14)).toEqual(holds(7));
+  });
+
+  it("refuses a beat too short to hold a reshape and a reveal", () => {
+    // FAIL LOUDLY. Both spans are at their floors by the time this fires, so
+    // there is nothing left to give — and a clamped hold is not a shorter beat,
+    // it is a stop on a half-drawn chart. `onBeatError` drops the beat and says
+    // so, which is what every other refusal in this archetype does.
+    expect(() => lineChart(beat(COMPARED.params, 4.5), ctx())).toThrow(
+      /needs 4\.9s and the beat is 4\.5s/,
+    );
+    // A readout costs its own 0.8s, so the floor moves with it.
+    expect(() =>
+      lineChart(beat({ ...COMPARED.params, readout: "Two points for one epoch." }, 5), ctx()),
+    ).toThrow(/needs 5\.7s and the beat is 5s/);
+  });
+
+  it("leaves a chart with no comparison on the schedule its bytes are pinned to", () => {
+    // `test/wiring.test.ts` holds an un-reshaped deck against a digest taken
+    // before any of this existed. The fitting is compare-only for that reason.
+    for (const s of [5, 8, 14]) expect(lineChart(beat(PLAIN.params, s), ctx()).holds).toEqual([3]);
+    const draw = lineChart(PLAIN, ctx()).tl.find((t) => "drawSVG" in t.to) as Tween;
+    expect(draw.to.duration).toBe(1.8);
+  });
+
+  it("paces the ring by the values it is walking, not by a draw-on that is over", () => {
+    // The ring rides the STROKE when there is one. With a comparison the curve is
+    // already whole, so it paces the values instead — and a hardcoded 1.8 is only
+    // the same span while `step` is at its authored 0.45. On a compressed beat it
+    // parked the ring mid-curve at the hold: on the line, in frame, green.
+    const scene = lineChart(beat(COMPARED.params, 5), ctx());
+    const legs = scene.tl.filter((t) => t.target === "#s2-ring" && "x" in t.to);
+    const leave = scene.tl.filter((t) => t.target === "#s2-ring" && t.to.opacity === 0);
+    expect(legs.length).toBeGreaterThan(0);
+    expect(leave).toHaveLength(1);
+    const last = scene.holds[scene.holds.length - 1] as number;
+    expect(ends(leave[0] as Tween)).toBeLessThanOrEqual(last);
+    for (const leg of legs) expect(ends(leg)).toBeLessThanOrEqual(last);
+  });
+});
+
 /* ---------------------------------------------------------------------- the ghost */
 
 describe("the baseline's label", () => {
@@ -247,6 +381,47 @@ describe("the baseline's label", () => {
       ctx(),
     ).html;
     expect(yOf(above)).toBeLessThan(lastBaseline(above));
+  });
+
+  it("never prints through a value label, on either of the two measured collisions", () => {
+    // BOTH OF THESE WERE MEASURED ON THIS EMITTER before the ghost was routed
+    // through `valueBoxes`. The first put the ghost's baseline at y=578.64 and
+    // the last value "1.1" at y=590.2, both at x=1645 — two 40px runs printing
+    // through each other, inside the frame, above the type floor, and invisible
+    // to every layout gate. The second overlapped the last `.pv` by 32.3px
+    // vertically and ~55px horizontally. `fitIndices` FORCE-KEEPS the last index,
+    // so the endpoint's value is always there to be hit, which is why this fires
+    // exactly when the two series converge — the shape a comparison is about.
+    const converging: [string, number[], number[]][] = [
+      ["loss", [2.0, 1.5, 1.2, 1.1], [2.0, 1.7, 1.35, 1.12]],
+      ["psnr", [28.91, 29.84, 30.19, 30.47], [26.2, 28.02, 29.6, 30.55]],
+      // And the third reviewer's: the ghost spans its own width sideways, so a
+      // steep final segment draws the baseline through the label naming it.
+      ["steep", [40, 55, 70, 99], [10, 11, 12, 95]],
+    ];
+    for (const [name, points, cmp] of converging) {
+      const scene = lineChart(
+        beat({
+          headline: "Each extra step buys less",
+          xLabel: "Steps",
+          yLabel: "Loss",
+          points: points.map((y, i) => ({ x: `T=${i}`, y })),
+          compare: { label: "Baseline", points: cmp.map((y, i) => ({ x: `T=${i}`, y })) },
+        }),
+        ctx(),
+      );
+      const g = ghostBox(scene.html);
+      // Dropped is a fine answer — `deltasFit` drops annotations for the same
+      // reason. What is not fine is a name printed through a number.
+      if (!g) {
+        expect(scene.css).not.toContain("ghostlab");
+        expect(scene.tl.some((t) => t.target.includes("ghostlab"))).toBe(false);
+        continue;
+      }
+      for (const v of valueBoxes(scene.html)) {
+        expect({ name, hit: hits(g, v) }).toEqual({ name, hit: false });
+      }
+    }
   });
 
   it("refuses a label too wide for the plot rather than printing it past the axis", () => {

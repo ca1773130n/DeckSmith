@@ -6,7 +6,7 @@
  * that is the only place they are observable without a browser.
  */
 import { describe, expect, it } from "vitest";
-import { emitScene } from "../src/emit/archetypes/index.js";
+import { emitScene, emitters } from "../src/emit/archetypes/index.js";
 import { emitComposition, planCut } from "../src/emit/composition.js";
 import {
   DIM,
@@ -485,6 +485,30 @@ describe("the DrawSVG seam", () => {
     // scene order, and two storyboards differing only in beat position must not
     // emit the same two script tags in different orders.
     expect(out.indexOf("registerPlugin(DrawSVGPlugin)")).toBeLessThan(pluginAt);
+  });
+
+  it("refuses a plugin name the table does not know rather than dropping it", () => {
+    // THE RISK AN OPEN REGISTRY BUYS, and the reason `PLUGINS` needs a door as
+    // well as a table. `Scene.plugins` is `readonly string[]`, so `"morphSvg"`
+    // for `"morphSVG"` is a string tsc and biome are both content with — and the
+    // filter over `PLUGINS` would drop it in silence: no script, no
+    // `registerPlugin`, and then GSAP reading `morphSVG` as an unrecognised
+    // property on a tween that animates NOTHING. The line would hold its baseline
+    // `d` for the whole beat while the dots, values and ring sat at the target
+    // geometry — in frame, above the type floor, green in every gate.
+    //
+    // Driven by swapping one entry of the emitters table, because no archetype
+    // can produce this today. That IS the point: the typo would be in the
+    // archetype, and nothing between it and the shell can see one.
+    const real = emitters.title;
+    emitters.title = (beat, ctx) => ({ ...real(beat, ctx), plugins: ["morphSvg"] });
+    try {
+      expect(() => emitComposition(storyboard, source, format("deck-16x9"))).toThrow(
+        /title b1: no vendored plugin named "morphSvg" — Scene.plugins takes dsMorph or morphSVG/,
+      );
+    } finally {
+      emitters.title = real;
+    }
   });
 
   it("never feeds a stroke a length the emitter computed", () => {

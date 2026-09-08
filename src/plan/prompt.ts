@@ -195,6 +195,10 @@ DRAWING ARCHETYPES — reach here first
                  curve reshapes into \`points\` and leaves the baseline behind. Do
                  not use it for two unrelated series that happen to share an
                  axis — nothing reshapes into something it is not a version of.
+                 A compare beat also costs TIME — the baseline draws, is held,
+                 then reshapes — so give it \`seconds\` of 7, or 8 with a
+                 \`readout\`. Below about 5 the emitter refuses the beat rather
+                 than stopping on a half-drawn chart.
 
 DESCRIBING ARCHETYPES — the fallbacks
 

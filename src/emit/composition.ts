@@ -467,7 +467,23 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
     if (scene.css) archetypeCss.add(scene.css.trim());
     if (scene.measure?.length) builds = true;
-    for (const p of scene.plugins ?? []) plugins.add(p);
+    // AN OPEN REGISTRY NEEDS A CLOSED DOOR, and this is it. `Scene.plugins` is
+    // `readonly string[]`, so `"morphSvg"` for `"morphSVG"` is a string tsc and
+    // biome are both content with; `renderComposition` filters `laid.plugins`
+    // through `PLUGINS`, so a name the table does not know would simply be
+    // dropped — no script, no `registerPlugin`, and then GSAP reading `morphSVG`
+    // as an unrecognised property on a tween that animates NOTHING. The line
+    // holds its baseline `d` for the whole beat while the dots, values and ring
+    // sit at the target geometry: in frame, above the type floor, and green in
+    // every gate. `Object.hasOwn`, not `in`, or `"toString"` is a known plugin.
+    for (const p of scene.plugins ?? []) {
+      if (!Object.hasOwn(PLUGINS, p)) {
+        throw new Error(
+          `${beat.archetype} ${beat.id}: no vendored plugin named "${p}" — Scene.plugins takes ${Object.keys(PLUGINS).join(" or ")}`,
+        );
+      }
+      plugins.add(p);
+    }
     scenes.push(
       sceneHtml(
         sid,
