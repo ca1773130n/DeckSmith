@@ -328,6 +328,12 @@ export interface BuildDeckOptions {
    * Absent, the emitter's error propagates — see `DeckOptions.onBeatError`.
    */
   onBeatError?: (beatId: string, err: Error) => void;
+  /**
+   * Called when a beat is drawn but not as it was authored — an emitter dropped
+   * an ornament to fit the beat's length. The beat is IN the deck; nothing is
+   * missing but the ornament. See `DeckOptions.onBeatWarning`.
+   */
+  onBeatWarning?: (beatId: string, warning: string) => void;
   /** Any name in `THEME_NAMES`. Overrides `storyboard.theme`. */
   theme?: string;
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
@@ -390,6 +396,7 @@ export async function buildDeck(
     ...(opts.theme ? { theme: opts.theme } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
+    ...(opts.onBeatWarning ? { onBeatWarning: opts.onBeatWarning } : {}),
     ...(fontCss ? { fontCss } : {}),
   });
 

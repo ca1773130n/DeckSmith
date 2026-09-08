@@ -40,7 +40,10 @@ export const REVEALS: Record<string, string> = {
   "equation-walk": "one per term",
   "equation-morph": "2",
   "data-table": "one per highlighted row, plus 1",
-  "line-chart": "1",
+  // "long enough" is not a hedge: below the emitter's own floor the comparison
+  // is dropped and the chart stops twice becoming a chart that stops once. See
+  // the line-chart entry under THE THIRTEEN ARCHETYPES for what that costs.
+  "line-chart": "1, or 2 when compare is given and the beat is long enough for it",
   callout: "one per panel",
   pipeline: "one per stage",
   "annotated-figure": "one per note, plus 1",
@@ -185,6 +188,22 @@ DRAWING ARCHETYPES — reach here first
                  scale, over training. Points come from the source's numbers;
                  deltas, if given, are the steps between consecutive points, so
                  there is always one fewer.
+                 \`compare\` adds a SECOND CONDITION over the same axis — the tell
+                 there is THE SAME QUANTITY MEASURED TWO WAYS, a baseline and the
+                 result, where what the source is claiming is the change in the
+                 SHAPE of the curve and not two numbers. Its \`label\` names the
+                 baseline ("without pretraining", "FP32") and is drawn on the
+                 slide. \`compare.points\` must carry the SAME x values, in the
+                 same order, as \`points\`; the baseline is drawn first, then the
+                 curve reshapes into \`points\` and leaves the baseline behind. Do
+                 not use it for two unrelated series that happen to share an
+                 axis — nothing reshapes into something it is not a version of.
+                 A compare beat also costs TIME — the baseline draws, is held,
+                 then reshapes — so give it \`seconds\` of 7, or 8 with a
+                 \`readout\`. Give it too few and the emitter draws the chart
+                 without the comparison rather than stopping on a half-drawn one:
+                 the slide is still there, but the point about the baseline is
+                 gone.
 
 DESCRIBING ARCHETYPES — the fallbacks
 

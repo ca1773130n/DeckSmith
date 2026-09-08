@@ -112,6 +112,9 @@ property `immediateRender` discipline exists for.
   adding one is a product decision about the showcase, not a build step.
 - No `Reshape` (MorphSVG) and no `Track`: nothing emits them, and the DrawSVG
   note's rule stands — an unused plugin is bytes every deck pays for.
+  **Reshape landed on 2026-09-08**, with `line-chart.compare` as its one
+  consumer and a plugin table that keeps the rule; `Track` has not.
+  See `2026-09-08-reshape-seam.md`.
 - The planner has not been asked for keys yet. `VOCABULARY.md` §1 flags that
   planner key generation was never measured; the prompt now describes the beat
   and the `refs` gate catches a dangling `fromId`/`toId`, but whether a plan

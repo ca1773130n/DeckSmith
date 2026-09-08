@@ -378,11 +378,34 @@ export interface Scene {
   measure?: string[];
   /**
    * Vendored runtimes this scene's tweens need registered before its script
-   * runs — `"dsMorph"` for the equation morph. The shell loads a runtime only
-   * when some scene names it, so a deck that names none is byte-for-byte what
-   * it was.
+   * runs — `"dsMorph"` for the equation morph, `"morphSVG"` for a reshape. The
+   * shell loads a runtime only when some scene names it, so a deck that names
+   * none is byte-for-byte what it was.
+   *
+   * `PLUGINS` in `composition.ts` is the ONE place a name resolves, and it is
+   * the list to read before returning this field: the type is
+   * `readonly string[]`, so a name that table does not know is a typo no
+   * compiler can see, and the shell refuses it there rather than emitting a
+   * scene whose plugin tween animates nothing.
    */
   plugins?: readonly string[];
+  /**
+   * WHAT THE ARCHETYPE HAD TO GIVE UP TO DRAW THIS BEAT, one sentence each.
+   *
+   * The middle answer between drawing the beat as asked and refusing it. An
+   * emitter that cannot fit everything it was given has three moves: draw it
+   * anyway and let it collide or truncate, which is the failure this project
+   * keeps finding by eye; throw, which reaches `onBeatError` and costs the whole
+   * SLIDE; or draw less and say so, which is this. Reach for it when the thing
+   * dropped is an ORNAMENT — line-chart's reshape against a baseline, say —
+   * and for the throw when what is left would misrepresent the source.
+   *
+   * Surfaced by `layout` through `DeckOptions.onBeatWarning`, once per built
+   * scene. `planCut`'s measuring pass emits every beat too and deliberately does
+   * not report these: it throws its scenes away, and the same sentence twice per
+   * beat trains people to stop reading it.
+   */
+  warnings?: readonly string[];
   /**
    * Hold points in seconds from the scene's start — where a presenter should
    * pause. The shell converts these to absolute island fragment times.

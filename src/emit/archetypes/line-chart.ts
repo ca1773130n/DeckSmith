@@ -7,8 +7,8 @@
  * asserting something the numbers do not.
  */
 import type { Emitter } from "../kit.js";
-import { contentW, esc } from "../kit.js";
-import { DRAW_FROM, DRAW_TO, faceOf, nv, textWidth, travel, wrap } from "../svg.js";
+import { contentW, esc, sec } from "../kit.js";
+import { DRAW_FROM, DRAW_TO, faceOf, nv, reshape, textWidth, travel, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_SIZE,
@@ -41,6 +41,38 @@ const READOUT_LH = 1.35;
  * budget it declines goes back to the slide as margin, which reads as air.
  */
 const TALL_ASPECT = 1.15;
+
+/**
+ * How long the baseline curve takes to become the result, and how far it fades
+ * once it has been left behind.
+ *
+ * 1.2s is slow enough that the eye can follow one point moving rather than see a
+ * cut, and short enough that the beat still has room for its own dots and values
+ * afterwards. 0.28 leaves the ghost legible as a shape while making it
+ * unmistakably the thing that is no longer being asserted — at 0 it is a cut, at
+ * 0.5 the two curves compete.
+ */
+const RESHAPE_SECONDS = 1.2;
+const GHOST_OPACITY = 0.28;
+
+/**
+ * The curve going on, and the half-second the copy takes to leave it.
+ *
+ * `DRAW_SECONDS` is the length a draw-on is authored at; `DRAW_FLOOR` is the
+ * least a short beat may compress it to — under a second a curve stops arriving
+ * and starts appearing, which is the cut the reshape exists to avoid. The floor
+ * also keeps the ghost's own 0.5s fade, which starts at 1.2s, finished before
+ * the copy lifts at `0.8 + DRAW_FLOOR`.
+ */
+const DRAW_SECONDS = 1.8;
+const DRAW_FLOOR = 1.0;
+const SEPARATE = 0.5;
+/**
+ * The least the point-by-point reveal may be staggered by. Below this the dots
+ * — 0.3s each — overlap so far that they arrive as one pop, and a reveal that is
+ * not point by point is not doing the thing it is there for.
+ */
+const STEP_FLOOR = 0.15;
 
 export interface Scale {
   min: number;
@@ -112,7 +144,13 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   // a label the browser then draws past the frame.
   const face = faceOf(theme.fontStack);
 
-  const scale = chartScale(p.points.map((pt) => pt.y));
+  // BOTH SERIES, or the baseline draws outside its own plot. The schema has
+  // already established that `compare` runs over the same x labels, so the only
+  // thing the second series can change is the y range — and a scale fitted to
+  // one of two curves is the hardcoded axis this file's header warns about,
+  // arrived at from the other direction.
+  const cmp = p.compare;
+  const scale = chartScale([...p.points, ...(cmp?.points ?? [])].map((pt) => pt.y));
   const box = contentW(ctx.format);
   // PORTRAIT: the readout goes UNDER the chart. Beside it, the readout's 460px
   // took more than half of the 860px box and left the plot 400 wide — five
@@ -214,6 +252,15 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   /** One answer to "how wide is this", shared with every other archetype. */
   const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
   const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
+  /** The same, at `.axname`'s declared 500. */
+  const nameW = (s: string) => textWidth(s, LABEL_SIZE, 500, 0, false, face);
+  /**
+   * And at `.ghostlab`'s 600. Measuring the ghost with `runW` under-charges its
+   * width, so the predicate accepts a candidate the browser then overprints — the
+   * same weight mismatch the perturbation sweep already found once in `stack`,
+   * measured at 600 and drawn at 700 so its second line printed through the note.
+   */
+  const ghostW = (s: string) => textWidth(s, LABEL_SIZE, 600, 0, false, face);
 
   // The category names were the six collisions left after the values were
   // thinned: "T=9" through "T=15" printing into each other along the bottom of a
@@ -225,7 +272,10 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     )
     .join("");
 
-  const path = p.points.map((pt, i) => `${i === 0 ? "M" : "L"}${n(x(i))},${n(y(pt.y))}`).join(" ");
+  const pathOf = (pts: readonly { y: number }[]) =>
+    pts.map((pt, i) => `${i === 0 ? "M" : "L"}${n(x(i))},${n(y(pt.y))}`).join(" ");
+  const path = pathOf(p.points);
+  const basePath = cmp ? pathOf(cmp.points) : "";
 
   const dots = p.points
     .map(
@@ -333,6 +383,194 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       ? `<circle id="${sid}-ring" cx="${n(first.x)}" cy="${n(first.y)}" r="20" fill="none" stroke="${theme.tones.b}" stroke-width="5" opacity="0" />`
       : "";
 
+  /**
+   * THE RESHAPE, DRAWN AS THREE PATHS RATHER THAN ONE.
+   *
+   * `-base` is drawn on and never reshaped; `-line` is reshaped and never drawn
+   * on; `-target` is geometry only, carrying the final `d` for MorphSVG to read.
+   *
+   * THE HAZARD THAT SPLIT WAS FOR, AND NO LINT SEES IT. DrawSVG and MorphSVG
+   * write different GSAP properties, so `overlapping_gsap_tweens` stays quiet
+   * about the two of them on one element — but after `drawSVG: 100%` GSAP leaves
+   * `stroke-dasharray` at the OLD path's length, and reshaping to a longer path
+   * then leaves the tail unpainted: inside the frame, above the type floor, and
+   * invisible to every gate. Sequencing around it would work until someone
+   * changed the sequence. Two elements cannot interact.
+   *
+   * `-target` is `stroke="none"`: present for `document.querySelector`, painting
+   * nothing. Not `display:none`, which some browsers refuse to measure.
+   */
+  const lineTag = (part: string, d: string, extra = "") =>
+    `<path class="chartline" id="${sid}-${part}" d="${d}" fill="none" stroke="${theme.accent}"${extra} />`;
+  const chartlines = cmp
+    ? [
+        lineTag("base", basePath),
+        lineTag("line", basePath, ' opacity="0"'),
+        `<path id="${sid}-target" d="${path}" fill="none" stroke="none" />`,
+      ].join("\n    ")
+    : lineTag("line", path);
+
+  /**
+   * THE VERTICAL BAND ONE OF THE TWO CURVES OCCUPIES BETWEEN TWO X POSITIONS.
+   *
+   * Both series are polylines, so over any x range their y values form one
+   * unbroken interval — the vertices inside the range, plus the interpolated y
+   * at each edge. Continuity does the rest: every y in that interval is reached
+   * at some x inside the range, so a box whose own y range meets the interval is
+   * a box the curve is drawn through. Nothing has to be sampled, and there is no
+   * step size to get wrong.
+   */
+  const curveBand = (pts: readonly { y: number }[], x0: number, x1: number): [number, number] => {
+    const ys: number[] = [];
+    const py = (i: number) => y(pts[i]?.y ?? 0);
+    for (let i = 0; i < pts.length; i++) {
+      if (x(i) >= x0 && x(i) <= x1) ys.push(py(i));
+    }
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, bx] = [x(i), x(i + 1)];
+      for (const edge of [x0, x1]) {
+        if (edge > Math.min(ax, bx) && edge < Math.max(ax, bx)) {
+          ys.push(py(i) + ((py(i + 1) - py(i)) * (edge - ax)) / (bx - ax));
+        }
+      }
+    }
+    // An empty band never overlaps: `-Infinity - Infinity` is not greater than 8.
+    return ys.length > 0
+      ? [Math.min(...ys), Math.max(...ys)]
+      : [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  };
+
+  /**
+   * THE TEXT THIS CHART SETS WHATEVER THE DATA SAYS.
+   *
+   * `valueBoxes` and `deltaBoxes` are the runs the DATA puts on the plot, and
+   * they were the whole of what the ghost was tested against — which left out
+   * every run that is there on every line chart this file has ever emitted. The
+   * y-axis NAME is the one that bites. It is set at the svg's top-left, and a
+   * first-x candidate is `start`-anchored at `x(0)` — which is `PAD.l`, 150 —
+   * with its baseline clamped up to at least 44, so the two share a band by
+   * construction rather than by coincidence.
+   *
+   * MEASURED on this emitter, points [80, 60, 45, 40] against [100, 55, 70, 42]
+   * with "PSNR (dB)" on the axis and "Baseline" as the ghost: both last-x
+   * candidates are blocked, the ghost falls through to the first x and the away
+   * side clamps to 70, and the emitted `<text class="ghostlab" …
+   * text-anchor="start" x="150" y="70">` ran straight through "PSNR (dB)", which
+   * this file charges 204.87px at `.axname`'s declared 500 and so occupies
+   * x 0-204.87 at y 2-42. 54.87px of horizontal overlap, 12px of vertical.
+   * With the set below in the collision test that beat drops the ghost outright
+   * — all four candidates are rejected — which is the `deltasFit` answer and the
+   * right one: an unnamed ghost is still legibly the fainter, earlier curve.
+   *
+   * THE OTHER THREE ARE HERE BECAUSE THE RULE IS "EVERY ALWAYS-DRAWN RUN", NOT
+   * BECAUSE ANY OF THEM HAS BEEN SEEN TO COLLIDE. On today's clamps none can.
+   * The tick labels are `end`-anchored at `PAD.l - 22`, so they end 22px left of
+   * where the first-x candidates begin. The category names sit on a baseline of
+   * `H - PAD.b + 56`, so their boxes start 12px below `H - PAD.b + 4`, the
+   * lowest baseline `toward` can reach; the x-axis name's box starts 80px below
+   * it. They are in the set so that moving one of those clamps — or the padding
+   * either is measured from — cannot silently re-open this.
+   *
+   * AND THAT IS ALL OF THEM. The runs this archetype sets are the two `.axname`s,
+   * the tick labels, the category names, the `.pv` values, the `.dv` deltas, the
+   * `.ghostlab` itself, the `.readout`, and the eyebrow and headline `chrome`
+   * puts above the chart. The first four are here, the values and deltas are the
+   * two data-driven sets the candidate is tested against below, and the last
+   * three CANNOT be in this set: the readout and the chrome are HTML siblings of
+   * the `<svg>`, laid out by flex in the slide's coordinates, and comparing them
+   * against a box in the viewBox's would be arithmetic between two different
+   * spaces. They are kept clear by `bodyBudget` and `.chartwrap` instead.
+   */
+  const fixedBoxes = [
+    // `.axname` is the one run here set at weight 500 rather than 400, and
+    // under-charging a width is the unrecoverable direction (see `padR`).
+    // No `text-anchor` on the y half, so it runs rightwards from x=0.
+    { x: 0, y: 42 - LABEL_SIZE, w: nameW(p.yLabel), h: LABEL_SIZE },
+    {
+      x: PAD.l + plotW / 2 - nameW(p.xLabel) / 2,
+      y: H - 16 - LABEL_SIZE,
+      w: nameW(p.xLabel),
+      h: LABEL_SIZE,
+    },
+    ...ticks.map((v) => {
+      const w = runW(v.toFixed(scale.decimals));
+      return { x: PAD.l - 22 - w, y: y(v) + 13 - LABEL_SIZE, w, h: LABEL_SIZE };
+    }),
+    ...p.points
+      .map((pt, i) => ({ pt, i }))
+      .filter(({ i }) => shownX.has(i))
+      .map(({ pt, i }) => labelBox(x(i), H - PAD.b + 56, pt.x)),
+  ];
+
+  /**
+   * THE GHOST'S NAME, THROUGH THE SAME BOXES AS EVERY OTHER LABEL HERE.
+   *
+   * Anchored at one END of the baseline and set away from the frame — at the
+   * last x it is `end`-anchored and spans leftwards, at the first x it is
+   * `start`-anchored and spans rightwards — so it cannot hang past `padR` or
+   * `PAD.l` the way a middle-anchored label on either x would. That is the whole
+   * of what is fixed about it. WHERE it goes is a collision question: the end of
+   * the curve first, because that is where a series label is looked for, and on
+   * the side away from the result, because that is the side the endpoint's own
+   * value label is not on. Everything after the first candidate is what happens
+   * when the preferred place is taken.
+   *
+   * WHAT EACH CANDIDATE IS TESTED AGAINST. Every other run this emitter sets:
+   * `fixedBoxes` above — the axis names, the tick labels and the category names,
+   * which are there whatever the data is — plus the drawn value labels and the
+   * drawn deltas, which are there because of it. All of them are 40px runs in
+   * the same band, and two of those printing through each other is invisible to
+   * every layout gate. Measured twice on this emitter against the value labels:
+   * with a "Loss" chart converging on 1.10 against 1.12, the ghost's
+   * baseline landed at y=578.64 and the last value "1.1" at y=590.2, both at
+   * x=1645; and with 30.47 against 30.55, the ghost and the last `.pv` overlapped
+   * 32.3px vertically. `fitIndices` FORCE-KEEPS the last index, so the endpoint's
+   * value is always there to be hit — this fires whenever the two series converge,
+   * which is the shape a comparison beat is most often about.
+   *
+   * And both curves, because the label spans its own width sideways and a steep
+   * segment draws straight through the name of the thing it is: compare y
+   * [10, 11, 12, 95] against points y [40, 55, 70, 99] and the baseline's last
+   * leg crosses its own label.
+   *
+   * NOTHING CLEAR MEANS NO NAME, the way `deltasFit` drops the deltas rather than
+   * collide. An unnamed ghost is still legibly the fainter, earlier curve; a name
+   * printed through a number is a defect in both of them.
+   */
+  const lastI = p.points.length - 1;
+  const ghost = (() => {
+    if (!cmp) return undefined;
+    const w = ghostW(cmp.label);
+    if (w > plotW) {
+      throw new Error(
+        `line-chart ${beat.id}: the compare label "${cmp.label}" is ${Math.ceil(w)}px against the ${Math.floor(plotW)}px of plot it is set in. Shorten it.`,
+      );
+    }
+    /** Both sides of one end of the baseline, the one away from the result first. */
+    const atEnd = (i: number, start: boolean) => {
+      const cy = y(cmp.points[i]?.y ?? 0);
+      const away = Math.max(44, cy - 26);
+      const toward = Math.min(cy + 52, H - PAD.b + 4);
+      const sides = cy < y(p.points[i]?.y ?? 0) ? [away, toward] : [toward, away];
+      return sides.map((by) => ({ i, start, by }));
+    };
+    const drawnDeltas = deltasFit ? deltaBoxes : [];
+    return [...atEnd(lastI, false), ...atEnd(0, true)].find((c) => {
+      const box = { x: c.start ? x(c.i) : x(c.i) - w, y: c.by - LABEL_SIZE, w, h: LABEL_SIZE };
+      if (fixedBoxes.some((f) => overlaps(box, f))) return false;
+      if (valueBoxes.some((v) => overlaps(box, v))) return false;
+      if (drawnDeltas.some((d) => d !== null && overlaps(box, d))) return false;
+      return ![p.points, cmp.points].some((series) => {
+        const [top, bottom] = curveBand(series, box.x, box.x + box.w);
+        return Math.min(box.y + box.h, bottom) - Math.max(box.y, top) > 8;
+      });
+    });
+  })();
+  const ghostLabel =
+    cmp && ghost
+      ? `\n    <text class="ghostlab" id="${sid}-ghostlab" text-anchor="${ghost.start ? "start" : "end"}" x="${n(x(ghost.i))}" y="${n(ghost.by)}">${esc(cmp.label)}</text>`
+      : "";
+
   const readout = p.readout
     ? `\n  <div class="readout" id="${sid}-read">${esc(p.readout)}</div>`
     : "";
@@ -346,7 +584,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
          the svg and the layout gate reports container_overflow. -->
     <text class="axname" x="0" y="42">${esc(p.yLabel)}</text>
     <text class="axname" x="${n(PAD.l + plotW / 2)}" y="${H - 16}" text-anchor="middle">${esc(p.xLabel)}</text>
-    <path class="chartline" id="${sid}-line" d="${path}" fill="none" stroke="${theme.accent}" />
+    ${chartlines}${ghostLabel}
     <g>${dots}</g>
     ${ring}
     <g class="ptlab" text-anchor="middle">${values}</g>
@@ -355,10 +593,110 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
 </div>`;
 
   const draw = 0.8;
-  const step = Math.min(0.45, 1.8 / p.points.length);
+  const count = p.points.length;
+  /** The stagger a beat with room to spare gets: the reveal spans the draw-on. */
+  const idealStep = Math.min(0.45, DRAW_SECONDS / count);
+  /**
+   * WHAT A COMPARE SCHEDULE COSTS BEFORE ONE POINT HAS BEEN REVEALED. None of it
+   * depends on the data: `draw` before the baseline starts, `SEPARATE` for the
+   * copy to lift off it, `RESHAPE_SECONDS`, the readout's own 0.8s where there is
+   * one, and `holdsWithin`'s 0.15s margin at the end.
+   */
+  const spine = draw + SEPARATE + RESHAPE_SECONDS + (p.readout ? 0.8 : 0) + 0.15;
+  /** The deltas actually drawn — `deltasFit` keeps all of them or none. */
+  const shownDeltas = deltas ? Math.min((p.deltas ?? []).length, count - 1) : 0;
+  /**
+   * WHEN THE CHART IS FINISHED, MEASURED FROM `settled`: the last of the four
+   * things the reveal starts, not whichever one is usually last.
+   *
+   * The ring's walk plus the 0.4s it takes to leave is the longest of them at the
+   * authored 0.45 stagger — but the deltas begin 0.6s in and run 0.35s, so below
+   * a 0.275 stagger THEY are, and a fitted schedule reaches steps that short. A
+   * hold placed at "the end" without asking every tail is a stop on a delta still
+   * fading up, which is the same defect this whole block is about.
+   */
+  const tailAfter = (s: number) =>
+    Math.max(
+      s * count + 0.4, // the ring: its walk, then the 0.4s it takes to leave
+      0.3 + s * (count - 1), // the dots
+      0.5 + s * (count - 1), // the values, 0.2s behind them
+      ...(shownDeltas > 0 ? [0.95 + s * (shownDeltas - 1)] : []),
+    );
+  /**
+   * THE TWO SPANS THAT CAN GIVE, FITTED TO THE BEAT.
+   *
+   * `beat.seconds` is the planner's — `prompt.ts` tells it 5 to 12 is typical and
+   * `durationPlan` hands out about 5 apiece for a twelve-beat minute — and held
+   * at their authored length these two put the second hold at 6.5s on ANY chart
+   * of four points or more, whatever the beat was planned as. At `seconds: 5`,
+   * the prompt's own lower bound, `holdsWithin` then clamped that hold to 4.85
+   * and the stop landed on one dot of four, one value of four, and the ring
+   * parked mid-curve — in frame, above the type floor, and green in every gate,
+   * because `beatSeconds` returns the authored value on a silent deck and no
+   * verify rule compares a scene's duration against the end of its own timeline.
+   *
+   * THE DRAW-ON GIVES UP ITS LENGTH FIRST, all the way to `DRAW_FLOOR`, and only
+   * then does the reveal give up any of its. The reveal is what the second hold
+   * lands in and what the beat is about; compressing it first would crush the
+   * point-by-point read while the baseline was still being laid down at leisure.
+   *
+   * Both are found by taking hundredths OFF until `tailAfter` fits, rather than
+   * by inverting it. Inverting a max of four lines is four cases to keep in step
+   * with the four tweens below, and the fifth tail somebody adds later would be
+   * in none of them; a descent over the same function the schedule itself uses
+   * cannot drift from it. In whole hundredths, because a fitted span rounded UP
+   * is a schedule that stops fitting by a centisecond — and in integer
+   * hundredths, because `0.23 - 0.01` is `0.21999999999999997` and would skip a
+   * step on the way down.
+   */
+  const room = beat.seconds - spine;
+  let drawCents = Math.round(DRAW_SECONDS * 100);
+  let stepCents = Math.floor(idealStep * 100);
+  if (cmp) {
+    while (drawCents / 100 + tailAfter(stepCents / 100) > room) {
+      if (drawCents > Math.round(DRAW_FLOOR * 100)) drawCents--;
+      else if (stepCents > Math.round(STEP_FLOOR * 100)) stepCents--;
+      else break;
+    }
+  }
+  const drawFor = cmp ? drawCents / 100 : DRAW_SECONDS;
+  const step = cmp ? stepCents / 100 : idealStep;
+  /** When the baseline curve is whole and named — the moment before it is left behind. */
+  const lift = sec(draw + drawFor);
+  /**
+   * When the curve on screen is the one the dots, values and ring are about.
+   *
+   * Without a comparison that is the instant the draw-on starts, and everything
+   * rides the stroke as it is laid down. With one it is the instant the reshape
+   * LANDS: the ring's route comes from `p.points`, so starting it any earlier
+   * walks the final route over an intermediate curve — a marker beside its own
+   * line, in frame, above the type floor, and green everywhere.
+   */
+  const settled = cmp ? sec(lift + SEPARATE + RESHAPE_SECONDS) : draw;
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
-    tween(`#${sid}-line`, DRAW_FROM, { ...DRAW_TO, duration: 1.8, ease: "none" }, draw),
+    tween(
+      `#${sid}-${cmp ? "base" : "line"}`,
+      DRAW_FROM,
+      { ...DRAW_TO, duration: drawFor, ease: "none" },
+      draw,
+    ),
+  ];
+  if (cmp) {
+    tl.push(
+      // Only where the ghost survived its own collision check — a tween on an id
+      // nothing carries is a selector GSAP resolves to nothing, which is silent.
+      ...(ghost
+        ? [tween(`#${sid}-ghostlab`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, draw + 0.4)]
+        : []),
+      // The copy lifts off — same geometry, so the half-second reads as one line
+      // separating from itself rather than as a second line arriving.
+      tween(`#${sid}-line`, { opacity: 0 }, { opacity: 1, duration: SEPARATE }, lift),
+      tween(`#${sid}-base`, { opacity: 1 }, { opacity: GHOST_OPACITY, duration: SEPARATE }, lift),
+      reshape(`#${sid}-line`, `#${sid}-target`, lift + SEPARATE, RESHAPE_SECONDS, true),
+    );
+  }
+  tl.push(
     tween(
       `#${sid} .dot`,
       // Origin in both halves, or GSAP's smoothOrigin compensates the change with
@@ -366,41 +704,63 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       // polyline they mark, inside the frame and so invisible to every gate.
       { opacity: 0, scale: 0, transformOrigin: "center" },
       { opacity: 1, scale: 1, transformOrigin: "center", duration: 0.3, stagger: step },
-      draw,
+      settled,
     ),
-    tween(`#${sid} .pv`, { opacity: 0 }, { opacity: 1, duration: 0.3, stagger: step }, draw + 0.2),
-  ];
+    tween(
+      `#${sid} .pv`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.3, stagger: step },
+      settled + 0.2,
+    ),
+  );
   if (deltas) {
     tl.push(
       tween(
         `#${sid} .dv`,
         { opacity: 0, y: -10 },
         { opacity: 1, y: 0, duration: 0.35, stagger: step },
-        draw + 0.6,
+        settled + 0.6,
       ),
     );
   }
 
   // The ring rides the same 1.8s the line takes to draw, point by point, so it
   // is always at the head of the stroke rather than racing it or trailing it.
-  if (p.points.length > 1) {
+  // With a comparison there is no stroke to ride — the curve is already whole by
+  // then — and it reads instead as the reader going back over what the reshape
+  // just produced, point by point, as each value appears. So THERE it paces the
+  // values rather than a stroke: a hardcoded 1.8 is only the same span while
+  // `step` is at its authored 0.45, and on a beat short enough to have
+  // compressed the stagger it parks the ring mid-curve at the hold — on the
+  // line, in frame, and green everywhere.
+  const walk = cmp ? sec(step * count) : DRAW_SECONDS;
+  if (count > 1) {
     const route = p.points.map((pt, i) => ({ x: nv(x(i) - first.x), y: nv(y(pt.y) - first.y) }));
     tl.push(
-      tween(`#${sid}-ring`, { opacity: 0 }, { opacity: 1, duration: 0.25 }, draw),
-      ...travel(`#${sid}-ring`, route, draw, 1.8),
+      tween(`#${sid}-ring`, { opacity: 0 }, { opacity: 1, duration: 0.25 }, settled),
+      ...travel(`#${sid}-ring`, route, settled, walk),
       // And it leaves once the curve is whole: a marker parked on the last
       // point for the rest of the beat reads as a defect, not as emphasis.
       tween(
         `#${sid}-ring`,
         { opacity: 1 },
         { opacity: 0, duration: 0.4, immediateRender: false },
-        draw + 1.8,
+        settled + walk,
       ),
     );
   }
 
-  const drawn = draw + step * p.points.length + 0.4;
-  const holds = [drawn];
+  // The compare path asks every tail; the plain one keeps the form its bytes are
+  // pinned to in `test/wiring.test.ts`. They agree wherever the plain path can
+  // reach — its `step` is never compressed, so the ring's `1.8 + 0.4` is the
+  // longest tail on any chart of four points or more, which is every chart the
+  // stagger cap of 0.45 applies to.
+  const drawn = settled + (cmp ? tailAfter(step) : step * count + 0.4);
+  // TWO STOPS WHEN THERE IS A COMPARISON, and `REVEALS["line-chart"]` says so.
+  // The baseline alone is a claim in its own right — it is what the result is
+  // measured against — so it gets the pause that lets a sentence be said over
+  // it, rather than being drawn and abandoned inside one breath.
+  const holds = cmp ? [lift, drawn] : [drawn];
   if (p.readout) {
     tl.push(
       // It enters from wherever it sits: from the right when it is beside the
@@ -412,9 +772,55 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     holds.push(drawn + 0.8);
   }
 
+  /*
+   * DROP THE COMPARISON, NOT THE BEAT.
+   *
+   * Both spans above are at their floors by the time this can fire, so there is
+   * nothing left to give — and `holdsWithin` would clamp the second stop onto a
+   * half-drawn chart, in frame, above the type floor, green in every gate. That
+   * much was already true. What was wrong was the remedy: this threw, and a
+   * throw goes to `onBeatError`, which DROPS THE WHOLE BEAT.
+   *
+   * MEASURED against what a planner actually writes. The floors here run from
+   * 4.35s (two points, no deltas, no readout) to 6.65s (twelve points with a
+   * readout), and the shortest committed planner output in this repository,
+   * experiments/013-vocabulary/planner/runs/B0-02/out.json, authors its eleven
+   * beats at 4.6, 4.9, 5.2, 5.3, 5.8, 5.8, 6, 6.2, 6.4, 6.4 and 6.5 seconds.
+   * Four of those eleven refuse a four-point comparison carrying a readout,
+   * which needs 5.7s; all eleven refuse a twelve-point one. So the refusal
+   * turned "the comparison animates a bit fast" into "the slide is not in the
+   * deck" across most of a real plan.
+   *
+   * So the chart is emitted WITHOUT the comparison instead: the same beat, one
+   * series, on the plain schedule whose bytes `test/wiring.test.ts` pins. The
+   * data survives and only the reshape is lost, which is the trade the right way
+   * round. Re-entering with `compare` removed is what makes that exact — the
+   * degraded scene is not a special case built here to look like a plain chart,
+   * it IS the plain chart, down to `plugins` being absent so the head vendors
+   * none of MorphSVG's 21,195 bytes. It recurses exactly once: `cmp` is
+   * `undefined` on the way back in, so this branch cannot be reached again.
+   *
+   * SAID OUT LOUD, because a deck quietly missing the comparison it was planned
+   * around is this project's own recurring failure. `Scene.warnings` is the
+   * channel; `build` prints it and the server puts it in the job's warnings.
+   */
+  const end = holds[holds.length - 1] ?? 0;
+  const need = sec(end + 0.15);
+  if (cmp && need > beat.seconds + 1e-9) {
+    return {
+      ...lineChart({ ...beat, params: { ...p, compare: undefined } }, ctx),
+      warnings: [
+        `line-chart ${beat.id}: a comparison against "${cmp.label}" over ${count} points needs ${need}s and the beat is ${beat.seconds}s, so the chart was drawn without it. Lengthen the beat to keep the comparison.`,
+      ],
+    };
+  }
+
   return {
     html,
     tl,
+    // Named only when a beat actually reshapes, which is what keeps MorphSVG's
+    // 21,195 bytes off every deck that does not. See `PLUGINS` in composition.ts.
+    ...(cmp ? { plugins: ["morphSVG"] } : {}),
     holds: holdsWithin(holds, beat.seconds),
     css: [
       chromeCss(theme),
@@ -439,6 +845,14 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       `.axname{font-size:40px;fill:${theme.muted};font-weight:500}`,
       `.ptlab{font-size:40px;fill:${theme.fg};font-weight:600}`,
       `.delta{font-size:40px;fill:${theme.tones.b};font-weight:600}`,
+      // Only when a ghost was actually named — not merely when there is a ghost,
+      // since the label is dropped where neither side of the baseline is clear.
+      // An unconditional rule would move the stylesheet bytes of every line chart
+      // ever built for a part they do not draw, which is the whole thing
+      // `Scene.plugins` is careful about one level up. `muted`, not `dim`: it
+      // names a series, so it is read, and the curve it names is the thing that
+      // has been faded, not its label.
+      ...(ghost ? [`.ghostlab{font-size:40px;fill:${theme.muted};font-weight:600}`] : []),
       // 1.7 set the two lines of a wrapped readout 68px apart, which reads as two
       // unrelated fragments rather than one sentence. 1.35 keeps it a paragraph.
       `.readout{font-size:${BODY_SIZE}px;line-height:${READOUT_LH};color:${theme.muted};max-width:${READOUT_W}px}`,

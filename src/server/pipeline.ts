@@ -299,6 +299,13 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
       warnings.push(`slide ${id} was left out: ${err.message}`);
       job.log(`build: dropped ${id} — ${err.message}`);
     },
+    // A beat that IS in the deck, drawn with one of its parts dropped so it
+    // would fit. The slide looks finished, so the job's warnings are the only
+    // place the person who asked for it finds out otherwise.
+    onBeatWarning: (id, warning) => {
+      warnings.push(`slide ${id} was drawn short: ${warning}`);
+      job.log(`build: kept ${id} — ${warning}`);
+    },
   });
   for (const d of built.cut.dropped) warnings.push(`cut ${d.beat.id} — ${d.reason}`);
   for (const d of built.cut.dangling) warnings.push(`check the wording — ${d.reason}`);

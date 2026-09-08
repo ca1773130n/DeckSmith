@@ -102,6 +102,21 @@ const CASES: [string, unknown, number][] = [
     1,
   ],
   [
+    "line-chart",
+    {
+      eyebrow: "E",
+      headline: "H",
+      xLabel: "x",
+      yLabel: "y",
+      points: [0, 1, 2, 3].map((i) => ({ x: `T=${i}`, y: 20 + i })),
+      compare: {
+        label: "Baseline",
+        points: [0, 1, 2, 3].map((i) => ({ x: `T=${i}`, y: 18 + i * 0.5 })),
+      },
+    },
+    2, // the baseline, then the result — see REVEALS["line-chart"]
+  ],
+  [
     "callout",
     {
       eyebrow: "E",
@@ -177,7 +192,14 @@ describe("the prompt's reveal counts", () => {
   it("names every archetype the emitters implement", () => {
     // A new archetype with no row is a beat whose narration length nobody stated,
     // which is the defect this table exists to prevent.
-    expect(Object.keys(REVEALS).sort()).toEqual(CASES.map(([a]) => a).sort());
+    //
+    // DEDUPED, because one row can promise more than one count: `line-chart`
+    // says "1, or 2 when compare is given and the beat is long enough for it",
+    // and both halves are a case above.
+    // A rule with a condition in it is worth strictly more than one without —
+    // but only if every branch of it is run, which is why the second case is
+    // there rather than the row being left vague.
+    expect(Object.keys(REVEALS).sort()).toEqual([...new Set(CASES.map(([a]) => a))].sort());
   });
 
   /**

@@ -6,7 +6,7 @@
  * that is the only place they are observable without a browser.
  */
 import { describe, expect, it } from "vitest";
-import { emitScene } from "../src/emit/archetypes/index.js";
+import { emitScene, emitters } from "../src/emit/archetypes/index.js";
 import { emitComposition, planCut } from "../src/emit/composition.js";
 import {
   DIM,
@@ -16,7 +16,7 @@ import {
   tweenText,
   words,
 } from "../src/emit/kit.js";
-import { travel } from "../src/emit/svg.js";
+import { reshape, travel } from "../src/emit/svg.js";
 import { resolveTheme } from "../src/emit/theme.js";
 import { beatSchema, FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 
@@ -433,6 +433,139 @@ describe("the DrawSVG seam", () => {
     expect(out).toMatch(/DSMorph\.build\(document\.getElementById\("s3-morph"\)\)/);
   });
 
+  it("loads MorphSVG only for a deck that reshapes, and before any scene script", () => {
+    // Same promise as the morph runtime's, and the same reason it is worth a
+    // test of its own: MorphSVG is 21,195 bytes, and the plugin table is the
+    // whole of what makes vendoring it legal under "an unused plugin is bytes
+    // every deck pays for".
+    expect(html).not.toContain("MorphSVGPlugin");
+    const reshaped = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        ...storyboard.beats,
+        {
+          id: "b3",
+          intent: "Show what pretraining buys.",
+          archetype: "line-chart",
+          seconds: 14,
+          params: {
+            headline: "Each extra step buys less",
+            xLabel: "Steps",
+            yLabel: "PSNR (dB)",
+            points: [
+              { x: "T=0", y: 28.91 },
+              { x: "T=1", y: 29.84 },
+              { x: "T=2", y: 30.47 },
+            ],
+            compare: {
+              label: "Without pretraining",
+              points: [
+                { x: "T=0", y: 27.4 },
+                { x: "T=1", y: 28.02 },
+                { x: "T=2", y: 28.4 },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    const out = emitComposition(reshaped, source, format("deck-16x9"));
+    const gsapAt = out.indexOf("vendor/gsap.min.js");
+    const pluginAt = out.indexOf("vendor/MorphSVGPlugin.min.js");
+    const registerAt = out.indexOf("registerPlugin(MorphSVGPlugin)");
+    const firstScene = out.indexOf("__timelines");
+    // Order is the whole of it, exactly as for DrawSVG: a scene's IIFE builds
+    // its timeline inline, so a `morphSVG` tween created before the plugin is
+    // registered animates nothing while the path stays in the DOM and every
+    // gate stays green.
+    expect(pluginAt).toBeGreaterThan(gsapAt);
+    expect(registerAt).toBeGreaterThan(pluginAt);
+    expect(firstScene).toBeGreaterThan(registerAt);
+    // The table's order, not the scene's: `laid.plugins` is a Set filled in
+    // scene order, and two storyboards differing only in beat position must not
+    // emit the same two script tags in different orders.
+    expect(out.indexOf("registerPlugin(DrawSVGPlugin)")).toBeLessThan(pluginAt);
+  });
+
+  it("vendors nothing for a compare beat too short to reshape, and says it did not", () => {
+    // THE DEGRADED PATH HAS TO REACH THE HEAD, not just the scene. `line-chart`
+    // drops the comparison rather than the beat when the beat cannot hold the
+    // reshape — and if it dropped the ghost and the morph while still NAMING
+    // `morphSVG`, every such deck would carry MorphSVG's 21,195 bytes for an
+    // animation that is not in it. That is exactly the property the plugin table
+    // exists to guarantee, so it is asserted where the table is read.
+    //
+    // 4s against a three-point comparison: the floors run 4.35s (two points) to
+    // 6.65s (twelve with a readout), measured on this emitter.
+    const notes: string[] = [];
+    const shortened = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        ...storyboard.beats,
+        {
+          id: "b3",
+          intent: "Show what pretraining buys.",
+          archetype: "line-chart",
+          seconds: 4,
+          params: {
+            headline: "Each extra step buys less",
+            xLabel: "Steps",
+            yLabel: "PSNR (dB)",
+            points: [
+              { x: "T=0", y: 28.91 },
+              { x: "T=1", y: 29.84 },
+              { x: "T=2", y: 30.47 },
+            ],
+            compare: {
+              label: "Without pretraining",
+              points: [
+                { x: "T=0", y: 27.4 },
+                { x: "T=1", y: 28.02 },
+                { x: "T=2", y: 28.4 },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    const out = emitComposition(shortened, source, format("deck-16x9"), {
+      onBeatWarning: (id, warning) => notes.push(`${id}: ${warning}`),
+    });
+    expect(out).not.toContain("MorphSVGPlugin");
+    expect(out).not.toContain("morphSVG");
+    // The slide IS there — dropping the beat is what the throw used to do.
+    expect(out).toContain("Each extra step buys less");
+    // Once, from the pass that built the deck. `planCut` emits every beat too
+    // and deliberately stays quiet: a sentence said twice per beat is a sentence
+    // people learn to skip.
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/^b3: line-chart b3: a comparison against "Without pretraining"/);
+  });
+
+  it("refuses a plugin name the table does not know rather than dropping it", () => {
+    // THE RISK AN OPEN REGISTRY BUYS, and the reason `PLUGINS` needs a door as
+    // well as a table. `Scene.plugins` is `readonly string[]`, so `"morphSvg"`
+    // for `"morphSVG"` is a string tsc and biome are both content with — and the
+    // filter over `PLUGINS` would drop it in silence: no script, no
+    // `registerPlugin`, and then GSAP reading `morphSVG` as an unrecognised
+    // property on a tween that animates NOTHING. The line would hold its baseline
+    // `d` for the whole beat while the dots, values and ring sat at the target
+    // geometry — in frame, above the type floor, green in every gate.
+    //
+    // Driven by swapping one entry of the emitters table, because no archetype
+    // can produce this today. That IS the point: the typo would be in the
+    // archetype, and nothing between it and the shell can see one.
+    const real = emitters.title;
+    emitters.title = (beat, ctx) => ({ ...real(beat, ctx), plugins: ["morphSvg"] });
+    try {
+      expect(() => emitComposition(storyboard, source, format("deck-16x9"))).toThrow(
+        /title b1: no vendored plugin named "morphSvg" — Scene.plugins takes dsMorph or morphSVG/,
+      );
+    } finally {
+      emitters.title = real;
+    }
+  });
+
   it("never feeds a stroke a length the emitter computed", () => {
     // The point of the seam: no archetype should be summing segment lengths or
     // computing a rounded-rect perimeter to feed `strokeDasharray` any more. If
@@ -604,6 +737,35 @@ describe("the reveal verbs", () => {
       expect(legs).toHaveLength(2);
       expect(() => travel("#s3-pulse", [o, o], 0, 1)).toThrow(/two distinct points/);
       expect(() => travel("#s3-pulse", elbow, 0, 0)).toThrow(/no time/);
+    });
+  });
+
+  describe("reshape", () => {
+    it("starts from the element's own shape, with the vertex correspondence pinned", () => {
+      const t = reshape("#s3-line", "#s3-target", 0.1 + 0.2, 1.2, true);
+      // The self-referential `from` is the spike's construction
+      // (experiments/013-vocabulary/gaps/spike/index.html:147) and the reason
+      // this is a `fromTo` at all: MorphSVG's natural spelling is a bare `to`,
+      // which is a `from()` wearing different clothes.
+      expect(tweenText(t)).toBe(
+        'tl.fromTo("#s3-line", { morphSVG: { shape: "#s3-line", shapeIndex: 0 } }, ' +
+          '{ morphSVG: { shape: "#s3-target", shapeIndex: 0 }, duration: 1.2, ease: "power2.inOut" }, 0.3);',
+      );
+      // 0.1 + 0.2 is 0.30000000000000004; invariant 10 is what stops that from
+      // moving a byte on a rebuild.
+      expect(t.at).toBe(0.3);
+    });
+
+    it("declines to render immediately when it is not the first on that property", () => {
+      // Invariant 2.5, hand-written at every site that needs it: a second
+      // immediate render on one (element, property) establishes its start state
+      // at build time and undoes the first.
+      expect(reshape("#s3-line", "#s3-b", 2, 1, false).to.immediateRender).toBe(false);
+      expect(reshape("#s3-line", "#s3-b", 2, 1, true).to.immediateRender).toBeUndefined();
+    });
+
+    it("refuses a reshape with no time to happen in", () => {
+      expect(() => reshape("#s3-line", "#s3-target", 0, 0, true)).toThrow(/no time/);
     });
   });
 

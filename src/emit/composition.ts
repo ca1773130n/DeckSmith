@@ -76,18 +76,34 @@ const GSAP_SRC = "./vendor/gsap.min.js";
  * 894.3, 1344.3, 1764.3px of dash, linear and visible throughout — rather than
  * taken from the roadmap, which asserted it about a different plugin.
  *
- * 4,351 bytes, +6% on gsap.min.js's 72,779. MorphSVG (21,195) and MotionPath
- * (22,002) ship in the same tarball and are NOT vendored: nothing emits them
- * yet, and an unused plugin is 43KB every deck pays for.
+ * 4,351 bytes, +6% on gsap.min.js's 72,779, and unconditional because every
+ * drawing archetype draws something on. MotionPath (22,002) ships in the same
+ * tarball and is still NOT vendored: nothing emits it, and an unused plugin is
+ * bytes every deck pays for. MorphSVG is vendored, but only through the table
+ * below — see it for how that rule is kept rather than argued around.
  */
 const DRAWSVG_SRC = "./vendor/DrawSVGPlugin.min.js";
 /**
- * The equation morph's runtime — ours, built by `scripts/build.mjs` from
- * `src/emit/morph-runtime.ts` and vendored beside GSAP by the CLI. Loaded ONLY
- * when a scene names it (`Scene.plugins`), so every deck without a morph is
- * byte-for-byte what it was.
+ * THE PLUGIN TABLE: everything a scene may name in `Scene.plugins`, and the two
+ * lines the head emits for it.
+ *
+ * `dsMorph` — the equation morph's runtime, ours, built by `scripts/build.mjs`
+ * from `src/emit/morph-runtime.ts` — proved the mechanism: a runtime loaded only
+ * when some scene asks for it, so a deck that asks for none is byte-for-byte
+ * what it was. `morphSVG` is here on exactly those terms, and that is what makes
+ * vendoring it legal under the rule DRAWSVG_SRC states: 21,195 bytes on a deck
+ * that reshapes, and not one byte on any other. `test/wiring.test.ts` holds that
+ * line against a pinned hash rather than trusting the reading.
+ *
+ * EMITTED IN THIS OBJECT'S OWN ORDER, not the Set's. `laid.plugins` is filled in
+ * scene order, so two storyboards whose beats differ only in position would
+ * otherwise emit the same script tags in a different order — a byte move with no
+ * cause behind it, which is a day spent in `drift` finding out there was none.
  */
-const MORPH_SRC = "./vendor/ds-morph.js";
+const PLUGINS: Readonly<Record<string, { src: string; global: string }>> = {
+  dsMorph: { src: "./vendor/ds-morph.js", global: "DSMorphPlugin" },
+  morphSVG: { src: "./vendor/MorphSVGPlugin.min.js", global: "MorphSVGPlugin" },
+};
 const KATEX_JS = "./vendor/katex.min.js";
 const KATEX_CSS = "./katex/katex.min.css";
 
@@ -147,6 +163,19 @@ export interface DeckOptions {
    * failure shape.
    */
   onBeatError?: (beatId: string, err: Error) => void;
+  /**
+   * What to do when a beat IS drawn but not as it was authored.
+   *
+   * The other half of `onBeatError`, and the reason it is a second hook rather
+   * than a second call to that one: this beat is IN the deck. An emitter that
+   * drops an ornament to fit its beat — see `Scene.warnings` — says so here, and
+   * absent this hook it says it to nobody, which is the silence the whole
+   * mechanism exists to avoid.
+   *
+   * Called once per built scene, from `layout`. `planCut` emits every beat as
+   * well and stays quiet: its scenes are thrown away.
+   */
+  onBeatWarning?: (beatId: string, warning: string) => void;
   /**
    * The subsetted bundle's `@font-face` CSS, INLINED rather than linked.
    *
@@ -451,7 +480,27 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
     if (scene.css) archetypeCss.add(scene.css.trim());
     if (scene.measure?.length) builds = true;
-    for (const p of scene.plugins ?? []) plugins.add(p);
+    // Read off `cut.scene` rather than the wrapped `scene` beside it for the
+    // same reason the plugin door is: a warning is the EMITTER's statement about
+    // its own beat, and `withCamera` is a layer that was never asked.
+    for (const w of cut.scene.warnings ?? []) opts.onBeatWarning?.(beat.id, w);
+    // AN OPEN REGISTRY NEEDS A CLOSED DOOR, and this is it. `Scene.plugins` is
+    // `readonly string[]`, so `"morphSvg"` for `"morphSVG"` is a string tsc and
+    // biome are both content with; `renderComposition` filters `laid.plugins`
+    // through `PLUGINS`, so a name the table does not know would simply be
+    // dropped — no script, no `registerPlugin`, and then GSAP reading `morphSVG`
+    // as an unrecognised property on a tween that animates NOTHING. The line
+    // holds its baseline `d` for the whole beat while the dots, values and ring
+    // sit at the target geometry: in frame, above the type floor, and green in
+    // every gate. `Object.hasOwn`, not `in`, or `"toString"` is a known plugin.
+    for (const p of scene.plugins ?? []) {
+      if (!Object.hasOwn(PLUGINS, p)) {
+        throw new Error(
+          `${beat.archetype} ${beat.id}: no vendored plugin named "${p}" — Scene.plugins takes ${Object.keys(PLUGINS).join(" or ")}`,
+        );
+      }
+      plugins.add(p);
+    }
     scenes.push(
       sceneHtml(
         sid,
@@ -719,10 +768,17 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     family && !fontFace ? `\n    <link rel="stylesheet" href="${FONT_BUNDLE_HREF}" />` : "";
   const island = format.navigable ? `\n${emitIsland(slides)}` : "";
   // Registered before any scene script runs, for the same reason DrawSVG is: a
-  // `dsMorph` tween built before `registerPlugin` is one GSAP does not know.
-  const morph = laid.plugins.has("dsMorph")
-    ? `\n    <script src="${MORPH_SRC}"></script>\n    <script>gsap.registerPlugin(DSMorphPlugin);</script>`
-    : "";
+  // `dsMorph` or `morphSVG` tween built before `registerPlugin` is one GSAP does
+  // not know. A scene's IIFE builds its timeline inline as the document parses,
+  // so late registration is not late — it is silently nothing, with the element
+  // still in the DOM and every gate green over it.
+  const plugins = Object.entries(PLUGINS)
+    .filter(([name]) => laid.plugins.has(name))
+    .map(
+      ([, p]) =>
+        `\n    <script src="${p.src}"></script>\n    <script>gsap.registerPlugin(${p.global});</script>`,
+    )
+    .join("");
 
   return `<!doctype html>
 <html lang="${esc(storyboard.lang)}" data-resolution="${orientation}">
@@ -732,7 +788,7 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
     <meta name="viewport" content="width=${format.width}, height=${format.height}" />
     <script src="${GSAP_SRC}"></script>
     <script src="${DRAWSVG_SRC}"></script>
-    <script>gsap.registerPlugin(DrawSVGPlugin);</script>${morph}
+    <script>gsap.registerPlugin(DrawSVGPlugin);</script>${plugins}
     <link rel="stylesheet" href="${KATEX_CSS}" />
     <script src="${KATEX_JS}"></script>${fontLink}${fontFace}
     <style>
