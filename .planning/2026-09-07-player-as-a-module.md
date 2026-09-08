@@ -4,6 +4,20 @@
 proposing designs, two judging on reusability and on breakage. Both judges
 converged, and both rejected the design that looks most like what was asked for.
 
+> **STATUS 2026-09-09 — BUILT.** All six steps of the build order below shipped in
+> `feat/player-module` (PR #69): the genre control and the `deck-runtime` entry in
+> `scripts/build.mjs`'s `promised` in a96a872, the same commit that wrote this
+> note; `protocol.ts`, `player.ts`, `player-element.ts`, the `GET /player.js`
+> route and the `customElements.get("decksmith-player")` feature detect in
+> `ui.ts`'s deck branch in 63f5409; `examples/embed.html`, with two players on it,
+> in e5f6392. The latent bug below was closed in a96a872 too. Of the four things
+> "a real extraction would have to fix", three were settled on
+> `chore/0.4-integration` — two of them as deliberate decisions to change nothing
+> — and each is marked where it is stated. **The risk section is the part that has
+> NOT aged**: nothing still gates any of this, and no browser pass has been run
+> against the merged branch. Read the rest as a record of a design that shipped,
+> not as a plan. The hardening that followed is in `2026-09-09-0.4-integration.md`.
+
 ## The verdict: promote the iframe, do not dissolve it
 
 `<decksmith-player deck="/decks/foo/">`, an ESM custom element, talking to the
@@ -56,10 +70,36 @@ needs to touch:
   `start` politely takes `doc` and then ignores it for all seven.
 - No `dispose()`. Two keydown, two click, hashchange, the audio `ended`
   listener, two rAF loops and a dwell timeout all outlive any unmount.
+
+  **DECIDED 2026-09-08: none added, deliberately.** The reasoning and the full
+  listener inventory are at the self-boot in `src/deck/runtime.ts`. The frame IS
+  the teardown: `DecksmithPlayer.#teardown` removes the iframe on both live paths
+  — the element's `disconnectedCallback`, and the server UI clearing the canvas —
+  which discards that document and everything `start` installed in it. A
+  `dispose` would have no caller and no test in the one file every navigable deck
+  inlines byte for byte. It becomes worth having the day a host detaches the
+  element without it leaving the document, and that is an element-level `pause()`,
+  not a runtime-level `dispose()`.
 - Every class name global and unprefixed, so two players in one document collide.
+
+  **DECIDED 2026-09-08: left as they are, no code change**, with the reasoning at
+  `mountChrome` in `src/deck/runtime.ts`. The consequence does not follow: two
+  `<decksmith-player>` elements are two iframes with two documents, so the chrome
+  classes have nothing to collide with. `.ds-live` is the one two-sided name —
+  the emitter writes it (`ambient` in `src/emit/theme.ts`, invariant 6) and the
+  runtime sets it on the composition document — so renaming it is a three-sided
+  change. `.ds-cap` is the trap for anyone who prefixes anyway, because its rule
+  assumes 100vh is the frame's box.
 - `audioSrc` returns a path relative to the document that owns the audio element.
   Move it to a host page and every segment 404s — misreported, because the
   handler at :494-506 conflates "autoplay refused" with "file missing".
+
+  **The misreporting half is FIXED (2026-09-08).** `refused()` is a pure exported
+  predicate splitting an autoplay refusal from a segment the browser cannot play,
+  `flags()` says "narration unavailable" for the latter rather than "press any key
+  for sound", and `unlock()` retries both on a gesture while nothing retries
+  unasked. The relative path itself is untouched, and only bites the host-page
+  extraction this note rejected.
 
 ## A latent bug found on the way, unrelated to the request
 
@@ -74,9 +114,19 @@ Today the ordering saves it — DOMContentLoaded inside deck.html, then
 has not fired, not a race that cannot. **Re-read `contentWindow.__timelines` at
 paint time instead of snapshotting it.** Two lines.
 
+**CLOSED in the commit that wrote this note (a96a872).** `frameOf` returns a
+getter rather than a snapshot, so the ordering is out of the contract and every
+reader — not only `paint` — sees the live `__timelines`. Three tests, checked to
+fail against the old snapshot rather than assumed to. A follow-up that made the
+*frame itself* lazy was tried and **reverted** on 2026-09-08 (e530d57): reaching
+for the frame on the first step that needed one latched the iframe's
+pre-navigation `about:blank` document, which is the worse bug of the two.
+`frameOf` is called exactly once, after `await whenReady(player)`.
+
 ## The build order
 
-Each step ships on its own.
+Each step ships on its own. **All six shipped in PR #69 — see the status note at
+the top. Kept as written, because the order is the argument.**
 
 1. **Genre control, alone.** Markup after ui.ts:701 copying the tone/density
    pattern; `paintSeg("genre", ["general","paper"], "general")` after :1634.

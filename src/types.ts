@@ -245,16 +245,72 @@ export const dataTableParamsSchema = z
     message: "every highlight must name a row that params.rows draws",
   });
 
-export const lineChartParamsSchema = z.object({
-  eyebrow: z.string().optional(),
-  headline: z.string(),
-  xLabel: z.string(),
-  yLabel: z.string(),
-  points: z.array(z.object({ x: z.string(), y: z.number() })).min(2),
-  /** Inter-point annotations, e.g. per-step deltas. One fewer than `points`. */
-  deltas: z.array(z.string()).optional(),
-  readout: z.string().optional(),
-});
+const chartPointSchema = z.object({ x: z.string(), y: z.number() });
+
+export const lineChartParamsSchema = z
+  .object({
+    eyebrow: z.string().optional(),
+    headline: z.string(),
+    xLabel: z.string(),
+    yLabel: z.string(),
+    points: z.array(chartPointSchema).min(2),
+    /** Inter-point annotations, e.g. per-step deltas. One fewer than `points`. */
+    deltas: z.array(z.string()).optional(),
+    readout: z.string().optional(),
+    /**
+     * THE SAME MEASUREMENT UNDER A SECOND CONDITION — a baseline the main series
+     * is to be read against, where the point is the change in the SHAPE of the
+     * curve rather than two numbers.
+     *
+     * Drawn first and alone; then the curve lifts off it and reshapes into
+     * `points`, leaving this one behind as a ghost. `label` names the ghost and
+     * is drawn wherever the chart has room for it.
+     *
+     * KEEP IT SHORT — two or three words. A label wider than the plot is refused
+     * outright, and that refusal reaches `onBeatError` and costs the whole beat.
+     * One that fits but cannot be placed clear of the axis names, the tick and
+     * category labels, the values, the deltas and both curves is DROPPED
+     * instead, silently: an unnamed ghost is still legibly the fainter, earlier
+     * curve, where a name printed through a number is a defect in both of them.
+     * Nothing warns about that one — see the placement note in
+     * `src/emit/archetypes/line-chart.ts`.
+     */
+    compare: z.object({ label: z.string(), points: z.array(chartPointSchema).min(2) }).optional(),
+  })
+  /**
+   * A COMPARISON IS BETWEEN THE SAME x VALUES OR IT IS NOT A COMPARISON.
+   *
+   * Two series of different lengths, or of the same length over different
+   * categories, draw two curves the eye reads as measured against one axis when
+   * they were not — and the reshape then carries point i of one condition onto
+   * point i of a different one, which is a smooth, convincing lie. Nothing
+   * downstream can catch it: both curves fit the plot, both clear the type
+   * floor, and `drift` renders the same wrong thing twice.
+   *
+   * Here rather than in `plan/refs.ts` because these are LITERALS, not ids into
+   * `source` — there is no dangling reference for that gate to resolve. A params
+   * invariant belongs in the schema, where a bad plan fails before a beat has
+   * been spent on it.
+   */
+  .superRefine((p, ctx) => {
+    if (!p.compare) return;
+    if (p.compare.points.length !== p.points.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["compare", "points"],
+        message: `compare has ${p.compare.points.length} points against ${p.points.length}; a comparison is over the same x values`,
+      });
+      return;
+    }
+    const off = p.compare.points.findIndex((c, i) => c.x !== p.points[i]?.x);
+    if (off >= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["compare", "points", off, "x"],
+        message: `compare point ${off} is "${p.compare.points[off]?.x}" where points has "${p.points[off]?.x}"`,
+      });
+    }
+  });
 
 export const calloutParamsSchema = z.object({
   eyebrow: z.string().optional(),

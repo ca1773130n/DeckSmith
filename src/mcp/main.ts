@@ -19,6 +19,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { guardTmpdir } from "../tmpdir.js";
 import { VERSION } from "../version.js";
 import {
   capabilitiesSchema,
@@ -40,6 +41,14 @@ for (const level of ["log", "info", "debug", "warn", "trace"] as const) {
     process.stderr.write(`${args.map(String).join(" ")}\n`);
   };
 }
+
+// AFTER the console redirect and BEFORE `work`, for one reason each. `work`
+// below is `join(tmpdir(), "decksmith-mcp")` evaluated at module load, and
+// `tools.ts` mkdtemps `harvest-*` inside it, so the guard has to precede it.
+// And the guard writes to stderr — never stdout, which is the wire — so putting
+// it under the redirect above means a stray warning from anywhere lands in the
+// client's server log rather than in a JSON-RPC frame.
+guardTmpdir();
 
 const env = process.env;
 /**

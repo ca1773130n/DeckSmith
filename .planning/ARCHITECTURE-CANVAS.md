@@ -223,6 +223,8 @@ change at all.
 
 1. **No `onUpdate`-driven motion, ever.** `seek()` passes `suppressEvents = true` (HyperFrames' own transport calls
    `totalTime(t, suppressEvents)`), so a callback camera plays perfectly in a browser and renders a frozen video,
+   [SUPERSEDED 2026-09-04 — the frozen-video mechanism did not hold under `beginFrame` capture; a callback costs
+   reproducibility instead. See `.planning/2026-09-04-invariant-11-under-beginframe.md`.]
    silently, with a passing gate.
 2. **No `will-change: transform` on a text-bearing subtree.** Measured: promoting text to its own compositor layer
    and scaling it by a non-integer factor gives **3–5 distinct images for the same `t` over 5 revisits**. Deleting

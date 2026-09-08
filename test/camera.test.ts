@@ -215,8 +215,9 @@ describe("the shell, with a relation asserted", () => {
   it("moves the camera with two fromTo tweens and no callback", () => {
     expect(deck).toContain('tl.fromTo("#s1 .ds-zoom", { scale: 1 }');
     expect(deck).toContain('tl.fromTo("#s1 .ds-pan", { x: 0, y: 0 }');
-    // Invariant 11: `seek()` suppresses events, so anything driven by a callback
-    // renders a frozen video with every gate green.
+    // Invariant 11. Not because the video renders frozen — that was measured on
+    // 2026-09-04 and did not hold. A callback costs REPRODUCIBILITY: 11 differing
+    // frames of 3,120 on the demo, 260 with one `onUpdate` added.
     expect(deck).not.toMatch(/onUpdate|onComplete|onStart/);
     // Invariant 2.
     expect(deck).not.toMatch(/tl\.from\(/);

@@ -12,6 +12,9 @@
  * Nothing here touches the network: narration is a hand-written fixture in the
  * exact shape `narrate` returns.
  */
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   DECK_PAGE,
@@ -92,6 +95,58 @@ function narrationIsland(page: string): {
   );
   return m ? JSON.parse(m[1] ?? "") : null;
 }
+
+/* ------------------------------------------------------------- the plugin table */
+
+/**
+ * THE GUARANTEE THE PLUGIN TABLE EXISTS TO KEEP, pinned to a hash rather than
+ * argued about.
+ *
+ * `PLUGINS` in composition.ts lets MorphSVG be vendored at all — 21,195 bytes
+ * on a deck that reshapes, zero on every other — and "zero on every other" is
+ * a claim about bytes, so it is checked against bytes. The digest below is
+ * `emitComposition`'s output for this storyboard at aac1b67, taken before the
+ * table existed. A change that moves it is a change that charged every deck for
+ * a plugin it does not load, whatever the reason looked like at the time.
+ *
+ * `ds-morph` already held this line the same way. If you have deliberately
+ * changed what an un-reshaped deck emits, re-take the digest and say so in the
+ * commit — do not delete the test.
+ */
+const CHARTED = storyboardSchema.parse({
+  ...storyboard,
+  beats: [
+    ...storyboard.beats,
+    {
+      id: "b3",
+      intent: "Plot the sweep.",
+      archetype: "line-chart",
+      seconds: 14,
+      params: {
+        headline: "Each extra step buys less",
+        xLabel: "Steps",
+        yLabel: "PSNR (dB)",
+        points: [
+          { x: "T=0", y: 28.91 },
+          { x: "T=1", y: 29.84 },
+          { x: "T=2", y: 30.47 },
+        ],
+      },
+    },
+  ],
+});
+
+describe("a deck that reshapes nothing", () => {
+  it("is byte-for-byte what it was before MorphSVG was vendored", () => {
+    const html = emitComposition(CHARTED, source, deck);
+    expect(createHash("sha256").update(html).digest("hex")).toBe(
+      "b8ebf8f382cb05c66680fecc0dca96060e4a2b8c6a43d07ef591b54ad42e1d8a",
+    );
+    expect(Buffer.byteLength(html, "utf8")).toBe(14226);
+    expect(html).not.toContain("MorphSVGPlugin");
+    expect(html).not.toContain("morphSVG");
+  });
+});
 
 /* ------------------------------------------------------------------- themes */
 
@@ -298,5 +353,101 @@ describe("scanNarration", () => {
   it("reports an island it cannot read rather than falling silent", () => {
     const broken = `<script type="application/decksmith-narration+json">{nope}</script>`;
     expect(scanNarration(broken, new Set())[0]?.rule).toBe("island_unparseable");
+  });
+});
+
+/**
+ * The TMPDIR guard, asserted where it is JOINED rather than where it works.
+ *
+ * `src/tmpdir.ts` is tested on its own in test/tmpdir.test.ts. What is only
+ * observable here is whether the three executables actually call it, and there
+ * is no other way to see that: a missing call throws nothing, fails nothing and
+ * changes no output — scratch directories simply start appearing in the checkout
+ * again, which is how 2,306 of them accumulated the first time. There is also no
+ * single module all three share (`version.ts` misses the server, `index.ts`
+ * misses the CLI), so the wiring is three explicit call sites and this is what
+ * holds them there.
+ *
+ * Reading the source rather than running the binaries: each entry module ends by
+ * connecting a transport, starting a listener or parsing argv, so importing one
+ * to observe it is not a test, it is launching the program.
+ */
+describe("TMPDIR guard wiring", () => {
+  /**
+   * The module's source with its comments removed. Load-bearing, not tidiness:
+   * every one of these files explains the guard in a comment ABOVE the call, and
+   * those comments name `tmpdir()`. Searching the raw text would find the prose
+   * first and conclude the call came too late.
+   */
+  async function stripped(url: URL): Promise<string> {
+    const text = await readFile(url, "utf8");
+    return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+  }
+
+  const entry = (file: string): Promise<string> =>
+    stripped(new URL(`../src/${file}`, import.meta.url));
+
+  /**
+   * Per entry point: the module, and the first thing in it that reads a scratch
+   * root. The guard has to come first — in `server/main.ts` a late call would
+   * not merely compute the wrong path, `mkdirSync` would already have created
+   * `<repo>/decksmith-server/` on disk.
+   */
+  const entries: [file: string, reads: RegExp][] = [
+    ["cli.ts", /\btmpdir\(\)/],
+    ["mcp/main.ts", /\bdefaultWork\(\)/],
+    ["server/main.ts", /\btmpdir\(\)/],
+  ];
+
+  it.each(entries)("%s calls the guard before it reads a scratch root", async (file, reads) => {
+    const text = await entry(file);
+    // Column zero: a call nested inside a handler would run once per invocation
+    // and, in two of the three, long after the work root was decided.
+    const called = text.search(/^guardTmpdir\(\);$/m);
+    expect(called).toBeGreaterThan(-1);
+    // Named twice — imported and invoked. Counted rather than matched against
+    // an import line, because the server's is wrapped across five of them and a
+    // formatter is allowed to move it.
+    expect(text.match(/\bguardTmpdir\b/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(text.search(reads)).toBeGreaterThan(called);
+  });
+
+  it("exports the guard from the barrel without running it", async () => {
+    const text = await entry("index.ts");
+    expect(text).toContain('export { guardTmpdir } from "./tmpdir.js";');
+    expect(text).not.toMatch(/^guardTmpdir\(\);$/m);
+  });
+
+  it("runs the guard for the test suite, through the setup file vitest names", async () => {
+    // The FOURTH call site, and the only one with no entry point to hang it on.
+    // `setupFiles` is a single array: an edit that assigns a different setup file
+    // drops the guard from the entire suite silently. Nothing would notice — the
+    // guard is a no-op wherever TMPDIR is already sane, so CI stays green while
+    // the directories come back here, and `.gitignore` hides them while they do.
+    const config = await stripped(new URL("../vitest.config.ts", import.meta.url));
+    expect(config).toMatch(/setupFiles:\s*\[[^\]]*"\.\/test\/setup-tmpdir\.ts"/);
+
+    // And that the file it names still calls the guard rather than importing it
+    // — which is the trap `src/tmpdir.ts` sets by having no top-level side
+    // effect: naming the module itself in `setupFiles` would guard nothing.
+    const setup = await stripped(new URL("./setup-tmpdir.ts", import.meta.url));
+    expect(setup).toMatch(/^guardTmpdir\(\);$/m);
+    expect(setup.match(/\bguardTmpdir\b/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not touch the environment when the library is merely imported", async () => {
+    // The reason the barrel exports rather than calls. An absent TMPDIR is
+    // inherited by every child process, so a library that unset it on import
+    // would be making that decision for a host that only wanted `emitDeck`.
+    const saved = process.env.TMPDIR;
+    const poisoned = fileURLToPath(new URL("../", import.meta.url));
+    process.env.TMPDIR = poisoned;
+    try {
+      await import("../src/index.js");
+      expect(process.env.TMPDIR).toBe(poisoned);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
   });
 });

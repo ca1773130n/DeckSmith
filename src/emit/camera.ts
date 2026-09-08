@@ -13,12 +13,20 @@
  *
  * Three things here are load-bearing and each of them cost a render to learn:
  *
- * 1. THE MOVE IS TWO `fromTo`s AND NOTHING ELSE. `seek()` passes
- *    `suppressEvents`, so a GSAP `onUpdate` never fires under capture. The first
- *    camera in experiment 008 drove `viewBox` from an `onUpdate`, played
- *    perfectly in a browser, and rendered 900 frames of a frozen `0 0 1920 1080`
- *    with every gate green (invariant 11). State must be applied by the thing
- *    being seeked.
+ * 1. THE MOVE IS TWO `fromTo`s AND NOTHING ELSE. The first camera in experiment
+ *    008 drove `viewBox` from an `onUpdate`, played perfectly in a browser, and
+ *    rendered 900 frames of a frozen `0 0 1920 1080` with every gate green.
+ *
+ *    THAT RECORD STANDS; THE MECHANISM IT WAS ATTRIBUTED TO DOES NOT. `seek()`
+ *    passing `suppressEvents` is why `decksmith frames` sees nothing, but the
+ *    render does not seek — capture runs off Chrome's `beginFrame`, and both
+ *    constructions were re-rendered on 2026-09-04 and both ramped smoothly. What
+ *    a callback actually costs is reproducibility: 11 differing frames of 3,120
+ *    on the demo as built, 260 with one `onUpdate` tween added. Whatever froze
+ *    experiment 008's camera, it was not measured, and this file should not keep
+ *    asserting it. The rule is unchanged and so is the reason for it — state must
+ *    be applied by the thing being seeked. See invariant 11 in AGENTS.md and
+ *    `.planning/2026-09-04-invariant-11-under-beginframe.md`.
  *
  * 2. THE EASES ARE CLOSED FORM AND THEY ARE NOT DECORATION. `zoomEase` travels
  *    scale in log space — a linear scale tween reads as a lurch, and every

@@ -35,11 +35,12 @@ port := env("PORT", "8475")
 
 # Where jobs unpack, build and get swept from.
 #
-# NOT `os.tmpdir()`, deliberately. Agent sessions in this repo run with
-# TMPDIR pointing AT THE REPO, so the server's default work root resolves to
-# <repo>/decksmith-server and every job's scratch lands in the source tree.
-# 1,596 such directories had accumulated before anyone noticed.
-# `scripts/tmpdir.mjs` guards the test suite and nothing else.
+# NOT `os.tmpdir()`, and still not, now that `guardTmpdir` in src/tmpdir.ts
+# unsets a TMPDIR pointing at the repo for all three executables and the test
+# suite. That guard is why <repo>/decksmith-server no longer appears; it is not
+# why this line exists. A work root under $HOME SURVIVES A RESTART, which is what
+# the server's own orphan sweep is built around, and /tmp does not. Do not delete
+# this as newly redundant — it was never only a TMPDIR workaround.
 work := env("DECKSMITH_WORK", home_dir() / ".decksmith/work")
 
 # Jobs one IP may start per hour, and requests per minute. Lower the first if
@@ -105,8 +106,13 @@ doctor:
     fi
     printf '  %-9s %s\n' node "$(node -v)"
     printf '  %-9s %s\n' work "{{ work }}"
+    # Deliberately its own three lines rather than a call into `guardTmpdir`:
+    # this reports the SHELL you are standing in, before any of our code runs,
+    # and a diagnostic that needs `npm run build` to answer is no use on the day
+    # the build is what broke. `cwd` is the right test for that question; the
+    # guard tests the package root, which is the right test for its own.
     node -e 'const t=require("os").tmpdir(), r=process.cwd();
-      if (t===r||t.startsWith(r+"/")) console.log("  TMPDIR    points INSIDE the repo ("+t+") — recipes here set DECKSMITH_WORK around it");
+      if (t===r||t.startsWith(r+"/")) console.log("  TMPDIR    points INSIDE the repo ("+t+") — decksmith unsets it per process (src/tmpdir.ts); anything else you run here will not");
       else console.log("  TMPDIR    "+t);'
 
 # ────────────────────────────────────────────────────────────────── gates ────
@@ -148,16 +154,25 @@ demo:
 # Neither is a gate: both need the network, a browser or a TTS service, and
 # minutes. They exist so the constants they feed are checkable rather than
 # folklore. Paste their output into the file each names.
+#
+# Both build first because both read out of `dist/` — `measure-cue` for the very
+# constants it is checking, so that it cannot measure a slightly different
+# quantity than the code does, and both for `guardTmpdir`, which `scripts/`
+# cannot import from the TypeScript source. `measure-cue` always had that
+# requirement and never stated it. NOTE the build hazard in the gates section
+# below: do not run either against a live `just serve`.
 
 # Re-derive ADVANCE, TABULAR_*, weightFactor, KERN_SLACK and BLOCK_ADVANCE.
 [doc('Re-measure the type metrics in src/emit/svg.ts')]
 measure-type:
+    npm run build
     node scripts/measure-type.mjs
 
 # Re-derive CUE_OVERHEAD and the RATE_STEPS speedups. ~10 minutes of synthesis.
 # They are ONE UNIT — never move one without the other.
 [doc('Re-measure the narration constants (~10 min, needs edge-tts)')]
 measure-cue:
+    npm run build
     node scripts/measure-cue-rate.mjs
 
 # ───────────────────────────────────────────────────────────────── release ───

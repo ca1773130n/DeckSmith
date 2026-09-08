@@ -64,10 +64,12 @@ camera dive does, by construction) is replaced by a replay of earlier frames, at
 exactly the right length, with every gate green. See `framePlan` in
 `src/render/timing.ts`.
 
-**A gate passing is not evidence.** There are six documented cases in this
-project of green gates over wrong output, and every one was caught by a human
-looking at the artifact. If your work has a visible or audible result, look at
-it — or listen to it — before you report.
+**A gate passing is not evidence.** This project keeps producing green gates over
+wrong output, and nearly every case was caught by a human looking at the
+artifact. README's "What the gates do not check" holds the count and the worked
+examples, and it holds them alone: this file carried a second, lower count for
+months, the two never agreed, and nobody noticed. If your work has a visible or
+audible result, look at it — or listen to it — before you report.
 
 **`decksmith frames` writes the PNGs, and no still frame settles invariant 11.**
 Measured 2026-09-04 on a deck carrying a band painted ONLY from a GSAP

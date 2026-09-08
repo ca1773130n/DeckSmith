@@ -28,9 +28,12 @@
  *
  * AND ONE THING THE A/B COMPARISON STRUCTURALLY CANNOT SEE. Its premise is that
  * two renders of one input should match, so a deck that renders FROZEN — GSAP
- * absent, a timeline never applied, motion hung off an `onUpdate` that
- * `suppressEvents` swallows (invariant 11) — passes by construction: two still
- * images are byte-identical, `identical` mode reports 100%, `psnr` reports `inf`.
+ * absent, a timeline never applied — passes by construction: two still images are
+ * byte-identical, `identical` mode reports 100%, `psnr` reports `inf`. (This
+ * list used to carry a third cause, motion hung off an `onUpdate`. Removed on
+ * 2026-09-09: the render does not seek, so `suppressEvents` never reaches it,
+ * and callback-driven motion was re-measured ramping correctly on 2026-09-04.
+ * A callback costs reproducibility, which is a thing this gate CAN see.)
  * MEASURED: the plain fixture with its 13 `tl.fromTo` lines deleted renders 210
  * frames carrying 3 distinct images, and every A/B number stays perfect. So this
  * gate also measures WITHIN one render — `measureMotion` below.

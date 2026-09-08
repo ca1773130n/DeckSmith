@@ -7,7 +7,7 @@
  * costs either a clipped slide (too narrow) or a refusal of a beat that would
  * have drawn (too wide). This is what makes them checkable rather than folklore:
  *
- *     node scripts/measure-type.mjs
+ *     npm run build && node scripts/measure-type.mjs
  *
  * Prints the table as it should appear in the source. Paste it, then run
  * `npm run check` — test/svg.test.ts holds the result against ten pinned widths.
@@ -30,7 +30,6 @@
  * Google Fonts endpoint `bundleFont` already calls. Needs network and the Chrome
  * `render` already requires.
  */
-import "./tmpdir.mjs";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -40,6 +39,16 @@ import { getInstalledBrowsers } from "@puppeteer/browsers";
 import puppeteer from "puppeteer-core";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Why this harness now needs `npm run build`, which it never used to: the guard
+// against a TMPDIR pointing at the repo moved into src/tmpdir.ts, where the
+// three executables can call it, and `scripts/` cannot import TypeScript. The
+// built package is the only copy this file can reach. The alternative was a
+// second implementation in plain node, and a guard that exists twice is a guard
+// that stops matching — see ~/.agents/OPERATIONS.md on duplicated helpers.
+const { guardTmpdir } = await import(join(REPO, "dist", "index.js"));
+guardTmpdir();
+
 const WORK = join(tmpdir(), "decksmith-type");
 
 /** Everything the deck can set and this table is willing to claim it knows. */
