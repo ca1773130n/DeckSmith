@@ -56,8 +56,17 @@ demo/audio/
 # accumulated behind that gap and `git add -A` swept 14 files out of four of them
 # into four separate commits. Two globs cannot go stale the way a list of
 # eighteen does, so these are globs; add nothing here without the same property.
-decksmith-*/
-ds-*/
+#
+# ANCHORED, because a glob that cannot go stale can still reach too far. Every
+# directory these exist to catch is at the repo root — `mkdtemp(join(tmpdir(), …))`
+# with `TMPDIR=$PWD` can land nowhere else — but without the leading slash they
+# match at any depth: unanchored, `git check-ignore -v` blamed `ds-*/` for both
+# `src/ds-helper/x.ts` and `experiments/ds-svg/a.mjs`. `src/emit/morph-runtime.ts`
+# already builds to `dist/ds-morph.js`; split that runtime into `src/emit/ds-morph/`
+# and the whole directory goes untracked, `git add -A` skips it, and the branch
+# builds only on the machine that wrote it.
+/decksmith-*/
+/ds-*/
 # Chrome's own profile directory, and hyperframes' render scratch. Both are
 # mkdtemp'd by libraries under whatever TMPDIR the process has — ours is fixed by
 # then, but these lines have not been re-measured against a poisoned session.

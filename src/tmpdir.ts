@@ -37,11 +37,40 @@
  * SAID OUT LOUD, once, because a guard that silently corrects its environment is
  * how the environment stays broken.
  */
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 
 let cached: string | undefined;
+
+/**
+ * `dir` with its symlinks resolved, absolute.
+ *
+ * BOTH SIDES OF THE COMPARISON HAVE TO GO THROUGH THIS. Module resolution hands
+ * back a real path — `require.resolve` calls `realpath` unless someone passes
+ * `--preserve-symlinks` — while `$TMPDIR` is whatever the environment wrote. So
+ * a checkout reached through a symlink compared unequal to its own root:
+ *
+ *     ln -s <repo> link/repo && cd link/repo && TMPDIR=$PWD node dist/cli.js --version
+ *
+ * printed no warning and kept writing into the tree, while the identical command
+ * through the real path fixed itself. That is the same invisible failure the
+ * `require.resolve` detour below exists to prevent, one line further on.
+ *
+ * The fallback is for a path that does not exist, which `realpathSync` refuses
+ * to answer for. Leaving it merely resolved is honest: nothing can `mkdtemp`
+ * into a directory that is not there, so a poisoned TMPDIR the guard misses this
+ * way fails loudly at the first call instead of quietly filling the repo.
+ */
+function real(dir: string): string {
+  const at = resolve(dir);
+  try {
+    return realpathSync(at);
+  } catch {
+    return at;
+  }
+}
 
 /**
  * The directory holding our own `package.json`, found by RESOLVING it rather
@@ -66,14 +95,14 @@ let cached: string | undefined;
  * Exported for the test that asserts the depth is still right.
  */
 export function packageRoot(): string {
-  cached ??= dirname(createRequire(import.meta.url).resolve("../package.json"));
+  cached ??= real(dirname(createRequire(import.meta.url).resolve("../package.json")));
   return cached;
 }
 
-/** True when `dir` is the package root or sits inside it. */
+/** True when `dir` is the package root or sits inside it, symlinks resolved. */
 export function insideRoot(dir: string): boolean {
   const root = packageRoot();
-  const at = resolve(dir);
+  const at = real(dir);
   return at === root || at.startsWith(root + sep);
 }
 

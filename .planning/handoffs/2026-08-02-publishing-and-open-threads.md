@@ -337,12 +337,16 @@ profile (a clean login shell has it empty), so something injects it per session.
 Thirteen places ask `os.tmpdir()` for scratch, so every `mkdtemp` lands in the
 project root. 1,596 directories had accumulated before anyone looked.
 
-`scripts/tmpdir.mjs` drops the variable when it resolves inside the repo, wired
-in through `vitest.config.ts`. It covers the test suite and nothing else. Running
-`node dist/mcp.js` or a script directly still writes into the repo, since the MCP
-server's work root is `join(tmpdir(), "decksmith-mcp")`, and
-`node-compile-cache/` appears regardless because Node creates it before any setup
-file runs.
+**Closed on 2026-09-08 — see `src/tmpdir.ts`.** What this paragraph used to say,
+kept because the gap it describes is the reason the fix looks the way it does:
+`scripts/tmpdir.mjs` dropped the variable when it resolved inside the repo, wired
+in through `vitest.config.ts` alone, so it covered the test suite and nothing
+else — `node dist/mcp.js` or a script run directly still wrote into the repo,
+since the MCP server's work root is `join(tmpdir(), "decksmith-mcp")`. That script
+is gone. `guardTmpdir` in `src/tmpdir.ts` replaces it and the CLI, the MCP server,
+the HTTP server and the vitest setup file each call it. `node-compile-cache/`
+still appears regardless, because Node creates it before any setup file or entry
+point can run; it stays in `.gitignore` for that reason.
 
 ---
 

@@ -326,10 +326,13 @@ describe("TMPDIR guard wiring", () => {
    * those comments name `tmpdir()`. Searching the raw text would find the prose
    * first and conclude the call came too late.
    */
-  async function entry(file: string): Promise<string> {
-    const text = await readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+  async function stripped(url: URL): Promise<string> {
+    const text = await readFile(url, "utf8");
     return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
   }
+
+  const entry = (file: string): Promise<string> =>
+    stripped(new URL(`../src/${file}`, import.meta.url));
 
   /**
    * Per entry point: the module, and the first thing in it that reads a scratch
@@ -360,6 +363,23 @@ describe("TMPDIR guard wiring", () => {
     const text = await entry("index.ts");
     expect(text).toContain('export { guardTmpdir } from "./tmpdir.js";');
     expect(text).not.toMatch(/^guardTmpdir\(\);$/m);
+  });
+
+  it("runs the guard for the test suite, through the setup file vitest names", async () => {
+    // The FOURTH call site, and the only one with no entry point to hang it on.
+    // `setupFiles` is a single array: an edit that assigns a different setup file
+    // drops the guard from the entire suite silently. Nothing would notice — the
+    // guard is a no-op wherever TMPDIR is already sane, so CI stays green while
+    // the directories come back here, and `.gitignore` hides them while they do.
+    const config = await stripped(new URL("../vitest.config.ts", import.meta.url));
+    expect(config).toMatch(/setupFiles:\s*\[[^\]]*"\.\/test\/setup-tmpdir\.ts"/);
+
+    // And that the file it names still calls the guard rather than importing it
+    // — which is the trap `src/tmpdir.ts` sets by having no top-level side
+    // effect: naming the module itself in `setupFiles` would guard nothing.
+    const setup = await stripped(new URL("./setup-tmpdir.ts", import.meta.url));
+    expect(setup).toMatch(/^guardTmpdir\(\);$/m);
+    expect(setup.match(/\bguardTmpdir\b/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   it("does not touch the environment when the library is merely imported", async () => {

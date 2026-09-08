@@ -11,7 +11,7 @@
  * Every case saves and restores the environment it moves: vitest workers share
  * one process, so a leaked variable is a different file's failure.
  */
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,6 +80,28 @@ describe("insideRoot", () => {
     // how a guard ends up deleting a TMPDIR that was never the problem.
     expect(insideRoot(`${packageRoot()}-elsewhere`)).toBe(false);
   });
+
+  // THE SECOND ONE THAT CATCHES A SILENT HOLE, and it shipped in the first cut
+  // of this file. `packageRoot()` comes back with its symlinks resolved, because
+  // that is what module resolution hands over; a `TMPDIR` compared as-written
+  // does not. So a checkout reached through a symlink — `ln -s <repo> link/repo;
+  // cd link/repo; TMPDIR=$PWD node dist/cli.js --version` — printed no warning
+  // at all and kept writing into the tree, while the identical command through
+  // the real path fixed itself. That is exactly the invisible failure the
+  // `require.resolve` detour above exists to prevent, reintroduced one line
+  // later, so both sides go through realpath now and this holds them there.
+  it("sees a repo reached through a symlink", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-guard-link-"));
+    try {
+      const link = join(dir, "repo");
+      await symlink(packageRoot(), link, "dir");
+
+      expect(insideRoot(link)).toBe(true);
+      expect(insideRoot(join(link, "src"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("guardTmpdir", () => {
@@ -123,6 +145,25 @@ describe("guardTmpdir", () => {
     process.env.TMP = join(packageRoot(), "also-here");
 
     expect(() => guardTmpdir()).toThrow(/still inside/);
+  });
+
+  it("fires on a TMPDIR that only reaches the repo through a symlink", async () => {
+    // The guard half of the `insideRoot` case above: without realpath on both
+    // sides this call is a no-op that prints nothing and throws nothing.
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-guard-link-"));
+    try {
+      const link = join(dir, "repo");
+      await symlink(packageRoot(), link, "dir");
+      process.env.TMPDIR = link;
+
+      guardTmpdir();
+
+      expect(process.env.TMPDIR).toBeUndefined();
+      expect(insideRoot(tmpdir())).toBe(false);
+      expect(written).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("leaves a legitimate TMPDIR completely alone", async () => {
