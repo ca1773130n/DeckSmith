@@ -10,6 +10,7 @@ import {
   parseClips,
   parseHash,
   planTransition,
+  refused,
   type SlideSpec,
 } from "../src/deck/runtime.js";
 import { emitDeck, PLAYER_FILE } from "../src/emit/composition.js";
@@ -202,6 +203,63 @@ describe("frameOf reads the composition through the window", () => {
       typeof frameOf
     >[0];
     expect(frameOf(blind)).toBeNull();
+  });
+
+  it("answers about the player as it is now, so a failed reach can be retried", () => {
+    // What `start`'s `reach` rests on. It used to call this once, at startup: an
+    // iframe whose document was not readable at that instant left the rest of
+    // the session navigating against `frame === null`, painting nothing, with
+    // one console.warn to show for it. Retrying is only worth anything if a
+    // second call can answer differently — which it can, because `frameOf` reads
+    // the live element rather than anything it cached.
+    const iframe: { contentDocument: unknown; contentWindow: unknown } = {
+      contentDocument: null,
+      contentWindow: null,
+    };
+    const player = { querySelector: () => iframe, shadowRoot: null } as unknown as Parameters<
+      typeof frameOf
+    >[0];
+    expect(frameOf(player)).toBeNull();
+    iframe.contentDocument = { documentElement: {} };
+    iframe.contentWindow = {};
+    expect(frameOf(player)).not.toBeNull();
+  });
+});
+
+describe("a play() rejection says which of two failures it was", () => {
+  /**
+   * The deck used to treat EVERY rejection as the autoplay policy. A deck whose
+   * audio directory did not get copied therefore told the viewer "press any key
+   * for sound" forever, and every keypress ran `unlock` -> `speak` against the
+   * same missing file and failed identically. The message was not just unhelpful,
+   * it blamed the wrong thing — and every gate was green, because nothing in this
+   * suite opens deck.html or plays a sound.
+   */
+  it("reads the autoplay policy as blocked", () => {
+    expect(refused(new DOMException("play() failed", "NotAllowedError"))).toBe(true);
+  });
+
+  it("does not read a file it can never play as blocked", () => {
+    // What a missing segment produces, measured in headless Chromium rather
+    // than read off the spec: an unfetchable source rejects with this name and
+    // leaves `audio.error.code` at 4, under either autoplay policy.
+    expect(refused(new DOMException("no supported source", "NotSupportedError"))).toBe(false);
+  });
+
+  it("fails SAFE on a name no engine here has produced", () => {
+    // Rejection names vary by engine. An unknown one degrades to what shipped
+    // before this split, which still recovers on the first gesture; guessing the
+    // other way would leave a recoverable deck permanently silent.
+    for (const err of [
+      new DOMException("who knows", "AbortError"),
+      { name: 42 },
+      {},
+      null,
+      undefined,
+      "not an error at all",
+    ]) {
+      expect(refused(err)).toBe(true);
+    }
   });
 });
 
