@@ -369,11 +369,13 @@ export interface Scene {
    * off, against 7 frames of antialiasing once deferred. Both failures are
    * invisible to every gate. `cameraMeasure` carries the numbers and the controls.
    *
-   * INVARIANT 11 IS THE TRAP HERE. This is not a callback on a tween. `seek()`
-   * passes `suppressEvents`, so measuring from an `onUpdate` — the obvious way to
-   * "measure late" — renders a frozen video with every gate green. Measurement
-   * happens before the timeline exists, and what it produces is ordinary tween
-   * values.
+   * INVARIANT 11 IS THE TRAP HERE. This is not a callback on a tween. Measuring
+   * from an `onUpdate` — the obvious way to "measure late" — is what the
+   * invariant forbids, and the reason is reproducibility rather than the frozen
+   * video an older version of this comment claimed: measured 2026-09-04, one
+   * `onUpdate` tween took the demo from 11 non-reproducible frames of 3,120 to
+   * 260. See AGENTS.md invariant 11. Measurement here happens before the
+   * timeline exists, and what it produces is ordinary tween values.
    */
   measure?: string[];
   /**

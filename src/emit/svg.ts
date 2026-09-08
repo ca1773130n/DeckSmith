@@ -84,16 +84,23 @@ export const DRAW_TO: Vars = { drawSVG: "100%" };
 /**
  * WHICH VERTEX OF THE START SHAPE IS CARRIED TO WHICH VERTEX OF THE END SHAPE.
  *
- * MorphSVG defaults this to `"auto"`, which SEARCHES: `_getClosestShapeIndex`
- * walks every rotation of the start segment summing point-to-point movement and
- * keeps the cheapest (MorphSVGPlugin.js:555-561). A search at render time is the
- * same class of hazard as the cold-worker glyph in `2026-09-04-equation-morph.md`
- * — one that can answer differently in two workers rasterising the same deck —
- * and it buys nothing here, because both shapes are polylines authored left to
- * right from the same x positions, so point 0 already corresponds to point 0.
+ * MorphSVG defaults this to `"auto"`, and what "auto" does depends on the start
+ * shape. For a CLOSED one it SEARCHES: `_getClosestShapeIndex` walks every
+ * rotation of the start segment summing point-to-point movement and keeps the
+ * cheapest (MorphSVGPlugin.js:559-561). For an OPEN one — every path `reshape`
+ * has a caller for is a `line-chart` polyline whose first and last points differ
+ * — that branch is unreachable, and "auto" is instead the cheaper
+ * reverse-or-not test at :579. A decision at render time is the same class of
+ * hazard as the cold-worker glyph in `2026-09-04-equation-morph.md`, one that
+ * can answer differently in two workers rasterising the same deck, and neither
+ * decision buys anything here: both shapes are polylines authored left to right
+ * from the same x positions, so point 0 already corresponds to point 0.
  *
- * Pinned, therefore, and pinned at the call site rather than through
- * `MorphSVGPlugin.defaultMap` so that a reader of the emitted tween can see it.
+ * Pinning `0` skips BOTH, because `0` is falsy and `if (shapeIndex)` at :557
+ * guards the whole block — so reconsider this line before morphing a closed
+ * shape, where the rotation search is what would be given up. Pinned at the call
+ * site rather than through `MorphSVGPlugin.defaultMap` so that a reader of the
+ * emitted tween can see it.
  */
 const SHAPE_INDEX = 0;
 

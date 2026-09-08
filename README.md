@@ -189,6 +189,11 @@ out/
   deck.html                     open this: the navigable deck
   hyperframes-player.global.js  copied from the hyperframes package, so nothing needs a CDN
   hyperframes.json
+  vendor/                       the scripts the head loads, and only those: GSAP and
+                                DrawSVG on every deck, MorphSVG (21,195 B) only on one
+                                that reshapes, ds-morph.js only on one that morphs an
+                                equation
+  katex/                        katex.min.css rewritten to its woff2 faces, and those fonts
   assets/                       every figure a beat cites — generated ones included, under
                                 the same name source.json records
   audio/                        only when the deck is narrated
@@ -199,9 +204,9 @@ not `file://`: the wrapper drives the composition through its iframe, and a file
 iframe cannot be reached. The deck says so in the console rather than rendering blank.
 
 Arrow keys, Space and PageUp/PageDown step; clicking the left or right third does too;
-`Home`/`End` jump; `n` toggles presenter notes; `f` is fullscreen; `m` mutes the voice and
-`s` hides the subtitles. Every step is deep-linkable (`#3` is slide 3, `#3.2` its second
-reveal).
+`Home`/`End` jump; `p` plays the deck by itself and pauses it again; `n` toggles presenter
+notes; `f` is fullscreen; `m` mutes the voice and `s` hides the subtitles. Every step is
+deep-linkable (`#3` is slide 3, `#3.2` its second reveal).
 
 Stepping forward *plays* the reveal rather than cutting to it — the step layer sweeps the
 composition's timelines across frames instead of seeking once. Backward steps, `Home`/`End`
@@ -563,6 +568,8 @@ const { out, files, navigable } = await buildDeck(storyboard, source, "./deck", 
   format: FORMATS["deck-16x9"],
   theme: "ink",
   assetsFrom: ".",            // the directory whose assets/ holds the figures
+  onBeatError: (id, err) => {},    // the beat is not in the deck
+  onBeatWarning: (id, why) => {},  // the beat IS, minus an ornament it could not fit
   onStep: console.log,        // silent otherwise: a library that prints is one you
 });                           // cannot run inside a request handler
 
@@ -573,6 +580,11 @@ const verdict = await verify(out);   // needs Chrome; skip it on the request pat
 demo deck built this way is byte-identical to `decksmith build`'s. It does **not** run the
 gates, because `verify` wants a browser and a caller may have neither one nor the patience
 for it; call `verify` yourself when you want it.
+
+`onBeatWarning` is the only signal that a slide is finished-looking but not what was
+planned — a `line-chart` drawn without its comparison, say. `build` prints it and the
+server puts it in the job's warnings; a library caller that ignores it ships the same
+silence this project keeps finding by eye.
 
 ### The surface
 
@@ -586,6 +598,7 @@ for it; call `verify` yourself when you want it.
 | verify | `verify`, `check`, `parseCheckReport` |
 | pack | `writePack`, `readPack`, `openPack`, `planMedia`, `mediaSummary` |
 | prefs | `loadPrefs`, `CONFIG_FILE` |
+| process | `guardTmpdir` |
 | contract | everything in `src/types.ts` — every schema, `Source`, `Storyboard`, `Beat`, `Format`, `FORMATS`, `Verdict` |
 
 Two of those are worth pointing at. `Runner` is exported so you can drive planning through
@@ -596,6 +609,13 @@ body rather than a filesystem: it is pure, taking strings in and returning strin
 `ImageProvider` is the same kind of seam as `Runner`: `illustrate` takes a `chain` of them,
 so a server's tests draw with a fake instead of spawning Codex, and a deployment can add a
 backend this package does not ship.
+
+`guardTmpdir` is the odd one out: it is not part of building a deck, it is what an
+executable that is about to `mkdtemp` calls first. It deletes a `TMPDIR` that resolves
+inside the package root and says so on stderr, and it is a no-op in an installed package.
+Importing this module does not run it, deliberately — an absent `TMPDIR` is inherited by
+every child process a host spawns, which is not a decision a library import gets to make
+for its host. Our own three executables call it; nothing else does.
 
 Anything not listed is deliberately absent, and adding to the list is a promise we cannot
 quietly take back. `prefsFromFlags` is the clearest example: it translates commander's flag
@@ -717,7 +737,19 @@ right up until the first stall, and a stall is exactly when a viewer looks at th
 to find out what they missed. `m` mutes (captions keep tracking, and a muted element is
 exempt from the autoplay policy, so it doubles as the escape hatch); `s` hides subtitles.
 If the browser refuses to autoplay, the deck says `press any key for sound` once and
-navigation carries on regardless.
+navigation carries on regardless. A segment that will not *play* — a missing file, a
+dropped connection — reads `narration unavailable` instead, because telling that viewer to
+press a key names the wrong culprit and goes on naming it every time they try. A gesture
+retries either failure; nothing retries the unplayable one unasked.
+
+`p` plays the deck by itself, and that is a mode rather than a change to what stepping
+means — the ordinary case is a presenter talking over it. A narrated stop is timed by its
+own audio and waits for it to finish. A stop that is not being *heard* — no segment, or
+one that would not play — gets the clock instead, at the gap the author left before the
+next stop, floored at 1.5s and capped at 8s. Whether a stop is heard is asked twice, on
+arrival and again when `play()` settles, because until it settles a missing file and a
+working one are indistinguishable; without the second ask, autoplay waits forever for an
+`ended` that a source which never loaded cannot fire.
 
 Audio is content-addressed on the text, voice, rate and pitch, so re-narrating an edited
 deck re-speaks only the sentences that moved — and two beats saying the same sentence
@@ -874,7 +906,7 @@ The explanatory vocabulary. These came out of hand-building a real deck
 | `equation-walk` | an equation explained symbol by symbol | `equationId`, `terms` (1–4) |
 | `equation-morph` | one equation becoming the next, the shared terms carried across | `fromId`, `toId`, `terms` (1–4) |
 | `data-table` | a results table with rows revealed in argument order | `tableId`, `highlight` |
-| `line-chart` | a trend, with per-step deltas | `points`, `deltas?`, `readout?` |
+| `line-chart` | a trend, with per-step deltas, optionally against a baseline | `points`, `deltas?`, `readout?`, `compare?` |
 | `callout` | 1–3 panels of prose: definitions, contrasts, takeaways | `panels`, `note?` |
 | `pipeline` | stages in a flow, arrowed, with an optional feedback loop | `stages` (2–6), `loop?` |
 | `annotated-figure` | a figure cropped to the panel under discussion, with leader lines | `figureId`, `crop?`, `notes` |
@@ -886,6 +918,33 @@ The explanatory vocabulary. These came out of hand-building a real deck
 The last six draw the mechanism rather than describe it, and `verify` warns when a deck
 leans on the others: a deck of headlines and bullet panels is what every other slide
 generator already makes.
+
+`line-chart`'s `compare` is the one parameter that changes what its archetype *is*. Given
+`{ label, points }` the chart draws the baseline first, holds it, then reshapes the curve
+into `points` and leaves the baseline behind as a labelled ghost — so the slide asserts a
+change in the curve's *shape*, not two numbers. Reach for it on that tell: one quantity
+measured under two conditions.
+
+The two series must be over the same x values in the same order, or `storyboardSchema`
+refuses the beat before any of it is drawn. Series over different categories would reshape
+point *i* of one condition onto point *i* of another, which is a smooth and convincing lie
+that nothing downstream can catch: both curves fit the plot, both clear the type floor, and
+`drift` renders the same wrong thing twice.
+
+It costs time — the baseline draws, is held, then reshapes — so give a compare beat
+`seconds` of 7, or 8 with a `readout`. Given fewer than it needs, the emitter draws the
+chart *without* the comparison rather than stopping on a half-drawn one: the same beat, one
+series, byte-for-byte the plain chart, down to MorphSVG's 21,195 bytes staying off the deck.
+It says so on the way past, as a `build: kept <beat> — …` line, and that line is the only
+place anyone learns the comparison is gone. Refusing instead would reach `onBeatError` and
+drop the whole slide, which is the worse trade.
+
+Keep `label` short. It is set at the end of the baseline and refused outright if it is
+wider than the plot, and *that* refusal does cost the slide. Where it fits, it is placed by
+trying four positions and rejecting any that would print through the axis names, the tick
+labels, the category names, a value, a drawn delta or either curve; if all four are
+rejected the label is dropped rather than overprinted, and dropped silently, because an
+unnamed ghost is still legibly the fainter, earlier curve.
 
 Each maps to exactly one emitter. Adding a domain means adding archetypes — the core never
 learns what a camera frustum or an orderbook is.
@@ -899,7 +958,13 @@ learns what a camera frustum or an orderbook is.
    inner HTML, GSAP statements, hold points, and its own CSS. It owns one scene's insides
    and nothing else. If it draws labelled parts a camera could fly into, fill `Scene.parts`
    in the same loop that gives them their ids — `inside.element` is an index, and that map
-   is the only thing that can tell the plan's third stage from the picture's.
+   is the only thing that can tell the plan's third stage from the picture's. If its tweens
+   need a vendored GSAP plugin, name it in `Scene.plugins`: `PLUGINS` in
+   `src/emit/composition.ts` is the one place a name resolves, and a name that table does
+   not know is refused at emit time rather than emitted as a tween that animates nothing.
+   And if it has to drop an ornament to fit the beat's length, draw the rest and say so in
+   `Scene.warnings` rather than throwing — a throw reaches `onBeatError`, which costs the
+   whole slide.
 3. Register it in `src/emit/archetypes/index.ts`.
 
 Nothing else changes. The document shell, the deck runtime, the format profiles and the
@@ -999,19 +1064,36 @@ mechanically rather than free-hand.
   correctly only because one wrapper happened to already be its box's width. No gate reads
   CSS, so this is pinned by a test instead — `archetypes.test.ts` fails when two
   archetypes say different things about the same class name.
-- **Nothing is driven by a GSAP callback.** Capture seeks rather than plays, and `seek()`
-  passes `suppressEvents` — so `onUpdate`, `onStart` and `onComplete` never fire while a
-  frame is being taken. Motion applied from a callback therefore looks right in a browser
-  and renders a **frozen video**, with every gate green: lint, check, the type floor, and
-  even `drift`, which passes twice over because both renders freeze identically. State
-  must be applied by the thing being seeked — tween the property. This is the most
-  dangerous failure shape in the project, and no automated gate can see it.
+- **Nothing is driven by a GSAP callback.** Not because the video renders frozen: that was
+  the stated reason for a long time, it was measured on 2026-09-04, and it did not hold.
+  `hyperframes render` drives capture through Chrome's `beginFrame` rather than through a
+  seek, and `suppressEvents` is a property of a seek — so under the renderer a callback
+  fires and its motion ramps, in both constructions that were tried. What the callback
+  actually costs is **reproducibility**. Measured against a control on the same deck: the
+  demo differs on 11 frames of 3,120 as built and on 260 with one `onUpdate` tween added,
+  so one callback multiplies the non-reproducible frames by 24 without moving the
+  worst-case PSNR. And nothing in this stack agrees about what a callback did: `decksmith
+  frames` *does* seek, so it passes `suppressEvents` and shows nothing; `hyperframes
+  snapshot` shows a browser's playback; the render shows a third thing. So tween the
+  property, and where a value is not directly tweenable, tween a proxy object and bind the
+  property to it. `AGENTS.md` invariant 11 carries the measurement and the table.
+- **A vendored runtime costs bytes only on the decks that use it.** GSAP and DrawSVG are
+  unconditional, because every drawing archetype draws something on. Everything else goes
+  through `PLUGINS` in `src/emit/composition.ts`: a scene names what its tweens need in
+  `Scene.plugins`, the head emits a `<script src>` and a `registerPlugin` per name **in the
+  table's order** — not the scene's, or two storyboards differing only in beat order would
+  emit the same tags in a different order and cost someone a day in `drift` — and
+  `vendorScripts` copies only the files the emitted head actually references. So MorphSVG's
+  21,195 bytes are on a deck that reshapes and on no other, and a name the table does not
+  know is refused at emit time rather than shipped as a tween that silently animates
+  nothing. Registration goes before the first scene script, because a scene builds its
+  timeline inline and late registration is not late, it is nothing.
 
 ## Repo layout
 
 ```
 src/index.ts          the library surface — the only file consumers import
-src/cli.ts            the ten verbs, argv and stderr
+src/cli.ts            the eleven verbs, argv and stderr
 src/types.ts          the contract: Source, Storyboard, Beat, Format, Verdict
 src/prefs.ts          the three-layer preference resolver
 src/emit/kit.ts       the seam between the deck shell and the archetype emitters

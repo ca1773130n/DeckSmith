@@ -965,9 +965,9 @@ async function start(doc: Document): Promise<void> {
    * `<hyperframes-player>` builds its iframe in its CONSTRUCTOR, so until the
    * composition navigation commits, `contentDocument` is already a perfectly
    * readable `about:blank`. Every handler below — keydown, click, hashchange,
-   * the host bridge — is registered BEFORE `await whenReady(player)`, and
-   * `whenReady` polls on a 200ms interval for up to five seconds. So one Space,
-   * one click or one host `go` inside that window would latch the throwaway
+   * the host bridge — is registered BEFORE `await whenReady(player)`, which
+   * waits on the player's one-shot `ready` event for up to five seconds. So one
+   * Space, one click or one host `go` inside that window would latch the throwaway
    * document for the rest of the session: a deck that steps perfectly, paints
    * nothing, and never puts `.ds-live` on the real composition, which by
    * invariant 6 leaves every ambient rule inert too. Measured on 2026-09-08 in

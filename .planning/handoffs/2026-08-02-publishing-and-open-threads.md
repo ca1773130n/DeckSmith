@@ -335,7 +335,10 @@ widths read out of a browser.
 `TMPDIR=/Users/neo/Developer/Projects/DeckSmith`, which appears in no shell
 profile (a clean login shell has it empty), so something injects it per session.
 Thirteen places ask `os.tmpdir()` for scratch, so every `mkdtemp` lands in the
-project root. 1,596 directories had accumulated before anyone looked.
+project root. 1,596 directories had accumulated before anyone looked. (Counted
+again on 2026-09-08 and it is twenty places — six in `src/`, fourteen across
+twelve test files. `src/tmpdir.ts` is the current count; this one is the count as
+it stood when this paragraph was written.)
 
 **Closed on 2026-09-08 — see `src/tmpdir.ts`.** What this paragraph used to say,
 kept because the gap it describes is the reason the fix looks the way it does:

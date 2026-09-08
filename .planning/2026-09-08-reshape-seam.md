@@ -169,6 +169,45 @@ and the dots hang off, and `test/arch-line-chart.test.ts` asserts the ordering.
   ~15 sites and guarded only by prose. `reshape()` takes `first` as a REQUIRED
   argument so that it is a clean consumer of that lint when it arrives.
 
+## What changed after this note was first written
+
+Three commits on `chore/0.4-integration` refined the compare path, all after
+477a792. The schedule described above is the one that was measured before them.
+
+- **The schedule now fits the beat.** `beat.seconds` is the planner's, and held
+  at their authored lengths the draw-on and the reveal put the second hold at
+  6.5s on any chart of four points or more — which `holdsWithin` then clamped
+  onto a half-drawn chart, in frame, above the type floor, green in every gate.
+  The draw-on gives up its length first, all the way to `DRAW_FLOOR` (1.0s), and
+  only then does the point stagger give up any of its, to `STEP_FLOOR` (0.15).
+  Both descend in whole hundredths over `tailAfter` — the same function the four
+  tweens are scheduled from — rather than by inverting a max of four lines that a
+  fifth tail added later would silently escape.
+- **It degrades; it does not refuse.** When even the floors do not fit, the beat
+  is re-entered with `compare: undefined` and emitted as the plain chart, down to
+  `plugins` being absent so the head vendors none of MorphSVG's 21,195 bytes, and
+  the loss is said out loud through `Scene.warnings` → `DeckOptions.onBeatWarning`.
+  A throw was the first cut and was wrong: it reaches `onBeatError`, which drops
+  the whole beat. Measured against the shortest committed planner output in the
+  repository, `experiments/013-vocabulary/planner/runs/B0-02/out.json`, whose
+  eleven beats are authored at 4.6, 4.9, 5.2, 5.3, 5.8, 5.8, 6, 6.2, 6.4, 6.4 and
+  6.5 seconds: four of the eleven are under the 5.45s a four-point comparison with
+  a readout needs (5.7s if it also carries deltas), and all eleven are under the
+  6.65s a twelve-point one needs. The refusal turned "the comparison animates a
+  bit fast" into "the slide is not in the deck" across most of a real plan.
+- **The ghost label is placed, and may be dropped.** Four candidate positions are
+  tried, and any that overlaps the always-drawn text — both axis names, the tick
+  labels, the category names — or a value box, a drawn delta box, or either curve
+  is rejected. If all four are rejected the label is dropped and no tween is
+  emitted for it, because a tween on an id nothing carries is a selector GSAP
+  resolves to nothing, silently. An unnamed ghost is still legibly the fainter,
+  earlier curve; a name drawn through a value is not. Nothing warns about this
+  one, which is the one thing about it worth arguing with later.
+- **It is measured at the weight it is painted at.** `.ghostlab` sets
+  `font-weight: 600`, so the collision test charges `ghostW` (600) rather than
+  `runW`'s 400. Under-charging a width is the unrecoverable direction: the layout
+  keeps a label the browser then draws wider than the box it was cleared for.
+
 ## Reproducing the measurement
 
 ```
@@ -180,3 +219,10 @@ then open the deck with `openDeck(dir)` from `src/render/capture.ts` and read
 the built deck's `data-start`, or from `timing.json` — not from the beat lengths
 in the storyboard, which is the mistake that produced three false alarms in one
 afternoon on 2026-09-04.
+
+State the beat's `seconds` when you quote a local time from this. The schedule is
+fitted now: `lift = 0.8 + drawFor`, and `drawFor` descends from 1.8s toward
+`DRAW_FLOOR` until the reveal's tail fits, so the reshape's local 3.10 start is
+what an UNCOMPRESSED beat gives and a shorter one starts it earlier. Below the
+floors there is no reshape in the deck at all — read the build's warnings before
+you read `d`.

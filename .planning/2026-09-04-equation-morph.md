@@ -110,6 +110,12 @@ property `immediateRender` discipline exists for.
 
 - The demo deck does not carry a morph beat. Its source has one equation, and
   adding one is a product decision about the showcase, not a build step.
+
+  **DONE on 2026-09-05** (aa2c9b7). `demo/storyboard.json` carries `b07`, an
+  `equation-morph` over `eq-carrier` → `eq-composed`, and `demo/source.json`
+  carries `eq-composed` as a SECOND equation rather than a rewrite of the first.
+  The showcase claims all thirteen archetypes, so leaving the release's headline
+  feature out of it was itself the stale claim.
 - No `Reshape` (MorphSVG) and no `Track`: nothing emits them, and the DrawSVG
   note's rule stands — an unused plugin is bytes every deck pays for.
   **Reshape landed on 2026-09-08**, with `line-chart.compare` as its one

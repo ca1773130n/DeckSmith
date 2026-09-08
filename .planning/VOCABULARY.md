@@ -480,6 +480,17 @@ as a Manim mobject's interpolation, and a pure function of t.
 
 ### Gap 1 — richer vector animation: **DO IT. 1–2 weeks.**
 
+> **STATUS 2026-09-09 — mostly delivered, and one item was rejected rather than
+> deferred.** DrawSVG shipped on 2026-09-04 (`2026-09-04-drawsvg-seam.md`) and is
+> unconditional. Reshape/MorphSVG shipped on 2026-09-08 behind a per-scene plugin
+> table, with `line-chart.compare` as its one consumer
+> (`2026-09-08-reshape-seam.md`). **MotionPath was rejected, not deferred**:
+> `travel()` already is Trace for polylines and every path the archetypes emit is
+> M/L/Z, so there is no curve for it to trace that `travel()` gets wrong. What is
+> left of Gap 1 is `Track` and `Squish` — both unshipped, neither with a named
+> consumer — and asking the planner for morph keys, which §1 flags as never
+> measured and which still is.
+
 Nine of eleven candidate techniques pass both seek purity and render determinism.
 The two failures are already excluded by existing rules: SMIL (**the sole
 nondeterministic technique** — isolated, not assumed: the full 12-cell composition
@@ -487,14 +498,25 @@ rendered to two different mp4 hashes; removing SMIL alone made it byte-identical
 twice, and again at `--workers 4`) and CSS `@keyframes` (right in the video via the
 WAAPI adapter, wall-clock in the player).
 
-Bundle cost measured: MorphSVG 21,195 B + MotionPath 22,002 B + DrawSVG 4,351 B =
-**47,548 B against gsap.min.js's 72,779 B — +65% on the animation runtime**,
-inlined at compile time exactly as `GSAP_SRC` is, so invariant 4 holds. All three
-ship in the public `gsap@3.14.2` tarball under the standard licence.
+Bundle cost measured, per file: MorphSVG 21,195 B, MotionPath 22,002 B, DrawSVG
+4,351 B, against gsap.min.js's 72,779 B. All three ship in the public
+`gsap@3.14.2` tarball under the standard licence.
+
+> **CORRECTED 2026-09-09.** The sentence here summed those three to 47,548 B and
+> called it "+65% on the animation runtime, inlined at compile time exactly as
+> `GSAP_SRC` is". Both halves priced something nobody ships. Only DrawSVG is
+> unconditional (+6%); MorphSVG is vendored behind the plugin table and costs 0
+> bytes on a deck that does not reshape; MotionPath is not vendored at all. And
+> nothing is inlined — `GSAP_SRC` is `"./vendor/gsap.min.js"` and is emitted as a
+> `<script src>`, as are DrawSVG and every `PLUGINS` entry. Invariant 4 holds
+> because `vendorScripts` copies the files into the deck directory, not because
+> their bytes are in the HTML.
 
 The cheapest single win inside this: **DrawSVG removes the path-length requirement
-entirely** (cell 03 needed no length), which is arithmetic `drawFrom()` currently
-forces the emitter to know at build time.
+entirely** (cell 03 needed no length), which is arithmetic `drawFrom()` *then*
+forced the emitter to know at build time. **Taken on 2026-09-04**: `drawFrom` is
+deleted, five call sites emit `DRAW_FROM`/`DRAW_TO`, and the rounding bug its own
+comment documented went with it.
 
 **One thing to fix while here, unrelated to cost:** `hyperframes snapshot` is not
 the capture path and lies about CSS 3D — at t=3.9s it produced a flat, un-rotated
@@ -672,7 +694,7 @@ means lines were counted; "guess" means guess.
 | 3 | `immediateRender` lint (§2.5) — ships *with* the morph, not after | **1–2 days** | guess |
 | 4 | **`equation-morph` archetype**, keyed, part-level | **~1 week** | **spike timed**: 275 code lines, empty dir → green measurements in ~3h incl. two designs discarded on screenshot evidence. Productionising (lint, tests, key prompting) is the guess |
 | 5 | Fix `prompt.ts` hold counts (§4) — derive from `emitScene` | **1 day** | **measured** defect table |
-| 6 | **Vector vocabulary** (Gap 1): plugin seam + 8 verbs + DrawSVG | **1–2 weeks** | **counted**: archetypes avg 380 lines, `svg.ts` 427 for the whole primitive layer, `drawFrom` is 4 lines → 400–800 lines |
+| 6 | **Vector vocabulary** (Gap 1): plugin seam + 8 verbs + DrawSVG | **1–2 weeks** | **counted**: archetypes avg 380 lines, `svg.ts` 427 for the whole primitive layer, `drawFrom` is 4 lines → 400–800 lines. `[DELIVERED IN PART 2026-09-08]` — seam, Draw and Reshape shipped; MotionPath rejected; `Track` and `Squish` unshipped and unconsumed. See `2026-09-04-drawsvg-seam.md` and `2026-09-08-reshape-seam.md`. |
 | 7 | **Layout pass** — the general solver, §3 | **3–6 weeks** | **guess with a bad prior.** Must subsume four different per-archetype search strategies; `fitBoxes` is the existing attempt and 11 of 12 archetypes declined it. **Highest-variance item here.** |
 | 8 | Re-express 2–3 archetypes on the vocabulary as proof | **1–2 weeks** | **counted** from per-archetype line counts |
 | **9** | `[ADDED]` **Migrate the other 9–10 archetypes** — §3 says eight of twelve "would eventually be re-expressed… one at a time"; costed nowhere | **4.5–10 weeks** | item 8's own rate (2.5–5 d each) × 9. Skipping it means carrying twelve hand-solved archetypes *and* a vocabulary indefinitely |

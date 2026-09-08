@@ -263,10 +263,17 @@ export const lineChartParamsSchema = z
      * curve rather than two numbers.
      *
      * Drawn first and alone; then the curve lifts off it and reshapes into
-     * `points`, leaving this one behind as a ghost. `label` names the ghost, and
-     * is drawn: a name in the plan that never reaches the slide is an unlabelled
-     * second line on a chart, which is a chart asserting something it does not
-     * say.
+     * `points`, leaving this one behind as a ghost. `label` names the ghost and
+     * is drawn wherever the chart has room for it.
+     *
+     * KEEP IT SHORT — two or three words. A label wider than the plot is refused
+     * outright, and that refusal reaches `onBeatError` and costs the whole beat.
+     * One that fits but cannot be placed clear of the axis names, the tick and
+     * category labels, the values, the deltas and both curves is DROPPED
+     * instead, silently: an unnamed ghost is still legibly the fainter, earlier
+     * curve, where a name printed through a number is a defect in both of them.
+     * Nothing warns about that one — see the placement note in
+     * `src/emit/archetypes/line-chart.ts`.
      */
     compare: z.object({ label: z.string(), points: z.array(chartPointSchema).min(2) }).optional(),
   })

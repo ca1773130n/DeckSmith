@@ -1101,15 +1101,26 @@ function closeSafe(code: string): string {
  * — both of which the generic HyperFrames docs ask for — make the deck
  * non-navigable without any gate noticing (EXPERIMENT-003).
  *
- * INVARIANT 11, and it is the most dangerous one we know of. The timeline this
- * writes is `paused: true` and is only ever SEEKED — capture sets an absolute
- * time and grabs a frame (invariant 1). GSAP's `seek()` passes `suppressEvents`,
- * so `onUpdate` — and `onStart`, `onComplete`, every callback — NEVER FIRES
- * under capture. Motion driven by a callback therefore plays perfectly in a
- * browser, where the deck really does run, and renders a FROZEN VIDEO with every
- * gate green: `lint` passes, `check` passes, the 40px floor passes, and `drift`
- * passes twice over because both renders are identically frozen. Nothing in the
- * stack can see it; only a human watching the video can.
+ * INVARIANT 11. The timeline this writes is `paused: true`, and where it is
+ * SEEKED — `decksmith frames`, which is the fidelity gate's own capture path —
+ * GSAP's `seek()` passes `suppressEvents`, so `onUpdate` and every other
+ * callback never fires and callback-driven motion is simply absent.
+ *
+ * WHAT THIS COMMENT USED TO SAY, and it was wrong: that the shipping render
+ * therefore produces a FROZEN VIDEO. Measured on 2026-09-04 and it does not.
+ * `hyperframes render` drives capture through Chrome's `beginFrame` rather than
+ * through a seek, `suppressEvents` is a property of a seek, and the callback
+ * ramps in the mp4 — in both constructions tried, and again at 0.8.27.
+ *
+ * The cost is REPRODUCIBILITY, and it is the reason the rule stands. Against a
+ * control on the same deck: 11 frames of 3,120 differing as built, 260 with one
+ * `onUpdate` tween added — 24x, with the worst-case PSNR unmoved, because the
+ * deck's own worst frame is there in the control. `drift --identical` is no help
+ * either way; this deck fails it with no callback at all, which is why the PSNR
+ * floor is the number to read. The instruments also disagree about what a
+ * callback did — `frames` shows nothing, `hyperframes snapshot` shows a
+ * browser's playback, the render shows a third thing — so no still frame settles
+ * it. AGENTS.md invariant 11 carries the table.
  *
  * So state must be applied BY THE THING BEING SEEKED, never by a callback hung
  * off it: tween the property. When a value is not directly tweenable, tween a

@@ -28,6 +28,14 @@ backgrounds) stays out, as decided.
   (`vendor/gsap.min.js`), so DrawSVG/MotionPath/MorphSVG are not available and
   are not added. Draw-on is `strokeDashoffset` (`drawFrom` in `src/emit/svg.ts`);
   travel is `x`/`y`; morph is crossfade plus transform.
+
+  **SUPERSEDED on plugins, 2026-09-04 and 2026-09-08.** `fromTo` only and no
+  callbacks still stand. DrawSVG is vendored and registered on every deck;
+  MorphSVG and our own `ds-morph` runtime are registered per scene through the
+  `PLUGINS` table in `composition.ts`; MotionPath was rejected rather than
+  deferred. Draw-on is `DRAW_FROM`/`DRAW_TO` and `drawFrom` is deleted; travel is
+  still `x`/`y`; the equation morph is the `dsMorph` plugin, not a crossfade. See
+  `2026-09-04-drawsvg-seam.md` and `2026-09-08-reshape-seam.md`.
 - Selectors start with `#<sid>`; times rounded as today (`tween()` 2 dp).
 - **Hold counts and hold rules unchanged** — `REVEALS` in `src/plan/prompt.ts`
   is a contract with narration (`stopCount`) and with the prompt tests. Reveals

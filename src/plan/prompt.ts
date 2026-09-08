@@ -193,7 +193,14 @@ DRAWING ARCHETYPES — reach here first
                  result, where what the source is claiming is the change in the
                  SHAPE of the curve and not two numbers. Its \`label\` names the
                  baseline ("without pretraining", "FP32") and is drawn on the
-                 slide. \`compare.points\` must carry the SAME x values, in the
+                 slide where the chart has room for it. Keep it SHORT — two or
+                 three words. A label wider than the plot is refused and the
+                 whole slide goes with it, and one that cannot be placed clear of
+                 the axis names, the values and both curves is dropped without a
+                 word, leaving the baseline unnamed. A \`readout\` takes the plot
+                 down to about two thirds of its width, so a beat that has one
+                 has room for a shorter label still.
+                 \`compare.points\` must carry the SAME x values, in the
                  same order, as \`points\`; the baseline is drawn first, then the
                  curve reshapes into \`points\` and leaves the baseline behind. Do
                  not use it for two unrelated series that happen to share an

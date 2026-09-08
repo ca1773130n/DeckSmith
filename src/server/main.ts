@@ -42,8 +42,10 @@ const env = process.env;
 // below reads `tmpdir()` at module load and `mkdirSync` runs eleven lines later,
 // so a guard placed after this block would not merely compute the wrong path —
 // it would have already created `<repo>/decksmith-server/` on disk. That
-// directory is also the one `.gitignore` never caught, because the pattern is
-// `decksmith-server-*/` and wants the dash.
+// directory was also the one `.gitignore` never caught, because the pattern was
+// `decksmith-server-*/` and wanted the dash; the anchored `/decksmith-*/` glob
+// covers it now, but a directory that is merely ignored is still a directory in
+// the checkout.
 guardTmpdir();
 
 const options = {

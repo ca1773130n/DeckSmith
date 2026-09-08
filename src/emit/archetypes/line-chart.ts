@@ -536,6 +536,13 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
    * NOTHING CLEAR MEANS NO NAME, the way `deltasFit` drops the deltas rather than
    * collide. An unnamed ghost is still legibly the fainter, earlier curve; a name
    * printed through a number is a defect in both of them.
+   *
+   * AND THIS ONE IS SILENT, unlike the degrade below: no `Scene.warnings` entry,
+   * so `build` prints nothing and the job's warnings say nothing. The judgement
+   * is that an unnamed ghost is legible where a dropped comparison is not. It
+   * does mean a plan whose `compare.label` never reaches the slide gets no word
+   * about it, which is the failure `warnings` was added for — revisit it here if
+   * a real plan ever loses a label this way.
    */
   const lastI = p.points.length - 1;
   const ghost = (() => {
@@ -751,10 +758,17 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   }
 
   // The compare path asks every tail; the plain one keeps the form its bytes are
-  // pinned to in `test/wiring.test.ts`. They agree wherever the plain path can
-  // reach — its `step` is never compressed, so the ring's `1.8 + 0.4` is the
-  // longest tail on any chart of four points or more, which is every chart the
-  // stagger cap of 0.45 applies to.
+  // pinned to in `test/wiring.test.ts`. THEY DO NOT AGREE EVERYWHERE, which the
+  // sentence here used to claim. Walked over `tailAfter` at every count from 2 to
+  // 30: they agree at 4 to 18 points without deltas, and only at 4 to 6 with
+  // them. Below four the 0.45 cap binds, so `step * count` falls under the 1.8s
+  // the ring still walks for — at two points the hold is at 2.1 while the ring is
+  // fading out at 3.0. With deltas from seven up, `step` drops under the 0.275
+  // where `tailAfter`'s delta line overtakes the ring's: at twelve points the hold
+  // is 3.0 against a delta still fading up at 3.25. Without deltas the values
+  // overtake it at nineteen, by 5ms. All of it is the defect `tailAfter` exists to
+  // stop, and the plain path keeps the wrong form anyway because a fix moves bytes
+  // `test/wiring.test.ts` pins — a change to make deliberately, not in passing.
   const drawn = settled + (cmp ? tailAfter(step) : step * count + 0.4);
   // TWO STOPS WHEN THERE IS A COMPARISON, and `REVEALS["line-chart"]` says so.
   // The baseline alone is a claim in its own right — it is what the result is
@@ -786,8 +800,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
    * readout), and the shortest committed planner output in this repository,
    * experiments/013-vocabulary/planner/runs/B0-02/out.json, authors its eleven
    * beats at 4.6, 4.9, 5.2, 5.3, 5.8, 5.8, 6, 6.2, 6.4, 6.4 and 6.5 seconds.
-   * Four of those eleven refuse a four-point comparison carrying a readout,
-   * which needs 5.7s; all eleven refuse a twelve-point one. So the refusal
+   * Four of those eleven refuse a four-point comparison carrying a readout and
+   * deltas, which needs 5.7s — 5.45s without the deltas, and the same four beats
+   * either way; all eleven refuse a twelve-point one. So the refusal
    * turned "the comparison animates a bit fast" into "the slide is not in the
    * deck" across most of a real plan.
    *

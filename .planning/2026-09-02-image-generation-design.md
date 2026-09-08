@@ -182,13 +182,18 @@ the tool SVG from its own `viewBox`. A size failure is a rung failure.
   -c sandbox_workspace_write.exclude_tmpdir_env_var=true
   -c sandbox_workspace_write.exclude_slash_tmp=true` and spawns with
   `env: { ...process.env, TMPDIR: cwd }`, so the agent can write in its scratch
-  directory and nowhere else — in agent sessions `TMPDIR` points at the repo.
+  directory and nowhere else — in agent sessions `TMPDIR` used to point at the
+  repo, and `guardTmpdir` (`src/tmpdir.ts`) now unsets such a `TMPDIR` in every
+  entry point, so `TMPDIR: cwd` on the child is a positive choice of scratch root
+  rather than a correction to a poisoned one.
   Unchanged behaviour when absent. Prompt: use `$imagegen` to make one picture of
   the scene in the style, on a white background, no text; copy the PNG to
   `./picture.png`; final message `{ ok, file, reason }` under a schema; if there is
   no image tool, `ok:false` and why. `ok:false`, a missing file, or a non-raster
-  → throws with `reason`. Timeout 5 min. Scratch dir `decksmith-image-*` (in
-  `.gitignore`'s mkdtemp list).
+  → throws with `reason`. Timeout 5 min. Scratch dir `decksmith-image-*`, caught
+  by `.gitignore`'s anchored `/decksmith-*/` glob — which replaced the old prefix
+  list on 2026-09-08 and is a backstop, not the fix: `guardTmpdir` in
+  `src/tmpdir.ts` is what keeps this out of the checkout.
 - `toolSvg()` — pure. `mulberry32` seeded from `sha256(prompt|style|aspect)`;
   6–10 overlapping circles, rounded rects and strokes; fixed paper `#ffffff` and
   ink `#1f2328` tints (both hosts put the figure on a white card regardless of

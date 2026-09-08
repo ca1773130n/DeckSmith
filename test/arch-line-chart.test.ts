@@ -505,7 +505,7 @@ describe("the baseline's label", () => {
     // MEASURED on this emitter: both last-x candidates are blocked here, the
     // ghost falls through to the first x, the away side clamps to 70, and
     // `<text class="ghostlab" … text-anchor="start" x="150" y="70">` ran through
-    // "PSNR (dB)" at x 0-201.84, y 2-42. 51.84px across, 12px down.
+    // "PSNR (dB)" at x 0-204.87, y 2-42. 54.87px across, 12px down.
     const scene = lineChart(
       beat({
         headline: "Each extra step buys less",
@@ -581,9 +581,9 @@ describe("the baseline's label", () => {
     // past the axis, which is the one thing the refusal exists to stop.
     //
     // MEASURED here, deck-16x9: at 75 characters this label is 1440.41px at 400
-    // and 1483.63px at 600, and the plot is 1472.84-1483.63px wide. One weight
-    // fits and the other does not, which is what makes this case discriminate:
-    // charged at 400 the emitter accepts it, charged at 600 it refuses.
+    // and 1483.63px at 600, and the plot is 1477px wide. One weight fits and the
+    // other does not, which is what makes this case discriminate: charged at 400
+    // the emitter accepts it, charged at 600 it refuses.
     //
     // The same mismatch has bitten this file's neighbours before — the
     // perturbation sweep found `stack` measured at 600 and drawn at 700, whose
