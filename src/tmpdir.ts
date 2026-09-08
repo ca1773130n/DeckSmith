@@ -11,8 +11,10 @@
  *
  * which is not in any shell profile — a clean login shell has it empty — so it
  * is injected per session. Every `mkdtemp` then lands in the project root. One
- * `npm test` leaves about 140 directories behind; 2,306 of them across eight
- * prefixes had accumulated by the time anyone counted them, and `.gitignore` had
+ * `npm test` leaves about 140 directories behind, and 2,306 of them over eight
+ * prefixes had accumulated by the time they were swept on 2026-09-09. (A count a
+ * day earlier, over a wider set of prefixes, read 2,333; both are dated in
+ * `.gitignore` so the pair does not read as a contradiction.) `.gitignore` had
  * grown fourteen entries papering over it, which is how it stayed invisible.
  *
  * This lives in `src/` rather than `scripts/` because `scripts/` is outside

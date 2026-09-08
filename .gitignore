@@ -44,17 +44,20 @@ demo/audio/
 # THIS IS NO LONGER THE FIX, and it was never a good one. `guardTmpdir` in
 # src/tmpdir.ts unsets such a TMPDIR, and the CLI, the MCP server, the HTTP
 # server and the vitest setup file all call it, so nothing we start writes here
-# any more. What is left below is a backstop with two honest jobs: it keeps the
-# 2,306 directories that predate the guard out of `git status` until someone
-# sweeps them, and it covers processes we do not start.
+# any more. What is left below is a backstop, and since the accumulation it was
+# hiding has been swept it has one job left: covering processes we do not start.
+# The sweep was 2026-09-09 — 2,306 directories over eight prefixes, 14MB, plus a
+# 34MB `node-compile-cache/` and `tsx-501/`, all of them predating the guard.
 #
 # THE OLD LIST WAS INCOMPLETE, which is why it is gone. It named ten prefixes and
 # missed eight more — `decksmith-harvest-`, `decksmith-drift-`,
 # `decksmith-assets-`, `decksmith-transcode-`, `decksmith-prefs-`, `ds-harvest-`,
 # and the two FIXED names `decksmith-mcp` and `decksmith-server`, which slipped
-# through because `decksmith-server-*/` wants the dash. 2,333 directories
-# accumulated behind that gap and `git add -A` swept 14 files out of four of them
-# into four separate commits. Two globs cannot go stale the way a list of
+# through because `decksmith-server-*/` wants the dash. 2,333 directories had
+# accumulated behind that gap when it was counted on 2026-09-08, and `git add -A`
+# swept 14 files out of four of them into four separate commits. (The 2,306 above
+# is the smaller, later count taken at the sweep itself — two measurements a day
+# apart, not a disagreement, which is why both now carry their date.) Two globs cannot go stale the way a list of
 # eighteen does, so these are globs; add nothing here without the same property.
 #
 # ANCHORED, because a glob that cannot go stale can still reach too far. Every

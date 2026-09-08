@@ -204,7 +204,10 @@ product decision the user should be told about rather than have made for them.
 * **`splitCue` cannot fix a fast deck.** Splitting halves text and time together.
 * **Changing `rate` invalidates the whole audio cache.** Fine, but say so in the
   UI rather than appearing to hang for 30 seconds.
-* **Invariant 11.** `seek()` passes `suppressEvents`, so a GSAP `onUpdate` never
+* **Invariant 11.** `[SUPERSEDED 2026-09-04 — the frozen-video claim did not hold;
+the cost is reproducibility, not frozen output. See
+`.planning/2026-09-04-invariant-11-under-beginframe.md`.]` `seek()` passes
+`suppressEvents`, so a GSAP `onUpdate` never
   fires under capture; callback-driven motion renders a frozen video with every
   gate green. Anything that adjusts timing must adjust the tween, never a callback.
 * **A deck built at `animationSpeed: 1` must stay byte-identical.** `pace` is
