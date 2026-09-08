@@ -102,6 +102,29 @@ describe("insideRoot", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  // THE THIRD, and it survived the fix for the second. `realpathSync` will not
+  // answer for a path that is not on disk, and the first cut fell back to the
+  // path merely resolved — which happens to be right through the real checkout,
+  // where the string already starts with the root, and is useless through a
+  // symlink, where it never will. `os.tmpdir()` does not require the directory
+  // to exist, so `TMPDIR=<link>/notyet` is an ordinary injected value and not an
+  // edge case; with both holes open the guard printed nothing at all.
+  it("sees a path under a symlinked repo that does not exist yet", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-guard-link-"));
+    try {
+      const link = join(dir, "repo");
+      await symlink(packageRoot(), link, "dir");
+
+      expect(insideRoot(join(link, "notyet"))).toBe(true);
+      expect(insideRoot(join(link, "notyet", "deeper", "still"))).toBe(true);
+      // Walking up must not widen the answer: the nearest ancestor that exists
+      // here is the scratch directory, and a sibling of the root is still out.
+      expect(insideRoot(join(`${link}-elsewhere`, "notyet"))).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("guardTmpdir", () => {
@@ -155,6 +178,29 @@ describe("guardTmpdir", () => {
       const link = join(dir, "repo");
       await symlink(packageRoot(), link, "dir");
       process.env.TMPDIR = link;
+
+      guardTmpdir();
+
+      expect(process.env.TMPDIR).toBeUndefined();
+      expect(insideRoot(tmpdir())).toBe(false);
+      expect(written).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fires on a TMPDIR that does not exist yet inside a symlinked repo", async () => {
+    // The guard half of the case above, and the one that costs something: a
+    // missed TMPDIR here does NOT fail loudly at the first `mkdtemp`, because
+    // `src/server/main.ts` does not mkdtemp — it runs `mkdirSync(options.work,
+    // { recursive: true })` at module load and creates the missing parents
+    // itself. The checkout gains an empty directory that `git status` has
+    // nothing to say about, which is the whole failure mode.
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-guard-link-"));
+    try {
+      const link = join(dir, "repo");
+      await symlink(packageRoot(), link, "dir");
+      process.env.TMPDIR = join(link, "notyet");
 
       guardTmpdir();
 

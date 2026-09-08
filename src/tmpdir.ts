@@ -40,7 +40,7 @@
 import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 let cached: string | undefined;
 
@@ -58,17 +58,43 @@ let cached: string | undefined;
  * through the real path fixed itself. That is the same invisible failure the
  * `require.resolve` detour below exists to prevent, one line further on.
  *
- * The fallback is for a path that does not exist, which `realpathSync` refuses
- * to answer for. Leaving it merely resolved is honest: nothing can `mkdtemp`
- * into a directory that is not there, so a poisoned TMPDIR the guard misses this
- * way fails loudly at the first call instead of quietly filling the repo.
+ * A PATH THAT DOES NOT EXIST STILL HAS TO ANSWER, which is why this walks up
+ * instead of giving up. `realpathSync` refuses a path that is not on disk, and
+ * `os.tmpdir()` never asked for one to be — it reads the variable and hands it
+ * back — so `TMPDIR=<repo>/notyet` is an ordinary shape, not an edge case. The
+ * first cut returned the merely-resolved path there, and the two holes met: a
+ * TMPDIR that reached the repo through a symlink AND did not exist yet resolved
+ * to nothing the root matched, and the guard was a silent no-op.
+ *
+ *     ln -s <repo> link/repo && TMPDIR=link/repo/notyet node dist/cli.js --version
+ *
+ * printed the version and nothing else, while the same path spelled out in full
+ * warned. Resolving the nearest EXISTING ancestor and putting the unresolved
+ * tail back closes it, and the walk terminates because the repo root exists.
+ *
+ * That fallback also carried a claim that does not survive being checked —
+ * "nothing can `mkdtemp` into a directory that is not there, so it fails loudly".
+ * True of `mkdtemp`, and `src/server/main.ts` does not use it: at module load it
+ * runs `mkdirSync(options.work, { recursive: true })`, which CREATES the missing
+ * parents. Measured 2026-09-08 with the hole open — `<repo>/notyet/decksmith-server`
+ * appeared in the checkout, and because it was empty `git status` had nothing to
+ * report about it. Silent, which is the failure mode this whole file exists for.
  */
 function real(dir: string): string {
-  const at = resolve(dir);
-  try {
-    return realpathSync(at);
-  } catch {
-    return at;
+  let at = resolve(dir);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(at), ...tail);
+    } catch {
+      const up = dirname(at);
+      // `dirname("/")` is `"/"`, so this is the walk running out of filesystem:
+      // even the root would not answer, and there is nothing better to say than
+      // what we were given.
+      if (up === at) return resolve(dir);
+      tail.unshift(basename(at));
+      at = up;
+    }
   }
 }
 
