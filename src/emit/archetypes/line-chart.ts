@@ -252,6 +252,8 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   /** One answer to "how wide is this", shared with every other archetype. */
   const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
   const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
+  /** The same, at `.axname`'s declared 500 — the one run here that is not 400. */
+  const nameW = (s: string) => textWidth(s, LABEL_SIZE, 500, 0, false, face);
 
   // The category names were the six collisions left after the values were
   // thinned: "T=9" through "T=15" printing into each other along the bottom of a
@@ -432,6 +434,68 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   };
 
   /**
+   * THE TEXT THIS CHART SETS WHATEVER THE DATA SAYS.
+   *
+   * `valueBoxes` and `deltaBoxes` are the runs the DATA puts on the plot, and
+   * they were the whole of what the ghost was tested against — which left out
+   * every run that is there on every line chart this file has ever emitted. The
+   * y-axis NAME is the one that bites. It is set at the svg's top-left, and a
+   * first-x candidate is `start`-anchored at `x(0)` — which is `PAD.l`, 150 —
+   * with its baseline clamped up to at least 44, so the two share a band by
+   * construction rather than by coincidence.
+   *
+   * MEASURED on this emitter, points [80, 60, 45, 40] against [100, 55, 70, 42]
+   * with "PSNR (dB)" on the axis and "Baseline" as the ghost: both last-x
+   * candidates are blocked, the ghost falls through to the first x and the away
+   * side clamps to 70, and the emitted `<text class="ghostlab" …
+   * text-anchor="start" x="150" y="70">` ran straight through "PSNR (dB)", which
+   * this file charges 204.87px at `.axname`'s declared 500 and so occupies
+   * x 0-204.87 at y 2-42. 54.87px of horizontal overlap, 12px of vertical.
+   * With the set below in the collision test that beat drops the ghost outright
+   * — all four candidates are rejected — which is the `deltasFit` answer and the
+   * right one: an unnamed ghost is still legibly the fainter, earlier curve.
+   *
+   * THE OTHER THREE ARE HERE BECAUSE THE RULE IS "EVERY ALWAYS-DRAWN RUN", NOT
+   * BECAUSE ANY OF THEM HAS BEEN SEEN TO COLLIDE. On today's clamps none can.
+   * The tick labels are `end`-anchored at `PAD.l - 22`, so they end 22px left of
+   * where the first-x candidates begin. The category names sit on a baseline of
+   * `H - PAD.b + 56`, so their boxes start 12px below `H - PAD.b + 4`, the
+   * lowest baseline `toward` can reach; the x-axis name's box starts 80px below
+   * it. They are in the set so that moving one of those clamps — or the padding
+   * either is measured from — cannot silently re-open this.
+   *
+   * AND THAT IS ALL OF THEM. The runs this archetype sets are the two `.axname`s,
+   * the tick labels, the category names, the `.pv` values, the `.dv` deltas, the
+   * `.ghostlab` itself, the `.readout`, and the eyebrow and headline `chrome`
+   * puts above the chart. The first four are here, the values and deltas are the
+   * two data-driven sets the candidate is tested against below, and the last
+   * three CANNOT be in this set: the readout and the chrome are HTML siblings of
+   * the `<svg>`, laid out by flex in the slide's coordinates, and comparing them
+   * against a box in the viewBox's would be arithmetic between two different
+   * spaces. They are kept clear by `bodyBudget` and `.chartwrap` instead.
+   */
+  const fixedBoxes = [
+    // `.axname` is the one run here set at weight 500 rather than 400, and
+    // under-charging a width is the unrecoverable direction (see `padR`).
+    // No `text-anchor` on the y half, so it runs rightwards from x=0.
+    { x: 0, y: 42 - LABEL_SIZE, w: nameW(p.yLabel), h: LABEL_SIZE },
+    {
+      x: PAD.l + plotW / 2 - nameW(p.xLabel) / 2,
+      y: H - 16 - LABEL_SIZE,
+      w: nameW(p.xLabel),
+      h: LABEL_SIZE,
+    },
+    ...ticks.map((v) => {
+      const w = runW(v.toFixed(scale.decimals));
+      return { x: PAD.l - 22 - w, y: y(v) + 13 - LABEL_SIZE, w, h: LABEL_SIZE };
+    }),
+    ...p.points
+      .map((pt, i) => ({ pt, i }))
+      .filter(({ i }) => shownX.has(i))
+      .map(({ pt, i }) => labelBox(x(i), H - PAD.b + 56, pt.x)),
+  ];
+
+  /**
    * THE GHOST'S NAME, THROUGH THE SAME BOXES AS EVERY OTHER LABEL HERE.
    *
    * Anchored at one END of the baseline and set away from the frame — at the
@@ -444,10 +508,13 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
    * value label is not on. Everything after the first candidate is what happens
    * when the preferred place is taken.
    *
-   * WHAT EACH CANDIDATE IS TESTED AGAINST. The drawn value labels and the drawn
-   * deltas, because they are 40px runs in the same band and two of those printing
-   * through each other is invisible to every layout gate. Measured twice on this
-   * emitter: with a "Loss" chart converging on 1.10 against 1.12, the ghost's
+   * WHAT EACH CANDIDATE IS TESTED AGAINST. Every other run this emitter sets:
+   * `fixedBoxes` above — the axis names, the tick labels and the category names,
+   * which are there whatever the data is — plus the drawn value labels and the
+   * drawn deltas, which are there because of it. All of them are 40px runs in
+   * the same band, and two of those printing through each other is invisible to
+   * every layout gate. Measured twice on this emitter against the value labels:
+   * with a "Loss" chart converging on 1.10 against 1.12, the ghost's
    * baseline landed at y=578.64 and the last value "1.1" at y=590.2, both at
    * x=1645; and with 30.47 against 30.55, the ghost and the last `.pv` overlapped
    * 32.3px vertically. `fitIndices` FORCE-KEEPS the last index, so the endpoint's
@@ -483,6 +550,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     const drawnDeltas = deltasFit ? deltaBoxes : [];
     return [...atEnd(lastI, false), ...atEnd(0, true)].find((c) => {
       const box = { x: c.start ? x(c.i) : x(c.i) - w, y: c.by - LABEL_SIZE, w, h: LABEL_SIZE };
+      if (fixedBoxes.some((f) => overlaps(box, f))) return false;
       if (valueBoxes.some((v) => overlaps(box, v))) return false;
       if (drawnDeltas.some((d) => d !== null && overlaps(box, d))) return false;
       return ![p.points, cmp.points].some((series) => {
@@ -697,17 +765,47 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     holds.push(drawn + 0.8);
   }
 
-  // FAIL LOUDLY, because the alternative is `holdsWithin` truncating in silence.
-  // Both spans above are already at their floors by the time this can fire, so
-  // there is nothing left to give and nothing to say but so. A clamped hold is
-  // not a shorter beat, it is a stop on a half-drawn chart, and every gate in
-  // this project is green over one.
+  /*
+   * DROP THE COMPARISON, NOT THE BEAT.
+   *
+   * Both spans above are at their floors by the time this can fire, so there is
+   * nothing left to give — and `holdsWithin` would clamp the second stop onto a
+   * half-drawn chart, in frame, above the type floor, green in every gate. That
+   * much was already true. What was wrong was the remedy: this threw, and a
+   * throw goes to `onBeatError`, which DROPS THE WHOLE BEAT.
+   *
+   * MEASURED against what a planner actually writes. The floors here run from
+   * 4.35s (two points, no deltas, no readout) to 6.65s (twelve points with a
+   * readout), and the shortest committed planner output in this repository,
+   * experiments/013-vocabulary/planner/runs/B0-02/out.json, authors its eleven
+   * beats at 4.6, 4.9, 5.2, 5.3, 5.8, 5.8, 6, 6.2, 6.4, 6.4 and 6.5 seconds.
+   * Four of those eleven refuse a four-point comparison carrying a readout,
+   * which needs 5.7s; all eleven refuse a twelve-point one. So the refusal
+   * turned "the comparison animates a bit fast" into "the slide is not in the
+   * deck" across most of a real plan.
+   *
+   * So the chart is emitted WITHOUT the comparison instead: the same beat, one
+   * series, on the plain schedule whose bytes `test/wiring.test.ts` pins. The
+   * data survives and only the reshape is lost, which is the trade the right way
+   * round. Re-entering with `compare` removed is what makes that exact — the
+   * degraded scene is not a special case built here to look like a plain chart,
+   * it IS the plain chart, down to `plugins` being absent so the head vendors
+   * none of MorphSVG's 21,195 bytes. It recurses exactly once: `cmp` is
+   * `undefined` on the way back in, so this branch cannot be reached again.
+   *
+   * SAID OUT LOUD, because a deck quietly missing the comparison it was planned
+   * around is this project's own recurring failure. `Scene.warnings` is the
+   * channel; `build` prints it and the server puts it in the job's warnings.
+   */
   const end = holds[holds.length - 1] ?? 0;
   const need = sec(end + 0.15);
   if (cmp && need > beat.seconds + 1e-9) {
-    throw new Error(
-      `line-chart ${beat.id}: a comparison against "${cmp.label}" over ${count} points needs ${need}s and the beat is ${beat.seconds}s. Lengthen the beat or drop the comparison.`,
-    );
+    return {
+      ...lineChart({ ...beat, params: { ...p, compare: undefined } }, ctx),
+      warnings: [
+        `line-chart ${beat.id}: a comparison against "${cmp.label}" over ${count} points needs ${need}s and the beat is ${beat.seconds}s, so the chart was drawn without it. Lengthen the beat to keep the comparison.`,
+      ],
+    };
   }
 
   return {

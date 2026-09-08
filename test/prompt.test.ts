@@ -194,7 +194,8 @@ describe("the prompt's reveal counts", () => {
     // which is the defect this table exists to prevent.
     //
     // DEDUPED, because one row can promise more than one count: `line-chart`
-    // says "1, or 2 when compare is given", and both halves are a case above.
+    // says "1, or 2 when compare is given and the beat is long enough for it",
+    // and both halves are a case above.
     // A rule with a condition in it is worth strictly more than one without —
     // but only if every branch of it is run, which is why the second case is
     // there rather than the row being left vague.

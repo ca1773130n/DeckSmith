@@ -164,6 +164,19 @@ export interface DeckOptions {
    */
   onBeatError?: (beatId: string, err: Error) => void;
   /**
+   * What to do when a beat IS drawn but not as it was authored.
+   *
+   * The other half of `onBeatError`, and the reason it is a second hook rather
+   * than a second call to that one: this beat is IN the deck. An emitter that
+   * drops an ornament to fit its beat — see `Scene.warnings` — says so here, and
+   * absent this hook it says it to nobody, which is the silence the whole
+   * mechanism exists to avoid.
+   *
+   * Called once per built scene, from `layout`. `planCut` emits every beat as
+   * well and stays quiet: its scenes are thrown away.
+   */
+  onBeatWarning?: (beatId: string, warning: string) => void;
+  /**
    * The subsetted bundle's `@font-face` CSS, INLINED rather than linked.
    *
    * The composition sets `font-family: "Noto Sans KR", …` for a CJK deck and
@@ -467,6 +480,10 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
     if (scene.css) archetypeCss.add(scene.css.trim());
     if (scene.measure?.length) builds = true;
+    // Read off `cut.scene` rather than the wrapped `scene` beside it for the
+    // same reason the plugin door is: a warning is the EMITTER's statement about
+    // its own beat, and `withCamera` is a layer that was never asked.
+    for (const w of cut.scene.warnings ?? []) opts.onBeatWarning?.(beat.id, w);
     // AN OPEN REGISTRY NEEDS A CLOSED DOOR, and this is it. `Scene.plugins` is
     // `readonly string[]`, so `"morphSvg"` for `"morphSVG"` is a string tsc and
     // biome are both content with; `renderComposition` filters `laid.plugins`

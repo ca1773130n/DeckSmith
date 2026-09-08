@@ -487,6 +487,61 @@ describe("the DrawSVG seam", () => {
     expect(out.indexOf("registerPlugin(DrawSVGPlugin)")).toBeLessThan(pluginAt);
   });
 
+  it("vendors nothing for a compare beat too short to reshape, and says it did not", () => {
+    // THE DEGRADED PATH HAS TO REACH THE HEAD, not just the scene. `line-chart`
+    // drops the comparison rather than the beat when the beat cannot hold the
+    // reshape — and if it dropped the ghost and the morph while still NAMING
+    // `morphSVG`, every such deck would carry MorphSVG's 21,195 bytes for an
+    // animation that is not in it. That is exactly the property the plugin table
+    // exists to guarantee, so it is asserted where the table is read.
+    //
+    // 4s against a three-point comparison: the floors run 4.35s (two points) to
+    // 6.65s (twelve with a readout), measured on this emitter.
+    const notes: string[] = [];
+    const shortened = storyboardSchema.parse({
+      ...storyboard,
+      beats: [
+        ...storyboard.beats,
+        {
+          id: "b3",
+          intent: "Show what pretraining buys.",
+          archetype: "line-chart",
+          seconds: 4,
+          params: {
+            headline: "Each extra step buys less",
+            xLabel: "Steps",
+            yLabel: "PSNR (dB)",
+            points: [
+              { x: "T=0", y: 28.91 },
+              { x: "T=1", y: 29.84 },
+              { x: "T=2", y: 30.47 },
+            ],
+            compare: {
+              label: "Without pretraining",
+              points: [
+                { x: "T=0", y: 27.4 },
+                { x: "T=1", y: 28.02 },
+                { x: "T=2", y: 28.4 },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    const out = emitComposition(shortened, source, format("deck-16x9"), {
+      onBeatWarning: (id, warning) => notes.push(`${id}: ${warning}`),
+    });
+    expect(out).not.toContain("MorphSVGPlugin");
+    expect(out).not.toContain("morphSVG");
+    // The slide IS there — dropping the beat is what the throw used to do.
+    expect(out).toContain("Each extra step buys less");
+    // Once, from the pass that built the deck. `planCut` emits every beat too
+    // and deliberately stays quiet: a sentence said twice per beat is a sentence
+    // people learn to skip.
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/^b3: line-chart b3: a comparison against "Without pretraining"/);
+  });
+
   it("refuses a plugin name the table does not know rather than dropping it", () => {
     // THE RISK AN OPEN REGISTRY BUYS, and the reason `PLUGINS` needs a door as
     // well as a table. `Scene.plugins` is `readonly string[]`, so `"morphSvg"`

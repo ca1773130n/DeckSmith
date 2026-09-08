@@ -787,6 +787,10 @@ lookFlags(
       // a missing slide the terminal never mentioned is the failure this project
       // keeps finding by eye.
       onBeatError: (id, err) => step(`build: left out ${id} — ${err.message}`),
+      // And the slides that ARE here but not as they were planned. A beat drawn
+      // with one of its parts dropped looks finished, so this line is the only
+      // place anyone learns it is not.
+      onBeatWarning: (id, warning) => step(`build: kept ${id} — ${warning}`),
     });
     await writeFile(join(out, "index.html"), deck.composition);
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);

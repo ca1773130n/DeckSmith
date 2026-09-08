@@ -40,7 +40,10 @@ export const REVEALS: Record<string, string> = {
   "equation-walk": "one per term",
   "equation-morph": "2",
   "data-table": "one per highlighted row, plus 1",
-  "line-chart": "1, or 2 when compare is given",
+  // "long enough" is not a hedge: below the emitter's own floor the comparison
+  // is dropped and the chart stops twice becoming a chart that stops once. See
+  // the line-chart entry under THE THIRTEEN ARCHETYPES for what that costs.
+  "line-chart": "1, or 2 when compare is given and the beat is long enough for it",
   callout: "one per panel",
   pipeline: "one per stage",
   "annotated-figure": "one per note, plus 1",
@@ -197,8 +200,10 @@ DRAWING ARCHETYPES — reach here first
                  axis — nothing reshapes into something it is not a version of.
                  A compare beat also costs TIME — the baseline draws, is held,
                  then reshapes — so give it \`seconds\` of 7, or 8 with a
-                 \`readout\`. Below about 5 the emitter refuses the beat rather
-                 than stopping on a half-drawn chart.
+                 \`readout\`. Give it too few and the emitter draws the chart
+                 without the comparison rather than stopping on a half-drawn one:
+                 the slide is still there, but the point about the baseline is
+                 gone.
 
 DESCRIBING ARCHETYPES — the fallbacks
 

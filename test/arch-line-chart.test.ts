@@ -136,6 +136,44 @@ const valueBoxes = (html: string): Box[] =>
       const w = runW(t);
       return { x: start ? cx : cx - w / 2, y: by - 40, w, h: 40 };
     });
+/** The y-axis NAME, which is on every chart this file emits whatever the data is. */
+const axisNameBox = (html: string): Box => {
+  const m = /<text class="axname" x="0" y="42">([^<]*)</.exec(html);
+  if (!m) throw new Error("no y-axis name in the emitted svg");
+  return { x: 0, y: 2, w: runW(m[1] as string), h: 40 };
+};
+
+/** The vertices of one emitted polyline, read straight out of its own `d`. */
+const polyline = (html: string, id: string): [number, number][] => {
+  const d = new RegExp(`id="s2-${id}"[^>]* d="([^"]+)"`).exec(html)?.[1];
+  if (d === undefined) throw new Error(`no path #s2-${id} in the emitted svg`);
+  return d.split(" ").map((t) => {
+    const [a, b] = t.replace(/^[ML]/, "").split(",").map(Number);
+    return [a as number, b as number];
+  });
+};
+/**
+ * Whether a polyline is DRAWN THROUGH a box, leg by leg.
+ *
+ * Deliberately not `curveBand`'s construction. That one argues from the
+ * continuity of the whole series — one interval for the range, nothing sampled.
+ * This clips each leg to the box's x span and asks about that leg's own y span,
+ * which is a different piece of arithmetic reaching the same answer. A test that
+ * re-implements the thing it is testing proves only that the code was copied.
+ */
+const crosses = (pts: [number, number][], b: Box): boolean => {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i] as [number, number];
+    const [bx, by] = pts[i + 1] as [number, number];
+    const lo = Math.max(Math.min(ax, bx), b.x);
+    const hi = Math.min(Math.max(ax, bx), b.x + b.w);
+    if (hi - lo <= 8) continue;
+    const at = (v: number) => (ax === bx ? ay : ay + ((by - ay) * (v - ax)) / (bx - ax));
+    const [top, bottom] = [Math.min(at(lo), at(hi)), Math.max(at(lo), at(hi))];
+    if (Math.min(b.y + b.h, bottom) - Math.max(b.y, top) > 8) return true;
+  }
+  return false;
+};
 
 /* -------------------------------------------------------- no comparison, no cost */
 
@@ -302,18 +340,46 @@ describe("a compare schedule against the beat it was planned for", () => {
     expect(holds(14)).toEqual(holds(7));
   });
 
-  it("refuses a beat too short to hold a reshape and a reveal", () => {
-    // FAIL LOUDLY. Both spans are at their floors by the time this fires, so
-    // there is nothing left to give — and a clamped hold is not a shorter beat,
-    // it is a stop on a half-drawn chart. `onBeatError` drops the beat and says
-    // so, which is what every other refusal in this archetype does.
-    expect(() => lineChart(beat(COMPARED.params, 4.5), ctx())).toThrow(
-      /needs 4\.9s and the beat is 4\.5s/,
-    );
+  it("drops the comparison, not the beat, when the beat is too short for it", () => {
+    // THIS USED TO THROW, AND THAT WAS THE WRONG LOUD. A throw reaches
+    // `onBeatError`, which drops the SLIDE — so a beat the planner wrote a
+    // little short lost its data as well as its reshape. The floors run 4.35s
+    // (two points, no deltas, no readout) to 6.65s (twelve with one), and the
+    // shortest committed planner output,
+    // experiments/013-vocabulary/planner/runs/B0-02/out.json, authors its eleven
+    // beats at 4.6 to 6.5 seconds — four of them under the 5.7s a four-point
+    // comparison with a readout needs, all eleven under a twelve-point one's.
+    const short = lineChart(beat(COMPARED.params, 4.5), ctx());
+    expect(short.warnings).toEqual([
+      'line-chart b2: a comparison against "Without pretraining" over 4 points needs 4.9s ' +
+        "and the beat is 4.5s, so the chart was drawn without it. Lengthen the beat to keep " +
+        "the comparison.",
+    ]);
+    // AND WHAT IS DRAWN IS THE PLAIN CHART, not something assembled here to
+    // resemble one: the emitter re-enters itself with `compare` removed, so the
+    // degraded scene and a chart authored without a baseline are one output.
+    const plain = lineChart(beat(PLAIN.params, 4.5), ctx());
+    expect(short.html).toBe(plain.html);
+    expect(short.tl).toEqual(plain.tl);
+    expect(short.css).toBe(plain.css);
+    expect(short.holds).toEqual(plain.holds);
+    // The property `Scene.plugins` exists for. No reshape, so no name, so the
+    // head vendors none of MorphSVG's 21,195 bytes — asserted at the composition
+    // in `test/emit.test.ts`, and here at the seam that decides it.
+    expect(short.plugins).toBeUndefined();
+    expect(morphOf(short.tl)).toBeUndefined();
+    expect(short.html).not.toContain("ghostlab");
+    expect(short.html).not.toContain("s2-target");
     // A readout costs its own 0.8s, so the floor moves with it.
-    expect(() =>
-      lineChart(beat({ ...COMPARED.params, readout: "Two points for one epoch." }, 5), ctx()),
-    ).toThrow(/needs 5\.7s and the beat is 5s/);
+    const readout = lineChart(
+      beat({ ...COMPARED.params, readout: "Two points for one epoch." }, 5),
+      ctx(),
+    );
+    expect(readout.warnings?.[0]).toMatch(/needs 5\.7s and the beat is 5s/);
+    // And one centisecond above the floor nothing is given up and nothing is said.
+    const kept = lineChart(beat(COMPARED.params, 4.9), ctx());
+    expect(kept.warnings).toBeUndefined();
+    expect(kept.plugins).toEqual(["morphSVG"]);
   });
 
   it("leaves a chart with no comparison on the schedule its bytes are pinned to", () => {
@@ -420,6 +486,86 @@ describe("the baseline's label", () => {
       }
       for (const v of valueBoxes(scene.html)) {
         expect({ name, hit: hits(g, v) }).toEqual({ name, hit: false });
+      }
+    }
+  });
+
+  it("never prints through the y-axis name, which is on the chart whatever the data is", () => {
+    // THE CANDIDATE SET GREW AND THE COLLISION SET DID NOT. `valueBoxes` and
+    // `deltaBoxes` are what the DATA puts on the plot; the y-axis name is set at
+    // the svg's top-left on every chart this file has ever emitted, and a
+    // first-x candidate is `start`-anchored at x=150 with its baseline clamped
+    // up to at least 44 — so the two share a band by construction.
+    //
+    // MEASURED on this emitter: both last-x candidates are blocked here, the
+    // ghost falls through to the first x, the away side clamps to 70, and
+    // `<text class="ghostlab" … text-anchor="start" x="150" y="70">` ran through
+    // "PSNR (dB)" at x 0-201.84, y 2-42. 51.84px across, 12px down.
+    const scene = lineChart(
+      beat({
+        headline: "Each extra step buys less",
+        xLabel: "Steps",
+        yLabel: "PSNR (dB)",
+        points: [80, 60, 45, 40].map((y, i) => ({ x: `T=${i}`, y })),
+        compare: {
+          label: "Baseline",
+          points: [100, 55, 70, 42].map((y, i) => ({ x: `T=${i}`, y })),
+        },
+      }),
+      ctx(),
+    );
+    const g = ghostBox(scene.html);
+    // Dropped is the answer here, and a fine one — `deltasFit` drops annotations
+    // the same way. Asserted as "not overprinting" rather than as "dropped" so
+    // that a later clamp which finds it somewhere clear still passes.
+    if (g) expect(hits(g, axisNameBox(scene.html))).toBe(false);
+    else expect(scene.css).not.toContain("ghostlab");
+  });
+
+  it("never prints through either curve, on the steep segment that measured it", () => {
+    // THE LABEL SPANS ITS OWN WIDTH SIDEWAYS, so a leg steep enough to climb
+    // through that span draws the baseline across the name of the baseline —
+    // and neither `valueBoxes` nor `deltaBoxes` can see it, because a curve is
+    // not a label. Read back off the emitted `d` rather than recomputed, and
+    // asked leg by leg rather than by `curveBand`'s continuity argument.
+    //
+    // THE SHAPES, each read off the emitted `y=` with the curve half of the
+    // predicate in place and then disabled. `steep` is the one that exercises
+    // this: with the check the ghost goes to the first x, `text-anchor="start"
+    // x="150" y="668.2"`; without it the last-x candidate at `x="1645"
+    // y="176.9"` is accepted and drawn straight through both curves. `psnr` is
+    // the second — it drops entirely with the check and takes the last x at
+    // `x="1627" y="287.68"` without it. `loss` is the control: its placement is
+    // decided by `valueBoxes`, and it stays at `x="1645" y="656.64"` either way.
+    const shapes: [string, number[], number[]][] = [
+      ["steep", [40, 55, 70, 99], [10, 11, 12, 95]],
+      ["psnr", [28.91, 29.84, 30.19, 30.47], [26.2, 28.02, 29.6, 30.55]],
+      ["loss", [2.0, 1.5, 1.2, 1.1], [2.0, 1.7, 1.35, 1.12]],
+    ];
+    for (const [name, points, cmp] of shapes) {
+      const { html, css } = lineChart(
+        beat({
+          headline: "Each extra step buys less",
+          xLabel: "Steps",
+          yLabel: "Loss",
+          points: points.map((y, i) => ({ x: `T=${i}`, y })),
+          compare: { label: "Baseline", points: cmp.map((y, i) => ({ x: `T=${i}`, y })) },
+        }),
+        ctx(),
+      );
+      const g = ghostBox(html);
+      if (!g) {
+        expect(css).not.toContain("ghostlab");
+        continue;
+      }
+      // `-base` carries the baseline's geometry and `-target` the result's, and
+      // between them they are every shape a stroke is ever painted along here.
+      for (const id of ["base", "target"]) {
+        expect({ name, id, through: crosses(polyline(html, id), g) }).toEqual({
+          name,
+          id,
+          through: false,
+        });
       }
     }
   });
