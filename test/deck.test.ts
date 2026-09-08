@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildStops,
+  dwellMs,
   findStop,
   formatHash,
   frameOf,
@@ -223,9 +224,12 @@ describe("a play() rejection says which of two failures it was", () => {
   });
 
   it("does not read a file it can never play as blocked", () => {
-    // What a missing segment produces, measured in headless Chromium rather
-    // than read off the spec: an unfetchable source rejects with this name and
-    // leaves `audio.error.code` at 4, under either autoplay policy.
+    // What a missing segment did when someone ran one, rather than what the spec
+    // says: an unfetchable source rejects with this name and leaves
+    // `audio.error.code` at 4. One run, on one machine, in a headless browser
+    // whose engine and version were not recorded, and it never produced the
+    // other failure to compare against — see `refused` for why a record that
+    // thin is still safe to build on, and for what it does not license claiming.
     expect(refused(new DOMException("no supported source", "NotSupportedError"))).toBe(false);
   });
 
@@ -411,6 +415,75 @@ describe("a stop whose sound never arrives", () => {
     audio.plays[0]?.fail(new DOMException("play() failed", "NotAllowedError"));
     await settle();
     expect(unheard).toBe(1);
+  });
+});
+
+/* ------------------------------------------- and what autoplay does about it */
+
+/**
+ * The other half of the same fix. Above, `mountVoice` learns that the segment
+ * never played and says so; here is what hearing that is supposed to change.
+ * Split out as a pure decision for the reason `refused` was: the code that acts
+ * on it lives in `start`, which needs a browser.
+ */
+describe("autoplay's dwell clock", () => {
+  it("waits out the gap the author left when the stop has nothing to say", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 3000 })).toBe(3000);
+  });
+
+  it("sets no timer for a stop that is speaking, because `ended` is its clock", () => {
+    expect(dwellMs({ playing: true, heard: true, gapMs: 3000 })).toBeNull();
+  });
+
+  it("sets none at all unless the deck is playing itself", () => {
+    // Autoplay is a mode. Someone standing in front of the deck talking over it
+    // must never have a slide move under them.
+    expect(dwellMs({ playing: false, heard: false, gapMs: 3000 })).toBeNull();
+    expect(dwellMs({ playing: false, heard: true, gapMs: 3000 })).toBeNull();
+  });
+
+  it("holds a floor, so back-to-back fragments do not flick past unread", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 0 })).toBe(1500);
+    expect(dwellMs({ playing: true, heard: false, gapMs: 200 })).toBe(1500);
+  });
+
+  it("caps a long hold, which is the author pausing rather than a wait to sit out", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 30_000 })).toBe(8000);
+  });
+
+  it("turns on the clock for a stop that claimed a segment and then could not play it", () => {
+    // The dead-lock. `voice.at` answers synchronously about whether a segment
+    // EXISTS, so arrival passes `heard: true` and no timer is set; `play()`
+    // rejects a beat later; a source that never loaded fires no `ended`. Asking
+    // again with the settled answer is the only thing that gets a self-playing
+    // deck off that slide, and the flip has to work in both directions — a
+    // segment retried by a gesture is speaking now, and the timer armed while it
+    // was silent would cut the sentence it has just started.
+    expect(dwellMs({ playing: true, heard: true, gapMs: 4000 })).toBeNull();
+    expect(dwellMs({ playing: true, heard: false, gapMs: 4000 })).toBe(4000);
+    expect(dwellMs({ playing: true, heard: true, gapMs: 4000 })).toBeNull();
+  });
+
+  it("is reached from both callers, and from nowhere else", async () => {
+    // Read off the source, in the pattern the video-frame test below uses and
+    // for the same reason: this wiring is inside `start`, which builds chrome,
+    // reads islands and talks to `<hyperframes-player>` — a browser, in the one
+    // file no gate in this project opens. The decision above is pure and proves
+    // the policy; nothing but this proves the policy is ever consulted.
+    //
+    // Which is not hypothetical. A review of the previous commit no-op'd BOTH of
+    // these call sites and all thirty-five tests passed, because every one of
+    // them stopped at the signal and none reached its consumer. Text matching is
+    // brittle against a rename, and that is the price of the only check there is.
+    const text = await readFile(new URL("../src/deck/runtime.ts", import.meta.url), "utf8");
+    // Arrival, with what `voice.at` said; then again, with what `play()` did.
+    expect(text).toMatch(/settleDwell\(speaking\)/);
+    expect(text).toMatch(/voice\.onSettled\(settleDwell\)/);
+    // And both of those land on the decision, not on a timer of their own.
+    expect(text).toMatch(/const settleDwell = \(heard: boolean\)/);
+    expect(text).toMatch(/dwellMs\(\{[^}]*\bheard\b[^}]*\}\)/);
+    expect(text).toMatch(/setTimeout\(advance, ms\)/);
+    expect(text.match(/setTimeout\(advance/g)).toHaveLength(1);
   });
 });
 
