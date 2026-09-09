@@ -56,11 +56,12 @@
  * `moved !== transitions`, when the deck reports no stops, or when the island's
  * stop count disagrees with the one the deck's own runtime reports.
  */
-import { createServer } from "node:http";
+
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { extname, join, normalize, sep } from "node:path";
 import { homedir } from "node:os";
+import { extname, join, normalize, sep } from "node:path";
 
 const CHANNEL = "decksmith-deck";
 const ISLAND = 'script[type="application/hyperframes-slideshow+json"]';
@@ -203,9 +204,8 @@ async function main() {
 
   // Read only to CROSS-CHECK the deck's own answer; navigation never uses this.
   const html = await readFile(join(dir, "deck.html"), "utf8");
-  const islandTag = new RegExp(
-    `<script type="application/hyperframes-slideshow\\+json"[^>]*>([\\s\\S]*?)</script>`,
-  ).exec(html);
+  const islandTag =
+    /<script type="application\/hyperframes-slideshow\+json"[^>]*>([\s\S]*?)<\/script>/.exec(html);
   if (!islandTag) throw new Error(`no slideshow island in ${dir}/deck.html`);
   const payload = JSON.parse(islandTag[1]);
   const islandSlides = (Array.isArray(payload) ? payload : (payload.slides ?? [])).length;
@@ -265,7 +265,10 @@ async function main() {
         if (d.type === "stop") window.__probe.stopped.push(d);
       });
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("no `ready` from the deck in 10s")), 10_000);
+        const timer = setTimeout(
+          () => reject(new Error("no `ready` from the deck in 10s")),
+          10_000,
+        );
         const onReady = (e) => {
           const d = e.data;
           if (d && d.channel === channel && d.type === "ready") {
