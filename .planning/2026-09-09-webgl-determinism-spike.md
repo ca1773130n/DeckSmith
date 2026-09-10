@@ -100,9 +100,13 @@ driven by `beginFrame`. Callbacks fire for a much more direct reason: the
 renderer's frame-capture seek passes **no options at all** —
 `cli.js:69484`, inside `prepareFrameForCapture`, is literally
 `window.__hf.seek(t2)` — and the runtime's GSAP adapter seeks with
-`suppressEvents=false`, which I read out of the extracted `RUNTIME_IIFE` as
-`.seek(y,!1)` and `.seek(fe,!1)`. hyperframes says so itself in its lint text at
-`cli.js:83995`. The only two `suppressEvents: true` seeks in the bundle
+`suppressEvents=false`. [DISPUTED 2026-09-10 — a `gpt-6-astra` review reads
+`.seek(y,!1)` and `.seek(fe,!1)` as initialization and rebinding code rather than
+the adapter, and points instead at `cli.js:58787` (`Qs`/`Ct`), where suppression
+is derived from an explicit `true` so an omitted option leaves callbacks enabled.
+Neither reading was re-verified here; the conclusion is the same either way, but
+the line numbers below are not evidence for it.] hyperframes says so itself in its
+lint text at `cli.js:83995`, which is the citation that does carry weight. The only two `suppressEvents: true` seeks in the bundle
 (`cli.js:69774`, `:70367`) are the static-dedup verifier and the drawElement
 self-verify — probe paths, not capture.
 
@@ -252,8 +256,10 @@ Without arm B this would have been an unattributable confound; with it, it is a
 non-event on this fixture. On a deck with genuine static stretches it would not
 be.
 
-**VERDICT: PASS.** Arm D matches arm B's verdict exactly. WebGL costs nothing
-that losing dedup did not already cost — and on this deck, dedup was worth zero.
+**VERDICT: PASS.** Arm D matches arm B's verdict exactly. IN REPRODUCIBILITY —
+and only there — WebGL costs nothing that losing dedup did not already cost, and
+on this deck dedup was worth zero. It is not a statement about time: the timing
+table below shows a real capture cost, and saying otherwise would contradict it.
 
 ---
 
@@ -315,8 +321,15 @@ deck through the same `openDeck`. The **build gate** would score a `mesh` deck's
 frames with the mesh missing — an ink measurement, an apparent-size check and an
 overlap check, all taken on a frame the renderer will never produce, all green.
 
-That is a seventh case of the pattern AGENTS.md exists to warn about, and it was
-caught the same way as the other six: by opening the PNG.
+For `frames` that is observed: the PNG was opened and the canvas is empty.
+
+FOR `fidelity` IT IS INFERRED, and the difference matters. The inference is that
+it shares `openDeck`, which is strong — but no post-injection `fidelity` run was
+recorded, and these arms were injected into an already-built deck. A mesh-only
+body might fail the ink floor instead of passing blind, which would be a different
+bug with a different fix. So: a seventh case for `frames`, measured; a probable
+eighth for `fidelity`, reasoned. Recording a real `fidelity` result on an injected
+deck would settle it and costs one run.
 
 ---
 
@@ -378,8 +391,22 @@ The repair, and it is not optional if a `mesh` archetype ships:
    at minimum `--enable-unsafe-swiftshader`, better the `--use-gl=angle` pair
    that `getBrowserGpuArgs` returns for the pinned mode — and `chromePath()`'s
    assumption that any headless shell renders identically needs to stop being
-   true only for DOM. Until then `frames` and `fidelity` are silently blind to
-   the one archetype that most needs a human to look at it.
+   true only for DOM.
+
+   BUT THE MINIMUM IS NOT ENOUGH, and calling it "the repair" was too generous.
+   `--enable-unsafe-swiftshader` gets a context and makes the mesh appear; it
+   leaves the checker on SwiftShader while the renderer is on Metal, and this
+   spike measured that pair at 39.74–41.82 dB full-frame — below the project's own
+   40 dB floor at two of three sampled times. It also leaves Chrome 145 checking
+   what Chrome 152 rendered, and this spike is the thing that proved those two are
+   not interchangeable for WebGL. A gate that draws a DIFFERENT picture from the
+   renderer is a quieter failure than one that draws nothing, because nothing is
+   at least obvious.
+
+   So the real requirement is matching browser AND backend, verified against
+   rendered frames rather than against "a context was created". Until that exists,
+   `frames` and `fidelity` are blind to the one archetype that most needs a human
+   to look at it — and a flag alone would only change what they are wrong about.
 
 `drift` alone could not have been the gate here, exactly as expected: it renders
 one deck twice at the same installed pin, and two black canvases agree perfectly.
