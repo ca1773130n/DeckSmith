@@ -124,9 +124,21 @@ async function main() {
   // Per-frame PSNR, parsed the way src/verify/drift.ts parses it.
   const pa = framePattern(a[0]);
   const pb = framePattern(b[0]);
+  // THE SECOND INERT PATH IN THIS FILE, and the same shape as the first. This block
+  // used to be `if (pa && pb)`, so a sequence whose filenames the pattern could not
+  // read skipped PSNR entirely, left `belowFloor` empty, and exited 0 — a PASS
+  // earned by measuring nothing. The hash pass above still ran, but the hash pass is
+  // not the gate; `belowFloor` is. Refuse instead: this script exists to produce a
+  // number, and not producing one is a failure, not a quiet success.
+  if (!pa || !pb) {
+    process.stdout.write(
+      `${JSON.stringify({ ...report, error: `cannot read a frame number out of ${!pa ? a[0] : b[0]} — PSNR would be skipped and this script would report a pass it did not earn` }, null, 2)}\n`,
+    );
+    process.exit(2);
+  }
   let worst;
   const belowFloor = [];
-  if (pa && pb) {
+  {
     const stats = await run("ffmpeg", [
       "-hide_banner",
       "-nostats",

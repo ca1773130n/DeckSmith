@@ -1,0 +1,178 @@
+{
+  "version": 1,
+  "width": 1920,
+  "height": 1080,
+  "duration": 134,
+  "lang": "en",
+  "audioDir": "",
+  "voice": "",
+  "scenes": [
+    {
+      "id": "s1",
+      "start": 0,
+      "duration": 6,
+      "holds": [
+        1.9
+      ],
+      "open": 0.8
+    },
+    {
+      "id": "s2",
+      "start": 6,
+      "duration": 10,
+      "holds": [
+        1.45,
+        2.35,
+        3.25,
+        4.2
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s3",
+      "start": 16,
+      "duration": 9,
+      "holds": [
+        1.55,
+        2.95,
+        4.35,
+        5.75,
+        7,
+        7.75
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s4",
+      "start": 25,
+      "duration": 9,
+      "holds": [
+        1.55,
+        2.8,
+        3.75,
+        4.7
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s5",
+      "start": 34,
+      "duration": 9,
+      "holds": [
+        1.6,
+        2.65,
+        3.85,
+        4.85
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s6",
+      "start": 43,
+      "duration": 9,
+      "holds": [
+        2.4,
+        4.3
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s7",
+      "start": 52,
+      "duration": 9,
+      "holds": [
+        1.8,
+        6.05
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s8",
+      "start": 61,
+      "duration": 9,
+      "holds": [
+        1.52,
+        2.32,
+        3.12,
+        3.92
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s9",
+      "start": 70,
+      "duration": 9,
+      "holds": [
+        1.4,
+        2.4
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s10",
+      "start": 79,
+      "duration": 9,
+      "holds": [
+        3.65,
+        4.45
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s11",
+      "start": 88,
+      "duration": 9,
+      "holds": [
+        2.35,
+        3.05,
+        4.25,
+        5.55
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s12",
+      "start": 97,
+      "duration": 9,
+      "holds": [
+        3,
+        3.8
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s13",
+      "start": 106,
+      "duration": 9,
+      "holds": [
+        1.95,
+        2.85,
+        3.65
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s14",
+      "start": 115,
+      "duration": 10,
+      "holds": [
+        1.45,
+        2.35,
+        3.25,
+        4.2
+      ],
+      "open": 0.9
+    },
+    {
+      "id": "s15",
+      "start": 125,
+      "duration": 9,
+      "holds": [
+        1.4,
+        2.4
+      ],
+      "open": 0.9
+    }
+  ],
+  "segments": []
+}

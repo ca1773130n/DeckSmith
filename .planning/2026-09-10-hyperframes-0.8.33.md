@@ -457,7 +457,7 @@ almost all of that is H.264 propagation: **13 frames are below 40 dB, 3 below
 | s14 | 7611 | 6.88% | 39.80 dB |
 
 The opacity column was computed before the render, from
-`1-(1-r/12)²` with `r = frac(v*30)` — every scene here fades ITSELF out with a
+`1-(1-r/12)³` with `r = frac(v*30)` — every scene here fades ITSELF out with a
 0.4s `power2.in` on the container, so the candidate end frame catches the
 outgoing scene near the end of its own fade rather than solid. Spearman ρ
 between the predicted opacity and the measured PSNR is **-0.934**: the
