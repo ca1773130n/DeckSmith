@@ -4,7 +4,7 @@
 > and 4020 frames now, not the 12 beats and 3120 frames these numbers were taken
 > against, so every frame count and dB figure below describes a deck that no
 > longer exists. Do not quote them. The current measurements, and the 0.8.31
-> bump, are in `.planning/2026-09-09-hyperframes-0.8.31.md`. What stays true
+> bump, are in `.planning/2026-09-10-hyperframes-0.8.33.md`. What stays true
 > here is the method and the `demo/audio/` near-miss it records.
 
 **Date** 2026-09-04. Issue #35 asked for four checks beyond CI, "because CI does
