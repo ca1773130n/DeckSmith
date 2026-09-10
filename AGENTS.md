@@ -27,8 +27,22 @@ a human looking at the artifact, which is also how the next one will be found.
     **The reason is that nothing here can see it, NOT that it renders frozen.**
     That was measured on 2026-09-04 and the frozen-video claim did not hold: at
     hyperframes 0.7.90 the render animates callback-driven motion correctly,
-    because capture is driven by Chrome's `beginFrame` rather than by a seek, and
-    `suppressEvents` is a property of a seek. Both constructions were rendered —
+    because the renderer's frame-capture seek passes NO options —
+    `prepareFrameForCapture` is literally `window.__hf.seek(t)` — and the
+    runtime's GSAP adapter does NOT pass `suppressEvents`, so callbacks are not
+    suppressed. Not suppressed is the claim; "re-fire on every seek" is stronger
+    than the evidence and is false — GSAP treats a seek to the time it is already
+    at as a no-op, so a repeated identical seek fires nothing. An earlier version
+    of this note said the reason was that capture is driven by Chrome's
+    `beginFrame` rather than by a seek. That is wrong, and it is wrong twice:
+    the mechanism is the seek's own options, and the run measured on 2026-09-09 —
+    macOS, Metal backend, 0.8.27 — never used `beginFrame` at all: the launch
+    mode was `screenshot`, the per-frame operation `drawelement`, and the nine
+    determinism flags Linux gets were never passed. That is one observed
+    configuration, not a platform rule: SwiftShader selects screenshot capture at
+    `cli.js:66503`, and `drawelement` has its own capability fallbacks. See
+    `.planning/2026-09-09-webgl-determinism-spike.md`. Both constructions were
+    rendered —
     the tween added after the runtime built the timeline, and the tween present
     inside the scene's own timeline construction — and both ramped smoothly, 68
     and 72 frames mid-ramp, one frame apart.
