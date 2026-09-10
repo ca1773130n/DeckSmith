@@ -555,8 +555,9 @@ Which files move:
 | 0.8.31 → 0.8.32 | 14 | `cli.js`, **`hyperframe.runtime.iife.js`**, `layout-audit.browser.js`, the player, studio |
 | 0.8.32 → 0.8.33 | 5 | `cli.js`, `fontLocalizeCli.js`, the player's version string, studio, `package.json` |
 
-**The render runtime is byte-identical at 0.8.32 and 0.8.33** (399 774 B, same
-sha256). So everything that reaches `hyperframes render` changes exactly once
+**The render runtime is byte-identical at 0.8.32 and 0.8.33** — both
+`696c9c6ff46c173d…`, 399 774 B, against 0.8.31's `c6f9f9b8e15360a2…` at
+399 125 B. So everything that reaches `hyperframes render` changes exactly once
 across this bump, at 0.8.32.
 
 ## B. The one change that reaches the renderer, and it is a reversal
