@@ -365,6 +365,21 @@ function decodeHtml(bytes: Buffer, contentType: string, url: string, warnings: s
  * wait for is a subresource that has already been aborted, so it buys nothing
  * and costs a timeout on any page whose abort races the lifecycle event.
  *
+ * AND THE RESOLVER IS BLOCKED, because the sentence above turned out to be a
+ * claim about timing rather than a guarantee. Interception is per-tab and takes
+ * effect through the DevTools protocol; on Chrome 152 under load, the open-proxy
+ * test in `test/harvest.test.ts` leaked a subresource to the second server twice
+ * in five full-suite runs, and never once on 145 in six. Same code, different
+ * browser, so the window the note denied is real and only ever happened to be
+ * too narrow to see.
+ *
+ * `--host-resolver-rules=MAP * ~NOTFOUND` makes the property structural instead:
+ * this browser cannot resolve a name at all, so a request that escapes
+ * interception reaches nothing. Nothing legitimate is lost, because the browser
+ * is never supposed to make a request — `fetchGuarded` does the fetching in
+ * node and `setContent` hands over the bytes. Interception stays as the first
+ * line and to keep the abort semantics; this is the floor under it.
+ *
  * TWO EVALUATES, IN THIS ORDER, AND THEY ARE NOT INTERCHANGEABLE. The first
  * strips the page's chrome and marks the region it scored as the article; the
  * second walks whatever it finds. Running the walk first would walk the
@@ -390,6 +405,10 @@ async function readInBrowser(
       "--disable-extensions",
       "--no-default-browser-check",
       "--no-first-run",
+      // The floor under interception — see the note above. Not a hardening
+      // nicety: without it the open-proxy property holds only as fast as CDP
+      // happens to be that run.
+      "--host-resolver-rules=MAP * ~NOTFOUND",
     ],
   });
   try {
