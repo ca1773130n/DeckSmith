@@ -30,7 +30,16 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /**
- * The browser `render` already uses.
+ * The browser `render` already uses — which, until 2026-09-11, this did not find.
+ *
+ * IT PREFERRED PUPPETEER'S CACHE AND SAID THE TWO WERE INTERCHANGEABLE. They are
+ * not. The renderer runs hyperframes' own shell out of `~/.cache/hyperframes`
+ * (152 here); puppeteer's cache holds 145. For a screenshot of a static DOM the
+ * old comment was right and nothing noticed for months. For a WebGL canvas 145
+ * refuses a context and 152 grants one, so `frames` and the `fidelity` gate
+ * returned a clean, plausible, EMPTY frame — the seventh case in this repo of a
+ * green gate over wrong output, and the first found by opening a PNG that had
+ * nothing in it. See `.planning/2026-09-09-webgl-determinism-spike.md`.
  *
  * `@puppeteer/browsers` and `puppeteer-core` are DIRECT dependencies of this
  * package. They arrive with hyperframes too — a hard dependency of any verb that
@@ -46,24 +55,54 @@ import { pathToFileURL } from "node:url";
  * was two copies until `frames` became the third caller the older of them said
  * to promote it on.
  */
-export async function chromePath(need = "open the deck with"): Promise<string> {
-  const explicit = process.env.DECKSMITH_CHROME || process.env.CHROME_PATH;
-  if (explicit) return explicit;
+export interface ResolvedChrome {
+  path: string;
+  /** Where it came from, so a caller can say whether it matches the renderer. */
+  source: "env" | "hyperframes" | "puppeteer";
+}
+
+/**
+ * Resolve, in the renderer's own order of preference.
+ *
+ * `HYPERFRAMES_BROWSER_PATH` first because that is the variable the renderer
+ * itself honours, so setting it makes the two provably the same binary. Then
+ * hyperframes' cache, which is where the renderer gets its shell when nobody has
+ * set anything. Puppeteer's cache is LAST and is a different browser: it is kept
+ * because a machine that has only that one should still be able to look at a
+ * DOM-only deck, not because the two agree.
+ */
+export async function resolveChrome(need = "open the deck with"): Promise<ResolvedChrome> {
+  const env =
+    process.env.HYPERFRAMES_BROWSER_PATH || process.env.DECKSMITH_CHROME || process.env.CHROME_PATH;
+  if (env) return { path: env, source: "env" };
 
   const { getInstalledBrowsers } = await import("@puppeteer/browsers");
-  const cacheDir = process.env.PUPPETEER_CACHE_DIR || join(homedir(), ".cache", "puppeteer");
-  const installed = await getInstalledBrowsers({ cacheDir }).catch(() => []);
-  // headless-shell first: it is the smaller download hyperframes prefers, and
-  // for a screenshot of a static page the two render identically.
-  const found =
-    installed.find((b) => b.browser === "chrome-headless-shell") ??
-    installed.find((b) => b.browser === "chrome");
-  if (found) return found.executablePath;
+  const pick = async (cacheDir: string) => {
+    const installed = await getInstalledBrowsers({ cacheDir }).catch(() => []);
+    // Newest build first: hyperframes keeps old shells around after an upgrade,
+    // and the renderer uses the one it most recently installed.
+    const ordered = [...installed].sort((a, b) => b.buildId.localeCompare(a.buildId, "en"));
+    return (
+      ordered.find((b) => b.browser === "chrome-headless-shell") ??
+      ordered.find((b) => b.browser === "chrome")
+    );
+  };
+
+  const hf = await pick(join(homedir(), ".cache", "hyperframes", "chrome"));
+  if (hf) return { path: hf.executablePath, source: "hyperframes" };
+
+  const pup = await pick(process.env.PUPPETEER_CACHE_DIR || join(homedir(), ".cache", "puppeteer"));
+  if (pup) return { path: pup.executablePath, source: "puppeteer" };
 
   throw new Error(
     `no Chrome to ${need} — run \`npx puppeteer browsers install chrome\`, ` +
       "or set DECKSMITH_CHROME to a Chrome binary.",
   );
+}
+
+/** The path alone, for the callers that only ever wanted that. */
+export async function chromePath(need = "open the deck with"): Promise<string> {
+  return (await resolveChrome(need)).path;
 }
 
 /**
@@ -132,12 +171,24 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
 
   const timeout = opts.timeoutMs ?? 60_000;
   const { default: puppeteer } = await import("puppeteer-core");
+  const chrome = await resolveChrome();
   const browser = await puppeteer.launch({
-    executablePath: await chromePath(),
+    executablePath: chrome.path,
     headless: true,
-    // A retina host would otherwise hand back a 2x frame, whose clip is not the
-    // renderer's.
-    args: ["--force-device-scale-factor=1", "--hide-scrollbars"],
+    args: [
+      // A retina host would otherwise hand back a 2x frame, whose clip is not the
+      // renderer's.
+      "--force-device-scale-factor=1",
+      "--hide-scrollbars",
+      // WITHOUT THESE A WebGL CANVAS GETS NO CONTEXT AND SCREENSHOTS EMPTY. The
+      // renderer passes its own GL arguments; this path passed none, so it drew
+      // a blank rectangle and reported success. SwiftShader rather than the host
+      // GPU on purpose: it is the one backend available on every machine, and a
+      // gate that quietly follows the host's hardware is measuring the host.
+      "--use-gl=angle",
+      "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+    ],
   });
 
   try {
@@ -159,6 +210,29 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
     // Without this the first frames are drawn in the fallback face, which is a
     // different picture — and for `fidelity` a different amount of ink.
     await page.evaluate(() => document.fonts.ready);
+
+    // A canvas this browser cannot give a context to is the failure this module
+    // exists to prevent: it screenshots as background and every measurement
+    // taken on it — ink, apparent size, overlap — is taken on a frame the
+    // renderer will never produce. Refuse instead. It is deliberately narrow: a
+    // deck with no canvas is unaffected, so a machine that cannot do GL can
+    // still look at every DOM deck in the repository.
+    const canvas = await page.evaluate(() => {
+      const el = document.querySelector("canvas");
+      if (!el) return { present: false, gl: true };
+      const probe = document.createElement("canvas");
+      const gl = !!(probe.getContext("webgl2") ?? probe.getContext("webgl"));
+      return { present: true, gl };
+    });
+    if (canvas.present && !canvas.gl) {
+      throw new Error(
+        `this deck draws on a <canvas> and ${chrome.path} cannot create a WebGL ` +
+          "context, so the capture would be of an empty rectangle. Chrome came from " +
+          `${chrome.source}; the renderer uses hyperframes' own shell. Set ` +
+          "HYPERFRAMES_BROWSER_PATH to the binary `hyperframes render` uses so the " +
+          "gate and the render are the same browser.",
+      );
+    }
 
     const cdp = await page.createCDPSession();
     return {
