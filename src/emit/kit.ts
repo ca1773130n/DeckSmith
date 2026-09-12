@@ -127,8 +127,45 @@ export function contentW(format: Format): number {
   return refWidth(format) - 2 * PAD_X;
 }
 
+/**
+ * REFERENCE PX, WHICH IS WHY THE RESERVE IS CONVERTED HERE. `format.captionReserve`
+ * is measured on the CANVAS — `bandReserve` derives it from `burnStyle`'s
+ * ratios, which are canvas ratios — and everything on this side of the codebase
+ * does its arithmetic in reference px, which `refHeight` has already scaled. At
+ * 1080x1920 the canvas-to-reference factor is 2560/1920, so a 301px reserve is
+ * 402 reference px; subtracting the canvas number raw would under-reserve by a
+ * quarter and put the ink back under the band.
+ *
+ * `Math.ceil`, not `round`: a fractional px of reserve that gets rounded away is
+ * a fractional px of ink inside the band.
+ *
+ * SUBTRACTING HERE IS NOT ENOUGH ON ITS OWN, and the design note this implements
+ * was wrong about that. It claimed every archetype lays out into `contentH`, so
+ * that one subtraction would move all of them. Ten of them — `bar-compare`,
+ * `callout`, `claim-figure`, `data-table`, `equation-morph`, `equation-walk`,
+ * `grid`, `index`, `line-chart`, `pipeline` — never mention `contentH` at all.
+ * What actually bounds them is `.scene`'s CSS padding in `theme.ts`, which
+ * centres their content in the box the stylesheet leaves. MEASURED: subtracting
+ * only here moved the 9x16 demo's worst stop by nothing at all — 0.529% of the
+ * frame was ink inside the band both before and after, byte for byte.
+ *
+ * So the reserve comes off BOTH, and the pair is exactly the hazard the header
+ * of this file warns about: a stylesheet that disagrees with the arithmetic
+ * clips at the canvas edge, and no gate reads the stylesheet.
+ *
+ * NOT IN `PAD_Y` ITSELF. The padding is symmetric and the reserve is not — a
+ * symmetric version would throw away as much off the TOP of every slide for
+ * nothing. `theme.ts` adds it to the bottom only.
+ */
 export function contentH(format: Format): number {
-  return refHeight(format) - 2 * PAD_Y;
+  return refHeight(format) - 2 * PAD_Y - reserveRef(format);
+}
+
+/** `format.captionReserve`, canvas px, expressed in this file's reference px. */
+export function reserveRef(format: Format): number {
+  const reserve = format.captionReserve ?? 0;
+  if (reserve <= 0) return 0;
+  return Math.ceil((reserve * refHeight(format)) / format.height);
 }
 
 export interface Theme {

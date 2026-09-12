@@ -55,6 +55,7 @@ import { parseMarkdown } from "./source/markdown.js";
 import { guardTmpdir } from "./tmpdir.js";
 import {
   type Beat,
+  bandReserve,
   canvasWarnings,
   FORMATS,
   type Format,
@@ -620,6 +621,10 @@ lookFlags(
       .option("--genre <genre>", "general | paper — report when a paper deck lacks its arc")
       .option("--narration <file>", `${NARRATION_FILE} from \`decksmith narrate\``)
       .option("--no-narration", "ignore narration sitting beside the storyboard")
+      .option(
+        "--reserve-captions",
+        "keep the bottom of the frame clear for a burned caption — required by `render --subtitles burn`",
+      )
       .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
   ),
 ).action(
@@ -655,7 +660,14 @@ lookFlags(
     // `--width/--height` resize whichever profile was named, and nothing else:
     // the floor, the budget and the navigability stay the base's, because a
     // pixel count implies none of them. See `resizeFormat`.
-    const format = withMinWeight(pickFormat(o.format, o.width, o.height), o.minWeight);
+    const format = withCaptionReserve(
+      withMinWeight(pickFormat(o.format, o.width, o.height), o.minWeight),
+      o.reserveCaptions === true,
+    );
+    if (format.captionReserve)
+      step(
+        `build: reserving ${format.captionReserve}px at the bottom for burned captions — ${((100 * format.captionReserve) / format.height).toFixed(1)}% of the frame`,
+      );
     // WITH THE SOURCE, the same way `plan` resolves them. The beat count is
     // derived from what the document contains, so preferences resolved without
     // it fall back to the schema's flat default and `scanBeatCount` then measures
@@ -1265,6 +1277,26 @@ function pickFormat(id: string, width?: string, height?: string): Format {
   const format = resizeFormat(base, Number(width), Number(height));
   for (const warning of canvasWarnings(format.width, format.height)) step(`format: ${warning}`);
   return format;
+}
+
+/**
+ * `--reserve-captions`, which shrinks the drawable box so a later `render
+ * --subtitles burn` has somewhere to put the band.
+ *
+ * A BUILD FLAG FOR A RENDER DECISION, which looks backwards and is not: the
+ * layout is fixed when the deck is emitted, and a flag typed an hour later at
+ * render time cannot move content that has already been positioned. So the
+ * question "will this be burned?" has to be answered here or not at all.
+ *
+ * Off by default because it is not free — at 9:16 it gives up 15.7% of the
+ * frame's height, which is a real editorial cost on a deck nobody is going to
+ * burn. `render --subtitles burn` refuses a deck that did not reserve, so the
+ * two cannot silently disagree; see `playbackRefusal`'s neighbour in
+ * src/render/render.ts.
+ */
+function withCaptionReserve(format: Format, on: boolean): Format {
+  if (!on) return format;
+  return { ...format, captionReserve: bandReserve(format.width, format.height) };
 }
 
 /** `--width`/`--height`, on every verb that has to agree about the canvas. */

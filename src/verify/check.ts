@@ -325,21 +325,49 @@ function interpret(stdout: string, stderr: string, ctx: RunContext): Verdict {
  * `FAIL — 7 error(s)` on a correct camera, which is why no storyboard in the
  * repo could use `inside`.
  *
+ * THE WINDOW TESTED HERE IS NOT THE MOVE. `transitWindow` publishes
+ * `[t0, t0+dur+fade+over]`, so the fixture above carries `data-ds-transit="9,11.2"`
+ * while its move proper ends at 10.8 — the rig stays displaced for the handoff
+ * `over` and the frames in that tail are transit too (the reasoning, and the
+ * thirteen-error build that forced it, are in `transitWindow` in `emit/camera.ts`).
+ * Re-measured 2026-09-12 at hyperframes 0.8.33: that fixture reports the same 7
+ * at 9.9s plus one `escaped_container` on `div.ds-zoom`, and builds PASS — 0
+ * errors. `experiments/010-blackout/camera.storyboard.json`, the same two beats
+ * without the notes, reports 3 plus the same `escaped_container` and also PASSes.
+ *
  * The exemption is TIME-BOUNDED and nothing else. A finding is spared only if
  * its own reported time falls strictly inside a window the composition itself
  * published, so the rule keeps its teeth everywhere the audience is actually
- * looking: `assertStopsOutsideMove` guarantees no hold is ever inside a window,
- * so anything genuinely wrong with the plate is wrong at rest, and at rest the
- * gate is still sampling it and still grading it up. PROVED by building the
- * same fixture with a 130-char unbreakable word in the containing beat's note,
- * which overflows at scale 1 forever: it is reported at 5.5s as well as 9.9s,
- * 5.5 is outside [9, 10.8], and the deck still FAILs.
+ * looking — and what makes that airtight is arithmetic rather than trust.
+ * `layout` sets `dive.t0` to the dipping scene's own `beatSeconds`, so every
+ * hold of that scene is at or before `t0`, and the test below is strict
+ * (`time > w.t0`): a resting frame cannot be excused even at the window's left
+ * edge. `assertStopsOutsideMove` is the emitter's half of the same statement and
+ * covers the move [t0, t0+diveTail) rather than the published window.
+ *
+ * PROVED, and re-measured on 2026-09-12 rather than quoted: give the containing
+ * beat a 130-char unbreakable HEADLINE, which does leave the canvas at scale 1,
+ * and `experiments/010-blackout/camera.storyboard.json` reports `canvas_overflow`
+ * on `#s1-h` TWICE — `error` at t=1.1s, outside [9, 11.2], and `info` at t=9.9s,
+ * inside it — and the deck FAILs on 1 error. Same element, same scene, same
+ * defect: the time is the only thing that decides. (On the notes-carrying demo
+ * fixture the same headline FAILs on the same 1 error at 1.1s, but the wider
+ * headline changes the dive's framing and the 9.9s findings do not recur — which
+ * is why the two-reports-of-one-element form of the proof is pinned to the
+ * fixture that shows it.)
+ *
+ * That proof used to name a 130-char word in a stage's `note` and claim it was
+ * "reported at 5.5s as well as 9.9s". It is not, and the premise under it was
+ * wrong: a long note WRAPS inside the stage box and never leaves the canvas at
+ * scale 1 (frame at 5.5s, 2026-09-12), so the deck PASSes with all 13 findings
+ * exempted at 9.9s — correctly, because there is nothing wrong with the plate.
+ * The headline is the overflow-at-rest; the note never was one.
  *
  * This is deliberately not `data-layout-allow-overflow`, which was tried first
  * and does work: upstream's `hasAllowOverflowFlag` is a `closest()` ancestor
  * test with no notion of time, and every moving glyph is inside the camera rig,
- * so the flag hides the 5.5s defect too. A gate that cannot see a real overflow
- * is worse than one that shouts about a fake one.
+ * so the flag hides the resting defect — the 1.1s overflow above — too. A gate
+ * that cannot see a real overflow is worse than one that shouts about a fake one.
  *
  * `composition_file_too_large` — upstream counts LINES and justifies itself by
  * "easier to read, iterate on, and diff". Every word of that is about a

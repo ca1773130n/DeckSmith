@@ -219,21 +219,57 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
 
 ## Still open
 
-- **The 9:16 composition reserves no caption safe area, and this is the most valuable
-  thing left.** The burn-in workstream measured it: over 112 sampled frames, slide ink
-  enters the caption band on **61 of them (54%)**. The composition draws ink to y=1827 of
-  1920; the band occupies y=1627–1747. The caption sits on the slide's own text, clearly
-  visible at phone width. Asked of emit: **9x16 formats must keep ink above y=1627 —
-  reserve the bottom 293px, 15.3% of frame height.** Not done here: it touches every
-  portrait archetype's `contentH`, would change 9:16 output substantially, and the
-  render-side alternative (scale+pad) drags the audience-text floor to 33.9px and violates
-  invariant 5. It is a workstream, not a seam.
-- **The camera path still cannot pass `build`.** Any deck with an `inside` relation fails
-  `verify` with 3 × `canvas_overflow` at t=9.9s (mid-dive) plus `escaped_container` on
-  `div.ds-zoom`. Confirmed unchanged in count, rule, and timestamp on
-  `experiments/010-blackout/camera.storyboard.json`. It is the hyperframes layout gate
-  sampling mid-camera-move — the transit exemption `assertStopsOutsideMove` makes
-  unnecessary on our side, which the external gate does not know about. Pre-existing.
+- **~~The 9:16 composition reserves no caption safe area~~ — CLOSED 2026-09-12.** The
+  burn-in workstream measured it: over 112 sampled frames, slide ink entered the caption
+  band on **61 of them (54%)**. The composition drew ink to y=1827 of 1920; the band
+  occupies y=1627–1747, so the caption sat on the slide's own text, clearly visible at
+  phone width.
+
+  Closed by `build --reserve-captions`: `bandReserve` (src/types.ts) is the single source
+  for the band's box, `Format.captionReserve` carries it, and the drawable box gives it up.
+  `fidelity`'s new `ink_in_caption_reserve` rule fails a deck that draws into the strip,
+  and `render --subtitles burn` refuses a deck whose `timing.json` reserved nothing.
+  Measured on the twelve-beat demo at 1080x1920 over 31 stops: **reserved, 0 of 31 stops
+  put ink in the band; the same deck unreserved and judged against the same band, 1 of 31
+  at 0.529% of the frame.**
+
+  **Two corrections to what this entry predicted.** It said the reserve is 293px / 15.3%
+  of frame height; `bandReserve` derives **301px / 15.7%** from the CSS rather than from a
+  browser, because a bound the emitter can only get by rendering is a bound it cannot use.
+  The 8px difference is slack on the safe side, and under-reserving is the failure that
+  matters. It also said the change "touches every portrait archetype's `contentH`" — ten
+  archetypes never call `contentH` at all, and a fix that changed only `contentH` moved
+  the worst stop by exactly nothing, 0.529% before and after. The drawable box is really
+  `.scene`'s CSS padding in `src/emit/theme.ts`, and the reserve is taken in both places.
+  The new gate is what caught that; every other gate stayed green through it.
+- ~~**The camera path still cannot pass `build`.**~~ **CLOSED — re-measured 2026-09-12,
+  it does not reproduce.** `build experiments/010-blackout/camera.storyboard.json` exits 0
+  on `PASS — 0 error(s), 2 warning(s)` at hyperframes 0.8.33. The four findings this bullet
+  names are still emitted, identical in count, rule and timestamp — 3 × `canvas_overflow`
+  at t=9.9s and `escaped_container` on `div.ds-zoom` — but three are graded `info` by the
+  transit exemption in `regrade` (`src/verify/check.ts`), which reads the window the scene
+  publishes as `data-ds-transit` ([9, 11.2] here), and the fourth arrives `info` from
+  upstream and is never graded up. `demo/fixtures/camera.storyboard.json`, the same two
+  beats with notes, is 7 + 1 and also PASSes. The bullet was written as though the fix did
+  not exist; it was already in the tree at the import commit.
+
+  The dive is genuinely safe, not merely excused. Frames at 8.9s (rest), 9.9s (mid-dive)
+  and 11.3s (the next scene) show a correct dive into `stage1`: ink leaves the canvas only
+  while the camera is flying, which is what flying into part of a plate means, and no hold
+  reports anything off-canvas. The exemption cannot hide a resting overflow by
+  construction: `layout` sets `dive.t0` to the scene's own `beatSeconds`, so every hold is
+  at or before `t0`, and the exemption's test is strict. Measured against a control — the
+  same fixture with a 130-char unbreakable headline — `canvas_overflow` on `#s1-h` is
+  reported at t=1.1s, graded `error`, and the deck FAILs on 1 error while the 9.9s findings
+  stay `info`.
+
+  The real-plan case closes too. `experiments/013-vocabulary/review/sb-A-04.json` — the
+  plan VOCABULARY.md §4.1 records as FAIL on 14 `canvas_overflow` for its one `inside`
+  field — now builds `PASS — 0 error(s), 10 warning(s)`, with `data-ds-transit="10,12.2"`
+  and exactly 14 findings exempted mid-camera-move. Caveat on that one: the repo holds no
+  `source.json` for A-04, so it was built against a synthesised source (the cited section,
+  figure, table and a carrier equation carrying the beat's four terms). The camera path and
+  the finding count reproduce; the figure and table content do not match the review's.
 - **No mp4 was rendered this session.** `timing.json` is byte-identical on 16:9 and the
   frame plan fits the capture exactly, but the retime/mux path was not exercised.
 - **`deck.html` navigation was not clicked through in a browser.** Island bytes are
