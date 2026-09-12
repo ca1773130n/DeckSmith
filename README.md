@@ -6,7 +6,7 @@ storyboard rendered to a 9:16 short or an MP4 without replanning.
 
 Rendering is bought, not built. A deck is a
 [HyperFrames](https://github.com/heygen-com/hyperframes) composition (Apache-2.0, pinned
-at 0.8.27), so the animation runtime, the headless capture and the FFmpeg encode are
+at 0.8.35), so the animation runtime, the headless capture and the FFmpeg encode are
 upstream's. What DeckSmith owns is the part nothing else does well: turning a document
 into a *good explanation*, and being able to check that the explanation is true to its
 source.
