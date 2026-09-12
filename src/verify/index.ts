@@ -245,11 +245,16 @@ const NARRATION_ISLAND =
 /**
  * Every mp3 the narration island promises is actually in the deck.
  *
- * Nothing else notices this. `hyperframes check` never opens `deck.html`, and
- * the runtime treats a missing file exactly like a browser that refused to
- * autoplay — it clears the subtitles and moves on. So a deck that lost its audio
+ * Nothing else notices this in a BUILD. `hyperframes check` never opens
+ * `deck.html`, and the runtime treats a missing file exactly like a browser that
+ * refused to autoplay — it clears the subtitles and moves on. So a deck that lost its audio
  * on the way to a web host presents in silence and says nothing about why, which
  * is the failure mode a gate exists for.
+ *
+ * `test/deck-page.test.ts` does now open `deck.html` in a browser, and asserts
+ * that an unplayable segment is NAMED in the flag strip rather than going quiet.
+ * That is a test, not a build gate: it runs on a deck the suite builds, and says
+ * nothing about the deck a user is shipping. This still has to exist.
  */
 export function scanNarration(page: string, files: ReadonlySet<string>): Finding[] {
   const island = NARRATION_ISLAND.exec(page)?.[1];

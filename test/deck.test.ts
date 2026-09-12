@@ -46,12 +46,24 @@ describe("the bundle deck.html inlines", () => {
 
   it("ships a player whose CDN url names the hyperframes we pinned", async () => {
     // THE ONE THING A PIN BUMP CHANGES THAT NO OTHER GATE SEES. The player bundle
-    // hardcodes a jsDelivr url for `@hyperframes/core` and injects it as a
-    // `<script>` when a PRESENTED deck opens — at the viewer's machine, over the
-    // network, long after every gate here has passed. `check`, `verify`, `drift`
-    // and `render` all work on `index.html`; NOTHING opens `deck.html`, so a pin
-    // that leaves decks fetching a different core than the one this repo tested
-    // against is invisible until a presenter's laptop finds out.
+    // hardcodes a jsDelivr url for `@hyperframes/core`, and it is a FALLBACK: the
+    // bundle polls the composition every 200ms and injects that `<script>` only
+    // once it has seen timelines but resolved no playback adapter for five ticks
+    // (`shouldInjectRuntime` in hyperframes-player.global.js). A deck of ours
+    // registers a GSAP timeline per scene plus `main`, which resolves on the tick
+    // the timelines appear, so the fetch does not happen — measured across ~20
+    // page loads in test/deck-page.test.ts, which asserts a presented deck makes
+    // no request off its own origin at all. An earlier version of this note said
+    // the injection happens whenever a presented deck opens; that is stronger
+    // than the bundle does.
+    //
+    // The pin still has to agree, because the fallback is one slow composition
+    // away: it would fetch at the VIEWER's machine, over the network, long after
+    // every gate here has passed. `check`, `verify`, `drift` and `render` all
+    // work on `index.html`, and test/deck-page.test.ts — the only thing that
+    // opens `deck.html` — is offline by assertion, so a pin that left decks
+    // fetching a different core than the one this repo tested against would be
+    // invisible until a presenter's laptop found out.
     //
     // Moving 0.7.71 -> 0.7.90 changed exactly two bytes of that bundle, and they
     // were the version in this url. This asserts the two agree; it deliberately
@@ -217,7 +229,9 @@ describe("a play() rejection says which of two failures it was", () => {
    * for sound" forever, and every keypress ran `unlock` -> `speak` against the
    * same missing file and failed identically. The message was not just unhelpful,
    * it blamed the wrong thing — and every gate was green, because nothing in this
-   * suite opens deck.html or plays a sound.
+   * suite opened deck.html or played a sound. test/deck-page.test.ts opens it now
+   * and asserts the flag strip names one of the two honest states; it still plays
+   * no sound, so the split below remains the only thing that decides WHICH.
    */
   it("reads the autoplay policy as blocked", () => {
     expect(refused(new DOMException("play() failed", "NotAllowedError"))).toBe(true);
