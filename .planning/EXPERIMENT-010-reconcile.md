@@ -272,15 +272,33 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
   the finding count reproduce; the figure and table content do not match the review's.
 - **No mp4 was rendered this session.** `timing.json` is byte-identical on 16:9 and the
   frame plan fits the capture exactly, but the retime/mux path was not exercised.
-- **`deck.html` navigation was not clicked through in a browser.** Island bytes are
-  unchanged and invariant 7 holds.
+- ~~**`deck.html` navigation was not clicked through in a browser.**~~ **CLOSED
+  2026-09-12.** `test/deck-page.test.ts` builds a narrated deck, serves it over http and
+  opens it in the renderer's own Chrome. It asserts navigation by arrow key, click-third
+  and Home/End; that every step lands both the scene timeline and the player's clock on
+  the stop's time with every other scene hidden; that an unplayable narration segment is
+  named rather than going quiet; and that a whole pass throws nothing, 404s nothing and
+  makes no request off its own origin. Proved able to fail against four deliberate
+  regressions — one of which, a deleted `vendor/gsap.min.js`, turned out to be a real
+  shipped defect (see the bullet below).
+
+  Two gaps stated rather than implied: the artifact-level invariant 7 check sits inside
+  the skip block, so CI still only gets the source-level half; and nothing plays a sound,
+  so which of the two audio failures a real browser hits is untested.
 - **Selection predicts from the full deck's measurements**, so a cut's *neighbours* change
   and a camera tail can disappear. Proven conservative in direction on the demo (the
   prediction is now exact because the demo has no cameras); not proven conservative in
   general.
-- **`buildDeck` still duplicates ~70 lines of `cli.ts`'s file work.** Carried from
-  EXPERIMENT-007, still the highest-value structural follow-up, still not the thing to do
-  on a tree that has just gone green with three agents' work in it.
+- ~~**`buildDeck` still duplicates ~70 lines of `cli.ts`'s file work.**~~ **CLOSED
+  2026-09-12**, into `src/build/files.ts`. It was not the latent problem both this entry
+  and EXPERIMENT-007 called it. Three differences were live, and one shipped:
+  `vendorScripts` existed only in `cli.ts`, so every deck built through the library —
+  which is every deck `src/server/pipeline.ts` serves — carried an `index.html` asking for
+  `./vendor/gsap.min.js` that nothing had copied, and its timeline could never be built.
+  `copyAssets` applied its containment proof on one path only, and `buildDeck` wrote
+  `timing.json` only when there was narration. All three now follow the CLI.
+
+  `diff -rq` of the two paths: 34 files against 29 before, identical after.
 - **Platform limits in `DESTINATIONS` are from memory, not the network.** Instagram Reels
   180s and Facebook Reels 90s want a human check; the 90 is load-bearing for the
   `near_budget` warning that fires on every short.
