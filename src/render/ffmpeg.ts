@@ -20,6 +20,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { CAPTION_MARGIN_V_RATIO, CAPTION_MARGIN_X_RATIO, captionFontSize } from "../types.js";
 
 const run = promisify(execFile);
 
@@ -375,11 +376,16 @@ export function burnStyle(width: number, height: number, font = "Arial"): BurnSt
     // here is 978px. F = 40 leaves 9% of headroom; F = 45 — which is what
     // "4% of the width" looked like on paper — overflows to a THIRD line, and a
     // three-line band covers the bottom of the slide.
-    fontSize: Math.round(width * 0.037),
+    //
+    // THE RATIOS ARE NOT HERE. They are in src/types.ts beside `bandReserve`,
+    // because `src/emit` has to reserve exactly the strip this draws into and
+    // may not import this file. A local copy of 0.037 is how the two drift back
+    // apart, which is the bug this whole path exists to close.
+    fontSize: captionFontSize(width),
     // Clear of the play button, the progress bar and the handle every vertical
     // player draws across the bottom eighth of the frame.
-    marginV: Math.round(height * 0.09),
-    marginX: Math.round(width * 0.04),
+    marginV: Math.round(height * CAPTION_MARGIN_V_RATIO),
+    marginX: Math.round(width * CAPTION_MARGIN_X_RATIO),
   };
 }
 

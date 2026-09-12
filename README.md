@@ -6,7 +6,7 @@ storyboard rendered to a 9:16 short or an MP4 without replanning.
 
 Rendering is bought, not built. A deck is a
 [HyperFrames](https://github.com/heygen-com/hyperframes) composition (Apache-2.0, pinned
-at 0.8.27), so the animation runtime, the headless capture and the FFmpeg encode are
+at 0.8.35), so the animation runtime, the headless capture and the FFmpeg encode are
 upstream's. What DeckSmith owns is the part nothing else does well: turning a document
 into a *good explanation*, and being able to check that the explanation is true to its
 source.
@@ -99,6 +99,12 @@ decksmith unpack  talk.deck        -o reopened/
   presenter does — freezes each hold for exactly its sentence's length, then plays out
   whatever the scene actually ends on. Needs Chromium and ffmpeg, and needs the
   `timing.json` that `build` writes.
+
+  Subtitles ride alongside by default, because a burned-in band is a decision taken away
+  from the viewer. `--subtitles burn` makes it part of the picture, and it is only
+  accepted over a deck built with `--reserve-captions` — the layout is fixed at build
+  time, so a deck that made no room cannot be given any an hour later, and the band would
+  land on the slide's own text. `render` refuses that rather than shipping it.
 - **drift** — renders the deck twice and compares every frame. `--identical` fails on any
   differing byte, which is only honest for an image-free deck with no camera — the demo
   deck is not one, and fails it on both hyperframes pins (see
@@ -242,8 +248,12 @@ artifact. Three are worth reading as patterns rather than bugs:
   seam. And, at 9:16, burned captions sitting on top of the slide's own text on 54% of
   sampled frames, because `marginV` was measured to clear *player chrome* and nothing ever
   guaranteed it cleared the *composition*. Both in
-  [`.planning/EXPERIMENT-010-reconcile.md`](.planning/EXPERIMENT-010-reconcile.md); the
-  caption one is **still open**.
+  [`.planning/EXPERIMENT-010-reconcile.md`](.planning/EXPERIMENT-010-reconcile.md). The
+  caption one is **closed**: `build --reserve-captions` gives the band its own strip and
+  `fidelity` fails a deck that draws into it. It is worth reading for how it closed —
+  the plan written to fix it asserted that every archetype lays out into `contentH`, ten
+  of them do not, and the first fix therefore changed the worst stop by nothing at all.
+  The new gate is what caught that; every other gate stayed green through it.
 
 `verify` is good at mechanics — overflow, overlap, contrast, motion, determinism. It has
 no opinion about whether a slide communicates. Across four experiments it passed, in

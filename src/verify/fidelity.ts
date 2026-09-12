@@ -195,7 +195,38 @@ export interface Measured extends Stop {
   ink: number;
   /** Where the band began, as a fraction of frame height. Reported for triage. */
   bandTop: number;
+  /**
+   * Non-background pixels inside the caption RESERVE, over the whole frame's
+   * pixels. `undefined` on a deck that reserved nothing — there is no band to
+   * be inside, and 0 would read as "measured and clear".
+   */
+  reserveInk?: number;
 }
+
+/**
+ * Ink is allowed in the reserve up to this fraction of the whole frame, and the
+ * number is measured rather than chosen.
+ *
+ * MEASURED on the twelve-beat demo at `short-9x16`, 1080x1920, 31 stops, the two
+ * builds differing only in `--reserve-captions`:
+ *
+ * | build | stops with ink in the band | worst |
+ * | --- | --- | --- |
+ * | `--reserve-captions` | 0 of 31 | 0 |
+ * | the same deck, unreserved, judged against the same band | 1 of 31 | 0.529% |
+ *
+ * So on a correct build the strip is background and anything at all is a real
+ * intrusion. The tolerance exists only so a stray antialiased edge cannot fail a
+ * build, and it is an ORDER OF MAGNITUDE below `INK_FLOOR`: one short headline
+ * is 0.15% of the frame, so 0.01% cannot be a glyph and can only be a fringe.
+ *
+ * NOT fitted to the failing case: the intrusion it has to catch is 0.529%, fifty
+ * times this, so the gate is not balanced on a margin. And note what the control
+ * is worth — the first version of this fix subtracted the reserve from
+ * `contentH` alone, and the reserved build measured 0.529% too, identically.
+ * The gate is what found that; no other gate in the stack moved.
+ */
+export const RESERVE_INK_TOLERANCE = 0.0001;
 
 export interface FidelityOptions {
   floor?: number;
@@ -206,6 +237,23 @@ export interface FidelityOptions {
    */
   stops?: readonly Stop[];
   timeoutMs?: number;
+  /** Override the reserve read off `timing.json`. For tests and the 015 harness. */
+  captionReserve?: number;
+}
+
+/**
+ * The caption reserve this deck was BUILT with, in canvas px, out of its own
+ * `timing.json`. 0 when the file is missing, unparseable, or predates the field
+ * — all three mean the same thing: nothing was reserved.
+ */
+export function readReserve(timingText: string | null): number {
+  if (!timingText) return 0;
+  try {
+    const reserve = (JSON.parse(timingText) as { captionReserve?: unknown }).captionReserve;
+    return typeof reserve === "number" && reserve > 0 ? reserve : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export interface FidelityReport {
@@ -475,6 +523,49 @@ export function gradeFidelity(rows: readonly Measured[], floor = INK_FLOOR): Fin
   });
 }
 
+/**
+ * Ink that got into the strip the burned caption is going to occupy.
+ *
+ * WHY THIS RULE EXISTS AT ALL. `contentH` already subtracts the reserve, so on
+ * a correct build this can never fire — which is exactly the argument for
+ * having it. The geometry is one refactor, one new archetype, or one absolute
+ * position away from being undone, and the failure is invisible to every other
+ * gate in the stack: the deck passes, the video renders, the band lands on the
+ * slide's own text, and the only way anyone finds out is by opening a frame.
+ * That is the failure mode this project keeps producing, and a purely geometric
+ * fix with no gate is how it comes back.
+ *
+ * An ERROR, not a warning. The deck asked for the reserve — `--reserve-captions`
+ * is typed on purpose — so ink inside it is the build failing to deliver the
+ * thing it was told to deliver, not a note about taste.
+ */
+export function gradeReserve(
+  rows: readonly Measured[],
+  tolerance = RESERVE_INK_TOLERANCE,
+): Finding[] {
+  const dirty = new Map<string, Measured[]>();
+  for (const row of rows) {
+    if (row.reserveInk === undefined || row.reserveInk <= tolerance) continue;
+    const seen = dirty.get(row.sid);
+    if (seen) seen.push(row);
+    else dirty.set(row.sid, [row]);
+  }
+  const pct = (v: number) => `${(100 * v).toFixed(3)}%`;
+  return [...dirty].map(([sid, stops]) => {
+    const worst = stops.reduce((a, b) => ((a.reserveInk ?? 0) >= (b.reserveInk ?? 0) ? a : b));
+    return {
+      severity: "error" as const,
+      gate: "fidelity",
+      rule: "ink_in_caption_reserve",
+      message:
+        `#${sid} draws into the caption reserve ${stops.length === 1 ? "" : `at ${stops.length} stops `}` +
+        `— ${pct(worst.reserveInk ?? 0)} of the frame is ink inside the band at t=${worst.t}s ` +
+        `(tolerance ${pct(tolerance)}). A burned caption would sit on top of it. ` +
+        `Times: ${stops.map((s) => `${s.t}s`).join(", ")}.`,
+    };
+  });
+}
+
 /** Serialised into the page: the bottom of this scene's caption, in device px. */
 function captionBottom(sid: string, selector: string, fallbackPx: number): number {
   const scene = document.querySelector(`[data-composition-id="${CSS.escape(sid)}"]`);
@@ -510,13 +601,15 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     elapsedMs: Date.now() - started,
   });
 
+  const timingText = await readFile(join(dir, TIMING_FILE), "utf8").catch(() => null);
   const stops =
     opts.stops ??
-    readStops(
-      await readFile(join(dir, TIMING_FILE), "utf8").catch(() => null),
-      await readFile(join(dir, DECK_PAGE), "utf8").catch(() => null),
-    );
+    readStops(timingText, await readFile(join(dir, DECK_PAGE), "utf8").catch(() => null));
   if (stops.length === 0) return notMeasured("the deck declares no stops");
+  // OFF THE ARTIFACT, not off a Format handed in: this gate runs against a deck
+  // directory, and the only trustworthy statement about what that deck reserved
+  // is the one the build wrote into its own manifest.
+  const reserve = opts.captionReserve ?? readReserve(timingText);
 
   let deck: Awaited<ReturnType<typeof openDeck>> | null = null;
   try {
@@ -556,6 +649,12 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...stop,
         ink: inkBelow(frame, bandTopPx),
         bandTop: Math.round((1000 * bandTopPx) / height) / 1000,
+        // THE SAME FRAME, a second strip. Free: it is one more pass over pixels
+        // that are already decoded, so the gate that stops the caption
+        // collision regressing costs no extra capture, no extra seek and no
+        // extra browser. That matters — a gate with its own capture is a gate
+        // someone turns off.
+        ...(reserve > 0 ? { reserveInk: inkBelow(frame, height - reserve) } : {}),
       });
     }
     // A second pass between the stops, for the apparent floor only. No screenshot
@@ -570,6 +669,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       stops: measured,
       findings: [
         ...gradeFidelity(measured, floor),
+        ...gradeReserve(measured),
         ...gradeOverprint(collided),
         ...gradeApparent(apparent),
       ],

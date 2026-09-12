@@ -13,13 +13,22 @@
  * stack trace: a failure here is a bad document or a bad path, not a bug the
  * user can read.
  */
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import type { z } from "zod";
+import {
+  AUDIO_DIR,
+  audioNames,
+  copyAssets,
+  copyAudio,
+  refreshFont,
+  vendorKatex,
+  vendorScripts,
+} from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { illustrate } from "./images/illustrate.js";
@@ -46,6 +55,7 @@ import { parseMarkdown } from "./source/markdown.js";
 import { guardTmpdir } from "./tmpdir.js";
 import {
   type Beat,
+  bandReserve,
   canvasWarnings,
   FORMATS,
   type Format,
@@ -84,13 +94,6 @@ guardTmpdir();
 
 type Narration = z.infer<typeof narrationSchema>;
 
-/**
- * Where a narrated deck keeps its voice, in the built deck and inside a pack
- * alike. One name in one place: the emitter writes it into the island, `build`
- * copies into it, `pack` stores under it, and `unpack` restores it — and none of
- * them has to agree with the others by memory.
- */
-const AUDIO_DIR = "audio";
 const NARRATION_FILE = "narration.json";
 
 /** What `prefsSchema` says when nobody has said anything. See `stated`. */
@@ -117,82 +120,6 @@ function playerBundle(): string {
     return join(dirname(require.resolve("hyperframes/package.json")), "dist", PLAYER_FILE);
   } catch {
     throw new Error('Cannot locate the hyperframes player. Run "npm install".');
-  }
-}
-
-/**
- * Vendor KaTeX's stylesheet and fonts beside the deck.
- *
- * The HyperFrames compiler inlines `<script src>` but NOT `<link rel=stylesheet>`,
- * so a CDN-linked `katex.min.css` — and every `@font-face` it points at — was
- * being fetched by the capture browser on every render. Two consequences, both
- * bad: it violates "no network at render time", and it made equation decks
- * nondeterministic in a way that took four experiments to corner. The frame that
- * finally showed it differed by exactly one glyph, the caligraphic W of
- * `\mathcal{W}`, present in one render and not the other — a font that had
- * arrived by that frame on one run and not on the next.
- *
- * Only woff2 is copied. KaTeX ships woff2, woff and ttf of every family; every
- * browser this deck will ever open in reads woff2, and the other two are three
- * quarters of the payload. The rewrite drops their `url(...)` entries so nothing
- * requests a file that is not there.
- */
-async function vendorKatex(out: string): Promise<void> {
-  const require = createRequire(import.meta.url);
-  const dist = join(dirname(require.resolve("katex/package.json")), "dist");
-  const css = await readFile(join(dist, "katex.min.css"), "utf8");
-
-  await mkdir(join(out, "katex/fonts"), { recursive: true });
-  for (const file of await readdir(join(dist, "fonts"))) {
-    if (file.endsWith(".woff2"))
-      await cp(join(dist, "fonts", file), join(out, "katex/fonts", file));
-  }
-  // Each src is a comma-separated list; keep the woff2 entry and drop the rest.
-  const woff2Only = css.replace(/src:([^;}]*)/g, (whole, list: string) => {
-    const kept = list
-      .split(",")
-      .filter((part) => part.includes(".woff2"))
-      .join(",");
-    return kept ? `src:${kept}` : whole;
-  });
-  await writeFile(join(out, "katex/katex.min.css"), woff2Only);
-}
-
-/**
- * The scripts a deck runs, copied beside it.
- *
- * Pinned by package.json rather than by a URL, so the version that renders is
- * the version that was installed and tested. See the note on GSAP_SRC in
- * src/emit/composition.ts for why this is not left to the compiler's inliner.
- *
- * WHAT THE HEAD LOADS, AND NOTHING ELSE. `composition` is read rather than
- * `laid.plugins` threaded out of `emit`, because the question this is answering
- * is literally "which of these does the page ask for" — and asking the page
- * cannot drift from the page. It also makes the conditional plugins honest on
- * disk as well as in the head: MorphSVG is 21,195 bytes that a deck without a
- * reshape neither loads NOR carries, which is the rule `PLUGINS` states.
- */
-async function vendorScripts(out: string, composition: string): Promise<void> {
-  const require = createRequire(import.meta.url);
-  await mkdir(join(out, "vendor"), { recursive: true });
-  const wanted = (name: string) => composition.includes(`./vendor/${name}`);
-  for (const [pkg, rel, name] of [
-    ["gsap/package.json", "dist/gsap.min.js", "gsap.min.js"],
-    ["gsap/package.json", "dist/DrawSVGPlugin.min.js", "DrawSVGPlugin.min.js"],
-    ["gsap/package.json", "dist/MorphSVGPlugin.min.js", "MorphSVGPlugin.min.js"],
-    ["katex/package.json", "dist/katex.min.js", "katex.min.js"],
-  ] as const) {
-    if (!wanted(name)) continue;
-    const from = join(dirname(require.resolve(pkg)), rel);
-    await cp(from, join(out, "vendor", name));
-  }
-  // Ours, not a package's: the morph runtime is built beside dist/cli.js by
-  // scripts/build.mjs, exactly as the step layer is.
-  if (wanted("ds-morph.js")) {
-    await cp(
-      fileURLToPath(new URL("./ds-morph.js", import.meta.url)),
-      join(out, "vendor", "ds-morph.js"),
-    );
   }
 }
 
@@ -694,6 +621,10 @@ lookFlags(
       .option("--genre <genre>", "general | paper — report when a paper deck lacks its arc")
       .option("--narration <file>", `${NARRATION_FILE} from \`decksmith narrate\``)
       .option("--no-narration", "ignore narration sitting beside the storyboard")
+      .option(
+        "--reserve-captions",
+        "keep the bottom of the frame clear for a burned caption — required by `render --subtitles burn`",
+      )
       .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
   ),
 ).action(
@@ -729,7 +660,14 @@ lookFlags(
     // `--width/--height` resize whichever profile was named, and nothing else:
     // the floor, the budget and the navigability stay the base's, because a
     // pixel count implies none of them. See `resizeFormat`.
-    const format = withMinWeight(pickFormat(o.format, o.width, o.height), o.minWeight);
+    const format = withCaptionReserve(
+      withMinWeight(pickFormat(o.format, o.width, o.height), o.minWeight),
+      o.reserveCaptions === true,
+    );
+    if (format.captionReserve)
+      step(
+        `build: reserving ${format.captionReserve}px at the bottom for burned captions — ${((100 * format.captionReserve) / format.height).toFixed(1)}% of the frame`,
+      );
     // WITH THE SOURCE, the same way `plan` resolves them. The beat count is
     // derived from what the document contains, so preferences resolved without
     // it fall back to the schema's flat default and `scanBeatCount` then measures
@@ -782,7 +720,7 @@ lookFlags(
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
-    const fontCss = await refreshFont(storyboard, source, out);
+    const fontCss = await refreshFont(storyboard, source, out, step);
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
@@ -822,8 +760,8 @@ lookFlags(
     }
     await vendorKatex(out);
     await vendorScripts(out, deck.composition);
-    await copyAssets(dirname(resolve(o.source)), out, source.figures);
-    if (found && narration) await copyAudio(dirname(found), narration, out);
+    await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
+    if (found && narration) await copyAudio(dirname(found), narration, out, step);
     const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
       .filter(Boolean)
       .join(", ");
@@ -1231,34 +1169,6 @@ async function loadNarration(path: string): Promise<DeckNarration> {
   return { voice: narration.voice, dir: AUDIO_DIR, beats: narration.beats };
 }
 
-/** Every distinct mp3 the narration names, deduplicated — segments share files. */
-function audioNames(narration: Narration | DeckNarration): string[] {
-  return [
-    ...new Set(
-      Object.values(narration.beats)
-        .flat()
-        .map((s) => s.audio),
-    ),
-  ].sort();
-}
-
-/**
- * Copy the spoken audio into the deck. Only the files the island references: an
- * audio directory is content-addressed and accumulates every take ever made, and
- * shipping the ones a re-edit orphaned would double a deck's size for nothing.
- */
-async function copyAudio(from: string, narration: DeckNarration, out: string): Promise<void> {
-  const dir = join(out, AUDIO_DIR);
-  await mkdir(dir, { recursive: true });
-  const names = audioNames(narration);
-  for (const name of names) {
-    await cp(join(from, name), join(dir, name)).catch(() => {
-      throw new Error(`Narration names ${name}, but it is not in ${from}. Re-run \`narrate\`.`);
-    });
-  }
-  step(`narration: ${names.length} audio file(s) → ${dir}`);
-}
-
 /** The same files, as pack entries under `audio/`. */
 async function audioFiles(from: string, narration: Narration): Promise<PackFiles> {
   const files: PackFiles = {};
@@ -1369,6 +1279,26 @@ function pickFormat(id: string, width?: string, height?: string): Format {
   return format;
 }
 
+/**
+ * `--reserve-captions`, which shrinks the drawable box so a later `render
+ * --subtitles burn` has somewhere to put the band.
+ *
+ * A BUILD FLAG FOR A RENDER DECISION, which looks backwards and is not: the
+ * layout is fixed when the deck is emitted, and a flag typed an hour later at
+ * render time cannot move content that has already been positioned. So the
+ * question "will this be burned?" has to be answered here or not at all.
+ *
+ * Off by default because it is not free — at 9:16 it gives up 15.7% of the
+ * frame's height, which is a real editorial cost on a deck nobody is going to
+ * burn. `render --subtitles burn` refuses a deck that did not reserve, so the
+ * two cannot silently disagree; see `playbackRefusal`'s neighbour in
+ * src/render/render.ts.
+ */
+function withCaptionReserve(format: Format, on: boolean): Format {
+  if (!on) return format;
+  return { ...format, captionReserve: bandReserve(format.width, format.height) };
+}
+
 /** `--width`/`--height`, on every verb that has to agree about the canvas. */
 function sizeFlags(cmd: Command): Command {
   return cmd
@@ -1389,90 +1319,6 @@ function withMinWeight(format: Format, raw: string | undefined): Format {
   if (!Number.isFinite(minWeight) || minWeight < 0 || minWeight > 1)
     throw new Error(`--min-weight takes a number from 0 to 1, not "${raw}".`);
   return { ...format, minWeight };
-}
-
-async function copyAssets(
-  sourceDir: string,
-  out: string,
-  figures: readonly { src: string; poster?: string }[],
-): Promise<void> {
-  const from = join(sourceDir, "assets");
-  if (!(await stat(from).catch(() => null))) {
-    step(`build: no assets/ beside source.json, skipping`);
-    return;
-  }
-  // NAMED FILES ONLY, never the directory.
-  //
-  // This was `cp(from, ..., { recursive: true })`, which copied whatever happened
-  // to be beside the figures. Two costs, one of them a hole: the shipped demo
-  // carried 640 KB of JPEGs no beat referenced, and — since a deck is served over
-  // HTTP from a directory a stranger's upload contributed to — an `.svg` or
-  // `.html` that rode along was served from the deck's own path. The CSP sandbox
-  // now covers that, but a file that never arrives needs no containment.
-  //
-  // `fonts/` is the one directory that comes along, because `refreshFont` writes
-  // the subsetted bundle into it and the stylesheet names its own files.
-  //
-  // A CLIP CONTRIBUTES TWO FILES, and forgetting the second is a 404 at run time
-  // rather than a build error: `poster` is what the video shows before its first
-  // frame decodes, and what a player-page clip degrades to when there is no
-  // downloadable file at all. Named here because this set is the ONLY thing that
-  // reaches the built deck — a poster left out is simply absent, and the deck's
-  // own runtime reports it as `http_error 404`, a long way from this line.
-  const wanted = new Set(
-    figures
-      .flatMap((f) => [f.src, f.poster])
-      .filter((n) => n !== undefined)
-      .map((n) => n.replace(/^\.?\//, "")),
-  );
-  await mkdir(join(out, "assets"), { recursive: true });
-  let copied = 0;
-  for (const name of wanted) {
-    const src = resolve(join(from, name));
-    // The same containment proof the server applies to a zip entry: a figure
-    // `src` is document-supplied text and must not reach outside `assets/`.
-    if (!src.startsWith(`${resolve(from)}/`)) continue;
-    if (!(await stat(src).catch(() => null))) continue;
-    await mkdir(dirname(join(out, "assets", name)), { recursive: true });
-    await cp(src, join(out, "assets", name));
-    copied++;
-  }
-  const fonts = join(from, "fonts");
-  if (await stat(fonts).catch(() => null)) {
-    await cp(fonts, join(out, "assets", "fonts"), { recursive: true });
-  }
-  step(`build: copied ${copied} referenced figure(s)`);
-}
-
-/**
- * The planner writes headlines the source never contained, so the subset `ingest`
- * cut can be missing glyphs — and a missing glyph falls back silently, which is
- * the failure invariant 9 exists to prevent. Re-cut over the text the deck really
- * renders. The bundle is content-hashed, so this is a no-op when nothing new
- * appeared, and a build that cannot reach the font service keeps what it copied.
- */
-async function refreshFont(
-  storyboard: Storyboard,
-  source: Source,
-  out: string,
-): Promise<string | undefined> {
-  try {
-    const bundle = await bundleFont(
-      storyboard.lang,
-      glyphs(source) + glyphs(storyboard),
-      join(out, "assets", "fonts"),
-    );
-    if (bundle) step(`build: font bundle covers ${bundle.family}`);
-    // The CSS goes back to the caller so the composition can DECLARE the face
-    // rather than link it. Writing the file is still what puts the woff2 beside
-    // the deck; only the declaration moves.
-    return bundle?.css;
-  } catch (err) {
-    step(
-      `build: could not refresh the font bundle (${err instanceof Error ? err.message : err}); keeping the one from ingest`,
-    );
-    return undefined;
-  }
 }
 
 /**

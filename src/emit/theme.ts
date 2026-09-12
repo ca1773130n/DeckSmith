@@ -18,6 +18,7 @@ import {
   type Raw,
   refHeight,
   refWidth,
+  reserveRef,
   type Scene,
   type Tween,
   type Vars,
@@ -90,10 +91,33 @@ export function baseCss(theme: DeckTheme, format: Format): string {
          gate still catches anything taller than the canvas; it just now
          overflows symmetrically instead of only downwards. */
       .scene { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-               padding: ${PAD_Y}px ${PAD_X}px; display: flex; flex-direction: column;
+               padding: ${scenePadding(format)}; display: flex; flex-direction: column;
                justify-content: center; }
 ${referenceSpaceCss(format)}
 ${AMBIENT_KEYFRAMES}`;
+}
+
+/**
+ * The scene box's padding, and the ONE place the caption reserve reaches every
+ * archetype at once.
+ *
+ * `contentH` subtracts the reserve too, but ten of the archetypes never call it
+ * — they lay out inside whatever box this padding leaves, centred by
+ * `justify-content`. Measured: subtracting in `contentH` alone moved the 9x16
+ * demo's worst stop by exactly nothing. So the reserve has to be here, and it
+ * goes on the BOTTOM only, because the strip it is making room for is at the
+ * bottom and a symmetric version would throw away as much off the top for free.
+ *
+ * TWO VALUES WHEN THERE IS NO RESERVE, and that is not cosmetic. A deck that
+ * reserves nothing must emit the byte it emitted before this existed: the
+ * three-value form would rewrite the stylesheet of every deck ever built,
+ * break the 16x9 byte-identity property `referenceSpaceCss` relies on below,
+ * and move the sweep receipt for a change that alters no pixel.
+ */
+function scenePadding(format: Format): string {
+  const reserve = reserveRef(format);
+  const base = `${PAD_Y}px ${PAD_X}px`;
+  return reserve > 0 ? `${base} ${PAD_Y + reserve}px` : base;
 }
 
 /**
