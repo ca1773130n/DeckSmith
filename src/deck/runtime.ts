@@ -335,8 +335,10 @@ function whenReady(player: Player): Promise<void> {
  * If a prefix is ever added anyway — for a runtime hosted outside a frame —
  * `.ds-cap` is the trap. It is toggled on `doc.documentElement` and its rule
  * assumes 100vh is the frame's box, so outside one it computes a wrong height
- * under a correct name: a mis-sized slide, not an error, and nothing in the gate
- * stack opens deck.html to notice.
+ * under a correct name: a mis-sized slide, not an error, and no BUILD GATE
+ * opens deck.html to notice. `test/deck-page.test.ts` does, and asserts `.ds-cap`
+ * toggles — but it measures one viewport, so a rule that is right at one window
+ * size and wrong at others would still get through.
  */
 const CSS = `
 .ds-chrome{position:fixed;inset:auto 0 0 0;z-index:2147483000;pointer-events:none;
@@ -367,8 +369,11 @@ const CSS = `
    iframe's own rect times the player's scale, recomputed on resize, on
    fullscreen (the "f" key), and again whenever .ds-cap shrinks the player to
    make room for subtitles. That arithmetic is right at one window size and
-   silently wrong at every other, and no gate here opens deck.html to notice. The
-   lightbox is the same size wherever the poster is. */
+   silently wrong at every other. test/deck-page.test.ts opens deck.html now, but
+   at a single viewport, so it would not catch that either — which is still the
+   argument for the lightbox: it is the same size wherever the poster is.
+   (No backticks in this block: it is inside the CSS template literal, and one
+   would end the string.) */
 .ds-video{position:absolute;right:106px;bottom:6px;height:26px;padding:0 12px;border:0;
   border-radius:13px;background:rgba(255,255,255,.10);color:#fff;cursor:pointer;
   pointer-events:auto;opacity:.55;font:inherit;line-height:26px;
@@ -512,8 +517,10 @@ const SILENT: Voice = {
  * So this split decides what the strip says, and whether anything retries
  * unasked. It does NOT decide whether a person may retry: a gesture re-arms
  * either failure (see `unlock`), because someone asking is not the same as us
- * guessing. And no gate here can see any of it — nothing in the suite opens
- * deck.html or plays a sound.
+ * guessing. `test/deck-page.test.ts` now opens deck.html and asserts the strip
+ * NAMES an unplayable segment instead of going quiet — it was one of the four
+ * regressions that gate was proved against. Nothing still plays a sound, so
+ * which of the two failures a real browser hits is untested.
  *
  * `NotSupportedError` is the unplayable one — observed rather than taken from
  * the spec: a source that cannot be fetched at all rejects `play()` with
