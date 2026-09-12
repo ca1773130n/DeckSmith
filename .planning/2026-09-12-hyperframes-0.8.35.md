@@ -71,7 +71,10 @@ promised and is not available on this stack anyway (EXPERIMENT-006).
 the differing frames 56.45 dB. The worst frames cluster at t≈5.1–5.4s, inside
 scene 2.
 
-**It is antialiasing, not structure.** On the worst frame, 162:
+**It is not structure, and the two frames are indistinguishable to look at.**
+Frame 162 was opened at both pins and compared by eye: same layout, same type,
+same three plates, same labels. Nothing is missing, moved, or recoloured in any
+way a viewer could name.
 
 | | value |
 | --- | --- |
@@ -79,9 +82,27 @@ scene 2.
 | mean per-pixel deviation | 0.211 |
 | pixels changed | 595,984 of 6,220,800 (9.58%) |
 
-A large maximum on a tenth of the pixels with a mean near zero is edge
-rasterisation moving sub-pixel, not content appearing or disappearing. Frame 100
-is the same shape at half the magnitude.
+**I could not establish the mechanism, and two plausible ones are ruled out.**
+
+*Not edge antialiasing.* That was the first claim here and it was wrong. Of the
+changed pixels on frame 162, **66.3% are interior** — every one of their four
+neighbours changed too. Edge rasterisation would put that near zero. In the gold
+plate's own region 32.6% of pixels move and the modal delta is 2.
+
+*Not an animation-timing shift.* The plate is a reveal of "opacity and offset
+only", so a tween evaluated at slightly different progress was the natural
+second guess. It does not hold: the **settled** final frame 213 differs as much
+as any — 17.18% of pixels, 76.6% interior — so the difference survives after
+everything has stopped moving.
+
+*Not a gamma or colour-space change.* The signed delta on frame 213 is mixed:
+195,907 pixels brighter, 264,528 darker, mean −0.198, and no luma band shows a
+consistent direction. A colour-management change would be monotone within a band.
+
+What is left is a low-magnitude, mixed-sign difference in the **interior of
+drawn fills** that grows with how much has been drawn — 0.30% of pixels at frame
+8 against 17.2% at frame 213. Dithering of the plate gradients is the obvious
+candidate and it is a **hypothesis, not a finding**: it was not tested.
 
 ## 5. The deck itself did not move
 
@@ -103,13 +124,22 @@ upstream's own render toolchain.
   instrument.
 - **High** that the cross-pin difference is above the PSNR floor by a wide
   margin. 0 frames under 40 dB with the worst at 51.23.
-- **Medium** that it is imperceptible. The pixel statistics say edge
-  antialiasing and nothing in the numbers suggests otherwise, but **no human has
-  watched either mp4**, and this project's record is that the artifact is where
-  the surprises are.
+- **Medium-high** that it is imperceptible. Frame 162 was opened at both pins
+  and looked at, not merely measured, and the two are indistinguishable. But a
+  still is not the mp4 — **nobody has watched either video** — and this project's
+  record is that the artifact is where the surprises are.
+- **Nothing is claimed about the cause.** Three hypotheses were tested and the
+  first two were mine: edge antialiasing (ruled out, 66% of changed pixels are
+  interior), an animation-timing shift (ruled out, the settled frame differs),
+  and a gamma or colour-space change (ruled out, the signed delta is mixed).
+  Gradient dithering is a guess. Note that the antialiasing claim was written
+  into this file and its commit message BEFORE it was checked, and survived
+  until the frames were actually opened — which is the failure this repo keeps
+  recording, committed here by the person recording it.
 - **Nothing is claimed** about the twelve-beat demo's own render across this pin,
   about narrated decks, about 9:16, or about a deck with a camera. Only the
   off-grid fixture was rendered cross-pin. The 0.8.33 round is a standing
   reminder that predictions here have been right about the mechanism and wrong
-  about which frames move, twice.
+  about which frames move, twice. This round is the mirror image: right about
+  which frames move, wrong about the mechanism.
 - **Nothing is claimed** about 0.8.36 and later.
