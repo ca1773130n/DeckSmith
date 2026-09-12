@@ -127,6 +127,17 @@ export interface Timing {
   /** Directory holding the mp3s, relative to the deck. `""` when silent. */
   audioDir: string;
   voice: string;
+  /**
+   * Canvas px the deck's layout gave up at the bottom for a burned caption, 0
+   * if it gave up none. Recorded because the burn decision is taken at RENDER
+   * time and the layout was fixed at BUILD time: without this, `--subtitles
+   * burn` over a deck built before the reserve existed silently puts the band
+   * back on the slide's own text, which is the defect that started all of this.
+   *
+   * Optional, and absent reads as 0: every `timing.json` already on disk was
+   * written without it, and those decks did reserve nothing.
+   */
+  captionReserve?: number;
   scenes: TimedScene[];
   segments: TimedSegment[];
 }
@@ -463,6 +474,10 @@ export function planTiming(input: TimingInput): Timing {
     lang: storyboard.lang,
     audioDir: segments.length > 0 ? (narration?.dir ?? "") : "",
     voice: segments.length > 0 ? (narration?.voice ?? "") : "",
+    // The format the deck was LAID OUT under, which is the only honest source:
+    // `emitDeck` and `writeTiming` are handed the same `format`, so this cannot
+    // disagree with the box the archetypes actually drew into.
+    captionReserve: format.captionReserve ?? 0,
     scenes,
     segments,
   };

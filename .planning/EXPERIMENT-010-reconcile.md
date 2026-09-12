@@ -219,15 +219,29 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
 
 ## Still open
 
-- **The 9:16 composition reserves no caption safe area, and this is the most valuable
-  thing left.** The burn-in workstream measured it: over 112 sampled frames, slide ink
-  enters the caption band on **61 of them (54%)**. The composition draws ink to y=1827 of
-  1920; the band occupies y=1627–1747. The caption sits on the slide's own text, clearly
-  visible at phone width. Asked of emit: **9x16 formats must keep ink above y=1627 —
-  reserve the bottom 293px, 15.3% of frame height.** Not done here: it touches every
-  portrait archetype's `contentH`, would change 9:16 output substantially, and the
-  render-side alternative (scale+pad) drags the audience-text floor to 33.9px and violates
-  invariant 5. It is a workstream, not a seam.
+- **~~The 9:16 composition reserves no caption safe area~~ — CLOSED 2026-09-12.** The
+  burn-in workstream measured it: over 112 sampled frames, slide ink entered the caption
+  band on **61 of them (54%)**. The composition drew ink to y=1827 of 1920; the band
+  occupies y=1627–1747, so the caption sat on the slide's own text, clearly visible at
+  phone width.
+
+  Closed by `build --reserve-captions`: `bandReserve` (src/types.ts) is the single source
+  for the band's box, `Format.captionReserve` carries it, and the drawable box gives it up.
+  `fidelity`'s new `ink_in_caption_reserve` rule fails a deck that draws into the strip,
+  and `render --subtitles burn` refuses a deck whose `timing.json` reserved nothing.
+  Measured on the twelve-beat demo at 1080x1920 over 31 stops: **reserved, 0 of 31 stops
+  put ink in the band; the same deck unreserved and judged against the same band, 1 of 31
+  at 0.529% of the frame.**
+
+  **Two corrections to what this entry predicted.** It said the reserve is 293px / 15.3%
+  of frame height; `bandReserve` derives **301px / 15.7%** from the CSS rather than from a
+  browser, because a bound the emitter can only get by rendering is a bound it cannot use.
+  The 8px difference is slack on the safe side, and under-reserving is the failure that
+  matters. It also said the change "touches every portrait archetype's `contentH`" — ten
+  archetypes never call `contentH` at all, and a fix that changed only `contentH` moved
+  the worst stop by exactly nothing, 0.529% before and after. The drawable box is really
+  `.scene`'s CSS padding in `src/emit/theme.ts`, and the reserve is taken in both places.
+  The new gate is what caught that; every other gate stayed green through it.
 - ~~**The camera path still cannot pass `build`.**~~ **CLOSED — re-measured 2026-09-12,
   it does not reproduce.** `build experiments/010-blackout/camera.storyboard.json` exits 0
   on `PASS — 0 error(s), 2 warning(s)` at hyperframes 0.8.33. The four findings this bullet

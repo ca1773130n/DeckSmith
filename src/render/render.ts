@@ -91,10 +91,22 @@ export function subtitlePlan(mode: SubtitleMode): SubtitlePlan {
 }
 
 /**
- * WHAT A REAL FIX NEEDS. Making the band optional did not stop it covering the
- * slide; it only means you can now choose not to be covered. Anyone who wants
- * `--subtitles burn` to be safe rather than merely available has to do this, and
- * the shape of it is not obvious, so it is written down once here.
+ * WHAT A REAL FIX NEEDED — BUILT, on 2026-09-12, as `build --reserve-captions`.
+ * The five steps below are the plan it was built from and they are kept because
+ * four of them are still the reason the code is shaped this way. Step 3 is kept
+ * for the opposite reason: it was WRONG, and the correction is the useful part.
+ *
+ * WHERE IT IS NOW. `bandReserve` (src/types.ts) is the one source for the band's
+ * box; `Format.captionReserve` carries it; `contentH` AND `.scene`'s padding
+ * both give it up; `fidelity`'s `ink_in_caption_reserve` fails a deck that draws
+ * into it; and `render --subtitles burn` refuses a deck whose `timing.json`
+ * reserved nothing. Measured on the twelve-beat demo at 1080x1920 over 31 stops:
+ * reserved, 0 of 31 stops put ink in the band; the same deck unreserved and
+ * judged against the same band, 1 of 31 at 0.529% of the frame.
+ *
+ * Making the band optional did not stop it covering the slide; it only meant you
+ * could choose not to be covered. The shape of the real fix was not obvious, so
+ * it was written down here first.
  *
  * THE MEASUREMENT. At 1080x1920 the band is 862x120px and `burnStyle`'s
  * `marginV` puts its baseline 173px off the bottom, so it occupies the bottom
@@ -122,14 +134,30 @@ export function subtitlePlan(mode: SubtitleMode): SubtitlePlan {
  *     `--reserve-captions` flag. It belongs on `Format` and not on `DeckOptions`
  *     because it changes the drawable box, which is what a format IS.
  *
- *  3. THE DRAWABLE BOX SHRINKS, IN ONE PLACE. `contentH` in src/emit/kit.ts
- *     becomes `height - 2·padY - captionReserve`. That is the whole geometric
- *     change: every archetype was audited for this and none of the twelve reads
- *     `format.height` directly — only `title.ts`, and only to ask which way up
- *     the canvas is. They all lay out into `contentH`, so subtracting there moves
- *     all of them at once. Note it must NOT go into `padY`: the padding is
- *     symmetric and the reserve is not, and a symmetric version would throw away
- *     as much off the top for nothing.
+ *  3. THE DRAWABLE BOX SHRINKS, IN ONE PLACE — AND THIS STEP WAS WRONG. It said
+ *     `contentH` in src/emit/kit.ts becomes `height - 2·padY - captionReserve`,
+ *     and that "they all lay out into `contentH`, so subtracting there moves all
+ *     of them at once."
+ *
+ *     They do not. TEN of the archetypes never mention `contentH` —
+ *     `bar-compare`, `callout`, `claim-figure`, `data-table`, `equation-morph`,
+ *     `equation-walk`, `grid`, `index`, `line-chart`, `pipeline`. What bounds
+ *     them is `.scene`'s CSS padding in src/emit/theme.ts, which centres their
+ *     content in whatever box the stylesheet leaves. The audit behind the
+ *     original claim asked which archetypes read `format.height`, which is a
+ *     different question and has a comforting answer.
+ *
+ *     MEASURED, because the plan read convincingly enough to ship on: with the
+ *     subtraction in `contentH` alone, the 9x16 demo's worst stop was 0.529% of
+ *     the frame in ink inside the band — identical, to the digit, to the same
+ *     deck with no reserve at all. So the reserve is taken in BOTH places, and
+ *     they are the exact pair src/emit/kit.ts's own header warns about: a
+ *     stylesheet that disagrees with the arithmetic, which no gate reads.
+ *
+ *     Still true, and still the reason it is not simply `padY`: the padding is
+ *     symmetric and the reserve is not. `theme.ts` adds it to the bottom only,
+ *     and emits the two-value padding unchanged when the reserve is 0, so a deck
+ *     that reserves nothing is byte-identical to one built before this existed.
  *
  *  4. A GATE, OR THIS REGRESSES. `src/verify/check.ts` must fail a deck whose
  *     audience text falls inside the reserve — invariant 5 with a new floor. A
@@ -248,6 +276,17 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   // asks whether there is a browser, which `render` needed anyway to capture the
   // picture, so on any machine that can render at all the answer is yes.
   if (plan0.burn) {
+    // THE DECK HAS TO HAVE MADE ROOM, and only the deck knows whether it did.
+    // Refused rather than warned, and refused here rather than after the
+    // capture, for the same reason the blocker below is: the alternative is an
+    // hour of rendering that ends in a band sitting on the slide's own text —
+    // which passed every gate for months precisely because nothing on this side
+    // could see the layout. `assertCapture` refuses a video that disagrees with
+    // its manifest; this refuses a burn that disagrees with the layout.
+    if (!timing.captionReserve)
+      throw new Error(
+        "This deck was built without room for a burned caption, so the band would sit on the slide's own text. Rebuild with `decksmith build --reserve-captions`, or render with `--subtitles sidecar`.",
+      );
     const blocker = await captionBlocker();
     if (blocker) throw new Error(`Cannot burn in captions: ${blocker}`);
   }
