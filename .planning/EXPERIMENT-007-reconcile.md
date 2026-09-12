@@ -152,14 +152,19 @@ pre-existing, and grew from 232px to 380px when density made the boxes taller.
 
 ## Still open
 
-- **`buildDeck` duplicates ~70 lines of `cli.ts`'s file work** (`vendorKatex`,
-  `copyAssets`, `copyAudio`, `refreshFont`). The copies have already drifted cosmetically,
-  and one difference is behavioural: `cli.ts` writes to the `AUDIO_DIR` constant,
-  `index.ts` honours `narration.dir`. Today those are always the same value, so both paths
-  are self-consistent and nothing is wrong — this is latent, not live. Left alone rather
-  than refactored on a tree that had just gone green with five agents' work in it, which
-  is exactly when a seventh green-gates-wrong-output case gets introduced. It remains the
-  highest-value structural follow-up.
+- ~~**`buildDeck` duplicates ~70 lines of `cli.ts`'s file work**~~ — **done**, and the
+  bullet understated it. Both callers now go through `src/build/files.ts`. The
+  `AUDIO_DIR`-versus-`narration.dir` difference was indeed latent, but two others were
+  not, and neither had been noticed: `vendorScripts` existed only in `cli.ts`, so every
+  deck built through the library — which is every deck the server builds — named
+  `./vendor/gsap.min.js` in its head and shipped no such file; and `copyAssets` copied
+  named files in `cli.ts` and the whole directory in `index.ts`, so the containment proof
+  applied on one path only. `buildDeck` also wrote `timing.json` only when there was
+  narration, which left the un-narrated half of the dead end §3 above fixed. Measured
+  rather than assumed: before the change `diff -rq` of the demo deck built both ways was
+  34 files against 29 with `vendor/` and `timing.json` missing from the library's; after
+  it, 34 files each and no differences, with the CLI's own 34 byte-identical to what it
+  produced before.
 - **The demo deck fails `drift` in psnr mode** (7350/7395 frames differ, worst 9.20 dB) and
   the drift workstream's evidence points at a font race: `index.html` names `Inter`, ships
   no `@font-face`, and Inter is not installed on this machine — invariant 9. The headline
