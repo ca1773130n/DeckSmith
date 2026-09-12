@@ -16,9 +16,12 @@ import {
   decodePng,
   type Frame,
   gradeFidelity,
+  gradeReserve,
   INK_FLOOR,
   inkBelow,
   type Measured,
+  RESERVE_INK_TOLERANCE,
+  readReserve,
   readStops,
 } from "../src/verify/fidelity.js";
 
@@ -462,5 +465,79 @@ describe("the apparent type floor", () => {
       { sid: "s3", t: 18.75, stage: 1, settled: true, runs: [run("the shared", 40, 0.6, 0.5)] },
     ];
     expect(gradeApparent(atStop)).toHaveLength(1);
+  });
+});
+
+/**
+ * The caption reserve, which exists because `contentH` subtracting it is exactly
+ * the kind of geometric fix that gets undone by the next refactor and takes
+ * nobody's test with it. Every case here is one a wrong reserve would break in a
+ * build that still says PASS.
+ */
+const reserved = (sid: string, t: number, reserveInk: number): Measured => ({
+  sid,
+  t,
+  ink: 0.02,
+  bandTop: 0.3,
+  reserveInk,
+});
+
+describe("readReserve", () => {
+  it("reads the reserve the build recorded", () => {
+    expect(readReserve(JSON.stringify({ captionReserve: 301 }))).toBe(301);
+  });
+
+  it("reads every flavour of 'reserved nothing' as 0", () => {
+    // A deck built before the field existed, a deck built without the flag, a
+    // missing file and a corrupt one all mean the same thing, and the one thing
+    // none of them may do is read as "measured and clear".
+    expect(readReserve(JSON.stringify({ version: 1 }))).toBe(0);
+    expect(readReserve(JSON.stringify({ captionReserve: 0 }))).toBe(0);
+    expect(readReserve(null)).toBe(0);
+    expect(readReserve("{not json")).toBe(0);
+  });
+
+  it("refuses a negative reserve rather than trusting it", () => {
+    // A negative would make `height - reserve` fall off the bottom of the frame
+    // and `inkBelow` measure nothing, which reads as a clean band.
+    expect(readReserve(JSON.stringify({ captionReserve: -40 }))).toBe(0);
+  });
+});
+
+describe("gradeReserve", () => {
+  it("says nothing about a deck that reserved nothing", () => {
+    // `reserveInk` absent is "there was no band to be inside", and it must not
+    // be confused with a measured zero.
+    expect(gradeReserve([{ sid: "s1", t: 1, ink: 0.02, bandTop: 0.3 }])).toEqual([]);
+  });
+
+  it("passes a reserve the layout actually cleared", () => {
+    expect(gradeReserve([reserved("s1", 1.9, 0), reserved("s2", 11.7, 0)])).toEqual([]);
+  });
+
+  it("fails ink inside the band, and names the scene and the worst moment", () => {
+    const findings = gradeReserve([
+      reserved("s4", 21.5, 0.004),
+      reserved("s4", 25.0, 0.011),
+      reserved("s7", 40.0, 0.002),
+    ]);
+    expect(findings).toHaveLength(2);
+    expect(findings.every((f) => f.severity === "error")).toBe(true);
+    expect(findings.every((f) => f.rule === "ink_in_caption_reserve")).toBe(true);
+    // The worst stop is the one worth opening, so it is the one quoted.
+    expect(findings[0]?.message).toContain("#s4");
+    expect(findings[0]?.message).toContain("t=25s");
+    expect(findings[0]?.message).toContain("21.5s, 25s");
+  });
+
+  it("is inclusive at the tolerance, exclusive just above it", () => {
+    expect(gradeReserve([reserved("s1", 1, RESERVE_INK_TOLERANCE)])).toEqual([]);
+    expect(gradeReserve([reserved("s1", 1, RESERVE_INK_TOLERANCE + 1e-9)])).toHaveLength(1);
+  });
+
+  it("keeps the tolerance an order of magnitude under one label of type", () => {
+    // The floor `gradeFidelity` uses IS one short headline. A reserve tolerance
+    // anywhere near it would let a whole line of type sit in the band.
+    expect(RESERVE_INK_TOLERANCE * 10).toBeLessThanOrEqual(INK_FLOOR);
   });
 });

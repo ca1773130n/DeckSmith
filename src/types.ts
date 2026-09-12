@@ -1040,6 +1040,80 @@ export interface Format {
    * failure. Omitted when every destination for the format agrees on `maxSeconds`.
    */
   warnSeconds?: number;
+  /**
+   * Canvas px of the bottom of the frame reserved for a burned-in caption, which
+   * the drawable box gives up. 0 — the default — means nothing is reserved.
+   *
+   * ON `Format` AND NOT ON `DeckOptions`, because it changes the drawable box,
+   * and the drawable box is what a format IS. Two decks built from one
+   * storyboard, one reserving and one not, are different formats in every sense
+   * that matters downstream: different `contentH`, different archetype layouts,
+   * different type sizes. `id` is left alone — the profile's pacing, budget and
+   * navigability are unchanged — but `writeTiming` records the number so
+   * `render` can refuse to burn over a deck that never made room. See the
+   * design note above `RenderOptions` in src/render/render.ts.
+   *
+   * Optional in the TYPE for the same reason as `maxSeconds`: every test fixture
+   * that needs a canvas would otherwise have to invent a reserve it does not
+   * care about, and absent must read as "reserved nothing", which is the state
+   * every deck built before this existed is actually in.
+   */
+  captionReserve?: number;
+}
+
+/* ------------------------------------------------- The burned caption's box */
+
+/**
+ * THE ONE SOURCE FOR THE BAND'S BOX, because a second copy of these ratios is
+ * exactly how the collision came back.
+ *
+ * These live in `types.ts` rather than beside `burnStyle` (src/render/ffmpeg.ts)
+ * for a layering reason that is not negotiable: `src/emit` may not import
+ * `src/render` — the dependency runs the other way, `src/render/timing.ts`
+ * imports four things out of `src/emit`. The emitter is the side that has to
+ * shrink its drawable box, so the numbers have to sit where BOTH can reach
+ * them, and `Format` is already here.
+ *
+ * `burnStyle` reads these; it does not restate them.
+ */
+export const CAPTION_FONT_RATIO = 0.037;
+export const CAPTION_MARGIN_V_RATIO = 0.09;
+export const CAPTION_MARGIN_X_RATIO = 0.04;
+/** The `--line` default `captionPage` writes, as a multiple of the font size. */
+export const CAPTION_LINE_RATIO = 1.6;
+/**
+ * Two, and it is bounded rather than hoped for: `splitCue` caps a cue at 84
+ * characters and `wrap` breaks it near the middle, and `burnStyle`'s font size
+ * is chosen so the longer half still fits one line with 9% to spare. A third
+ * line is the failure that sizing exists to prevent, so reserving for two is
+ * reserving for the worst case that can actually occur.
+ */
+export const CAPTION_MAX_LINES = 2;
+
+/** The burned band's font size at this canvas width. */
+export function captionFontSize(width: number): number {
+  return Math.round(width * CAPTION_FONT_RATIO);
+}
+
+/**
+ * The bottom strip the burned caption may occupy, `marginV` included, in CANVAS
+ * px — everything `src/emit` must therefore keep its ink out of.
+ *
+ * AN UPPER BOUND, DELIBERATELY, and derived from the CSS rather than from a
+ * browser. `captionPage` declares `line-height: round(F * 1.6)` and the real
+ * painted line box is whatever the font actually produces, which is smaller: at
+ * 1080x1920 this returns **301px** against the **293px** measured off two
+ * rendered frames in `.planning/EXPERIMENT-010-reconcile.md`. Eight px of slack,
+ * on the safe side. A bound that needed a browser to compute could not be read
+ * by the emitter at all, which is the whole reason the collision survived this
+ * long — the band's height was only known after layout, an hour too late.
+ *
+ * Under-reserving reintroduces the defect silently, so if these two ever have to
+ * disagree, this one is the one that must be larger.
+ */
+export function bandReserve(width: number, height: number): number {
+  const line = Math.round(captionFontSize(width) * CAPTION_LINE_RATIO);
+  return Math.round(height * CAPTION_MARGIN_V_RATIO) + CAPTION_MAX_LINES * line;
 }
 
 /** A real place a built file gets uploaded, and the length it stops accepting at. */
