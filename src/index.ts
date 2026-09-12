@@ -22,14 +22,14 @@
  * for an image backend or the Codex account — see README.
  */
 
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import type { Cut } from "./plan/select.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
-import { bundleFont } from "./source/fonts.js";
 import { type Format, FORMATS, type Source, type Storyboard } from "./types.js";
 
 /* ------------------------------------------------------------------ ingest */
@@ -344,7 +344,10 @@ export interface BuildDeckOptions {
   narration?: DeckNarration;
   /** Directory holding those mp3s now; they are copied into the deck. */
   audioFrom?: string;
-  /** Directory whose `assets/` is copied in. Defaults to `out`'s neighbours. */
+  /**
+   * Directory whose `assets/` is copied in. Absent, nothing is. Only the files
+   * `source.figures` names travel, plus `fonts/` — see `copyAssets`.
+   */
   assetsFrom?: string;
   /** Progress lines. Silent by default: a library that prints is a library you
    *  cannot run inside a request handler. */
@@ -361,11 +364,12 @@ export interface BuildDeckOptions {
  * which a caller may not have and may not want on the request path; call it
  * yourself when you do.
  *
- * NOTE: this is the same sequence as `build` in src/cli.ts, written out a second
- * time rather than shared, because that file is owned elsewhere this pass. The
- * next person to touch cli.ts should delete its copy and call this — two
- * implementations of "what a deck directory contains" is exactly the kind of
- * drift that ends in a deck that opens locally and 404s in production.
+ * The file work is `src/build/files.ts`, which `build` in src/cli.ts calls too —
+ * it used to be written out twice, and the three ways the copies had already
+ * drifted are recorded in that module's header. Anything a deck directory
+ * contains beyond `index.html` and its two manifests goes there, not here, so
+ * the two callers cannot answer "what does a deck directory contain" differently
+ * again.
  */
 export async function buildDeck(
   storyboard: Storyboard,
@@ -414,30 +418,33 @@ export async function buildDeck(
   // work, because rebuilding through `buildDeck` never wrote one. The CLI has
   // always written it; this is the same call with the same failure policy.
   //
+  // UNCONDITIONALLY, as the CLI does, and not only when there is narration. A
+  // silent deck still has scenes and holds to place, and `render` refuses on a
+  // missing manifest whether or not anyone was speaking — so guarding this on
+  // `opts.narration` left the un-narrated half of the same dead end in place.
+  //
   // A failure here does NOT fail the build, for the reason `build` gives: a deck
   // that presents perfectly well can still be one narration cannot be placed on.
   // Say so, write nothing, and let `render` refuse rather than guess.
-  if (opts.narration) {
-    try {
-      const timing = planTiming({
-        storyboard,
-        source,
-        format,
-        composition: deck.composition,
-        // What was drawn, not what the threshold would have kept: a budgeted
-        // format cuts to its own length as well, and the two lists differ.
-        beats: deck.cut.kept,
-        narration: opts.narration,
-        speed,
-        ...(opts.theme ? { theme: opts.theme } : {}),
-      });
-      await write(TIMING_FILE, `${JSON.stringify(timing, null, 2)}\n`);
-      step(`build: timing for ${timing.segments.length} narration segment(s)`);
-    } catch (err) {
-      step(
-        `build: cannot place narration on this deck, so no ${TIMING_FILE} was written and \`render\` will refuse. ${err instanceof Error ? err.message : err}`,
-      );
-    }
+  try {
+    const timing = planTiming({
+      storyboard,
+      source,
+      format,
+      composition: deck.composition,
+      // What was drawn, not what the threshold would have kept: a budgeted
+      // format cuts to its own length as well, and the two lists differ.
+      beats: deck.cut.kept,
+      speed,
+      ...(opts.narration ? { narration: opts.narration } : {}),
+      ...(opts.theme ? { theme: opts.theme } : {}),
+    });
+    await write(TIMING_FILE, `${JSON.stringify(timing, null, 2)}\n`);
+    step(`build: timing for ${timing.segments.length} narration segment(s)`);
+  } catch (err) {
+    step(
+      `build: cannot place narration on this deck, so no ${TIMING_FILE} was written and \`render\` will refuse. ${err instanceof Error ? err.message : err}`,
+    );
   }
 
   if (deck.page) {
@@ -446,9 +453,17 @@ export async function buildDeck(
     files.push(join(out, PLAYER_FILE));
   }
   files.push(...(await vendorKatex(out)));
-  if (opts.assetsFrom) files.push(...(await copyAssets(opts.assetsFrom, out)));
+  // The scripts the head asks for. This was missing here and present in the CLI,
+  // which is the drift that cost the most: the composition names
+  // `./vendor/gsap.min.js`, so a deck built through this function shipped a page
+  // whose timeline could never be built — and the server builds every one of its
+  // decks through this function.
+  files.push(...(await vendorScripts(out, deck.composition)));
+  if (opts.assetsFrom) {
+    files.push(...(await copyAssets(opts.assetsFrom, out, source.figures, step)));
+  }
   if (opts.narration && opts.audioFrom) {
-    files.push(...(await copyAudio(opts.audioFrom, opts.narration, out)));
+    files.push(...(await copyAudio(opts.audioFrom, opts.narration, out, step)));
   }
   // What was DRAWN, not what was offered. This said `storyboard.beats.length`,
   // which is the same number only while nothing is cut — it overstated any deck
@@ -499,95 +514,5 @@ function playerBundle(): string {
     return join(dirname(require.resolve("hyperframes/package.json")), "dist", PLAYER_FILE);
   } catch {
     throw new Error('Cannot locate the hyperframes player. Run "npm install".');
-  }
-}
-
-/**
- * Vendor KaTeX's stylesheet and woff2 fonts beside the deck. The HyperFrames
- * compiler inlines `<script src>` but not `<link rel=stylesheet>`, so a
- * CDN-linked stylesheet is fetched — with its fonts — during capture, which
- * both breaks "no network at render time" and makes equation decks
- * nondeterministic. See the long note in src/cli.ts for how that was cornered.
- */
-async function vendorKatex(out: string): Promise<string[]> {
-  const require = createRequire(import.meta.url);
-  const dist = join(dirname(require.resolve("katex/package.json")), "dist");
-  const css = await readFile(join(dist, "katex.min.css"), "utf8");
-
-  const written: string[] = [];
-  await mkdir(join(out, "katex/fonts"), { recursive: true });
-  for (const file of await readdir(join(dist, "fonts"))) {
-    if (!file.endsWith(".woff2")) continue;
-    await cp(join(dist, "fonts", file), join(out, "katex/fonts", file));
-    written.push(join(out, "katex/fonts", file));
-  }
-  // Each src is a comma-separated list; keep the woff2 entry and drop the rest,
-  // so nothing requests a file we did not copy.
-  const woff2Only = css.replace(/src:([^;}]*)/g, (whole, list: string) => {
-    const kept = list
-      .split(",")
-      .filter((part) => part.includes(".woff2"))
-      .join(",");
-    return kept ? `src:${kept}` : whole;
-  });
-  await writeFile(join(out, "katex/katex.min.css"), woff2Only);
-  written.push(join(out, "katex/katex.min.css"));
-  return written;
-}
-
-/** `assets/` beside source.json, if there is one. Absent is the ordinary case. */
-async function copyAssets(sourceDir: string, out: string): Promise<string[]> {
-  const from = join(resolve(sourceDir), "assets");
-  if (!(await stat(from).catch(() => null))) return [];
-  await cp(from, join(out, "assets"), { recursive: true });
-  return [join(out, "assets")];
-}
-
-/** Only the mp3s the island names: an audio directory accumulates every take. */
-async function copyAudio(from: string, narration: DeckNarration, out: string): Promise<string[]> {
-  const dir = join(out, narration.dir);
-  await mkdir(dir, { recursive: true });
-  const names = [
-    ...new Set(
-      Object.values(narration.beats)
-        .flat()
-        .map((s) => s.audio),
-    ),
-  ].sort();
-  for (const name of names) {
-    await cp(join(resolve(from), name), join(dir, name)).catch(() => {
-      throw new Error(`Narration names ${name}, but it is not in ${from}. Re-run \`narrate\`.`);
-    });
-  }
-  return names.map((n) => join(dir, n));
-}
-
-/**
- * The planner writes headlines the source never contained, so the subset
- * `ingest` cut can be missing glyphs — and a missing glyph falls back silently,
- * which is the failure invariant 9 exists to prevent. Re-cut over the text the
- * deck really renders. Content-hashed, so a no-op when nothing new appeared.
- */
-async function refreshFont(
-  storyboard: Storyboard,
-  source: Source,
-  out: string,
-  step: (m: string) => void,
-): Promise<string | undefined> {
-  try {
-    const bundle = await bundleFont(
-      storyboard.lang,
-      JSON.stringify(source) + JSON.stringify(storyboard),
-      join(out, "assets", "fonts"),
-    );
-    if (bundle) step(`build: font bundle covers ${bundle.family}`);
-    // Returned so the composition can DECLARE the face instead of linking it —
-    // nothing that reads the composition follows a stylesheet link.
-    return bundle?.css;
-  } catch (err) {
-    step(
-      `build: could not refresh the font bundle (${err instanceof Error ? err.message : err}); keeping the one from ingest`,
-    );
-    return undefined;
   }
 }
