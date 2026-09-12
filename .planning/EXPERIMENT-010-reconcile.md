@@ -228,12 +228,34 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
   portrait archetype's `contentH`, would change 9:16 output substantially, and the
   render-side alternative (scale+pad) drags the audience-text floor to 33.9px and violates
   invariant 5. It is a workstream, not a seam.
-- **The camera path still cannot pass `build`.** Any deck with an `inside` relation fails
-  `verify` with 3 × `canvas_overflow` at t=9.9s (mid-dive) plus `escaped_container` on
-  `div.ds-zoom`. Confirmed unchanged in count, rule, and timestamp on
-  `experiments/010-blackout/camera.storyboard.json`. It is the hyperframes layout gate
-  sampling mid-camera-move — the transit exemption `assertStopsOutsideMove` makes
-  unnecessary on our side, which the external gate does not know about. Pre-existing.
+- ~~**The camera path still cannot pass `build`.**~~ **CLOSED — re-measured 2026-09-12,
+  it does not reproduce.** `build experiments/010-blackout/camera.storyboard.json` exits 0
+  on `PASS — 0 error(s), 2 warning(s)` at hyperframes 0.8.33. The four findings this bullet
+  names are still emitted, identical in count, rule and timestamp — 3 × `canvas_overflow`
+  at t=9.9s and `escaped_container` on `div.ds-zoom` — but three are graded `info` by the
+  transit exemption in `regrade` (`src/verify/check.ts`), which reads the window the scene
+  publishes as `data-ds-transit` ([9, 11.2] here), and the fourth arrives `info` from
+  upstream and is never graded up. `demo/fixtures/camera.storyboard.json`, the same two
+  beats with notes, is 7 + 1 and also PASSes. The bullet was written as though the fix did
+  not exist; it was already in the tree at the import commit.
+
+  The dive is genuinely safe, not merely excused. Frames at 8.9s (rest), 9.9s (mid-dive)
+  and 11.3s (the next scene) show a correct dive into `stage1`: ink leaves the canvas only
+  while the camera is flying, which is what flying into part of a plate means, and no hold
+  reports anything off-canvas. The exemption cannot hide a resting overflow by
+  construction: `layout` sets `dive.t0` to the scene's own `beatSeconds`, so every hold is
+  at or before `t0`, and the exemption's test is strict. Measured against a control — the
+  same fixture with a 130-char unbreakable headline — `canvas_overflow` on `#s1-h` is
+  reported at t=1.1s, graded `error`, and the deck FAILs on 1 error while the 9.9s findings
+  stay `info`.
+
+  The real-plan case closes too. `experiments/013-vocabulary/review/sb-A-04.json` — the
+  plan VOCABULARY.md §4.1 records as FAIL on 14 `canvas_overflow` for its one `inside`
+  field — now builds `PASS — 0 error(s), 10 warning(s)`, with `data-ds-transit="10,12.2"`
+  and exactly 14 findings exempted mid-camera-move. Caveat on that one: the repo holds no
+  `source.json` for A-04, so it was built against a synthesised source (the cited section,
+  figure, table and a carrier equation carrying the beat's four terms). The camera path and
+  the finding count reproduce; the figure and table content do not match the review's.
 - **No mp4 was rendered this session.** `timing.json` is byte-identical on 16:9 and the
   frame plan fits the capture exactly, but the retime/mux path was not exercised.
 - **`deck.html` navigation was not clicked through in a browser.** Island bytes are
