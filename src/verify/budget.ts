@@ -3,9 +3,9 @@
  *
  * A format profile decides a canvas and a pacing, and — since it also decides
  * where the file is going — a length. `short-9x16` that runs 4m07s is not a
- * short: YouTube Shorts refuses it at 3 minutes and Facebook Reels at 90
- * seconds, so the build produces a file whose entire reason for existing is a
- * destination that will not take it. Every other gate passes it, because nothing
+ * short: YouTube Shorts files it as long-form past 3 minutes and Instagram stops
+ * recommending it to non-followers there, so the build produces a file whose
+ * entire reason for existing is a destination that will not treat it as one. Every other gate passes it, because nothing
  * else in the stack knows what a format is FOR. Those numbers are not literals
  * here — `DESTINATIONS` in src/types.ts holds them, and this file names the
  * destination in the finding so a stale limit is visible from the message.
@@ -88,8 +88,12 @@ export function readCanvas(html: string): Canvas | undefined {
  * be its own is a gate people learn to ignore. Today the two 16:9 profiles have
  * the same (absent) budget, so the reading is exact as well as safe.
  */
-export function profilesFor(width: number, height: number): Format[] {
-  return Object.values(FORMATS).filter((f) => f.width === width && f.height === height);
+export function profilesFor(
+  width: number,
+  height: number,
+  formats: Readonly<Record<string, Format>> = FORMATS,
+): Format[] {
+  return Object.values(formats).filter((f) => f.width === width && f.height === height);
 }
 
 /**
@@ -102,16 +106,25 @@ export function profilesFor(width: number, height: number): Format[] {
  * length of the beat at the same index, and getting that pairing wrong would
  * attribute one beat's seconds to another. Absent, it is re-derived with the
  * flat threshold, which is the same list only while the budget cut nothing.
+ *
+ * `formats` is a seam for the test and nothing else, and it exists because of
+ * what the shipped table stopped containing. `near_budget` fires only when a
+ * format's destinations DISAGREE, and since Facebook Reels left `DESTINATIONS`
+ * on 2026-09-17 none of them do. A branch no shipped format can reach is a gate
+ * that cannot fail — the thing this project keeps finding — so the test hands in
+ * a table that disagrees, rather than the rule being deleted and silently absent
+ * the next time a real destination is tighter than the rest.
  */
 export function scanBudget(
   html: string,
   storyboard?: Storyboard,
   kept?: readonly Beat[],
+  formats: Readonly<Record<string, Format>> = FORMATS,
 ): Finding[] {
   const canvas = readCanvas(html);
   if (!canvas) return [];
 
-  const profiles = profilesFor(canvas.width, canvas.height);
+  const profiles = profilesFor(canvas.width, canvas.height, formats);
   if (profiles.length === 0) {
     // Not pedantry: a canvas no profile declares gets no budget check at all,
     // and "no rule applied" is indistinguishable from "the rule passed".

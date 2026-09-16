@@ -1144,6 +1144,29 @@ export interface Destination {
  * Verified by hand, not by network (nothing here may reach one). These move;
  * when one does, the finding it produces names it, so the stale number is
  * findable from the message rather than only from this file.
+ *
+ * LAST CHECKED 2026-09-17, against each platform's own pages where they would
+ * load. And it happened again: FACEBOOK REELS IS GONE, because its 90 was stale
+ * the same way Instagram's once was. Meta's newsroom, 2025-06-17: "Reels on
+ * Facebook will also not have any length or format restrictions." By the rule
+ * above a platform that takes anything adds nothing but slack — and the 90 was
+ * not harmless slack, it was the tightest entry, so it made `near_budget` tell
+ * every short between 1m30s and 3m00s that it was "not postable everywhere",
+ * naming a destination that would have taken it. The 90 had been flagged in
+ * EXPERIMENT-010 as "from memory, not the network" for months before anyone
+ * looked.
+ *
+ * Note what each remaining number MEANS, because they are not the same thing:
+ *
+ * - YouTube Shorts, 180 — a CLASSIFICATION limit. A vertical or square upload of
+ *   three minutes or less is a Short; longer is long-form, off the Shorts feed.
+ *   YouTube Help, "Understand three-minute YouTube Shorts".
+ * - Instagram Reels, 180 — a DISTRIBUTION limit, not an upload cap. Uploads run
+ *   longer, but "we recommend videos to unconnected audiences that are 3 minutes
+ *   or less" (Instagram for Creators, FAQ). For a short, reaching people who do
+ *   not follow you is the point, so this is the limit that constrains it.
+ * - X, standard account, 140 — NOT verified at source: X's help centre refused
+ *   the fetch. Every secondary source agrees and it has not moved in years.
  */
 export const DESTINATIONS: Readonly<Record<PresetId, readonly Destination[]>> = {
   // A presented deck is paced by the person clicking through it, and long-form
@@ -1153,7 +1176,6 @@ export const DESTINATIONS: Readonly<Record<PresetId, readonly Destination[]>> = 
   "short-9x16": [
     { name: "YouTube Shorts", maxSeconds: 180 },
     { name: "Instagram Reels", maxSeconds: 180 },
-    { name: "Facebook Reels", maxSeconds: 90 },
   ],
   "post-1x1": [{ name: "X (standard account)", maxSeconds: 140 }],
 };
