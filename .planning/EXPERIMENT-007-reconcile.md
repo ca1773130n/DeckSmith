@@ -165,11 +165,33 @@ pre-existing, and grew from 232px to 380px when density made the boxes taller.
   34 files against 29 with `vendor/` and `timing.json` missing from the library's; after
   it, 34 files each and no differences, with the CLI's own 34 byte-identical to what it
   produced before.
-- **The demo deck fails `drift` in psnr mode** (7350/7395 frames differ, worst 9.20 dB) and
+- ~~**The demo deck fails `drift` in psnr mode** (7350/7395 frames differ, worst 9.20 dB) and
   the drift workstream's evidence points at a font race: `index.html` names `Inter`, ships
   no `@font-face`, and Inter is not installed on this machine — invariant 9. The headline
   sets on one line in one render and wraps to two in the other. Not investigated here.
-  EXPERIMENT-006 recorded 447/7395 for this deck, so something regressed since.
+  EXPERIMENT-006 recorded 447/7395 for this deck, so something regressed since.~~
+  **DOES NOT REPRODUCE, 2026-09-17** — at hyperframes 0.8.35, on the narrated 16:9 demo
+  as it builds today (265.81s, 43 narration segments):
+
+  ```
+  drift: 7758/7975 frames byte-identical, worst 83.87 dB at frame 5319
+  PASS — 0 error(s), 0 warning(s)
+  ```
+
+  217 frames differ, none by anything near the 40 dB floor, and all 15 measurable scenes
+  moved within their own windows. The same shape AGENTS.md recorded for the silent demo
+  on 2026-09-04 at 0.7.90 (11 of 3120 differing, worst 43.53 dB).
+
+  **What this does not settle.** Two premises of the original entry have changed, and
+  only one can be tested. Inter IS now installed on this machine, so the stated trigger —
+  a host without the font — was not recreated; uninstalling system fonts to recreate it
+  was not done. And the deck still ships no `@font-face`: all three themes name
+  `"Inter", system-ui, sans-serif`, and upstream's compiler resolves Inter itself at
+  render time (the `[Compiler] Fetched … "Inter" from Google Fonts` line in
+  `test/verify.test.ts`'s StaticGuard fixture), which is also why no StaticGuard warning
+  names it. So render determinism on a machine without Inter depends on that lookup
+  succeeding identically twice. That is plausible and **unmeasured**; the cause of the
+  original 9.20 dB was never established either, so "it went away" is the whole finding.
 - ~~**The burn-in subtitle path is still unexercised** — this machine's ffmpeg has no
   libass.~~ **CLOSED 2026-09-17.** The reason given had stopped being true: the libass
   path was deleted, and the band is now drawn in a browser and composited with `overlay`,
