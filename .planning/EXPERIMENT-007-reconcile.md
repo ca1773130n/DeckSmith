@@ -170,7 +170,40 @@ pre-existing, and grew from 232px to 380px when density made the boxes taller.
   no `@font-face`, and Inter is not installed on this machine — invariant 9. The headline
   sets on one line in one render and wraps to two in the other. Not investigated here.
   EXPERIMENT-006 recorded 447/7395 for this deck, so something regressed since.
-- **The burn-in subtitle path is still unexercised** — this machine's ffmpeg has no libass.
+- ~~**The burn-in subtitle path is still unexercised** — this machine's ffmpeg has no
+  libass.~~ **CLOSED 2026-09-17.** The reason given had stopped being true: the libass
+  path was deleted, and the band is now drawn in a browser and composited with `overlay`,
+  which this ffmpeg has (see the header of `src/render/captions.ts`). So it was run.
+
+  The twelve-beat demo at `short-9x16`, narrated, built `--reserve-captions` — 10 of 15
+  beats, 177.23s, 29 narration segments, reserve 301px — then rendered twice from **one
+  capture** (`--keep`, then `--video` on the kept `raw.mp4`), once `--subtitles sidecar`
+  and once `--subtitles burn`. Sharing the capture means any difference between the two
+  files is the burn and nothing else. Both came out 5317 frames at 1080x1920 with AAC.
+
+  | region, all 5317 frames | mean luma difference | worst frame |
+  | --- | --- | --- |
+  | reserve strip, y ≥ 1619 | 11.135 | 16.567 |
+  | everything above it | 0.129 | 0.614 |
+  | the 100px directly above the strip | 0.002 | 0.056 |
+
+  The 0.129 above the strip is re-encode noise — sidecar copies the bitstream and burn
+  re-encodes it — and it is the same order as the 0.10 recorded when the collision was
+  first measured. The last row is the one that matters: a band spilling upward would
+  show there first, and nothing does.
+
+  The other half, measured on the sidecar render where no band is drawn: the strip's
+  maximum luma is **11 in every one of the 5317 frames**, and 11 is the background. So
+  the slide never enters the reserve at any frame — including mid-animation, which the
+  `fidelity` gate does not sample; it checks stops.
+
+  And a frame at 23.62s, mid-cue, was opened and looked at: the two-line caption sits in
+  its own clear strip, well below the slide's last line of text. Nothing overlaps.
+
+  The refusal — `render --subtitles burn` over a deck that reserved nothing — also had
+  no test until now, despite being described as tested when 0.5.0 shipped. It has three
+  in `test/render.test.ts`, and they were proved able to fail by disabling the check,
+  which turns exactly the two refusal cases red.
 - **The camera is a video-path feature.** `planTransition`'s `MAX_SPAN = 2.5` cuts the
   step in deck mode. A deck with a camera also cannot use `drift --identical`.
 - **RULE 11 in the planner prompt has never been run against a real Codex call.**
