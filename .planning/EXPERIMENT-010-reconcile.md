@@ -299,8 +299,25 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
   `timing.json` only when there was narration. All three now follow the CLI.
 
   `diff -rq` of the two paths: 34 files against 29 before, identical after.
-- **Platform limits in `DESTINATIONS` are from memory, not the network.** Instagram Reels
-  180s and Facebook Reels 90s want a human check; the 90 is load-bearing for the
-  `near_budget` warning that fires on every short.
+- ~~**Platform limits in `DESTINATIONS` are from memory, not the network.**~~ **CLOSED
+  2026-09-17 — and the 90 was wrong.** Checked against each platform's own pages:
+  - **Facebook Reels, 90s: stale, removed.** Meta's newsroom, 2025-06-17: "Reels on
+    Facebook will also not have any length or format restrictions." It was the tightest
+    entry, so `near_budget` had been telling every short between 1m30s and 3m00s that it
+    was "not postable everywhere", naming a destination that would have taken it.
+  - **YouTube Shorts, 180s: correct**, and it is a classification limit — longer vertical
+    video is filed as long-form (YouTube Help, "Understand three-minute YouTube Shorts").
+  - **Instagram Reels, 180s: correct number, different meaning.** Uploads run longer; the
+    constraint is distribution — "we recommend videos to unconnected audiences that are
+    3 minutes or less" (Instagram for Creators, FAQ).
+  - **X, 140s: not verified at source** — X's help centre refused the fetch. Every
+    secondary source agrees.
+
+  With the two remaining short destinations agreeing, no shipped format has a
+  `warnSeconds`, so `near_budget` can no longer fire on shipped data. It was kept rather
+  than deleted, and is now driven through a disagreeing table in `test/verify.test.ts`: a
+  branch nothing can reach is a gate that cannot fail, and deleting it would make it
+  silently absent the next time a real destination is tighter. Both new tests were proved
+  able to fail by restoring the stale row, which turns exactly those two red.
 - **Latin caption typography is not cross-machine deterministic** — with no CJK bundle the
   stack falls to Helvetica/Arial. Byte-identical on this machine, untested elsewhere.
