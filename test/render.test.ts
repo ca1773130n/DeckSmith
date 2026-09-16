@@ -936,6 +936,54 @@ describe("the playback ceiling", () => {
   });
 });
 
+/**
+ * `--subtitles burn` over a deck that made no room for the band.
+ *
+ * This shipped in 0.5.0 with NO test, and was reported as tested — the claim was
+ * wrong and was caught only by going to look for the test on 2026-09-17. The
+ * refusal is what stops the collision coming straight back on every deck built
+ * before `--reserve-captions` existed, so it is the one line of the feature that
+ * must not go quietly missing.
+ *
+ * Same shape as the playback ceiling above: a manifest and nothing else, and a
+ * `--video` that does not exist, so the refusal has to be reachable before any
+ * capture. The end-to-end burn itself cannot run here — it needs a browser,
+ * ffmpeg and narration audio — and is recorded in EXPERIMENT-007 instead.
+ */
+async function burnFailure(captionReserve: number | undefined) {
+  const timing = overlong();
+  const deck = await manifestOnly(
+    captionReserve === undefined ? timing : { ...timing, captionReserve },
+  );
+  return render({
+    deck,
+    out: join(deck, "out.mp4"),
+    video: join(deck, "never-captured.mp4"),
+    subtitles: "burn",
+    log: () => {},
+  }).then(
+    () => "resolved, which it must not",
+    (err: Error) => err.message,
+  );
+}
+
+describe("burning captions", () => {
+  it("refuses a deck built without a reserve, before anything is captured", async () => {
+    expect(await burnFailure(0)).toContain("built without room for a burned caption");
+  });
+
+  it("refuses a manifest that predates the field, which reserved nothing either", async () => {
+    // Every timing.json written before 0.5.0 lacks `captionReserve` entirely.
+    expect(await burnFailure(undefined)).toContain("built without room for a burned caption");
+  });
+
+  it("lets a reserved deck past the refusal", async () => {
+    // It gets as far as the browser check or the missing video, whichever this
+    // machine reaches first — anything but this refusal.
+    expect(await burnFailure(301)).not.toContain("built without room");
+  });
+});
+
 describe("srtTime", () => {
   it("writes SubRip's clock, comma decimal and all", () => {
     expect(srtTime(0)).toBe("00:00:00,000");
