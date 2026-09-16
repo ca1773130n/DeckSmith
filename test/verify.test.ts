@@ -5,7 +5,14 @@
  */
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { prefsSchema, type Storyboard, sourceSchema, storyboardSchema } from "../src/types.js";
+import {
+  FORMATS,
+  type Format,
+  prefsSchema,
+  type Storyboard,
+  sourceSchema,
+  storyboardSchema,
+} from "../src/types.js";
 import { profilesFor, readCanvas, scanBudget } from "../src/verify/budget.js";
 import { check, parseCheckReport, sampleTimes } from "../src/verify/check.js";
 import {
@@ -427,10 +434,22 @@ describe("scanBudget", () => {
     expect(message).toContain("shorten their narration by 2m00s");
   });
 
+  it("does not warn a two-minute short, which every listed destination takes", () => {
+    // This used to warn "over the 1m30s that Facebook Reels accepts". Facebook
+    // Reels has had no length limit since June 2025, so the warning was false on
+    // every short between 1m30s and 3m00s — the most common length there is.
+    expect(scanBudget(composition(1080, 1920, [60, 60]))).toEqual([]);
+  });
+
   it("warns, without failing, at a length only some destinations take", () => {
-    // 120s posts to Shorts and not to Reels. That is a real deliverable with a
-    // real loss in it, so it is neither an error nor silence.
-    const findings = scanBudget(composition(1080, 1920, [60, 60]));
+    // No SHIPPED format has disagreeing destinations any more, so the rule is
+    // driven through a table that does. Without this it would be a branch
+    // nothing can reach, and silently absent the next time one is tighter.
+    const tall = FORMATS["short-9x16"] as Format;
+    const formats = {
+      disagreeing: { ...tall, id: "disagreeing", maxSeconds: 180, warnSeconds: 90 },
+    };
+    const findings = scanBudget(composition(1080, 1920, [60, 60]), undefined, undefined, formats);
 
     expect(findings).toHaveLength(1);
     expect(findings[0]?.severity).toBe("warning");

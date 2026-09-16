@@ -400,7 +400,10 @@ describe("DESTINATIONS", () => {
 
   it("caps a short at the loosest destination and warns at the tightest", () => {
     expect(maxSecondsFor("short-9x16")).toBe(180); // YouTube Shorts, Instagram Reels
-    expect(warnSecondsFor("short-9x16")).toBe(90); // Facebook Reels
+    // No warning any more: Facebook Reels' 90 was the tightest entry and it was
+    // stale — Meta removed Reels' length restrictions in June 2025. Both
+    // remaining destinations agree on 180, so there is no gap to warn about.
+    expect(warnSecondsFor("short-9x16")).toBeUndefined();
     expect(maxSecondsFor("post-1x1")).toBe(140); // X, standard account
     expect(warnSecondsFor("post-1x1")).toBeUndefined(); // one destination, no gap
   });
