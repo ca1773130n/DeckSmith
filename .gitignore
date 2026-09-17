@@ -43,7 +43,7 @@ demo/audio/
 #
 # THIS IS NO LONGER THE FIX, and it was never a good one. `guardTmpdir` in
 # src/tmpdir.ts unsets such a TMPDIR, and the CLI, the MCP server, the HTTP
-# server and the vitest setup file all call it, so nothing we start writes here
+# server and the vitest global setup all call it, so nothing we start writes here
 # any more. What is left below is a backstop, and since the accumulation it was
 # hiding has been swept it has one job left: covering processes we do not start.
 # The sweep was 2026-09-09 — 2,306 directories over eight prefixes, 14MB, plus a
