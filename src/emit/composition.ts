@@ -14,7 +14,16 @@ import type { z } from "zod";
 import { embedUrl } from "../pack/media.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import { familyFor } from "../source/fonts.js";
-import type { Beat, Format, Inside, Source, Storyboard, segmentSchema } from "../types.js";
+import {
+  assertNarrationCanvas,
+  type Beat,
+  type Format,
+  type Inside,
+  type NarrationCanvas,
+  type Source,
+  type Storyboard,
+  type segmentSchema,
+} from "../types.js";
 import { emitScene } from "./archetypes/index.js";
 import {
   assertStopsOutsideMove,
@@ -134,6 +143,12 @@ export interface DeckNarration {
   voice: string;
   /** Directory holding the mp3s, relative to `deck.html`. */
   dir: string;
+  /**
+   * The canvas `narrate` staged the stops at. Absent on narration written before
+   * it was recorded, which is accepted; present and different is refused. See
+   * `assertNarrationCanvas`.
+   */
+  canvas?: NarrationCanvas;
   beats: Record<string, Segment[]>;
 }
 
@@ -277,6 +292,12 @@ export function planCut(
   format: Format,
   opts: DeckOptions = {},
 ): Cut {
+  // HERE, because this is where narration first meets a staged beat: every
+  // segment is sized against the holds this format stages, and `layout`, and so
+  // `emitDeck` and `emitComposition`, come through this call. What returns is
+  // the unrecorded-canvas warning, which has no channel here and is the
+  // caller's to print.
+  if (opts.narration) assertNarrationCanvas(opts.narration, format);
   const { theme } = deckLook(storyboard, opts);
   const speed = opts.speed ?? 1;
   const floor = storyboard.beats.filter((b) => b.weight >= format.minWeight);

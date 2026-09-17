@@ -19,13 +19,21 @@ import type { EmitContext } from "../emit/kit.js";
 import { ink } from "../emit/theme.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Source, Storyboard } from "../types.js";
-import { type Beat, FORMATS, type Format, type prefsSchema, type segmentSchema } from "../types.js";
+import {
+  type Beat,
+  FORMATS,
+  type Format,
+  type NarrationCanvas,
+  narrationCanvas,
+  type prefsSchema,
+  type segmentSchema,
+} from "../types.js";
 import { type Runner, synthesize } from "./tts.js";
 import { pickVoice } from "./voices.js";
 
 type Prefs = z.infer<typeof prefsSchema>;
 type Segment = z.infer<typeof segmentSchema>;
-type Narration = { voice: string; beats: Record<string, Segment[]> };
+type Narration = { voice: string; canvas: NarrationCanvas; beats: Record<string, Segment[]> };
 
 /* ------------------------------------------------------------------- Stops */
 
@@ -116,7 +124,10 @@ export interface NarrateOpts {
   dir: string;
   /** Injected in tests so no test reaches the network. */
   runner?: Runner;
-  /** Staging differs by canvas, so the stop count does too. */
+  /**
+   * Staging differs by canvas, so the stop count does too. Recorded in the
+   * result as `canvas`, which is what lets `build` refuse another one.
+   */
   format?: Format;
 }
 
@@ -192,5 +203,5 @@ export async function narrate(
     if (segments.length > 0) beats[beat.id] = segments;
   }
 
-  return { voice, beats };
+  return { voice, canvas: narrationCanvas(format), beats };
 }

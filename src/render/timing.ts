@@ -55,7 +55,14 @@ import type { EmitContext } from "../emit/kit.js";
 import { resolveTheme } from "../emit/theme.js";
 import type { DeckTheme } from "../emit/themes/index.js";
 import { familyFor } from "../source/fonts.js";
-import type { Beat, Format, Source, Storyboard, segmentSchema } from "../types.js";
+import {
+  assertNarrationCanvas,
+  type Beat,
+  type Format,
+  type Source,
+  type Storyboard,
+  type segmentSchema,
+} from "../types.js";
 
 type Segment = z.infer<typeof segmentSchema>;
 
@@ -286,9 +293,11 @@ export function assertHoldsAgree(scenes: TimedScene[], fragments: Record<string,
  * timelines and why the video keeps its length.
  *
  * A segment whose `stop` is past the end of the stop list is clamped onto the
- * last one. That only happens when a deck is narrated for one format and built
- * for another whose staging differs; speaking it late over the final state
- * beats dropping the sentence on the floor.
+ * last one. That happens when the staging moved after `narrate` ran: narration
+ * that records no canvas and was made at another size, or a beat whose params
+ * were edited without its words changing. A recorded canvas that differs never
+ * gets here; `assertNarrationCanvas` refuses it first. Speaking it late over the
+ * final state beats dropping the sentence on the floor.
  */
 export function place(scenes: TimedScene[], spoken: Record<string, Segment[]>): TimedSegment[] {
   const out: TimedSegment[] = [];
@@ -428,6 +437,10 @@ export interface TimingInput {
  */
 export function planTiming(input: TimingInput): Timing {
   const { storyboard, source, format, speed, composition, narration } = input;
+  // `emitDeck` refuses this too, and a manifest is the second place narration is
+  // laid over staged holds. A caller handing this a narration the composition
+  // was never built with must not get a manifest that places it.
+  if (narration) assertNarrationCanvas(narration, format);
   const scenes = readSceneWindows(composition);
   const beats = input.beats ?? storyboard.beats.filter((b) => b.weight >= format.minWeight);
   if (beats.length !== scenes.length) {
