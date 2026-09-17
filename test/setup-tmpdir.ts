@@ -56,6 +56,39 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guardTmpdir } from "../src/tmpdir.js";
 
+/** Tries before `removeRunDir` gives up, pausing 25 ms longer after each one. */
+const ATTEMPTS = 8;
+
+/**
+ * `rmSync`, retried with a pause that actually happens.
+ *
+ * Node's own retry does not do this for short delays. On node 24.14.0,
+ * `rmSync` with `maxRetries` 3 or 5 and `retryDelay` 100 gave up on a
+ * directory it could not empty after 1 ms, with no pause at all, while
+ * `retryDelay` 400 took 2,022 ms. The delay looks truncated to whole seconds.
+ * The pause matters on the way out after a signal. Children the signal also
+ * reached can go on writing for a few milliseconds: on 2026-09-18, a SIGINT
+ * sent to the whole process group failed with ENOTEMPTY 98 ms after the
+ * signal, because an `npm exec` child was just then creating
+ * `node-compile-cache` in the run directory.
+ *
+ * Only ENOTEMPTY and EBUSY are retried. Anything else will not get better by
+ * waiting. `Atomics.wait` because an `exit` listener cannot await.
+ */
+export function removeRunDir(dir: string): void {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= ATTEMPTS || (code !== "ENOTEMPTY" && code !== "EBUSY")) throw error;
+      Atomics.wait(pause, 0, 0, 25 * attempt);
+    }
+  }
+}
+
 export default function setup(): () => void {
   guardTmpdir();
   const before = process.env.TMPDIR;
@@ -64,7 +97,7 @@ export default function setup(): () => void {
 
   const onExit = (): void => {
     try {
-      rmSync(run, { recursive: true, force: true, maxRetries: 3 });
+      removeRunDir(run);
     } catch (error) {
       // A throw from the first `exit` listener stops every listener after it,
       // vitest's own terminal cleanup included (checked on node 24.14.0). Name
@@ -80,6 +113,6 @@ export default function setup(): () => void {
     // for a temp directory that no longer exists.
     if (before === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = before;
-    rmSync(run, { recursive: true, force: true, maxRetries: 3 });
+    removeRunDir(run);
   };
 }

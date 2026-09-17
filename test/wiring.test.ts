@@ -43,7 +43,7 @@ import {
   storyboardSchema,
 } from "../src/types.js";
 import { scanNarration } from "../src/verify/index.js";
-import setupTmpdir from "./setup-tmpdir.js";
+import setupTmpdir, { removeRunDir } from "./setup-tmpdir.js";
 
 function format(id: string): Format {
   const f = FORMATS[id];
@@ -486,6 +486,49 @@ describe("TMPDIR guard wiring", () => {
     expect(process.env.TMPDIR).toBe(saved);
     expect(existsSync(run)).toBe(false);
     expect(process.listenerCount("exit")).toBe(listeners);
+  });
+
+  it("outlasts a process still writing into the run's directory, rather than giving up at once", async () => {
+    // Why `removeRunDir` pauses between tries itself: node's own `retryDelay`
+    // did not pause for delays under a second, so `maxRetries` alone failed in a
+    // millisecond against a child the signal had not quite stopped. Here the
+    // child writes for 120 ms after its first entry, and removal starts while it
+    // is still writing.
+    const dir = mkdtempSync(join(tmpdir(), "ds-remove-"));
+    const writer = spawn(
+      process.execPath,
+      [
+        "-e",
+        [
+          'const { mkdirSync } = require("node:fs");',
+          "let stop;",
+          "for (let i = 0; i < 5000; i++) {",
+          '  try { mkdirSync(process.argv[1] + "/c" + i); } catch { process.exit(0); }',
+          "  stop ??= Date.now() + 120;",
+          "  if (Date.now() > stop) break;",
+          "}",
+        ].join("\n"),
+        dir,
+      ],
+      { stdio: "ignore" },
+    );
+    const exited = new Promise((resolve) => {
+      writer.on("exit", resolve);
+      writer.on("error", resolve);
+    });
+    try {
+      const deadline = Date.now() + 10_000;
+      while (!existsSync(join(dir, "c0"))) {
+        if (Date.now() > deadline) throw new Error("the writer never started");
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+      removeRunDir(dir);
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      writer.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it.each(["SIGINT", "SIGTERM"] as const)(
