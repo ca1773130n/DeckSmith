@@ -268,7 +268,9 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
         format: options.format,
       });
       await writeJson(join(dirs.audio, NARRATION_FILE), spoken);
-      narration = { voice: spoken.voice, dir: AUDIO_DIR, beats: spoken.beats };
+      // Whole, so what `narrate` recorded about its staging reaches the build's
+      // check rather than being dropped on the way.
+      narration = { ...spoken, dir: AUDIO_DIR };
       const segments = Object.values(spoken.beats).flat();
       const seconds = segments.reduce((sum, s) => sum + s.seconds, 0);
       job.done("narrate", `${segments.length} segments, ${seconds.toFixed(1)}s in ${spoken.voice}`);

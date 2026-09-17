@@ -32,7 +32,7 @@ import {
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { illustrate } from "./images/illustrate.js";
-import { narrate } from "./narrate/narrate.js";
+import { narrate, uncheckedNarration } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
 import { codexPlanner } from "./plan/codex.js";
@@ -573,16 +573,24 @@ voiceFlags(
       .argument("<storyboard>", "storyboard.json")
       .requiredOption("--source <file>", "source.json the storyboard was planned from")
       .requiredOption("-o, --out <dir>", `directory for the audio and ${NARRATION_FILE}`)
-      .option("--format <id>", "staging profile — it decides the stop count", "deck-16x9"),
+      .option("--format <id>", "staging profile — it decides the stop count", "deck-16x9")
+      .option(
+        "--reserve-captions",
+        "stage for a deck built with --reserve-captions — the reserve changes the stop count too",
+      ),
   ),
 ).action(async (sbPath: string, o: { source: string; out: string } & Record<string, unknown>) => {
   const storyboard = await readValidated(sbPath, storyboardSchema, "storyboard");
   const source = await readValidated(String(o.source), sourceSchema, "source");
   // The canvas decides how a beat stages, and staging decides how many sentences
   // are spoken. Narrating at one size and building at another puts a sentence on
-  // a reveal that is not there — so `narrate` takes the same two flags `build`
-  // does, and the two invocations must be given the same ones.
-  const format = pickFormat(String(o.format), o.width as string, o.height as string);
+  // a reveal that is not there, so `narrate` takes the three canvas flags `build`
+  // does and records each beat's stop count in narration.json, and `build`
+  // refuses a beat it stages differently. See `assertNarrationStaging`.
+  const format = withCaptionReserve(
+    pickFormat(String(o.format), o.width as string, o.height as string),
+    o.reserveCaptions === true,
+  );
   const chosen = await loadPrefs(prefsFromFlags(flags(o)));
   // The words already exist and are in the storyboard's language; asking for a
   // voice in another one would read them with the wrong mouth.
@@ -691,6 +699,11 @@ lookFlags(
     if (narration) {
       const drift = scanNarrationDrift(storyboard, narration);
       if (drift.length > 0) throw new Error(drift[0]?.message ?? "narration drift");
+      // The refusal itself is `emitDeck`'s, because it compares each KEPT beat's
+      // stops and only the cut knows which those are. This is the other half,
+      // which has no channel there: narration too old to be checked at all.
+      const unchecked = uncheckedNarration(narration, format);
+      if (unchecked) step(`build: ${unchecked}`);
     }
     if (narration && !format.navigable) {
       step(`build: ${format.id} renders linearly, so its narration is timing only`);
@@ -1166,7 +1179,10 @@ async function findNarration(sbPath: string, flag: unknown): Promise<string | un
 
 async function loadNarration(path: string): Promise<DeckNarration> {
   const narration = await readValidated(path, narrationSchema, "narration");
-  return { voice: narration.voice, dir: AUDIO_DIR, beats: narration.beats };
+  // Everything the file records, carried whole: a field dropped here makes every
+  // narration `build` and `pack` read look like one written before `narrate`
+  // recorded its staging, and it builds unchecked.
+  return { ...narration, dir: AUDIO_DIR };
 }
 
 /** The same files, as pack entries under `audio/`. */
