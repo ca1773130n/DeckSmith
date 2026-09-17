@@ -249,7 +249,13 @@ artifact. Three are worth reading as patterns rather than bugs:
   sampled frames, because `marginV` was measured to clear *player chrome* and nothing ever
   guaranteed it cleared the *composition*. Both in
   [`.planning/EXPERIMENT-010-reconcile.md`](.planning/EXPERIMENT-010-reconcile.md). The
-  caption one is **closed**: `build --reserve-captions` gives the band its own strip and
+  seam one is **closed** in the render: each scene's clip outlasts its slide and dissolves
+  over the next scene's empty opening. It stayed open in `deck.html` until 2026-09-18,
+  because the presented deck's own visibility pass read the slide instead of the clip,
+  and gliding across a seam still showed eleven 60Hz ticks of background. Every gate was
+  green, and it was found by stepping that glide one tick at a time —
+  [`.planning/2026-09-18-scene-boundary-blink.md`](.planning/2026-09-18-scene-boundary-blink.md).
+  The caption one is **closed**: `build --reserve-captions` gives the band its own strip and
   `fidelity` fails a deck that draws into it. It is worth reading for how it closed —
   the plan written to fix it asserted that every archetype lays out into `contentH`, ten
   of them do not, and the first fix therefore changed the worst stop by nothing at all.

@@ -593,9 +593,9 @@ describe("camera helpers", () => {
     // The seam is measured in frames, so any slack here is a hole in the deck.
     // Dip shorter than the tail and the outgoing scene sits at background before
     // the cut; longer and it is still visible when `paint()` hides it, which
-    // hard-cuts a lit frame to black. The incoming scene opens on 150ms of
-    // nothing either way (see the measurement in src/emit/camera.ts) — that part
-    // is not fixable from here, and this keeps us from adding to it.
+    // hard-cuts a lit frame to black. The incoming scene's own 150ms of nothing
+    // is covered by the handoff that follows this dip (`HANDOFF_SECONDS`, and
+    // `showingAt` in src/deck/runtime.ts for a presented deck), not from here.
     const d = { t0: 9, dur: 1.4, fade: 0.4 };
     const [, , dip] = diveStatements("s1", format("deck-16x9"), d);
     expect(dip?.to.duration).toBe(d.fade);
