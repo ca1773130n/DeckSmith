@@ -299,8 +299,15 @@ export function showingAt(slide: SlideSpec, clip: number, t: number): boolean {
  * i.e. blank. Scenes are addressed by the ids the island already carries; the
  * one thing read off the scene itself is how long its clip runs, because the
  * island only knows the slide (see `showingAt`).
+ *
+ * Exported so test/deck.test.ts can drive it through a fake frame. Testing
+ * `showingAt` alone left this function free to stop calling it: put main's
+ * slide-window rule back here and every deck test passed, the Chrome suite
+ * included, because test/deck-page.test.ts only checks resting stops and no
+ * stop falls inside a handoff. The deck-runtime bundle is an IIFE, so the
+ * export does not reach deck.html.
  */
-function paint(frame: Frame, slides: readonly SlideSpec[], t: number): void {
+export function paint(frame: Frame, slides: readonly SlideSpec[], t: number): void {
   for (const slide of slides) {
     // Duck-typed, not `instanceof HTMLElement`: the iframe is a separate realm
     // with its own constructors, so an instanceof against ours is always false

@@ -9,6 +9,7 @@ import {
   formatHash,
   frameOf,
   mountVoice,
+  paint,
   parseClips,
   parseHash,
   planTransition,
@@ -187,6 +188,86 @@ describe("showingAt", () => {
       expect(showingAt(out, clip, 6.999)).toBe(true);
       expect(showingAt(out, clip, 7)).toBe(false);
     }
+  });
+});
+
+describe("paint puts the scene up for as long as its clip runs", () => {
+  /**
+   * `showingAt` alone does not pin the fix: `paint` could stop reading the
+   * clip, or stop calling it, and every other deck test would still pass. Put
+   * main's slide-window rule back in `paint` and the Chrome suite in
+   * test/deck-page.test.ts passes too, because it only checks resting stops and
+   * no stop falls inside a handoff. So this drives `paint` itself, through a
+   * frame shaped like the one `frameOf` returns: scene divs answering
+   * `getAttribute("data-duration")` with what `build` writes, and timelines that
+   * record their seeks.
+   */
+  const slides: SlideSpec[] = [
+    { sceneId: "s1", startTime: 0, endTime: 3 },
+    { sceneId: "s2", startTime: 3, endTime: 7 },
+    { sceneId: "s3", startTime: 7, endTime: 17.8 },
+  ];
+  /** Clip lengths by scene id; a missing entry is a div with no `data-duration`. */
+  const fakeFrame = (clips: Record<string, string>) => {
+    const scenes: Record<
+      string,
+      { style: { display: string }; getAttribute: (n: string) => string | null }
+    > = {};
+    const seeks: Record<string, number[]> = {};
+    for (const { sceneId } of slides) {
+      // Starts hidden, so a scene reading "" was put up by this paint.
+      scenes[sceneId] = {
+        style: { display: "none" },
+        getAttribute: (n) => (n === "data-duration" ? (clips[sceneId] ?? null) : null),
+      };
+      seeks[sceneId] = [];
+    }
+    const timelines = Object.fromEntries(
+      slides.map(({ sceneId }) => [sceneId, { seek: (t: number) => seeks[sceneId]?.push(t) }]),
+    );
+    const frame = {
+      doc: { getElementById: (id: string) => scenes[id] ?? null },
+      timelines,
+    } as unknown as Parameters<typeof paint>[0];
+    const shown = () =>
+      slides.map((s) => s.sceneId).filter((id) => scenes[id]?.style.display === "");
+    return { frame, seeks, shown };
+  };
+  // What `build` writes for this deck: every clip but the last outlasts its
+  // slide by one 0.4s handoff.
+  const built = { s1: "3.4", s2: "4.4", s3: "10.8" };
+
+  it("keeps the outgoing scene displayed and seeked on every 60Hz tick of the handoff", () => {
+    // The glide that blinked stepped 7.000s through 7.167s with s2 hidden.
+    for (let k = 0; k < 24; k++) {
+      const t = 7 + k / 60;
+      const { frame, seeks, shown } = fakeFrame(built);
+      paint(frame, slides, t);
+      expect(shown(), `displayed at ${t.toFixed(3)}`).toEqual(["s2", "s3"]);
+      expect(seeks.s2?.[0], `s2 seek at ${t.toFixed(3)}`).toBeCloseTo(t - 3, 9);
+      expect(seeks.s3?.[0], `s3 seek at ${t.toFixed(3)}`).toBeCloseTo(t - 7, 9);
+      expect(seeks.s1).toEqual([]);
+    }
+  });
+
+  it("takes the outgoing scene down at its clip's end, not before", () => {
+    const at = (t: number) => {
+      const f = fakeFrame(built);
+      paint(f.frame, slides, t);
+      return f;
+    };
+    expect(at(6.999).shown()).toEqual(["s2"]);
+    expect(at(7.399).shown()).toEqual(["s2", "s3"]);
+    const gone = at(7.4);
+    expect(gone.shown()).toEqual(["s3"]);
+    expect(gone.seeks.s2).toEqual([]);
+  });
+
+  it("reads the clip off the scene div, and falls back to the slide without one", () => {
+    // No `data-duration` on s2: the island's window is all there is to go on.
+    const { frame, shown } = fakeFrame({ s1: "3.4", s3: "10.8" });
+    paint(frame, slides, 7.2);
+    expect(shown()).toEqual(["s3"]);
   });
 });
 
