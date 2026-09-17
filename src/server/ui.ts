@@ -233,8 +233,12 @@ const THEME_CHIPS = THEME_NAMES.map((name) => {
  * once per call and a server that hot-reloads a theme picks the change up
  * without a module cache dance. It is a few hundred microseconds of string
  * concatenation against a request that will take two minutes to satisfy.
+ *
+ * `auth` puts a logout form in the header. It is a plain form so it works
+ * without script, and it is only there when the server has a token to log out
+ * of — http.ts caches one page per mode.
  */
-export function uiPage(): string {
+export function uiPage(opts: { auth?: boolean } = {}): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -294,7 +298,8 @@ a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}
    so the pair stacks: title, then the line that explains it. clamp() keeps it
    from crowding a 390px phone, where 34px of a 6-space word is most of the
    width. */
-header.top{margin-bottom:40px}
+header.top{margin-bottom:40px;position:relative}
+.logout{position:absolute;top:0;right:0;margin:0}
 .mark{display:flex;align-items:center;gap:14px;
   font-size:clamp(26px,6.4vw,34px);font-weight:650;letter-spacing:-.032em;line-height:1.1}
 .mark svg{display:block;flex:none;width:1em;height:1em}
@@ -577,6 +582,7 @@ li[data-s=running] .bead::after{content:"";width:7px;height:7px;border-radius:99
     DeckSmith
   </div>
   <p class="tag">A document in. An animated deck out.</p>
+${opts.auth ? '<form class="logout" method="post" action="/logout"><button class="iconbtn" type="submit">Log out</button></form>' : ""}
 </header>
 
 <main>
@@ -1377,6 +1383,19 @@ function watch(id){
                + "run in progress. Choose the file again." }, "upload");
   }
 
+  /* 401 IS TERMINAL TOO, for the same reason 404 is: an answer with no state field
+     that schedules another poll is a poll that never stops. The session ended — a
+     cookie expired, was cleared, or the token was rotated — and only a reload can
+     get a new one, because logging in is a page and not a request. The job itself
+     is untouched on the server, so say so. */
+  function loggedOut(){
+    closed = true;
+    teardown();
+    fail({ message: "Your session ended.",
+           hint: "Reload to log in; job " + id + " keeps running on the server." }, null);
+    $("e-where").textContent = "Logged out";
+  }
+
   /* The server kept the upload, so the honest response is an offer rather than an
      apology: one request re-queues the same file with the same settings. */
   function interrupted(job){
@@ -1391,7 +1410,8 @@ function watch(id){
   function poll(){
     if (closed) return;
     fetch("/api/jobs/" + encodeURIComponent(id), { cache: "no-store" })
-      .then(function(r){ if (r.status === 404) { gone(); return null; } return r.json(); })
+      .then(function(r){ if (r.status === 401) { loggedOut(); return null; }
+        if (r.status === 404) { gone(); return null; } return r.json(); })
       .then(function(job){ if (!job || closed) return;
         if (job.state === "interrupted") { interrupted(job); return; }
         apply(job); timer = setTimeout(poll, 1800); })
@@ -1408,7 +1428,8 @@ function watch(id){
   /* One immediate read regardless of transport, so the first paint does not
      wait on an SSE handshake. */
   fetch("/api/jobs/" + encodeURIComponent(id), { cache: "no-store" })
-    .then(function(r){ if (r.status === 404) { gone(); return null; } return r.json(); })
+    .then(function(r){ if (r.status === 401) { loggedOut(); return null; }
+      if (r.status === 404) { gone(); return null; } return r.json(); })
     .then(function(job){ if (!job) return;
       if (job.state === "interrupted") { interrupted(job); return; }
       apply(job); })
