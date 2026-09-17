@@ -11,20 +11,50 @@
  * entry, and the test asserts both that it is refused BY NAME and that the
  * sibling directory it aimed at is still empty afterwards.
  */
-import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
-import { createServer, request } from "node:http";
-import type { AddressInfo } from "node:net";
+import { execFile, spawn } from "node:child_process";
+import { generateKeyPairSync, randomBytes, X509Certificate } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  request,
+  type Server,
+} from "node:http";
+import { request as httpsRequest, type Server as TlsServer } from "node:https";
+import { type AddressInfo, connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
+import { connect as tlsConnect } from "node:tls";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { zipSync } from "fflate";
-import { afterEach, describe, expect, it } from "vitest";
+import type { Browser, BrowserContext, Page } from "puppeteer-core";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { toolSvg } from "../src/images/providers.js";
 import { FORMATS, LEGIBLE_W, MAX_ASPECT, MIN_EDGE, parseMarkdown } from "../src/index.js";
 import { EMBED_ORIGINS } from "../src/pack/media.js";
 import { chromePath } from "../src/render/capture.js";
+import {
+  authKeys,
+  mintSession,
+  resolveSecurity,
+  type Security,
+  type SecurityDeps,
+  SecurityRefusal,
+  securityBanner,
+  type TlsMaterial,
+} from "../src/server/auth.js";
 import { explain } from "../src/server/errors.js";
-import { createDeckServer, parseRange, RateLimiter, safeUrlPath } from "../src/server/http.js";
+import {
+  createDeckServer,
+  parseRange,
+  RateLimiter,
+  type ServeOptions,
+  safeUrlPath,
+} from "../src/server/http.js";
 import { catalog, MAX_PIXELS, parseOptions } from "../src/server/options.js";
 import { guardFigures, stagesFor } from "../src/server/pipeline.js";
 import { type JobHandle, type JobResult, Queue, QueueFullError } from "../src/server/queue.js";
@@ -41,6 +71,13 @@ import {
 } from "../src/server/upload.js";
 
 const bytes = (s: string) => new TextEncoder().encode(s);
+const execFileP = promisify(execFile);
+
+/**
+ * The renderer's Chrome, or null. No Chrome, no pass — and no pretending
+ * otherwise: the suites that need it are skipped, as in test/deck-page.test.ts.
+ */
+const chrome = await chromePath().catch(() => null);
 const scratch = async () => mkdtemp(join(tmpdir(), "decksmith-server-"));
 
 /* ------------------------------------------------------------------ multipart */
@@ -760,75 +797,290 @@ describe("RateLimiter", () => {
     clock = 200;
     expect(limiter.take("a")).toBe(true);
   });
+
+  /** Read-only: asking must not spend, or checking before comparing would itself be a failure. */
+  it("says whether a key is exhausted without spending, per key and per window", () => {
+    let clock = 0;
+    const limiter = new RateLimiter(2, 100, () => clock);
+    expect(limiter.blocked("a")).toBe(false);
+    limiter.take("a");
+    expect(limiter.blocked("a")).toBe(false);
+    limiter.take("a");
+    expect(limiter.blocked("a")).toBe(true);
+    expect(limiter.blocked("a")).toBe(true);
+    expect(limiter.blocked("b")).toBe(false);
+    expect(limiter.take("b")).toBe(true);
+    clock = 100;
+    expect(limiter.blocked("a")).toBe(false);
+  });
 });
+
+/* ------------------------------------------------------------ server helpers */
+
+/**
+ * A token, and the keys a server built from it holds. It starts with SENTINEL so
+ * the log and banner tests can search every line for it.
+ */
+const TOKEN = `SENTINEL-${"k".repeat(35)}`;
+const KEYS = authKeys(TOKEN);
+const BEARER = { authorization: `Bearer ${TOKEN}` };
+
+/** The TLS fixtures. See test/fixtures/tls/README.md — test-only, and public. */
+const tlsFixture = (name: string) =>
+  fileURLToPath(new URL(`./fixtures/tls/${name}`, import.meta.url));
+const TLS_CERT = readFileSync(tlsFixture("server.crt"));
+const TLS: TlsMaterial = {
+  cert: TLS_CERT,
+  key: readFileSync(tlsFixture("server.key")),
+  x509: new X509Certificate(TLS_CERT),
+};
+
+/** The deck CSP as it was before tokens existed, pinned whole. */
+const DECK_CSP = `sandbox allow-scripts allow-same-origin allow-downloads; connect-src 'none'; frame-src 'self' ${EMBED_ORIGINS.join(" ")}`;
+
+const servers: (() => Promise<void>)[] = [];
+async function closeServers(): Promise<void> {
+  for (const close of servers.splice(0)) await close();
+}
+
+/**
+ * A server with the pipeline stubbed. It always LISTENS on 127.0.0.1; `host` is
+ * what the server believes it is bound to, so an exposed bind can be tested
+ * without one. `runs` counts calls into the pipeline, `logs` collects the log.
+ */
+async function serve(over: Partial<ServeOptions> = {}) {
+  const work = await scratch();
+  const logs: string[] = [];
+  const counter = { runs: 0 };
+  const stub: NonNullable<ServeOptions["run"]> = async (job) => {
+    // Writes the deck a real pipeline would write, without being one.
+    await mkdir(join(job.dir, "deck", "assets"), { recursive: true });
+    await writeFile(join(job.dir, "deck", "deck.html"), "<h1>deck</h1>");
+    await writeFile(join(job.dir, "deck", "assets", "fig1.png"), "PNGDATA");
+    job.begin("ingest");
+    job.done("ingest");
+    return { deckUrl: `/d/${job.id}/deck.html`, slides: 4, duration: 12, warnings: [] };
+  };
+  const run = over.run ?? stub;
+  const { server, queue } = createDeckServer({
+    port: 0,
+    host: "127.0.0.1",
+    work,
+    maxUploadBytes: 1 << 20,
+    maxQueued: 4,
+    ttlMs: 60_000,
+    jobsPerHour: 100,
+    requestsPerMinute: 1000,
+    fetchRemoteFigures: false,
+    sandboxDecks: true,
+    removeDir: () => {},
+    log: (line) => logs.push(line),
+    ...over,
+    run: (job, input) => {
+      counter.runs++;
+      return run(job, input);
+    },
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as AddressInfo).port;
+  const base = `${over.tls ? "https" : "http"}://127.0.0.1:${port}`;
+  servers.push(
+    () =>
+      new Promise<void>((r) => {
+        server.closeAllConnections();
+        server.close(() => r());
+      }),
+  );
+  return {
+    base,
+    port,
+    queue,
+    work,
+    logs,
+    server,
+    get runs() {
+      return counter.runs;
+    },
+  };
+}
+
+interface Posted {
+  status: number;
+  id: string;
+  error?: { message: string; hint: string };
+}
+
+async function post(
+  base: string,
+  parts: Parameters<typeof multipart>[0],
+  headers: Record<string, string> = {},
+): Promise<Posted> {
+  const { body, contentType } = multipart(parts);
+  const res = await fetch(`${base}/api/jobs`, {
+    method: "POST",
+    headers: { ...headers, "content-type": contentType },
+    // `BodyInit` does not name Node's Buffer; the view is over the same bytes.
+    body: new Uint8Array(body.buffer as ArrayBuffer, body.byteOffset, body.byteLength),
+  });
+  const json = (await res.json()) as { id?: string; error?: Posted["error"] };
+  return { status: res.status, id: json.id ?? "", ...(json.error ? { error: json.error } : {}) };
+}
+
+async function settle(base: string, id: string, headers: Record<string, string> = {}) {
+  for (let i = 0; i < 200; i++) {
+    const view = (await (await fetch(`${base}/api/jobs/${id}`, { headers })).json()) as {
+      state: string;
+    };
+    if (view.state === "done" || view.state === "error") return view;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("job never settled");
+}
+
+interface Raw {
+  status: number;
+  headers: IncomingHttpHeaders;
+  text: string;
+  error?: { message: string; hint: string };
+}
+
+/**
+ * A request carrying the headers a BROWSER attaches. `fetch` in Node sends
+ * none of them, and will not let a caller set `host` at all, so every test
+ * above is a non-browser client whether it meant to be or not.
+ *
+ * Over https it trusts the fixture certificate and verifies it as `deck.test`,
+ * whatever `Host` says, so a Host test is about Host and not about TLS.
+ *
+ * `early` writes the headers and the first 64 KB of the body and then WAITS: a
+ * server that answers before reading the body is proved to have answered
+ * before reading it, and the client is not left writing into a socket the
+ * server has already closed.
+ */
+function raw(
+  base: string,
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+  body?: Buffer,
+  early = false,
+): Promise<Raw> {
+  return new Promise((done, failed) => {
+    let answered = false;
+    let rest: NodeJS.Timeout | undefined;
+    const secure = base.startsWith("https:");
+    const options = {
+      method,
+      headers,
+      agent: false as const,
+      ...(secure ? { ca: TLS_CERT, servername: "deck.test" } : {}),
+    };
+    const req = (secure ? httpsRequest : request)(`${base}${path}`, options, (res) => {
+      answered = true;
+      if (rest) clearTimeout(rest);
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString();
+        let error: Raw["error"];
+        try {
+          error = (JSON.parse(text) as { error?: Raw["error"] }).error;
+        } catch {
+          // Not JSON: a page, or nothing.
+        }
+        done({
+          status: res.statusCode ?? 0,
+          headers: res.headers,
+          text,
+          ...(error ? { error } : {}),
+        });
+        if (early) req.destroy();
+      });
+    });
+    req.on("error", (err) => {
+      if (!answered) failed(err);
+    });
+    if (early && body) {
+      req.flushHeaders();
+      req.write(body.subarray(0, 64 * 1024));
+      rest = setTimeout(() => req.end(body.subarray(64 * 1024)), 3000);
+    } else {
+      req.end(body);
+    }
+  });
+}
+
+/**
+ * Bytes on a socket, for the requests no client library will send: a Host
+ * header that is empty or absent, or a request line `new URL` cannot parse.
+ */
+function rawSocket(
+  base: string,
+  text: string,
+): Promise<{ status: number; headers: Record<string, string> }> {
+  const { hostname, port } = new URL(base);
+  return new Promise((done, failed) => {
+    const socket = base.startsWith("https:")
+      ? tlsConnect({ host: hostname, port: Number(port), ca: TLS_CERT, servername: "deck.test" })
+      : netConnect(Number(port), hostname);
+    let got = "";
+    socket.once(base.startsWith("https:") ? "secureConnect" : "connect", () => socket.write(text));
+    socket.on("data", (c: Buffer) => {
+      got += c.toString("latin1");
+    });
+    socket.on("end", () => {
+      const [status = "", ...lines] = (got.split("\r\n\r\n")[0] ?? "").split("\r\n");
+      const headers: Record<string, string> = {};
+      for (const line of lines) {
+        const at = line.indexOf(":");
+        if (at > 0) headers[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim();
+      }
+      done({ status: Number(/^HTTP\/1\.[01] (\d{3})/.exec(status)?.[1] ?? 0), headers });
+    });
+    socket.on("error", failed);
+  });
+}
+
+const upload = () => multipart([{ name: "file", value: "# P\n", filename: "p.md" }]);
+
+/** The header shapes a write from another site arrives with. */
+const CROSS_SITE: [string, Record<string, string>][] = [
+  ["a page on another site", { "sec-fetch-site": "cross-site", origin: "https://evil.example" }],
+  [
+    "another port on the same site",
+    { "sec-fetch-site": "same-site", origin: "http://127.0.0.1:1" },
+  ],
+  ["a browser that predates fetch metadata", { origin: "https://evil.example" }],
+  ["a sandboxed frame", { origin: "null" }],
+];
+
+/** A finished deck on disk, as `serveDeck` reads it; the queue never hears of it. */
+async function deckOnDisk(work: string, html = "<h1>deck</h1>"): Promise<string> {
+  const id = randomBytes(16).toString("base64url");
+  await mkdir(join(work, id, "deck", "assets"), { recursive: true });
+  await writeFile(join(work, id, "deck", "deck.html"), html);
+  await writeFile(join(work, id, "deck", "assets", "fig1.png"), "PNGDATA");
+  return id;
+}
+
+/** A session cookie header for `KEYS`, as a browser would send it. */
+const sessionFor = (at = Date.now(), name = "decksmith") => `${name}=${mintSession(KEYS, at)}`;
+
+/** The name=value of a Set-Cookie line, and its attributes lowercased. */
+function parseSetCookie(line: string): { name: string; value: string; attrs: string[] } {
+  const [pair = "", ...attrs] = line.split(";").map((s) => s.trim());
+  const at = pair.indexOf("=");
+  return {
+    name: pair.slice(0, at),
+    value: pair.slice(at + 1),
+    attrs: attrs.map((a) => a.toLowerCase()),
+  };
+}
 
 /* ------------------------------------------------------------------- the routes */
 
 describe("the HTTP surface", () => {
-  const shut: (() => Promise<void>)[] = [];
-  afterEach(async () => {
-    for (const close of shut.splice(0)) await close();
-  });
-
-  async function serve(over: Partial<Parameters<typeof createDeckServer>[0]> = {}) {
-    const work = await scratch();
-    const { server, queue } = createDeckServer({
-      port: 0,
-      host: "127.0.0.1",
-      work,
-      maxUploadBytes: 1 << 20,
-      maxQueued: 4,
-      ttlMs: 60_000,
-      jobsPerHour: 100,
-      requestsPerMinute: 1000,
-      fetchRemoteFigures: false,
-      sandboxDecks: true,
-      removeDir: () => {},
-      log: () => {},
-      // Writes the deck a real pipeline would write, without being one.
-      run: async (job) => {
-        const { mkdir, writeFile: write } = await import("node:fs/promises");
-        await mkdir(join(job.dir, "deck", "assets"), { recursive: true });
-        await write(join(job.dir, "deck", "deck.html"), "<h1>deck</h1>");
-        await write(join(job.dir, "deck", "assets", "fig1.png"), "PNGDATA");
-        job.begin("ingest");
-        job.done("ingest");
-        return { deckUrl: `/d/${job.id}/deck.html`, slides: 4, duration: 12, warnings: [] };
-      },
-      ...over,
-    });
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    shut.push(() => new Promise<void>((r) => server.close(() => r())));
-    return { base, queue, work };
-  }
-
-  interface Posted {
-    status: number;
-    id: string;
-    error?: { message: string; hint: string };
-  }
-
-  async function post(base: string, parts: Parameters<typeof multipart>[0]): Promise<Posted> {
-    const { body, contentType } = multipart(parts);
-    const res = await fetch(`${base}/api/jobs`, {
-      method: "POST",
-      headers: { "content-type": contentType },
-      // `BodyInit` does not name Node's Buffer; the view is over the same bytes.
-      body: new Uint8Array(body.buffer as ArrayBuffer, body.byteOffset, body.byteLength),
-    });
-    const json = (await res.json()) as { id?: string; error?: Posted["error"] };
-    return { status: res.status, id: json.id ?? "", ...(json.error ? { error: json.error } : {}) };
-  }
-
-  async function settle(base: string, id: string) {
-    for (let i = 0; i < 200; i++) {
-      const view = (await (await fetch(`${base}/api/jobs/${id}`)).json()) as { state: string };
-      if (view.state === "done" || view.state === "error") return view;
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    throw new Error("job never settled");
-  }
+  afterEach(closeServers);
 
   /**
    * BOTH STATIC ROUTES, AND WHY THE ASSERTION IS 500 RATHER THAN 200.
@@ -950,64 +1202,29 @@ describe("the HTTP surface", () => {
   });
 
   /**
-   * A request carrying the headers a BROWSER attaches. `fetch` in Node sends
-   * none of them, and will not let a caller set `host` at all, so every test
-   * above is a non-browser client whether it meant to be or not.
-   */
-  function raw(
-    base: string,
-    method: string,
-    path: string,
-    headers: Record<string, string>,
-    body?: Buffer,
-  ): Promise<{ status: number; error?: { message: string; hint: string } }> {
-    return new Promise((done, failed) => {
-      const req = request(`${base}${path}`, { method, headers }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () => {
-          const json = JSON.parse(Buffer.concat(chunks).toString() || "{}") as {
-            error?: { message: string; hint: string };
-          };
-          done({ status: res.statusCode ?? 0, ...(json.error ? { error: json.error } : {}) });
-        });
-      });
-      req.on("error", failed);
-      req.end(body);
-    });
-  }
-
-  const upload = () => multipart([{ name: "file", value: "# P\n", filename: "p.md" }]);
-
-  /**
    * CSRF. A multipart POST is a CORS-simple request: any page on any site can
    * make its visitor's browser send one, with no preflight, and the job runs on
    * this machine's Codex quota. CORS stops that page READING the answer, not
    * the request being made. What stops it is the browser saying where the
    * request came from — `Sec-Fetch-Site`, or `Origin` where that is missing.
    */
-  it.each([
-    ["a page on another site", { "sec-fetch-site": "cross-site", origin: "https://evil.example" }],
-    [
-      "another port on the same site",
-      { "sec-fetch-site": "same-site", origin: "http://127.0.0.1:1" },
-    ],
-    ["a browser that predates fetch metadata", { origin: "https://evil.example" }],
-    ["a sandboxed frame", { origin: "null" }],
-  ])("refuses a job submitted by %s, without queueing anything", async (_, headers) => {
-    const { base, queue } = await serve();
-    const { body, contentType } = upload();
-    const res = await raw(
-      base,
-      "POST",
-      "/api/jobs",
-      { ...headers, "content-type": contentType },
-      body,
-    );
-    expect(res.status).toBe(403);
-    expect(res.error?.message).toMatch(/another site/);
-    expect(queue.depth).toBe(0);
-  });
+  it.each(CROSS_SITE)(
+    "refuses a job submitted by %s, without queueing anything",
+    async (_, headers) => {
+      const { base, queue } = await serve();
+      const { body, contentType } = upload();
+      const res = await raw(
+        base,
+        "POST",
+        "/api/jobs",
+        { ...headers, "content-type": contentType },
+        body,
+      );
+      expect(res.status).toBe(403);
+      expect(res.error?.message).toMatch(/another site/);
+      expect(queue.depth).toBe(0);
+    },
+  );
 
   it("refuses a retry another site asks for", async () => {
     const { base } = await serve();
@@ -1212,6 +1429,1485 @@ describe("the HTTP surface", () => {
   });
 });
 
+/* ------------------------------------------------------------ the startup policy */
+
+/**
+ * `resolveSecurity`, the whole of what `npm run serve` will and will not start
+ * with. Real files in a scratch directory, because the modes are part of what is
+ * judged; an injected clock, because the certificates are valid for a century.
+ */
+describe("the startup policy", () => {
+  let dir = "";
+  let n = 0;
+  beforeAll(async () => {
+    dir = await scratch();
+  });
+
+  async function put(content: string | Buffer, mode = 0o600, ext = ""): Promise<string> {
+    const path = join(dir, `f${n++}${ext}`);
+    await writeFile(path, content);
+    await chmod(path, mode);
+    return path;
+  }
+  const deps = (now = Date.now()): SecurityDeps => ({
+    readFile: (path) => readFileSync(path),
+    stat: (path) => statSync(path),
+    now: () => now,
+    platform: process.platform,
+  });
+  const tokenFile = (content = `${TOKEN}\n`, mode = 0o600) => put(content, mode);
+  /** The fixture pair; the key copied to 0600, because git does not keep modes. */
+  async function pair(key = readFileSync(tlsFixture("server.key")), cert = TLS_CERT) {
+    return {
+      DECKSMITH_TLS_CERT: await put(cert, 0o644, ".crt"),
+      DECKSMITH_TLS_KEY: await put(key, 0o600, ".key"),
+    };
+  }
+  function refusal(env: NodeJS.ProcessEnv, d = deps()): SecurityRefusal {
+    try {
+      resolveSecurity(env, d);
+    } catch (err) {
+      if (err instanceof SecurityRefusal) return err;
+      throw err;
+    }
+    throw new Error(`expected a refusal for ${Object.keys(env).join(", ")}`);
+  }
+  const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  it("R1: loopback with nothing set is exactly what it was", () => {
+    expect(resolveSecurity({}, deps())).toEqual({
+      host: "127.0.0.1",
+      loopback: true,
+      sandboxDecks: true,
+      warnings: [],
+    });
+    for (const host of ["::1", "localhost"]) {
+      expect(resolveSecurity({ DECKSMITH_HOST: host }, deps()).loopback).toBe(true);
+    }
+  });
+
+  it.each(["0.0.0.0", "::", "127.0.0.2", "192.168.1.10", "::ffff:127.0.0.1", ""])(
+    "R2: DECKSMITH_HOST=%j with nothing else is refused, naming all three and the tunnel",
+    (host) => {
+      const err = refusal({ DECKSMITH_HOST: host });
+      expect(err.problems).toHaveLength(1);
+      for (const said of [
+        "DECKSMITH_TOKEN_FILE",
+        "DECKSMITH_TLS_CERT",
+        "DECKSMITH_TLS_KEY",
+        "openssl rand",
+        "ssh -L",
+      ]) {
+        expect(err.message).toContain(said);
+      }
+    },
+  );
+
+  it("R3: an exposed bind with half of what it needs names exactly the other half", async () => {
+    const tokenOnly = refusal({
+      DECKSMITH_HOST: "0.0.0.0",
+      DECKSMITH_TOKEN_FILE: await tokenFile(),
+    });
+    expect(tokenOnly.problems).toHaveLength(1);
+    expect(tokenOnly.message).toContain("DECKSMITH_TLS_CERT");
+    expect(tokenOnly.message).toContain("DECKSMITH_TLS_KEY");
+    expect(tokenOnly.message).not.toContain("DECKSMITH_TOKEN_FILE");
+
+    const tlsOnly = refusal({ DECKSMITH_HOST: "0.0.0.0", ...(await pair()) });
+    expect(tlsOnly.problems).toHaveLength(1);
+    expect(tlsOnly.message).toContain("DECKSMITH_TOKEN_FILE");
+    expect(tlsOnly.message).not.toMatch(/DECKSMITH_TLS_(CERT|KEY)/);
+  });
+
+  it("R4: half a TLS pair is refused on loopback too, naming the half that is unset", async () => {
+    const { DECKSMITH_TLS_CERT, DECKSMITH_TLS_KEY } = await pair();
+    expect(refusal({ DECKSMITH_TLS_CERT }).message).toMatch(/^DECKSMITH_TLS_KEY is unset/);
+    expect(refusal({ DECKSMITH_TLS_KEY }).message).toMatch(/^DECKSMITH_TLS_CERT is unset/);
+  });
+
+  it("R5: DECKSMITH_TOKEN is refused on any bind, even empty, and points at the file", async () => {
+    const exposed = {
+      DECKSMITH_HOST: "0.0.0.0",
+      DECKSMITH_TOKEN_FILE: await tokenFile(),
+      ...(await pair()),
+    };
+    for (const env of [
+      { DECKSMITH_TOKEN: TOKEN },
+      { DECKSMITH_TOKEN: "" },
+      { ...exposed, DECKSMITH_TOKEN: TOKEN },
+    ]) {
+      const err = refusal(env);
+      expect(err.problems).toHaveLength(1);
+      expect(err.message).toMatch(/^DECKSMITH_TOKEN is set/);
+      expect(err.message).toContain("DECKSMITH_TOKEN_FILE");
+    }
+  });
+
+  it("R6: a token file is refused for each thing wrong with it, and a good one is read", async () => {
+    const missing = join(dir, "no-such-token");
+    const cases: [string, RegExp][] = [
+      [missing, new RegExp(`cannot read DECKSMITH_TOKEN_FILE \\(${literal(missing)}\\): ENOENT`)],
+      [await tokenFile(`${TOKEN}\n`, 0o644), /readable by other users; chmod 600 it/],
+      [await tokenFile("a".repeat(31)), /holds 31 characters; a token needs at least 32/],
+      [await tokenFile(`${"a".repeat(20)} ${"b".repeat(20)}`), /contains whitespace/],
+      [await tokenFile(""), /is empty/],
+      [await tokenFile("\n"), /is empty/],
+      [await tokenFile("a".repeat(1025)), /at most 1024/],
+      [dir, /is not a regular file/],
+    ];
+    for (const [file, message] of cases) {
+      const err = refusal({ DECKSMITH_TOKEN_FILE: file });
+      expect(err.problems, file).toHaveLength(1);
+      expect(err.message).toMatch(message);
+    }
+    // 44 characters and the newline `openssl rand -base64 32 >` writes.
+    for (const content of [`${TOKEN}\n`, `${TOKEN}\r\n`, TOKEN]) {
+      const security = resolveSecurity({ DECKSMITH_TOKEN_FILE: await tokenFile(content) }, deps());
+      expect(security.auth?.tokenHash.equals(KEYS.tokenHash)).toBe(true);
+    }
+  });
+
+  it("R7: the deck sandbox cannot be turned off once there is a token or a network", async () => {
+    const token = await tokenFile();
+    for (const env of [
+      { DECKSMITH_DECK_SANDBOX: "0", DECKSMITH_TOKEN_FILE: token },
+      {
+        DECKSMITH_DECK_SANDBOX: "off",
+        DECKSMITH_HOST: "0.0.0.0",
+        DECKSMITH_TOKEN_FILE: token,
+        ...(await pair()),
+      },
+    ]) {
+      const err = refusal(env);
+      expect(err.problems).toHaveLength(1);
+      expect(err.message).toMatch(/^DECKSMITH_DECK_SANDBOX is off/);
+    }
+    // On bare loopback it is still the operator's call, as it was.
+    expect(resolveSecurity({ DECKSMITH_DECK_SANDBOX: "0" }, deps()).sandboxDecks).toBe(false);
+  });
+
+  const validFrom = Date.parse(TLS.x509.validFrom);
+  const validTo = Date.parse(TLS.x509.validTo);
+  const encryptedKey = (type: "pkcs8" | "pkcs1") =>
+    Buffer.from(
+      type === "pkcs8"
+        ? generateKeyPairSync("ec", {
+            namedCurve: "P-256",
+            privateKeyEncoding: { type, format: "pem", cipher: "aes-256-cbc", passphrase: "p" },
+            publicKeyEncoding: { type: "spki", format: "pem" },
+          }).privateKey
+        : generateKeyPairSync("rsa", {
+            modulusLength: 1024,
+            privateKeyEncoding: { type, format: "pem", cipher: "aes-256-cbc", passphrase: "p" },
+            publicKeyEncoding: { type: "spki", format: "pem" },
+          }).privateKey,
+    );
+
+  /** [what, env, clock, the sentence, the variable whose path it must name] */
+  const TLS_REFUSALS: [
+    string,
+    () => Promise<NodeJS.ProcessEnv>,
+    number | undefined,
+    RegExp,
+    "DECKSMITH_TLS_CERT" | "DECKSMITH_TLS_KEY",
+  ][] = [
+    [
+      "an unreadable certificate path",
+      async () => ({ ...(await pair()), DECKSMITH_TLS_CERT: join(dir, "nope.crt") }),
+      undefined,
+      /^cannot read DECKSMITH_TLS_CERT \(.*nope\.crt\): ENOENT$/,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      "a certificate that is not PEM",
+      async () => ({ ...(await pair()), DECKSMITH_TLS_CERT: await put(`${TOKEN} not a cert`) }),
+      undefined,
+      /^DECKSMITH_TLS_CERT \(.*\) is not a PEM certificate\.$/,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      "the certificate passed as the key",
+      () => pair(TLS_CERT),
+      undefined,
+      /^DECKSMITH_TLS_KEY \(.*\) is not a PEM private key\.$/,
+      "DECKSMITH_TLS_KEY",
+    ],
+    [
+      "an encrypted PKCS#8 key",
+      () => pair(encryptedKey("pkcs8")),
+      undefined,
+      /^DECKSMITH_TLS_KEY \(.*\) is encrypted.*openssl pkey/,
+      "DECKSMITH_TLS_KEY",
+    ],
+    [
+      "a key from another pair",
+      () => pair(readFileSync(tlsFixture("other.key"))),
+      undefined,
+      /^DECKSMITH_TLS_KEY \(.*\) does not belong to the certificate in DECKSMITH_TLS_CERT/,
+      "DECKSMITH_TLS_KEY",
+    ],
+    [
+      "a certificate with only a common name",
+      () => pair(readFileSync(tlsFixture("cn-only.key")), readFileSync(tlsFixture("cn-only.crt"))),
+      undefined,
+      /^DECKSMITH_TLS_CERT \(.*\) has no subjectAltName, and browsers ignore the common name/,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      "an expired certificate",
+      () => pair(),
+      validTo + 1000,
+      /^DECKSMITH_TLS_CERT \(.*\) has expired: .* check this machine's clock\.$/,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      "a certificate not yet valid",
+      () => pair(),
+      validFrom - 1000,
+      /^DECKSMITH_TLS_CERT \(.*\) is not yet valid: .* check this machine's clock\.$/,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      "a key other users can read",
+      async () => ({
+        ...(await pair()),
+        DECKSMITH_TLS_KEY: await put(readFileSync(tlsFixture("server.key")), 0o644),
+      }),
+      undefined,
+      /^DECKSMITH_TLS_KEY \(.*\) is readable by other users; chmod 600 it\.$/,
+      "DECKSMITH_TLS_KEY",
+    ],
+  ];
+
+  it.each(TLS_REFUSALS)(
+    "R8: refuses %s in a sentence of its own",
+    async (_, env, now, sentence, variable) => {
+      const e = await env();
+      const err = refusal(e, deps(now));
+      expect(err.problems).toHaveLength(1);
+      expect(err.message).toMatch(sentence);
+      expect(err.message).toContain(`${variable} (${e[variable]})`);
+      expect(err.message).not.toContain("-----BEGIN");
+      expect(err.message).not.toContain(TOKEN);
+    },
+  );
+
+  it("R8: no two of those refusals say the same thing", async () => {
+    const said = new Set<string>();
+    for (const [, env, now] of TLS_REFUSALS) {
+      said.add(refusal(await env(), deps(now)).message.replace(/\([^)]*\)/g, "(path)"));
+    }
+    expect(said.size).toBe(TLS_REFUSALS.length);
+    // An old-style encrypted key is the same failure and gets the same sentence.
+    expect(refusal(await pair(encryptedKey("pkcs1"))).message).toMatch(/is encrypted/);
+  });
+
+  it("R9: a certificate that expires within 14 days starts, with one warning", async () => {
+    const security = resolveSecurity(await pair(), deps(validTo - 10 * 86_400_000));
+    expect(security.tls?.x509.subjectAltName).toContain("DNS:deck.test");
+    expect(security.warnings).toHaveLength(1);
+    expect(security.warnings[0]).toMatch(/expires .*, in 10 day\(s\)/);
+  });
+
+  it("R10: no refusal, banner or warning carries the token", async () => {
+    const said: string[] = [];
+    const run = (env: NodeJS.ProcessEnv, d = deps()) => {
+      try {
+        const security: Security = resolveSecurity(env, d);
+        said.push(...securityBanner(security, 8475), ...security.warnings);
+      } catch (err) {
+        if (!(err instanceof SecurityRefusal)) throw err;
+        said.push(err.message);
+      }
+    };
+    run({ DECKSMITH_TOKEN: TOKEN });
+    run({ DECKSMITH_TOKEN_FILE: await tokenFile(`${TOKEN}\n`, 0o644) });
+    run({ DECKSMITH_TOKEN_FILE: await tokenFile(`${TOKEN} ${TOKEN}`) });
+    run({ DECKSMITH_TOKEN_FILE: await tokenFile(TOKEN.slice(0, 31)) });
+    run({ DECKSMITH_TOKEN_FILE: await tokenFile(TOKEN.repeat(30)) });
+    run({ DECKSMITH_HOST: "0.0.0.0", DECKSMITH_TOKEN_FILE: await tokenFile() });
+    run({ DECKSMITH_DECK_SANDBOX: "0", DECKSMITH_TOKEN_FILE: await tokenFile() });
+    run({ ...(await pair()), DECKSMITH_TLS_CERT: await put(TOKEN) });
+    run(await pair(Buffer.from(TOKEN)));
+    for (const [, env, now] of TLS_REFUSALS) run(await env(), deps(now));
+    // And the two banners a server that starts prints.
+    run({ DECKSMITH_TOKEN_FILE: await tokenFile() });
+    run(
+      { DECKSMITH_HOST: "0.0.0.0", DECKSMITH_TOKEN_FILE: await tokenFile(), ...(await pair()) },
+      deps(validTo - 86_400_000),
+    );
+    expect(said.join("\n")).toContain("auth: token from");
+    expect(said.join("\n")).toContain("https://0.0.0.0:8475");
+    expect(said.join("\n")).toContain("expires");
+    expect(said.filter((line) => line.includes("SENTINEL"))).toEqual([]);
+  });
+
+  it("R11: createDeckServer itself refuses an exposed bind without both auth and tls", async () => {
+    const options: ServeOptions = {
+      port: 0,
+      host: "0.0.0.0",
+      work: await scratch(),
+      maxUploadBytes: 1 << 20,
+      maxQueued: 4,
+      ttlMs: 60_000,
+      jobsPerHour: 100,
+      requestsPerMinute: 1000,
+      fetchRemoteFigures: false,
+      sandboxDecks: true,
+      removeDir: () => {},
+      log: () => {},
+    };
+    expect(() => createDeckServer(options)).toThrow(/needs both `auth` and `tls`/);
+    expect(() => createDeckServer({ ...options, auth: KEYS })).toThrow(/needs both/);
+    expect(() => createDeckServer({ ...options, tls: TLS })).toThrow(/needs both/);
+    expect(() => createDeckServer({ ...options, auth: KEYS, tls: TLS })).not.toThrow();
+    expect(() =>
+      createDeckServer({ ...options, host: "127.0.0.1", auth: KEYS, sandboxDecks: false }),
+    ).toThrow(/sandboxDecks: false/);
+  });
+});
+
+/* ------------------------------------------------------------- the built server */
+
+/**
+ * The file `npm run serve` runs, not the source. A refusal proved against
+ * src/server/auth.ts says nothing about whether dist/server/main.js calls it
+ * before it listens — or at all.
+ */
+describe("the built server", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  afterEach(closeServers);
+
+  beforeAll(async () => {
+    // FAILS, never skips. CI's `npm ci` builds dist/ through `prepare`, so this
+    // only fires on a checkout nobody built — which is the one place a skip
+    // would be read as a pass.
+    if (!existsSync(join(root, "dist", "index.js"))) {
+      throw new Error(
+        "dist/index.js is missing. Run `npm run build` first: `npm run check` does not build, and these tests start the built server.",
+      );
+    }
+    await execFileP("npm", ["run", "build:server"], { cwd: root });
+  }, 120_000);
+
+  it("R12: refuses an exposed bind before it listens, and before it creates the work directory", async () => {
+    const work = join(await scratch(), "w");
+    const env: NodeJS.ProcessEnv = {};
+    for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("DECKSMITH_")) env[k] = v;
+    // TEST-NET-1: no machine has this address, so a listen() would fail with
+    // EADDRNOTAVAIL. Not seeing that is what proves the refusal came first.
+    const child = spawn(process.execPath, [join(root, "dist", "server", "main.js")], {
+      env: { ...env, DECKSMITH_HOST: "192.0.2.1", DECKSMITH_WORK: work },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr?.on("data", (c: Buffer) => {
+      stderr += c.toString();
+    });
+    const code = await new Promise<number | null>((resolve) => {
+      // Only this child, by its own handle, and only if it outlives the budget.
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve(null);
+      }, 5000);
+      child.on("close", (c) => {
+        clearTimeout(timer);
+        resolve(c);
+      });
+    });
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain("refusing to start");
+    expect(stderr).toContain("DECKSMITH_TOKEN_FILE");
+    expect(stderr).not.toContain("EADDRNOTAVAIL");
+    expect(existsSync(work)).toBe(false);
+  }, 15_000);
+
+  /**
+   * The HTML routes, from the build, because only the build has them: from
+   * source, /examples/embed.html and /player.js are the 500s the route test
+   * above describes.
+   */
+  it("F1: serves its pages unframeable but unsandboxed, and embed.html only with the token", async () => {
+    const built = (await import(pathToFileURL(join(root, "dist", "server", "http.js")).href)) as {
+      createDeckServer: typeof createDeckServer;
+    };
+    const { server } = built.createDeckServer({
+      port: 0,
+      host: "127.0.0.1",
+      work: await scratch(),
+      maxUploadBytes: 1 << 20,
+      maxQueued: 4,
+      ttlMs: 60_000,
+      jobsPerHour: 100,
+      requestsPerMinute: 1000,
+      fetchRemoteFigures: false,
+      sandboxDecks: true,
+      removeDir: () => {},
+      log: () => {},
+      auth: KEYS,
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    servers.push(() => new Promise<void>((r) => server.close(() => r())));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    expect((await raw(base, "GET", "/examples/embed.html", {})).status).toBe(401);
+    const player = await raw(base, "GET", "/player.js", {});
+    expect(player.status).toBe(200);
+    expect(player.headers["content-type"]).toMatch(/javascript/);
+
+    const pages: [string, Raw, string][] = [
+      ["embed.html", await raw(base, "GET", "/examples/embed.html", BEARER), "decksmith-player"],
+      ["the login page", await raw(base, "GET", "/", {}), 'name="token"'],
+      ["the uploader", await raw(base, "GET", "/", { cookie: sessionFor() }), 'id="compose"'],
+    ];
+    for (const [what, page, marker] of pages) {
+      expect(page.status, what).toBe(200);
+      expect(page.text, what).toContain(marker);
+      expect(page.headers["x-frame-options"], what).toBe("DENY");
+      const csp = page.headers["content-security-policy"] ?? "";
+      expect(csp, what).toContain("frame-ancestors 'none'");
+      expect(csp, what).toContain("form-action 'self'");
+      expect(csp, what).not.toContain("sandbox");
+    }
+    // The real uploader, with the form that only a server with a token draws.
+    expect(pages[2]?.[1].text).toContain('action="/logout"');
+  });
+});
+
+/* -------------------------------------------------------------- the token gate */
+
+describe("the token gate", () => {
+  afterEach(closeServers);
+  const authed = (over: Partial<ServeOptions> = {}) => serve({ auth: KEYS, ...over });
+  const form = {
+    "content-type": "application/x-www-form-urlencoded",
+    "sec-fetch-site": "same-origin",
+    origin: "null",
+  };
+  const credentials = (token: string) =>
+    Buffer.from(new URLSearchParams({ username: "decksmith", token }).toString());
+
+  it.each([
+    ["GET", "/api/formats"],
+    ["GET", "/api/jobs/<kept>"],
+    ["GET", "/api/jobs/<kept>/events"],
+    ["POST", "/api/jobs"],
+    ["POST", "/api/jobs/<kept>/retry"],
+    ["GET", "/examples/embed.html"],
+    ["GET", "/nope"],
+    ["PUT", "/d/x"],
+    ["OPTIONS", "/api/jobs"],
+  ])(
+    "A1: %s %s without credentials is 401, the same 401, and nothing runs",
+    async (method, template) => {
+      const s = await authed();
+      // A job a retry could resume, so a 401 is not merely the 404 it would have been.
+      const kept = randomBytes(16).toString("base64url");
+      await mkdir(join(s.work, kept), { recursive: true });
+      await writeFile(
+        join(s.work, kept, "job.json"),
+        JSON.stringify({ filename: "p.md", fields: {}, createdAt: 0 }),
+      );
+      await writeFile(join(s.work, kept, "upload.bin"), "# P\n");
+      const path = template.replace("<kept>", kept);
+
+      const reference = await raw(s.base, "GET", "/api/formats", {});
+      const big = method === "POST" && path === "/api/jobs";
+      const res = big
+        ? await raw(
+            s.base,
+            method,
+            path,
+            { "content-type": "multipart/form-data; boundary=x" },
+            Buffer.alloc(1 << 20, 97),
+            true,
+          )
+        : await raw(s.base, method, path, {});
+      expect(res.status).toBe(401);
+      expect(res.headers["www-authenticate"]).toBe('Bearer realm="decksmith"');
+      expect(res.text).toBe(reference.text);
+      if (method !== "GET") expect(res.headers.connection).toBe("close");
+      expect(s.queue.depth).toBe(0);
+      expect(s.runs).toBe(0);
+    },
+  );
+
+  it("A2: the public routes answer without credentials, and none of them sets a cookie", async () => {
+    const s = await authed();
+    const id = await deckOnDisk(s.work);
+    const page = await raw(s.base, "GET", "/", {});
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('name="token"');
+    expect(page.text).toContain('autocomplete="current-password"');
+    expect(page.text).not.toContain('id="compose"');
+    expect(page.text).not.toContain("<script");
+    expect(page.headers["cache-control"]).toBe("no-store");
+    const player = await raw(s.base, "GET", "/player.js", {});
+    expect(player.status).not.toBe(401);
+    const decks = [
+      await raw(s.base, "GET", `/d/${id}/deck.html`, {}),
+      await raw(s.base, "HEAD", `/d/${id}/deck.html`, {}),
+    ];
+    for (const deck of decks) {
+      expect(deck.status).toBe(200);
+      expect(deck.headers["content-security-policy"]).toBe(DECK_CSP);
+    }
+    for (const r of [page, player, ...decks]) expect(r.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("A3: a bearer is the token or it is 401, whatever shape it arrives in", async () => {
+    const s = await authed();
+    const { body, contentType } = upload();
+    const submit = (headers: Record<string, string>, path = "/api/jobs") =>
+      raw(s.base, "POST", path, { ...headers, "content-type": contentType }, body);
+    expect((await submit(BEARER)).status).toBe(202);
+    expect((await submit({ authorization: `bearer ${TOKEN}` })).status).toBe(202);
+    for (const authorization of [
+      `Bearer ${TOKEN}x`,
+      "Bearer k",
+      `Bearer ${"k".repeat(10_000)}`,
+      `Basic ${Buffer.from(`decksmith:${TOKEN}`).toString("base64")}`,
+      "Bearer",
+      `Bearer ${TOKEN} extra`,
+    ]) {
+      expect((await submit({ authorization })).status, authorization.slice(0, 24)).toBe(401);
+    }
+    expect((await submit({}, `/api/jobs?token=${TOKEN}`)).status).toBe(401);
+  });
+
+  it("A4: a wrong bearer beside a valid cookie is a wrong bearer", async () => {
+    const s = await authed();
+    const cookie = sessionFor();
+    expect((await raw(s.base, "GET", "/api/formats", { cookie })).status).toBe(200);
+    const both = await raw(s.base, "GET", "/api/formats", { cookie, authorization: "Bearer nope" });
+    expect(both.status).toBe(401);
+  });
+
+  it("A5: logging in answers 303 to / with a Strict, HttpOnly cookie and the token nowhere", async () => {
+    const s = await authed();
+    const res = await raw(s.base, "POST", "/login", form, credentials(TOKEN));
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe("/");
+    const set = res.headers["set-cookie"] ?? [];
+    expect(set).toHaveLength(1);
+    const cookie = parseSetCookie(set[0] as string);
+    expect(cookie.name).toBe("decksmith");
+    expect(cookie.value).toMatch(/^\d{10}\.[A-Za-z0-9_-]{43}$/);
+    expect(cookie.attrs).toEqual(
+      expect.arrayContaining(["path=/", "httponly", "samesite=strict", "max-age=604800"]),
+    );
+    expect(cookie.attrs.filter((a) => a.startsWith("domain") || a === "secure")).toEqual([]);
+    expect(JSON.stringify(res.headers) + res.text).not.toContain(TOKEN);
+  });
+
+  it("A6: a failed login is a 401 page that repeats nothing; a big one is 413; another site's is 403", async () => {
+    const s = await authed();
+    const wrong = await raw(s.base, "POST", "/login", form, credentials("TYPED-BY-SOMEONE-ELSE"));
+    expect(wrong.status).toBe(401);
+    expect(wrong.headers["content-type"]).toMatch(/text\/html/);
+    expect(wrong.headers["set-cookie"]).toBeUndefined();
+    expect(wrong.text).toContain('name="token"');
+    expect(wrong.text).toContain('role="alert"');
+    expect(wrong.text).not.toContain("TYPED-BY-SOMEONE-ELSE");
+
+    const big = await raw(s.base, "POST", "/login", form, Buffer.from(`token=${"a".repeat(5000)}`));
+    expect(big.status).toBe(413);
+    expect(big.headers["set-cookie"]).toBeUndefined();
+
+    const cross = await raw(
+      s.base,
+      "POST",
+      "/login",
+      { ...form, "sec-fetch-site": "cross-site", origin: "https://evil.example" },
+      credentials(TOKEN),
+    );
+    expect(cross.status).toBe(403);
+    expect(cross.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("A7: the cookie alone opens the uploader, a job, its events, and the no-script form", async () => {
+    const s = await authed();
+    const cookie = sessionFor();
+    const page = await raw(s.base, "GET", "/", { cookie });
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('id="compose"');
+    expect(page.text).toContain('action="/logout"');
+    expect(page.headers.vary).toBe("Cookie");
+
+    const { id } = await post(s.base, [{ name: "file", value: "# P\n", filename: "p.md" }], BEARER);
+    expect((await raw(s.base, "GET", `/api/jobs/${id}`, { cookie })).status).toBe(200);
+    const events = await raw(s.base, "GET", `/api/jobs/${id}/events`, { cookie });
+    expect(events.headers["content-type"]).toBe("text/event-stream");
+    expect(events.text).toMatch(/^data: /m);
+
+    // What the uploader's own <form> sends with script off: K2's `Origin: null`.
+    const { body, contentType } = upload();
+    const noScript = await raw(
+      s.base,
+      "POST",
+      "/api/jobs",
+      {
+        cookie,
+        "content-type": contentType,
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "navigate",
+        origin: "null",
+      },
+      body,
+    );
+    expect(noScript.status).toBe(202);
+  });
+
+  it("A8: a cookie write with neither Sec-Fetch-Site nor Origin is refused; a bearer write is not", async () => {
+    const s = await authed();
+    const { body, contentType } = upload();
+    const cookieWrite = await raw(
+      s.base,
+      "POST",
+      "/api/jobs",
+      { cookie: sessionFor(), "content-type": contentType },
+      body,
+    );
+    expect(cookieWrite.status).toBe(403);
+    expect(s.queue.depth).toBe(0);
+    expect(s.runs).toBe(0);
+    const bearerWrite = await raw(
+      s.base,
+      "POST",
+      "/api/jobs",
+      { ...BEARER, "content-type": contentType },
+      body,
+    );
+    expect(bearerWrite.status).toBe(202);
+  });
+
+  it.each(CROSS_SITE)(
+    "A9: a job submitted by %s is refused even with a valid session",
+    async (_, headers) => {
+      const s = await authed();
+      const { body, contentType } = upload();
+      const res = await raw(
+        s.base,
+        "POST",
+        "/api/jobs",
+        { ...headers, cookie: sessionFor(), "content-type": contentType },
+        body,
+      );
+      expect(res.status).toBe(403);
+      expect(res.error?.message).toMatch(/another site/);
+      expect(s.queue.depth).toBe(0);
+      expect(s.runs).toBe(0);
+    },
+  );
+
+  it("A10: a session is its MAC and its expiry, and survives a restart", async () => {
+    const t0 = 1_900_000_000_000;
+    let clock = t0;
+    const s = await authed({ now: () => clock });
+    const status = async (cookie: string, base = s.base) =>
+      (await raw(base, "GET", "/api/formats", { cookie })).status;
+    const login = await raw(s.base, "POST", "/login", form, credentials(TOKEN));
+    const minted = parseSetCookie((login.headers["set-cookie"] ?? [])[0] as string).value;
+    const [exp = "", mac = ""] = minted.split(".");
+    expect(Number(exp)).toBe(Math.floor(t0 / 1000) + 604_800);
+    expect(await status(`decksmith=${minted}`)).toBe(200);
+
+    expect(await status(`decksmith=${Number(exp) + 1}.${mac}`)).toBe(401);
+    expect(await status(`decksmith=${mintSession(authKeys(`${TOKEN}-rotated`), t0)}`)).toBe(401);
+    // A restart: a second server, the same token, no state shared.
+    const restarted = await authed({ now: () => clock });
+    expect(await status(`decksmith=${minted}`, restarted.base)).toBe(200);
+
+    clock = Number(exp) * 1000 - 1000;
+    expect(await status(`decksmith=${minted}`)).toBe(200);
+    clock = Number(exp) * 1000;
+    expect(await status(`decksmith=${minted}`)).toBe(401);
+
+    // Minted further out than this server ever mints, past a minute of skew.
+    clock = t0;
+    expect(await status(`decksmith=${mintSession(KEYS, t0 + 2 * 60_000)}`)).toBe(401);
+    expect(await status(`decksmith=${mintSession(KEYS, t0 + 30_000)}`)).toBe(200);
+
+    expect(await status(`decksmith=junk; decksmith=${minted}`)).toBe(200);
+    expect(await status("decksmith=junk")).toBe(401);
+  });
+
+  it("A11: logging out clears the cookie by name, and only for this site", async () => {
+    const s = await authed();
+    const out = await raw(s.base, "POST", "/logout", {
+      cookie: sessionFor(),
+      "sec-fetch-site": "same-origin",
+      origin: "null",
+    });
+    expect(out.status).toBe(303);
+    expect(out.headers.location).toBe("/");
+    const cleared = parseSetCookie((out.headers["set-cookie"] ?? [])[0] as string);
+    expect(cleared.name).toBe("decksmith");
+    expect(cleared.value).toBe("");
+    expect(cleared.attrs).toEqual(
+      expect.arrayContaining(["path=/", "httponly", "samesite=strict", "max-age=0"]),
+    );
+    const cross = await raw(s.base, "POST", "/logout", { "sec-fetch-site": "cross-site" });
+    expect(cross.status).toBe(403);
+    expect(cross.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("A12: ten wrong tokens refuse the eleventh even when it is right, for fifteen minutes", async () => {
+    let clock = 1_900_000_000_000;
+    const s = await authed({ now: () => clock });
+    for (let i = 0; i < 10; i++) {
+      expect((await raw(s.base, "POST", "/login", form, credentials(`wrong-${i}`))).status).toBe(
+        401,
+      );
+    }
+    expect((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).status).toBe(429);
+    expect((await raw(s.base, "GET", "/api/formats", BEARER)).status).toBe(429);
+    // A cookie is not a guess, so it is not held back with them.
+    expect((await raw(s.base, "GET", "/api/formats", { cookie: sessionFor(clock) })).status).toBe(
+      200,
+    );
+    clock += 15 * 60_000;
+    expect((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).status).toBe(303);
+  });
+
+  it("A12: wrong bearers spend the same budget, and right ones spend none", async () => {
+    const s = await authed();
+    for (let i = 0; i < 50; i++) {
+      expect((await raw(s.base, "GET", "/api/formats", BEARER)).status).toBe(200);
+    }
+    expect((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).status).toBe(303);
+    for (let i = 0; i < 5; i++) {
+      expect((await raw(s.base, "POST", "/login", form, credentials(`wrong-${i}`))).status).toBe(
+        401,
+      );
+      expect(
+        (await raw(s.base, "GET", "/api/formats", { authorization: `Bearer wrong-${i}` })).status,
+      ).toBe(401);
+    }
+    expect((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).status).toBe(429);
+    // Neither a missing credential nor a malformed one is a guess.
+    expect((await raw(s.base, "GET", "/api/formats", {})).status).toBe(401);
+  });
+
+  it("A13: the log names refusals and never carries the token or a session", async () => {
+    const s = await authed();
+    const port = s.port;
+    const session = parseSetCookie(
+      ((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).headers["set-cookie"] ??
+        [])[0] as string,
+    ).value;
+    const cookie = `decksmith=${session}`;
+    await raw(s.base, "POST", "/login", form, credentials(`${TOKEN}-typo`));
+    await raw(s.base, "GET", "/api/formats", BEARER);
+    await raw(s.base, "GET", "/api/formats", { authorization: `Bearer ${TOKEN}x` });
+    const { body, contentType } = upload();
+    const job = await raw(
+      s.base,
+      "POST",
+      "/api/jobs",
+      { cookie, "content-type": contentType, "sec-fetch-site": "same-origin" },
+      body,
+    );
+    const { id } = JSON.parse(job.text) as { id: string };
+    await raw(s.base, "GET", `/api/jobs/${id}/events`, { cookie });
+    await raw(s.base, "POST", "/api/jobs", { ...BEARER, "sec-fetch-site": "cross-site" });
+    await raw(s.base, "GET", "/api/formats", { ...BEARER, host: `evil.example:${port}` });
+    await raw(s.base, "GET", `/api/formats?token=${TOKEN}`, { cookie });
+    const forced = await rawSocket(
+      s.base,
+      `GET http://[ HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${TOKEN}\r\nCookie: ${cookie}\r\nConnection: close\r\n\r\n`,
+    );
+    expect(forced.status).toBe(500);
+
+    const log = s.logs.join("\n");
+    expect(log).toMatch(/^login: refused from /m);
+    expect(log).toMatch(/^auth: wrong bearer on GET \/api\/formats from /m);
+    expect(log).toMatch(/^refused: POST \/api\/jobs — Refused a request from another site/m);
+    expect(log).toMatch(/^error: /m);
+    expect(log).not.toContain("SENTINEL");
+    expect(log).not.toContain(session);
+    expect(log).not.toContain(session.split(".")[1] as string);
+  });
+
+  it("A14: the logout form is drawn only with a token, and a 401 stops the page's polling", () => {
+    expect(uiPage({ auth: true })).toContain('action="/logout"');
+    expect(uiPage()).not.toContain('action="/logout"');
+    // The page as the browser receives it.
+    const html = uiPage();
+    const watch = /function watch\(id\)\{[\s\S]*?\n\}/.exec(html)?.[0] ?? "";
+    const poll = /function poll\(\)\{[\s\S]*?\n {2}\}/.exec(watch)?.[0] ?? "";
+    const loggedOut = /function loggedOut\(\)\{[\s\S]*?\n {2}\}/.exec(watch)?.[0] ?? "";
+    const terminal = "if (r.status === 401) { loggedOut(); return null; }";
+    expect(poll).toContain(terminal);
+    // Once in poll, once in the first read, and nowhere that goes round again.
+    expect(watch.split(terminal)).toHaveLength(3);
+    expect(loggedOut).toContain("teardown();");
+    expect(loggedOut).not.toContain("setTimeout");
+    expect(loggedOut).toContain("keeps running on the server");
+  });
+});
+
+/* ------------------------------------------------------- a certificate's names */
+
+describe("an exposed bind, over https", () => {
+  afterEach(closeServers);
+  const exposed = (over: Partial<ServeOptions> = {}) =>
+    serve({ host: "0.0.0.0", auth: KEYS, tls: TLS, ...over });
+
+  it("H1: speaks TLS, and plain http gets no answer at all", async () => {
+    const s = await exposed();
+    const ok = await raw(s.base, "GET", "/api/formats", { ...BEARER, host: `deck.test:${s.port}` });
+    expect(ok.status).toBe(200);
+    const { body, contentType } = upload();
+    const plain = await raw(
+      `http://127.0.0.1:${s.port}`,
+      "POST",
+      "/api/jobs",
+      { ...BEARER, "content-type": contentType },
+      body,
+    ).then(
+      (r) => `HTTP ${r.status}`,
+      (err: NodeJS.ErrnoException) => err.code,
+    );
+    // A TLS alert, or a reset: bytes no HTTP parser accepts, and never a status line.
+    expect(plain).not.toMatch(/^HTTP/);
+    expect(s.queue.depth).toBe(0);
+    expect(s.runs).toBe(0);
+  });
+
+  it.each(["deck.test", "DECK.TEST", "a.wild.test", "127.0.0.1", "[::1]"])(
+    "H2: answers to %s, which the certificate names",
+    async (name) => {
+      const s = await exposed();
+      const res = await raw(s.base, "GET", "/api/formats", {
+        ...BEARER,
+        host: `${name}:${s.port}`,
+      });
+      expect(res.status).toBe(200);
+    },
+  );
+
+  it.each(["evil.example", "b.a.wild.test", "cn-only.test", "10.0.0.6"])(
+    "H2: refuses %s on a read and on a write, and lists the names it answers to",
+    async (name) => {
+      const s = await exposed();
+      const host = `${name}:${s.port}`;
+      const read = await raw(s.base, "GET", "/api/formats", { ...BEARER, host });
+      expect(read.status).toBe(403);
+      expect(read.error?.hint).toContain("DNS:deck.test, DNS:*.wild.test");
+      const { body, contentType } = upload();
+      const write = await raw(
+        s.base,
+        "POST",
+        "/api/jobs",
+        { ...BEARER, host, "content-type": contentType },
+        body,
+      );
+      expect(write.status).toBe(403);
+      expect(s.queue.depth).toBe(0);
+      expect(s.runs).toBe(0);
+    },
+  );
+
+  /**
+   * An EMPTY Host reaches the handler and is refused there. An absent one is
+   * refused there too over HTTP/1.0; over HTTP/1.1 Node answers 400 itself before
+   * any handler runs (`requireHostHeader`), which is a refusal all the same.
+   */
+  it("H2: refuses an empty Host and a missing one", async () => {
+    const s = await exposed();
+    const auth = `Authorization: Bearer ${TOKEN}\r\n`;
+    const empty = await rawSocket(
+      s.base,
+      `GET /api/formats HTTP/1.1\r\nHost:\r\n${auth}Connection: close\r\n\r\n`,
+    );
+    expect(empty.status).toBe(403);
+    const emptyWrite = await rawSocket(
+      s.base,
+      `POST /api/jobs HTTP/1.1\r\nHost:\r\n${auth}Content-Length: 0\r\nConnection: close\r\n\r\n`,
+    );
+    expect(emptyWrite.status).toBe(403);
+    expect((await rawSocket(s.base, `GET /api/formats HTTP/1.0\r\n${auth}\r\n`)).status).toBe(403);
+    expect(
+      (await rawSocket(s.base, `GET /api/formats HTTP/1.1\r\n${auth}Connection: close\r\n\r\n`))
+        .status,
+    ).toBe(400);
+    expect(s.runs).toBe(0);
+  });
+
+  it("H3: without fetch metadata, the Origin a cookie write needs is the https one", async () => {
+    const s = await exposed();
+    const cookie = sessionFor(Date.now(), "__Host-decksmith");
+    const host = `deck.test:${s.port}`;
+    const { body, contentType } = upload();
+    const submit = (origin: string) =>
+      raw(s.base, "POST", "/api/jobs", { cookie, host, origin, "content-type": contentType }, body);
+    expect((await submit(`https://${host}`)).status).toBe(202);
+    expect((await submit(`http://${host}`)).status).toBe(403);
+    // And over TLS the plain name is not the session's.
+    const plainName = await raw(s.base, "GET", "/api/formats", { cookie: sessionFor(), host });
+    expect(plainName.status).toBe(401);
+  });
+
+  it("H4: logging in over https sets __Host-decksmith, Secure, on / and no Domain", async () => {
+    const s = await exposed();
+    const res = await raw(
+      s.base,
+      "POST",
+      "/login",
+      {
+        "content-type": "application/x-www-form-urlencoded",
+        "sec-fetch-site": "same-origin",
+        host: `deck.test:${s.port}`,
+      },
+      Buffer.from(`token=${TOKEN}`),
+    );
+    expect(res.status).toBe(303);
+    const cookie = parseSetCookie((res.headers["set-cookie"] ?? [])[0] as string);
+    expect(cookie.name).toBe("__Host-decksmith");
+    expect(cookie.attrs).toEqual(
+      expect.arrayContaining(["secure", "path=/", "httponly", "samesite=strict"]),
+    );
+    expect(cookie.attrs.filter((a) => a.startsWith("domain"))).toEqual([]);
+  });
+
+  it("H5: refuses TLS 1.1, and the refusal is the server's", async () => {
+    const s = await exposed();
+    const outcome = await new Promise<string>((resolve) => {
+      const socket = tlsConnect({
+        host: "127.0.0.1",
+        port: s.port,
+        ca: TLS_CERT,
+        servername: "deck.test",
+        minVersion: "TLSv1",
+        maxVersion: "TLSv1.1",
+        // OpenSSL 3 will not OFFER 1.1 at its default security level; without
+        // this the client refuses itself and the test proves nothing about the
+        // server. With it, what comes back is the server's protocol_version alert.
+        ciphers: "DEFAULT@SECLEVEL=0",
+      });
+      socket.on("secureConnect", () => {
+        socket.destroy();
+        resolve("connected");
+      });
+      socket.on("error", (err: NodeJS.ErrnoException) => resolve(err.code ?? err.message));
+    });
+    expect(outcome).toBe("ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION");
+  });
+});
+
+/* ------------------------------------------------------------------ framing */
+
+describe("what may be framed", () => {
+  afterEach(closeServers);
+
+  /** [what, how to get it, the status it must be] — run with the token off and on. */
+  const LOCKED: [
+    string,
+    (auth: boolean) => Promise<{ status: number; headers: Record<string, unknown> }>,
+    number,
+  ][] = [
+    [
+      "the format catalogue",
+      async (auth) =>
+        raw((await serve(auth ? { auth: KEYS } : {})).base, "GET", "/api/formats", BEARER),
+      200,
+    ],
+    ["a 401", async () => raw((await serve({ auth: KEYS })).base, "GET", "/api/formats", {}), 401],
+    [
+      "a 403 for a name the server does not answer to",
+      async (auth) => {
+        const s = await serve(auth ? { auth: KEYS } : {});
+        return raw(s.base, "GET", "/api/formats", { ...BEARER, host: `evil.example:${s.port}` });
+      },
+      403,
+    ],
+    [
+      "a route 404",
+      async (auth) =>
+        raw((await serve(auth ? { auth: KEYS } : {})).base, "GET", "/api/nope", BEARER),
+      404,
+    ],
+    [
+      "a 413",
+      async (auth) => {
+        const s = await serve({ maxUploadBytes: 512, ...(auth ? { auth: KEYS } : {}) });
+        const { body, contentType } = multipart([
+          { name: "file", value: "#".repeat(2000), filename: "big.md" },
+        ]);
+        return raw(s.base, "POST", "/api/jobs", { ...BEARER, "content-type": contentType }, body);
+      },
+      413,
+    ],
+    [
+      "a 429",
+      async (auth) => {
+        const s = await serve({ requestsPerMinute: 1, ...(auth ? { auth: KEYS } : {}) });
+        await raw(s.base, "GET", "/api/formats", BEARER);
+        return raw(s.base, "GET", "/api/formats", BEARER);
+      },
+      429,
+    ],
+    [
+      "a 500",
+      async (auth) => {
+        const s = await serve(auth ? { auth: KEYS } : {});
+        return rawSocket(
+          s.base,
+          `GET http://[ HTTP/1.1\r\nHost: 127.0.0.1:${s.port}\r\nConnection: close\r\n\r\n`,
+        );
+      },
+      500,
+    ],
+    [
+      "a /d/ 400",
+      async (auth) => {
+        const s = await serve(auth ? { auth: KEYS } : {});
+        return raw(s.base, "GET", `/d/${await deckOnDisk(s.work)}/%2e%2e%2fsecret.txt`, {});
+      },
+      400,
+    ],
+    [
+      "a /d/ traversal in the id",
+      async (auth) =>
+        raw((await serve(auth ? { auth: KEYS } : {})).base, "GET", "/d/..%2f..%2fetc/passwd", {}),
+      404,
+    ],
+    [
+      "a /d/ file that is not there",
+      async (auth) => {
+        const s = await serve(auth ? { auth: KEYS } : {});
+        return raw(s.base, "GET", `/d/${await deckOnDisk(s.work)}/nothing.html`, {});
+      },
+      404,
+    ],
+    [
+      "a 416",
+      async (auth) => {
+        const s = await serve(auth ? { auth: KEYS } : {});
+        return raw(s.base, "GET", `/d/${await deckOnDisk(s.work)}/assets/fig1.png`, {
+          range: "bytes=100-",
+        });
+      },
+      416,
+    ],
+  ];
+
+  const cases = LOCKED.flatMap(([what, get, status]) =>
+    [false, true].map((auth) => [what, auth, get, status] as const),
+  ).filter(([what, auth]) => auth || what !== "a 401");
+
+  it.each(cases)("F1: %s (token %s) is unframeable and sandboxed", async (_, auth, get, status) => {
+    const res = await get(auth);
+    expect(res.status).toBe(status);
+    expect(res.headers["x-frame-options"]).toBe("DENY");
+    const csp = String(res.headers["content-security-policy"] ?? "");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toMatch(/(^|; )sandbox($|;)/);
+  });
+
+  it.each([false, true])(
+    "F1: the uploader and the login page are unframeable but not sandboxed (token %s)",
+    async (auth) => {
+      const s = await serve(auth ? { auth: KEYS } : {});
+      const pages = [await raw(s.base, "GET", "/", auth ? { cookie: sessionFor() } : {})];
+      if (auth) pages.push(await raw(s.base, "GET", "/", {}));
+      for (const page of pages) {
+        expect(page.status).toBe(200);
+        expect(page.headers["content-type"]).toMatch(/text\/html/);
+        expect(page.headers["x-frame-options"]).toBe("DENY");
+        expect(page.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+        expect(page.headers["content-security-policy"]).not.toContain("sandbox");
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "F2: a deck answer carries today's CSP exactly and no X-Frame-Options (token %s)",
+    async (auth) => {
+      const s = await serve(auth ? { auth: KEYS } : {});
+      const id = await deckOnDisk(s.work);
+      const answers: [string, Raw, number][] = [
+        ["GET", await raw(s.base, "GET", `/d/${id}/deck.html`, {}), 200],
+        [
+          "range",
+          await raw(s.base, "GET", `/d/${id}/assets/fig1.png`, { range: "bytes=0-2" }),
+          206,
+        ],
+        ["HEAD", await raw(s.base, "HEAD", `/d/${id}/deck.html`, {}), 200],
+      ];
+      for (const [what, res, status] of answers) {
+        expect(res.status, what).toBe(status);
+        expect(res.headers["content-security-policy"], what).toBe(DECK_CSP);
+        expect(res.headers["x-frame-options"], what).toBeUndefined();
+      }
+    },
+  );
+
+  it("F2: with the deck sandbox off, a deck carries neither header, and a /d/ error keeps both", async () => {
+    const s = await serve({ sandboxDecks: false });
+    const id = await deckOnDisk(s.work);
+    const deck = await raw(s.base, "GET", `/d/${id}/deck.html`, {});
+    expect(deck.status).toBe(200);
+    expect(deck.headers["content-security-policy"]).toBeUndefined();
+    expect(deck.headers["x-frame-options"]).toBeUndefined();
+    const missing = await raw(s.base, "GET", `/d/${id}/nothing.html`, {});
+    expect(missing.headers["x-frame-options"]).toBe("DENY");
+  });
+});
+
+/* -------------------------------------------------------- the token, in Chrome */
+
+/**
+ * What only a browser can say: that the cookie attributes, fetch metadata,
+ * `frame-ancestors` and `X-Frame-Options` do in Chrome what the tests above
+ * assume they do. Two of those were rated medium-high and unmeasured in the
+ * design; B1 and B4 are the measurement, each with its control.
+ *
+ * `localhost` and `127.0.0.1` are DIFFERENT SITES to a browser, so a fixture
+ * server reached as `localhost` is another site's page.
+ */
+describe.skipIf(chrome === null)("the token, in the renderer's own browser", () => {
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+
+  beforeAll(async () => {
+    const { default: puppeteer } = await import("puppeteer-core");
+    browser = await puppeteer.launch({
+      executablePath: chrome as string,
+      headless: true,
+      args: ["--force-device-scale-factor=1", "--hide-scrollbars"],
+    });
+  }, 60_000);
+  afterAll(async () => {
+    await browser?.close().catch(() => {});
+  });
+  afterEach(async () => {
+    for (const context of contexts.splice(0)) await context.close().catch(() => {});
+    await closeServers();
+  });
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const never = () => new Promise<JobResult>(() => {});
+
+  /** Every request the server saw, with the cookie it carried. */
+  function watchRequests(server: Server | TlsServer) {
+    const seen: { method: string; url: string; cookie: string | undefined }[] = [];
+    (server as Server).on("request", (req: IncomingMessage) =>
+      seen.push({ method: req.method ?? "", url: req.url ?? "", cookie: req.headers.cookie }),
+    );
+    return seen;
+  }
+
+  async function fresh(): Promise<Page> {
+    const context = await browser.createBrowserContext();
+    contexts.push(context);
+    return context.newPage();
+  }
+
+  /** Through the real page, as a person does. */
+  async function logIn(page: Page, base: string): Promise<void> {
+    await page.goto(`${base}/`, { waitUntil: "load" });
+    await page.type('input[name="token"]', TOKEN);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      page.click('button[type="submit"]'),
+    ]);
+  }
+
+  async function elsewhere(pages: Record<string, string>): Promise<string> {
+    const server = createServer((req, res) => {
+      const body = pages[req.url ?? ""];
+      res.writeHead(body ? 200 : 404, { "content-type": "text/html; charset=utf-8" });
+      res.end(body ?? "");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    servers.push(
+      () =>
+        new Promise<void>((r) => {
+          server.closeAllConnections();
+          server.close(() => r());
+        }),
+    );
+    return `http://localhost:${(server.address() as AddressInfo).port}`;
+  }
+
+  /** A stub deck whose script frames `src` and posts a job through that frame's own fetch. */
+  const PROBE = `<!doctype html><meta charset="utf-8"><title>probe</title><body><script>
+window.probe = function (src) {
+  return new Promise(function (resolve) {
+    var f = document.createElement("iframe");
+    var done = false;
+    function go() {
+      if (done) return;
+      done = true;
+      var fd = new FormData();
+      fd.append("url", "https://example.com/borrowed");
+      try {
+        f.contentWindow.fetch("/api/jobs", { method: "POST", body: fd }).then(
+          function (r) { resolve("status " + r.status); },
+          function (e) { resolve("rejected " + e.name); });
+      } catch (e) { resolve("unreachable " + e.name); }
+    }
+    f.onload = function () { setTimeout(go, 200); };
+    setTimeout(go, 5000);
+    f.src = src;
+    document.body.appendChild(f);
+  });
+};
+</script>`;
+
+  it.each([
+    ["with the framing headers", true],
+    ["CONTROL, with them taken off", false],
+  ])(
+    "B1: a deck opened top-level borrows no same-origin frame to post a job, %s",
+    async (_, frameHeaders) => {
+      const s = await serve({ auth: KEYS, frameHeaders, run: never });
+      const id = await deckOnDisk(s.work, PROBE);
+      // One job holds the runner, so every job accepted after it shows in depth.
+      expect(
+        (await post(s.base, [{ name: "url", value: "https://example.com/hold" }], BEARER)).status,
+      ).toBe(202);
+      const page = await fresh();
+      await logIn(page, s.base);
+      await page.goto(`${s.base}/d/${id}/deck.html`, { waitUntil: "load" });
+      const outcomes: string[] = [];
+      for (const src of ["/", "/api/formats"]) {
+        outcomes.push(
+          `${src}: ${await page.evaluate((u) => (window as unknown as { probe: (s: string) => Promise<string> }).probe(u), src)}`,
+        );
+      }
+      if (frameHeaders) {
+        expect(s.queue.depth, outcomes.join(" | ")).toBe(0);
+        expect(outcomes.join(" "), outcomes.join(" | ")).not.toContain("status 202");
+      } else {
+        expect(s.queue.depth, outcomes.join(" | ")).toBeGreaterThan(0);
+        expect(outcomes.join(" ")).toContain("status 202");
+      }
+    },
+    60_000,
+  );
+
+  it("B2: logs in through the form, uploads with the page's fetch, follows SSE, and shows the deck", async () => {
+    const s = await serve({
+      auth: KEYS,
+      run: async (job) => {
+        for (const stage of ["ingest", "plan"] as const) {
+          job.begin(stage);
+          await sleep(500);
+          job.done(stage);
+        }
+        job.begin("build");
+        await mkdir(join(job.dir, "deck"), { recursive: true });
+        await writeFile(join(job.dir, "deck", "deck.html"), "<h1>deck</h1>");
+        job.done("build");
+        return { deckUrl: `/d/${job.id}/deck.html`, slides: 4, duration: 12, warnings: [] };
+      },
+    });
+    const seen = watchRequests(s.server);
+    const page = await fresh();
+    const urls: string[] = [];
+    page.on("request", (r) => urls.push(r.url()));
+    await logIn(page, s.base);
+    expect(await page.$("#compose")).not.toBeNull();
+
+    const session = (await page.browserContext().cookies()).find((c) => c.name === "decksmith");
+    expect(session?.httpOnly).toBe(true);
+    expect(session?.sameSite).toBe("Strict");
+
+    const doc = join(await scratch(), "paper.md");
+    await writeFile(doc, "# Paper\n\nProse.\n");
+    const input = await page.$("#fileinput");
+    await (input as unknown as { uploadFile: (p: string) => Promise<void> }).uploadFile(doc);
+    await page.waitForFunction(
+      () => !(document.getElementById("go") as HTMLButtonElement).disabled,
+    );
+    await page.click("#go");
+    await page.waitForFunction(() => document.getElementById("v-done")?.hidden === false, {
+      timeout: 30_000,
+    });
+    const heading = await page.waitForFunction(
+      () =>
+        (
+          document.querySelector("#d-canvas iframe") as HTMLIFrameElement | null
+        )?.contentDocument?.querySelector("h1")?.textContent,
+      { timeout: 15_000 },
+    );
+    expect(await heading.jsonValue()).toBe("deck");
+
+    const events = seen.filter((r) => r.url.endsWith("/events"));
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((r) => r.cookie?.startsWith("decksmith="))).toBe(true);
+    expect(seen.filter((r) => r.method === "POST" && r.url === "/api/jobs")).toHaveLength(1);
+    expect(urls.filter((u) => u.includes(TOKEN))).toEqual([]);
+    expect(seen.filter((r) => r.url.includes(TOKEN))).toEqual([]);
+  }, 60_000);
+
+  it("B3: with JavaScript off, the login form and the upload form both work", async () => {
+    const s = await serve({ auth: KEYS });
+    const page = await fresh();
+    await page.setJavaScriptEnabled(false);
+    await logIn(page, s.base);
+    expect(await page.$("#compose")).not.toBeNull();
+    await page.type("#url", "https://example.com/paper");
+    // The submit button is `disabled` in the markup and enabled by script, so
+    // nothing a person without script can click. What the no-script path IS is
+    // the form: remove the attribute through the DOM agent, not page script,
+    // and let a real click submit it natively.
+    const cdp = await page.createCDPSession();
+    const { root } = await cdp.send("DOM.getDocument");
+    const { nodeId } = await cdp.send("DOM.querySelector", {
+      nodeId: root.nodeId,
+      selector: "#go",
+    });
+    await cdp.send("DOM.removeAttribute", { nodeId, name: "disabled" });
+    const [response] = await Promise.all([page.waitForNavigation(), page.click("#go")]);
+    expect(response?.status()).toBe(202);
+    expect(response?.request().headers()["sec-fetch-site"]).toBe("same-origin");
+  }, 60_000);
+
+  it("B4: another site's page cannot post a job as the viewer, or open embed.html as them", async () => {
+    const s = await serve({ auth: KEYS, run: never });
+    const id = await deckOnDisk(s.work);
+    expect(
+      (await post(s.base, [{ name: "url", value: "https://example.com/hold" }], BEARER)).status,
+    ).toBe(202);
+    const seen = watchRequests(s.server);
+    const evil = await elsewhere({
+      "/post": `<!doctype html><form id="f" method="post" action="${s.base}/api/jobs" enctype="multipart/form-data"><input name="url" value="https://example.com/csrf"></form><script>document.getElementById("f").submit()</script>`,
+      "/embed": `<!doctype html><script>location.href = ${JSON.stringify(`${s.base}/examples/embed.html?a=/d/${id}/`)}</script>`,
+    });
+    const page = await fresh();
+    await logIn(page, s.base);
+
+    // CONTROL: from its own site the session does reach embed.html (a 500 from
+    // a source tree, which has no dist/embed.html; never a 401).
+    const own = await page.goto(`${s.base}/examples/embed.html`);
+    expect(own?.status()).not.toBe(401);
+
+    const posted = page.waitForResponse((r) => r.url() === `${s.base}/api/jobs`);
+    await page.goto(`${evil}/post`).catch(() => {});
+    expect((await posted).status()).toBe(403);
+    expect(s.queue.depth).toBe(0);
+
+    const before = seen.length;
+    const embedded = page.waitForResponse((r) =>
+      r.url().startsWith(`${s.base}/examples/embed.html?`),
+    );
+    await page.goto(`${evil}/embed`).catch(() => {});
+    expect((await embedded).status()).toBe(401);
+    await sleep(1000);
+    const after = seen.slice(before);
+    expect(after.find((r) => r.url.startsWith("/examples/embed.html?"))?.cookie).toBeUndefined();
+    expect(after.filter((r) => r.url.startsWith("/d/"))).toEqual([]);
+  }, 60_000);
+
+  it("B5: another site may frame a deck, and the deck's request carries no cookie", async () => {
+    const s = await serve({ auth: KEYS });
+    const id = await deckOnDisk(s.work);
+    const seen = watchRequests(s.server);
+    const evil = await elsewhere({
+      "/frame": `<!doctype html><iframe src="${s.base}/d/${id}/deck.html"></iframe>`,
+    });
+    const page = await fresh();
+    await logIn(page, s.base);
+    const framed = page.waitForResponse((r) => r.url() === `${s.base}/d/${id}/deck.html`);
+    await page.goto(`${evil}/frame`, { waitUntil: "load" });
+    expect((await framed).status()).toBe(200);
+    const request = seen.find((r) => r.url === `/d/${id}/deck.html`);
+    expect(request).toBeDefined();
+    expect(request?.cookie).toBeUndefined();
+  }, 60_000);
+
+  it("B6: when the cookie goes mid-job, the page says so and stops polling", async () => {
+    const s = await serve({ auth: KEYS, run: never });
+    const seen = watchRequests(s.server);
+    const page = await fresh();
+    // POLLING, not SSE. An open stream was authorised when it connected and runs
+    // to the job's end by design; the path that could loop is the poll, so it is
+    // the one forced here.
+    await page.evaluateOnNewDocument(() => {
+      (window as unknown as { EventSource?: unknown }).EventSource = undefined;
+    });
+    await logIn(page, s.base);
+    await page.type("#url", "https://example.com/paper");
+    await page.waitForFunction(
+      () => !(document.getElementById("go") as HTMLButtonElement).disabled,
+    );
+    await page.click("#go");
+    const polls = () =>
+      seen.filter((r) => r.method === "GET" && /^\/api\/jobs\/[^/]+$/.test(r.url)).length;
+    for (let i = 0; i < 100 && polls() < 3; i++) await sleep(200);
+    expect(polls()).toBeGreaterThanOrEqual(3);
+
+    const context = page.browserContext();
+    await context.deleteCookie(...(await context.cookies()));
+    await page.waitForFunction(
+      () =>
+        document.getElementById("v-error")?.hidden === false &&
+        document.getElementById("e-where")?.textContent === "Logged out",
+      { timeout: 20_000 },
+    );
+    expect(await page.$eval("#e-hint", (e) => e.textContent)).toMatch(
+      /keeps running on the server/,
+    );
+    const stopped = polls();
+    await sleep(5000);
+    expect(polls()).toBe(stopped);
+  }, 60_000);
+
+  /**
+   * M1 — A MEASUREMENT OF A KNOWN HOLE, PINNED SO THE README STAYS TRUE.
+   *
+   * A deck shown INSIDE the uploader is same-origin with it, and `parent.fetch`
+   * runs under the uploader's policy, not the deck's `connect-src 'none'`. The
+   * answer recorded in .planning/2026-09-18-deck-parent-reach.md is that it
+   * reaches: a job is queued as the logged-in viewer. When decks move to their
+   * own origin this should flip, and the README's "What is missing" with it.
+   */
+  it("M1: a deck shown inside the uploader can still reach its parent's fetch", async () => {
+    const REACH = `<!doctype html><meta charset="utf-8"><h1>deck</h1><script>
+(function () {
+  var fd = new FormData();
+  fd.append("url", "https://example.com/from-the-deck");
+  try {
+    parent.fetch("/api/jobs", { method: "POST", body: fd }).then(
+      function (r) { parent.__reach = "status " + r.status; },
+      function (e) { parent.__reach = "rejected " + e.name; });
+  } catch (e) { parent.__reach = "threw " + e.name; }
+})();
+</script>`;
+    let first = true;
+    const s = await serve({
+      auth: KEYS,
+      run: async (job) => {
+        if (!first) return never();
+        first = false;
+        await mkdir(join(job.dir, "deck"), { recursive: true });
+        await writeFile(join(job.dir, "deck", "deck.html"), REACH);
+        return { deckUrl: `/d/${job.id}/deck.html`, slides: 1, duration: 1, warnings: [] };
+      },
+    });
+    const page = await fresh();
+    await logIn(page, s.base);
+    await page.type("#url", "https://example.com/paper");
+    await page.waitForFunction(
+      () => !(document.getElementById("go") as HTMLButtonElement).disabled,
+    );
+    await page.click("#go");
+    const reach = await page.waitForFunction(
+      () => (window as unknown as { __reach?: string }).__reach,
+      {
+        timeout: 30_000,
+      },
+    );
+    const outcome = await reach.jsonValue();
+    for (let i = 0; i < 50 && s.runs < 2; i++) await sleep(100);
+    expect({ outcome, runs: s.runs }).toEqual({ outcome: "status 202", runs: 2 });
+  }, 60_000);
+});
+
 /* ---------------------------------------------------------------- the pipeline */
 
 describe("ingest, against real documents", () => {
@@ -1371,8 +3067,6 @@ describe("guardFigures", () => {
  * `plan` like the ingest suite above: everything this path has to get right has
  * already happened by then.
  */
-const chrome = await chromePath().catch(() => null);
-
 describe.skipIf(chrome === null)("a url job, against a local fixture server", () => {
   const shut: (() => Promise<void>)[] = [];
   afterEach(async () => {

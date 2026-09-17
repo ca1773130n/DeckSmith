@@ -13,17 +13,39 @@
  *   - static serving under /d/:id resolves and then PROVES containment, so a
  *     traversal in the URL fails the same way a traversal in a zip entry does;
  *   - a deck is a stranger's document turned into HTML, so it is served into a
- *     CSP sandbox and cannot reach the origin that serves the uploader;
- *   - two rate limits per IP: one for requests, one for the expensive verb;
+ *     CSP sandbox with `connect-src 'none'`; everything that is NOT a deck is
+ *     unframeable, so a deck cannot borrow a same-origin realm that has no such
+ *     rule (`BASELINE_CSP`). That does not stop a deck shown inside the uploader
+ *     reaching its parent — see the README's "What is missing";
+ *   - three rate limits per IP: requests, the expensive verb, and failed tokens;
  *   - a write another site's page makes a browser send is refused, and so is any
- *     request by a non-loopback name while bound to loopback (`foreignRequest`).
+ *     request by a name the server does not answer to (`foreignRequest`);
+ *   - with a token file configured, every route but the deck files, the player
+ *     module and the way in needs the token or a session made from it
+ *     (`credential`, ./auth.ts). Unknown routes are private too, so a route added
+ *     later starts out behind the gate.
  */
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer as createTlsServer, type Server as TlsServer } from "node:https";
+import { isIP } from "node:net";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  type AuthKeys,
+  bearerOf,
+  clearedCookie,
+  cookieName,
+  cookieValues,
+  LOOPBACK_BINDS,
+  mintSession,
+  sessionCookie,
+  sessionValid,
+  type TlsMaterial,
+  tokenMatches,
+} from "./auth.js";
 import { catalog, parseOptions } from "./options.js";
 import { type PipelineInput, runPipeline, stagesFor } from "./pipeline.js";
 import { type JobHandle, type JobResult, type JobView, Queue, QueueFullError } from "./queue.js";
@@ -58,6 +80,33 @@ const FRAME_SRC = [
   "https://www.loom.com",
 ].join(" ");
 
+/**
+ * Every response that is not a deck file: unframeable, and a document with no
+ * rights if it is ever navigated to. Set first thing in `handle`, so the 401s,
+ * 403s, 413s, 429s and 500s get it, and so do /d/'s own 400/403/404 and 416.
+ *
+ * WHY EVERY ONE AND NOT ONLY THE PAGES. A deck is served with `connect-src
+ * 'none'`, but `frame-src 'self'` — the player needs it — let it frame any other
+ * same-origin response and call that frame's `contentWindow.fetch`, which runs
+ * under the FRAME's policy: a JSON 404 from /d/ carried none, so a deck opened
+ * top-level could POST /api/jobs through it. `frame-ancestors 'none'` and
+ * `X-Frame-Options` refuse the frame; `sandbox` makes the document opaque even
+ * if something does load it.
+ */
+const BASELINE_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox";
+/** The uploader and embed.html: their own scripts and frames, but nobody frames them. */
+const PAGE_CSP = "frame-ancestors 'none'; form-action 'self'; base-uri 'none'";
+/** The login page runs no script, loads nothing, and posts only to itself. */
+const LOGIN_CSP = `default-src 'none'; style-src 'unsafe-inline'; ${PAGE_CSP}`;
+
+/** Every 401 says the same thing, so a 401 tells a prober nothing about a route. */
+const UNAUTHORIZED = JSON.stringify({
+  error: {
+    message: "This server needs its token.",
+    hint: "In a browser, open / and log in. From a script, send Authorization: Bearer <token>.",
+  },
+});
+
 export interface ServeOptions {
   port: number;
   host: string;
@@ -81,6 +130,24 @@ export interface ServeOptions {
    * Same seam, and the same reason, as `Runner` in src/plan/codex.ts.
    */
   run?: (job: JobHandle, input: PipelineInput) => Promise<JobResult>;
+  /**
+   * Require the token. Built from DECKSMITH_TOKEN_FILE by `resolveSecurity` in
+   * ./auth.ts; absent, the server behaves as it did before tokens existed.
+   */
+  auth?: AuthKeys;
+  /**
+   * Serve https. On a bind that is not loopback the certificate's SANs are the
+   * names the server answers to.
+   */
+  tls?: TlsMaterial;
+  /** The clock sessions and the failed-token limiter read. Injected by tests. */
+  now?: () => number;
+  /**
+   * TEST SEAM ONLY. `false` drops the anti-framing headers every non-deck
+   * response carries, so the browser test can show what they stop. Nothing in
+   * src/ passes it.
+   */
+  frameHeaders?: boolean;
 }
 
 /* ------------------------------------------------------- surviving a restart */
@@ -172,7 +239,24 @@ function sourceOf(sub: Submission): Pick<PipelineInput, "upload" | "url"> {
   return sub.kind === "url" ? { url: sub.url } : { upload: sub.upload };
 }
 
-export function createDeckServer(opts: ServeOptions): { server: Server; queue: Queue } {
+export function createDeckServer(opts: ServeOptions): {
+  server: Server | TlsServer;
+  queue: Queue;
+} {
+  const loopback = LOOPBACK_BINDS.includes(opts.host);
+  // THE SECOND GUARD. `resolveSecurity` refuses these at startup; this is for
+  // the caller that never went through it.
+  if (!loopback && !(opts.auth && opts.tls)) {
+    throw new Error(
+      `createDeckServer: ${JSON.stringify(opts.host)} is not a loopback bind, and a server reachable from a network needs both \`auth\` and \`tls\`. See resolveSecurity in src/server/auth.ts.`,
+    );
+  }
+  if (!opts.sandboxDecks && (opts.auth || !loopback)) {
+    throw new Error(
+      "createDeckServer: `sandboxDecks: false` is allowed only on a loopback bind without `auth` — without the deck CSP a deck can use the viewer's session.",
+    );
+  }
+  const now = opts.now ?? Date.now;
   const queue = new Queue({
     maxQueued: opts.maxQueued,
     ttlMs: opts.ttlMs,
@@ -183,19 +267,53 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
   });
   const requests = new RateLimiter(opts.requestsPerMinute, 60_000);
   const jobs = new RateLimiter(opts.jobsPerHour, 60 * 60_000);
+  // Charged only by a token that was compared and did not match. A missing
+  // credential or an expired cookie costs nothing: neither is a guess.
+  const failures = new RateLimiter(10, 15 * 60_000, now);
+  const tls = opts.tls;
+  const cookie = cookieName(tls !== undefined);
+  const site: Site = {
+    loopback,
+    scheme: tls ? "https" : "http",
+    allowHost: (name) => {
+      if (!tls) return false;
+      const bare = name.replace(/^\[(.*)\]$/, "$1");
+      // `checkIP` throws on anything that is not an address, so ask it only about addresses.
+      return (
+        tls.x509.checkHost(name, { subject: "never" }) !== undefined ||
+        (isIP(bare) !== 0 && tls.x509.checkIP(bare) !== undefined)
+      );
+    },
+    names: tls?.x509.subjectAltName ?? "",
+  };
 
-  const server = createServer((req, res) => {
+  const handler = (req: IncomingMessage, res: ServerResponse) => {
     handle(req, res).catch((err: unknown) => fail(res, err));
-  });
+  };
+  // No plain-http listener beside it and no redirect: a second port that
+  // answers is a second port to get wrong.
+  const server = tls
+    ? createTlsServer(
+        { cert: tls.cert, key: tls.key, minVersion: "TLSv1.2", handshakeTimeout: 10_000 },
+        handler,
+      )
+    : createServer(handler);
   // An upload is allowed to be slow; an idle socket is not allowed to be free.
+  // Assigned for https too: its defaults are 300s and 60s, not these.
   server.requestTimeout = 120_000;
   server.headersTimeout = 30_000;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const path = url.pathname;
+    // Headers BEFORE anything that can throw: `new URL` below throws on a
+    // request line like `GET http://[`, and that 500 is a response too.
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
+    if (opts.frameHeaders !== false) {
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Content-Security-Policy", BASELINE_CSP);
+    }
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const path = url.pathname;
 
     if (!requests.take(ipOf(req))) {
       return send(res, 429, {
@@ -203,15 +321,70 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
       });
     }
 
-    const refused = foreignRequest(req, opts.host);
+    // BEFORE THE AUTH GATE: a wrong Host never learns whether it would have
+    // needed a token, and a cross-site write is 403 with or without one.
+    const refused = foreignRequest(req, site);
     if (refused) {
       opts.log(`refused: ${req.method} ${path} — ${refused.message}`);
       return send(res, 403, { error: refused });
     }
 
+    const read = req.method === "GET" || req.method === "HEAD";
+    if (opts.auth) {
+      if (req.method === "POST" && path === "/login") return login(req, res, opts.auth);
+      if (req.method === "POST" && path === "/logout") {
+        res.writeHead(303, {
+          location: "/",
+          "set-cookie": clearedCookie(cookie, tls !== undefined),
+          "cache-control": "no-store",
+        });
+        res.end();
+        return;
+      }
+      // Checked before any body is read, and before routing.
+      const pub =
+        (read && /^\/d\/[^/]+(\/.*)?$/.test(path)) ||
+        (req.method === "GET" && (path === "/player.js" || path === "/" || path === "/index.html"));
+      if (!pub) {
+        const who = credential(req, path, opts.auth);
+        if (who === "blocked") return tooManyFailures(req, res);
+        if (who === "none" || who === "wrong") return unauthorized(req, res);
+        // A browser attaches a cookie to whatever it is told to send. A write
+        // that rides on one must carry the headers `foreignRequest` judged, or
+        // there was nothing to judge. A bearer cannot be attached cross-site
+        // without a preflight, and this server answers none.
+        if (
+          who === "cookie" &&
+          !read &&
+          req.headers["sec-fetch-site"] === undefined &&
+          req.headers.origin === undefined
+        ) {
+          opts.log(
+            `refused: ${req.method} ${path} — cookie write without Sec-Fetch-Site or Origin`,
+          );
+          res.setHeader("connection", "close");
+          return send(res, 403, {
+            error: {
+              message:
+                "Refused a write that carried a session cookie but no Sec-Fetch-Site or Origin.",
+              hint: "A browser sends one of them. A script should send Authorization: Bearer <token> instead of a cookie.",
+            },
+          });
+        }
+      }
+    }
+
     if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-      const page = await uiPage(opts.log);
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      if (opts.auth) {
+        res.setHeader("cache-control", "no-store");
+        res.setHeader("vary", "Cookie");
+        const who = credential(req, path, opts.auth);
+        if (who === "blocked") return tooManyFailures(req, res);
+        if (who === "wrong") return unauthorized(req, res);
+        if (who === "none") return loginPage(res, 200, "");
+      }
+      const page = await uiPage(opts.log, opts.auth !== undefined);
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...policy(PAGE_CSP) });
       res.end(page);
       return;
     }
@@ -250,6 +423,10 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
     // string — job ids are unguessable by design, so there is no fixed deck
     // URL to bake in, and no listing endpoint that could hand out someone
     // else's.
+    //
+    // BEHIND THE TOKEN, unlike /player.js. It is a same-origin page that frames
+    // whatever deck its query string names as soon as it opens, so a link to it
+    // is a way to put a chosen deck next to the viewer's session.
     if (req.method === "GET" && path === "/examples/embed.html") {
       const file = fileURLToPath(new URL("../embed.html", import.meta.url));
       return readFile(file).then(
@@ -257,6 +434,7 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
           res.writeHead(200, {
             "content-type": "text/html; charset=utf-8",
             "cache-control": "no-cache",
+            ...policy(PAGE_CSP),
           });
           res.end(html);
         },
@@ -556,14 +734,23 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
     // why this is a wider net rather than a trade. Verified after the change:
     // the deck still plays, navigates and narrates.
     if (opts.sandboxDecks) {
-      // `connect-src 'none'` costs the deck nothing and removes the only thing
-      // `allow-same-origin` is actually worth to an attacker. A deck fetches
+      // `connect-src 'none'` costs the deck nothing and removes the most direct
+      // thing `allow-same-origin` is worth to an attacker. A deck fetches
       // NOTHING: scripts and fonts are vendored beside it, narration audio is an
       // <audio src> (media-src, not connect-src), and the islands are inline
-      // JSON. So script that gets into a deck can no longer reach /api/jobs at
-      // all — which is the reachable half of the same-origin problem, closed for
-      // one directive. The other half, a deck reading another deck's DOM, still
-      // needs the separate origin described below.
+      // JSON. So script that gets into a deck cannot call /api/jobs from its own
+      // realm — and, because every non-deck response is unframeable
+      // (`BASELINE_CSP`), not by framing some other same-origin page and using
+      // that frame's `fetch` either.
+      //
+      // WHAT IT DOES NOT CLOSE, and this used to say it did. A deck shown INSIDE
+      // the uploader is same-origin with its parent, so `parent.fetch` runs under
+      // the uploader's policy, which has no `connect-src` — measured, see
+      // .planning/2026-09-18-deck-parent-reach.md. With a token configured that
+      // request carries the viewer's session. `SameSite=Strict` and a private
+      // embed.html stop another site steering someone into that; the real fix
+      // is serving /d/ from a separate origin, and so is the other half, a deck
+      // reading another deck's DOM.
       //
       // `frame-src 'self'`, AND IT MUST NOT BE `'none'`. The intent is the one
       // `'none'` sounds like — a deck may not frame a third party, whatever an
@@ -617,6 +804,14 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
       res.end();
       return;
     }
+    // THE BASELINE COMES OFF HERE AND NOWHERE ELSE. `handle` made this response
+    // unframeable; a deck is the one thing this server serves that is MEANT to
+    // be framed — by the uploader, by embed.html, by a third party's page — so a
+    // successful deck response (200, 206, HEAD) drops `X-Frame-Options` and
+    // replaces the baseline CSP with its own. Every error from this route above,
+    // the 416 included, keeps the baseline.
+    res.removeHeader("X-Frame-Options");
+    if (!opts.sandboxDecks) res.removeHeader("Content-Security-Policy");
     if (range) {
       headers["content-range"] = `bytes ${range.start}-${range.end}/${info.size}`;
       headers["content-length"] = String(range.end - range.start + 1);
@@ -629,6 +824,126 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
     res.writeHead(200, headers);
     if (req.method === "HEAD") return void res.end();
     createReadStream(file).pipe(res);
+  }
+
+  /* ------------------------------------------------------------ the token */
+
+  /** A page's own CSP, unless the test seam has taken the framing headers off. */
+  function policy(csp: string): Record<string, string> {
+    return opts.frameHeaders === false ? {} : { "content-security-policy": csp };
+  }
+
+  /**
+   * What this request presents.
+   *
+   * AN `Authorization` HEADER IS THE ONLY CREDENTIAL WHEN IT IS THERE. A wrong
+   * bearer beside a valid cookie is a wrong bearer: a script that sends both is
+   * confused, and the answer it needs is 401, not whatever the browser's cookie
+   * would have allowed. Anything but `Bearer <token>` is `wrong` without being a
+   * guess, so it is neither charged nor logged.
+   */
+  function credential(
+    req: IncomingMessage,
+    path: string,
+    auth: AuthKeys,
+  ): "bearer" | "cookie" | "none" | "wrong" | "blocked" {
+    const header = req.headers.authorization;
+    if (header !== undefined) {
+      const token = bearerOf(header);
+      if (token === null) return "wrong";
+      const ip = ipOf(req);
+      if (failures.blocked(ip)) return "blocked";
+      if (tokenMatches(auth, token)) return "bearer";
+      failures.take(ip);
+      opts.log(`auth: wrong bearer on ${req.method} ${path} from ${ip}`);
+      return "wrong";
+    }
+    const at = now();
+    return cookieValues(req.headers.cookie, cookie).some((v) => sessionValid(auth, v, at))
+      ? "cookie"
+      : "none";
+  }
+
+  /** `Connection: close` on a refusal that may have a body behind it: none of it is read. */
+  function closing(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== "GET" && req.method !== "HEAD") res.setHeader("connection", "close");
+  }
+
+  function unauthorized(req: IncomingMessage, res: ServerResponse): void {
+    closing(req, res);
+    res.writeHead(401, {
+      "content-type": "application/json; charset=utf-8",
+      "content-length": Buffer.byteLength(UNAUTHORIZED),
+      "www-authenticate": 'Bearer realm="decksmith"',
+      "cache-control": "no-store",
+    });
+    res.end(UNAUTHORIZED);
+  }
+
+  function tooManyFailures(req: IncomingMessage, res: ServerResponse): void {
+    closing(req, res);
+    send(res, 429, {
+      error: {
+        message: "Too many wrong tokens from this address.",
+        hint: "Wait fifteen minutes. A correct token is refused too until then.",
+      },
+    });
+  }
+
+  /**
+   * POST /login: the token from the page's form, a session cookie back.
+   *
+   * 303 to `/` and nothing else — no return-to parameter, so there is no
+   * redirect here for another site to aim. A failure re-renders the page with a
+   * fixed sentence and never what was typed.
+   */
+  async function login(req: IncomingMessage, res: ServerResponse, auth: AuthKeys): Promise<void> {
+    const ip = ipOf(req);
+    res.setHeader("cache-control", "no-store");
+    if (failures.blocked(ip)) {
+      closing(req, res);
+      return loginPage(
+        res,
+        429,
+        "Too many wrong tokens from this address. Wait fifteen minutes and try again.",
+      );
+    }
+    let body: Buffer;
+    try {
+      body = await readBody(req, 4096);
+    } catch (err) {
+      if (err instanceof UploadError && err.status === 413) {
+        return loginPage(res, 413, "That was too large to be a login.");
+      }
+      throw err;
+    }
+    const token = new URLSearchParams(body.toString("utf8")).get("token") ?? "";
+    if (tokenMatches(auth, token)) {
+      res.writeHead(303, {
+        location: "/",
+        "set-cookie": sessionCookie(cookie, mintSession(auth, now()), tls !== undefined),
+      });
+      res.end();
+      return;
+    }
+    failures.take(ip);
+    opts.log(`login: refused from ${ip}`);
+    res.setHeader("www-authenticate", 'Bearer realm="decksmith"');
+    return loginPage(res, 401, "That is not this server's token.");
+  }
+
+  function loginPage(res: ServerResponse, status: number, message: string): void {
+    const html = LOGIN_PAGE.replace(
+      "<!--message-->",
+      message ? `<p class="err" role="alert">${message}</p>` : "",
+    );
+    res.writeHead(status, {
+      "content-type": "text/html; charset=utf-8",
+      "content-length": Buffer.byteLength(html),
+      "cache-control": "no-store",
+      ...policy(LOGIN_CSP),
+    });
+    res.end(html);
   }
 
   function fail(res: ServerResponse, err: unknown): void {
@@ -738,6 +1053,17 @@ export class RateLimiter {
     row.count++;
     return true;
   }
+
+  /**
+   * Whether `take` would refuse, without spending anything. The failed-token
+   * limiter asks this BEFORE comparing, so an exhausted budget refuses a correct
+   * token too and the comparison stops being an oracle; it `take`s only after a
+   * comparison fails.
+   */
+  blocked(key: string): boolean {
+    const row = this.#hits.get(key);
+    return row !== undefined && row.resetAt > this.now() && row.count >= this.limit;
+  }
 }
 
 /**
@@ -751,26 +1077,40 @@ function ipOf(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
-/** A loopback bind, and the names a browser can reach one by, as `URL.hostname` spells them. */
-const LOOPBACK_BINDS = ["127.0.0.1", "::1", "localhost"];
+/** The names a browser can reach a loopback bind by, as `URL.hostname` spells them. */
 const LOOPBACK_NAMES = ["127.0.0.1", "[::1]", "localhost"];
+
+/** What `foreignRequest` needs to know about how this server is reached. */
+interface Site {
+  loopback: boolean;
+  /** On a bind that is not loopback: whether the certificate names `name`. */
+  allowHost: (name: string) => boolean;
+  scheme: "http" | "https";
+  /** The certificate's SANs, for the refusal's hint. */
+  names: string;
+}
 
 /**
  * Why a browser on some other site sent this, or null if nothing says it did.
  *
- * DNS REBINDING FIRST, on every method. A page at evil.example that re-resolves
- * its own name to 127.0.0.1 is same-origin to itself, so every header below
- * reads clean, and it can read the answers too. The name it used cannot be
- * forged: `Host` still says evil.example. ponytail: checked only on a loopback
- * bind, because on any other address the names it is reachable by are not known
- * here; an allowlist is the upgrade if that bind is ever meant to face a browser.
+ * DNS REBINDING FIRST, on every method and every bind. A page at evil.example
+ * that re-resolves its own name to this server is same-origin to itself, so
+ * every header below reads clean, and it can read the answers too. The name it
+ * used cannot be forged: `Host` still says evil.example. On loopback the names
+ * are the loopback names. On any other bind they are the certificate's SANs —
+ * a bind that is not loopback cannot start without one — so the server answers
+ * to exactly the names a browser would accept its certificate for, and there
+ * is no second list to disagree with it.
  *
  * CSRF SECOND, on anything that is not a read. A multipart POST is CORS-simple,
  * so any site can make its visitor's browser send one, and CORS only stops that
  * site reading the reply. `Sec-Fetch-Site` says where it came from; `Origin` is
- * the fallback for a browser without fetch metadata. `same-site` is refused too:
- * a different port on localhost is the same site. A request carrying neither
- * header is not from a browser, and curl is not a confused deputy.
+ * the fallback for a browser without fetch metadata, compared against this
+ * server's own scheme — over TLS a browser writes `https://`, and comparing
+ * against `http://` refused every one of them. `same-site` is refused too: a
+ * different port on localhost is the same site. A request carrying neither
+ * header is not from a browser, and curl is not a confused deputy — though a
+ * write authorised by a session COOKIE must carry one; see `handle`.
  *
  * `Origin: null` IS REFUSED, AND THIS SERVER'S OWN PAGE SENDS IT. Measured in
  * the renderer's Chrome: the uploader's no-script `<form>` posts `Origin: null`,
@@ -782,30 +1122,32 @@ const LOOPBACK_NAMES = ["127.0.0.1", "[::1]", "localhost"];
  */
 function foreignRequest(
   req: IncomingMessage,
-  bound: string,
+  site: Site,
 ): { message: string; hint: string } | null {
   const host = req.headers.host ?? "";
-  if (LOOPBACK_BINDS.includes(bound)) {
-    let name = "";
-    try {
-      name = new URL(`http://${host}`).hostname;
-    } catch {
-      // An unparseable Host names no loopback address; refused below.
-    }
-    if (!LOOPBACK_NAMES.includes(name)) {
-      return {
-        message: `Refused a request addressed to "${host}".`,
-        hint: "This server is bound to loopback and answers only to 127.0.0.1, localhost or [::1]. Open it by one of those names.",
-      };
-    }
+  let name = "";
+  try {
+    name = new URL(`http://${host}`).hostname;
+  } catch {
+    // An unparseable Host names nothing this server answers to; refused below.
+  }
+  const known =
+    name !== "" && (site.loopback ? LOOPBACK_NAMES.includes(name) : site.allowHost(name));
+  if (!known) {
+    return {
+      message: `Refused a request addressed to "${host}".`,
+      hint: site.loopback
+        ? "This server is bound to loopback and answers only to 127.0.0.1, localhost or [::1]. Open it by one of those names."
+        : `This server answers only to the names its certificate lists: ${site.names}. Open it by one of those.`,
+    };
   }
   if (req.method === "GET" || req.method === "HEAD") return null;
-  const site = req.headers["sec-fetch-site"];
+  const fetchSite = req.headers["sec-fetch-site"];
   const origin = req.headers.origin;
   const foreign =
-    site !== undefined
-      ? site !== "same-origin" && site !== "none"
-      : origin !== undefined && origin !== `http://${host}`;
+    fetchSite !== undefined
+      ? fetchSite !== "same-origin" && fetchSite !== "none"
+      : origin !== undefined && origin !== `${site.scheme}://${host}`;
   return foreign
     ? {
         message: "Refused a request from another site.",
@@ -848,16 +1190,19 @@ const MIME: Record<string, string> = {
  * function returning one. `default` and `page` are accepted too, because
  * guessing wrong about a name should not cost a round trip.
  */
-let cachedPage: string | undefined;
-async function uiPage(log: (line: string) => void): Promise<string> {
-  if (cachedPage) return cachedPage;
+/** One page per mode: with a token the header carries a logout form, without one it does not. */
+const cachedPages = new Map<boolean, string>();
+async function uiPage(log: (line: string) => void, auth: boolean): Promise<string> {
+  const cached = cachedPages.get(auth);
+  if (cached) return cached;
   const specifier = "./ui.js";
   try {
     const mod = (await import(specifier)) as Record<string, unknown>;
     const page = mod.uiPage ?? mod.PAGE ?? mod.page ?? mod.default;
-    const html = typeof page === "function" ? (page as () => string)() : page;
+    const html =
+      typeof page === "function" ? (page as (o: { auth: boolean }) => string)({ auth }) : page;
     if (typeof html === "string" && html.trim() !== "") {
-      cachedPage = html;
+      cachedPages.set(auth, html);
       return html;
     }
     log(`decksmith: ${specifier} exports no page; serving the stand-in uploader`);
@@ -874,9 +1219,46 @@ async function uiPage(log: (line: string) => void): Promise<string> {
       `decksmith: cannot load ${specifier} (${err instanceof Error ? err.message : String(err)}); serving the stand-in uploader`,
     );
   }
-  cachedPage = FALLBACK_PAGE;
-  return cachedPage;
+  // No logout form on the stand-in: it is the page for the day ui.js is broken,
+  // and clearing the cookie by hand is the price of that day.
+  cachedPages.set(auth, FALLBACK_PAGE);
+  return FALLBACK_PAGE;
 }
+
+/**
+ * The way in, when a token is configured and the browser has no session.
+ *
+ * NO SCRIPT, AND IT LIVES HERE RATHER THAN IN ui.ts: a login that depends on
+ * the module the stand-in page exists to survive would lock the operator out on
+ * the day that module breaks. The hidden username and `current-password` are for
+ * password managers, which is how a 44-character token is meant to be entered.
+ * `<!--message-->` is replaced with a fixed sentence and never with input.
+ */
+const LOGIN_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>DeckSmith — log in</title>
+<style>
+ body{font:16px/1.5 system-ui,sans-serif;max-width:26rem;margin:4rem auto;padding:0 1rem}
+ label{display:block;margin:1rem 0 .25rem;font-weight:600}
+ input{box-sizing:border-box;width:100%;font:inherit;padding:.6rem .7rem;border:1px solid #888;border-radius:6px}
+ button{margin-top:1rem;font:inherit;padding:.6rem 1.2rem;border-radius:6px;border:0;background:#3d8bfd;color:#fff}
+ .err{border:1px solid #c33;border-radius:6px;padding:.6rem .8rem}
+ .hint{opacity:.75;font-size:14px}
+</style></head><body>
+<h1>DeckSmith</h1>
+<p>This server needs its token.</p>
+<!--message-->
+<form method="post" action="/login">
+  <input type="text" name="username" value="decksmith" autocomplete="username" hidden>
+  <label for="token">Token</label>
+  <input id="token" type="password" name="token" autocomplete="current-password" required autofocus>
+  <button type="submit">Log in</button>
+</form>
+<p class="hint">The token is the contents of the file DECKSMITH_TOKEN_FILE names on the server. A session lasts seven days.</p>
+</body></html>
+`;
 
 /**
  * Enough of an uploader to prove the API end to end without the other agent's

@@ -3,12 +3,20 @@
  * defaults.
  *
  * Everything is an environment variable with a default that is safe rather than
- * generous, because the default is what runs. The two that matter most:
+ * generous, because the default is what runs. The ones that matter most:
  *
- *   HOST binds 127.0.0.1. There is NO AUTH in this server. A default of 0.0.0.0
- *   would put an unauthenticated Codex spend endpoint on the local network the
- *   first time someone typed `npm run serve` on a laptop in a cafe. Opening it
- *   is a decision, and a decision should have to be typed.
+ *   HOST binds 127.0.0.1, and with nothing else set there is no token: anyone
+ *   who can reach loopback can spend the Codex quota. A default of 0.0.0.0 would
+ *   put that endpoint on the local network the first time someone typed
+ *   `npm run serve` on a laptop in a cafe.
+ *
+ *   ANY OTHER HOST REFUSES TO START without DECKSMITH_TOKEN_FILE and a
+ *   certificate (DECKSMITH_TLS_CERT, DECKSMITH_TLS_KEY). Not a warning: a
+ *   banner is not read, and an open server with a warning is an open server.
+ *   `resolveSecurity` in ./auth.ts holds the whole policy and says every problem
+ *   at once. DECKSMITH_TOKEN_FILE on loopback turns the token on there too —
+ *   for an SSH tunnel, or a machine with other users. DECKSMITH_TOKEN is not
+ *   read, and its presence is a refusal: silently ignoring it would fail open.
  *
  *   DECKSMITH_FETCH_FIGURES is ON. A document whose figures are hosted rather
  *   than attached is the normal case — a paper's markdown links its images — and
@@ -33,6 +41,7 @@ import {
   resolveImageBackend,
   resolveProvider,
 } from "../index.js";
+import { flag, resolveSecurity, SecurityRefusal, securityBanner } from "./auth.js";
 import { createDeckServer } from "./http.js";
 import { MAX_UPLOAD_BYTES } from "./upload.js";
 
@@ -48,9 +57,25 @@ const env = process.env;
 // the checkout.
 guardTmpdir();
 
+// BEFORE `mkdirSync(work)` AND `sweepOrphans()`, for the same reason the guard
+// above is before `options`: a refused start must leave nothing behind, and a
+// start that is going to be refused has no business deleting a previous run's
+// directories on its way out. test/server.test.ts spawns the built file with an
+// exposed host and asserts the work directory was never created.
+const security = (() => {
+  try {
+    return resolveSecurity(env);
+  } catch (err) {
+    if (!(err instanceof SecurityRefusal)) throw err;
+    process.stderr.write("decksmith: refusing to start.\n");
+    for (const problem of err.problems) process.stderr.write(`  - ${problem}\n`);
+    process.exit(1);
+  }
+})();
+
 const options = {
   port: int(env.PORT, 8475),
-  host: env.DECKSMITH_HOST ?? "127.0.0.1",
+  host: security.host,
   work: env.DECKSMITH_WORK ?? join(tmpdir(), "decksmith-server"),
   maxUploadBytes: int(env.DECKSMITH_MAX_UPLOAD, MAX_UPLOAD_BYTES),
   maxQueued: int(env.DECKSMITH_MAX_QUEUE, 8),
@@ -58,7 +83,9 @@ const options = {
   jobsPerHour: int(env.DECKSMITH_JOBS_PER_HOUR, 5),
   requestsPerMinute: int(env.DECKSMITH_REQS_PER_MIN, 240),
   fetchRemoteFigures: flag(env.DECKSMITH_FETCH_FIGURES, true),
-  sandboxDecks: flag(env.DECKSMITH_DECK_SANDBOX, true),
+  sandboxDecks: security.sandboxDecks,
+  ...(security.auth ? { auth: security.auth } : {}),
+  ...(security.tls ? { tls: security.tls } : {}),
   removeDir: (dir: string) => void rm(dir, { recursive: true, force: true }).catch(() => {}),
   log: (line: string) => process.stderr.write(`${line}\n`),
 };
@@ -119,11 +146,11 @@ function sweepOrphans(): void {
 sweepOrphans();
 
 server.listen(options.port, options.host, () => {
-  options.log(`decksmith: http://${options.host}:${options.port}`);
+  const [where, ...how] = securityBanner(security, options.port);
+  options.log(`decksmith: ${where}`);
   options.log(`decksmith: work ${options.work}, one job at a time, ${options.maxQueued} may wait`);
-  options.log(
-    `decksmith: no auth, no TLS. Bound to ${options.host}${options.host === "127.0.0.1" ? " — set DECKSMITH_HOST to open it, knowing that" : " — anyone who can reach this port can spend your Codex quota"}.`,
-  );
+  for (const line of how) options.log(`decksmith: ${line}`);
+  for (const line of security.warnings) options.log(`decksmith: WARNING ${line}`);
   // Said at startup rather than discovered a minute into the first job. Async
   // because finding edge-tts means asking candidates whether they run; the
   // banner above is already out, so the answer arrives a beat later.
@@ -210,9 +237,4 @@ function onPath(bin: string): boolean {
 function int(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-function flag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined) return fallback;
-  return ["1", "true", "on", "yes"].includes(raw.toLowerCase());
 }
