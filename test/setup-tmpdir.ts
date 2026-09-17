@@ -37,11 +37,18 @@
  * `exit`, and calling `process.exit()` from inside an `exit` listener ends the
  * process before any later listener runs. A plain `process.once("exit")` added
  * here would come after it and never run. `prependOnceListener` puts this one
- * first. It uses `rmSync` because an `exit` listener cannot wait on anything.
- * SIGKILL still skips both. So does a crash that kills node outright. And a
- * signal sent to the vitest process alone, not its group, can leave forked
- * workers running with nobody to report to, and they can still write under
- * the old path after it is removed.
+ * first. Everything in it is synchronous, because an `exit` listener cannot
+ * await. `test/wiring.test.ts` checks the teardown in-process and the signal
+ * path against a real vitest, since deleting either would fail nothing else.
+ *
+ * What it still misses. SIGKILL skips both paths, and so does a crash that
+ * kills node outright. A signal sent to the vitest pid alone, not its process
+ * group, leaves forked workers running after vitest exits, and what they are
+ * still doing can put the directory back. In at least two of nine such runs it
+ * reappeared after removal, once 39 ms later under a new inode, holding up to
+ * 15 directories. Vitest's own per-project temp directory, a random name
+ * holding `ssr/`, is made before this file runs, so it sits beside the run
+ * directory rather than in it, and a signal leaves that behind too.
  *
  * The guard still runs first, so the run directory itself never lands in this
  * checkout. From a worktree pointed at another checkout it does, for the length

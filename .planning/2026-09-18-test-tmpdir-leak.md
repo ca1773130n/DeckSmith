@@ -81,7 +81,8 @@ were empty, and none of the 111 held a nested `harvest-*`, `decksmith-*`, `ds-*`
 it there in place of `setupFiles`. In the parent vitest process it runs the guard,
 then `mkdtemp`s `decksmith-test-*` under whatever `os.tmpdir()` now answers, and
 sets `TMPDIR` to that directory. Its teardown restores `TMPDIR` and removes the
-directory.
+directory. A signal skips the teardown, so an `exit` listener removes it then,
+as described under "Stopped by a signal" below.
 
 That `TMPDIR` reaching the workers was checked, not assumed. Vitest 3.2.7 builds
 the pool's env as `{ …, ...process.env, ...config.env }` inside `executeTests`
@@ -130,11 +131,92 @@ what tests `mkdtemp` under `os.tmpdir()`. No test writes output a person asked
 to keep, browser caches live under `~/.cache`, and `sweep`, `drift` and the
 `measure-*` scripts do not run under vitest.
 
+## Stopped by a signal
+
+Added after review, the same day. Two findings held.
+
+**Nothing tested the removal itself.** With the `rmSync` deleted from the
+teardown, `test/wiring.test.ts`, `pack` and `transcode` still passed (63 tests),
+and the run left its `decksmith-test-*` directory holding 9 `decksmith-pack-*`
+and 1 `decksmith-transcode-*`.
+
+**A signal skipped the teardown.** Vitest 3.2.7 calls the teardown only from
+`Vitest.close()`. On SIGINT or SIGTERM its handler (`addCleanupListeners`,
+`cli-api.DVe0nWUx.js:5614`) calls `process.exit()` instead. A one-test vitest
+whose test signals its own process left the run directory, with the test's
+`probe-*` still in it, for both signals (exit 130 and 143). The reviewer counted
+74 and 75 entries left by full-suite runs stopped the same way.
+
+What changed:
+
+- `setup` prepends a one-shot `exit` listener that removes the directory, and
+  the teardown takes that listener off again. Prepending is required: vitest's
+  handler is registered on `exit` as well and calls `process.exit()` from there,
+  and that ends the process before any later listener runs. A throw from the
+  first listener would also stop vitest's own terminal cleanup (checked on node
+  24.14.0), so a failure goes to stderr with the path instead.
+- Both paths remove the directory through `removeRunDir`. It retries ENOTEMPTY
+  and EBUSY up to 8 times, pausing 25 ms longer each time with `Atomics.wait`.
+  Node's own `maxRetries` does not pause for short delays. Against a directory
+  `rmSync` could not empty (it held an immutable file), node 24.14.0 with three
+  retries gave up after 1 ms at `retryDelay` 100, took 2,008 ms at 400, and took
+  10,017 ms at 1,000. The delay is applied in whole seconds. This mattered in
+  practice: with only the listener in place, one SIGINT to the process group
+  failed with ENOTEMPTY 98 ms after the signal, because an `npm exec` child was
+  creating `node-compile-cache` in the run directory at that moment. The error
+  was reported on stderr.
+- Four tests in `test/wiring.test.ts`. One calls setup and teardown in-process.
+  Two start a real vitest that is stopped by SIGINT or SIGTERM. Those use
+  `pool: "threads"`, so no forked worker outlives them. The fourth runs
+  `removeRunDir` while a child keeps writing into the directory for 120 ms.
+  Seven mutants of the setup file each fail at least one of them: the file as
+  it was before review, no removal in the teardown, `once` instead of
+  prepending, no `off`, no listener, no pause, and a single attempt.
+
+Full-suite runs, each signalled once the run directory held about 40 entries
+or more, with `TMPDIR` set to an empty directory. Processes still alive 5 s
+after vitest exited were stopped by PID, and the directory was checked again
+after that. In all but the first three runs, a `stat` loop also recorded the
+directory's inode every 20 ms or so.
+
+| removal | signal | runs | run directory at the end |
+| --- | --- | --- | --- |
+| listener, `rmSync` with `maxRetries: 3` | to the vitest pid | 7 | gone in 4, back in 3 |
+| listener, `rmSync` with `maxRetries: 3` | SIGINT to the process group | 2 | gone in 1, ENOTEMPTY in 1 (left holding `node-compile-cache`) |
+| listener, `removeRunDir` | SIGINT to the process group | 4 | gone in 4 |
+| listener, `removeRunDir` | SIGINT and SIGTERM to the vitest pid | 2 | gone in 2 |
+
+Each of the three that came back had been removed first and then put back by
+something still running. One run shows it directly: gone at .735 s, back at
+.774 s under a new inode, then holding 15 `decksmith-server-*`. Another shows
+it through modes: `ds-harvest-*/deck` and its parents were 755, the mark of a
+recursive `mkdir`, where `mkdtemp` makes 700. The third looked like that one
+(9 `decksmith-server-*`, mode 700) but was not being watched. All three came
+from a signal to the pid alone, which leaves forked workers running; the
+table's last row had no such case, but two runs are not enough to say it
+cannot happen.
+
+Every signalled run also left vitest's own project directory in `TMPDIR`: a
+random 21-character name holding `ssr/`, which `TestProject.close()` removes on
+a normal exit. Vitest makes it before global setup runs, so it is not inside the
+run directory. Five of the six SIGINTs to the process group left one vitest
+worker alive 5 s later, and one SIGTERM to the pid left five `chrome-headless-shell`
+processes as well.
+
 ## Not covered
 
-- A vitest process that is killed with SIGKILL or crashes skips teardown and
+- ~~A vitest process that is killed with SIGKILL or crashes skips teardown and
   leaves one run directory, instead of the roughly 111 it would have left
-  before. What happens on SIGINT was not measured.
+  before. What happens on SIGINT was not measured.~~ **Closed 2026-09-18**, see
+  "Stopped by a signal": SIGINT and SIGTERM skipped the teardown as well, and now
+  remove the directory through the `exit` listener. 11 of 15 signalled
+  full-suite runs ended with it gone, and all 6 after `removeRunDir` was added.
+- SIGKILL, or a crash that ends node without an `exit` event, still leaves the
+  run directory.
+- After a signal to the vitest pid alone, forked workers keep running, and what
+  they write can recreate the run directory. That happened in at least 2 of 9
+  such runs. Any signal also leaves vitest's own project directory (`ssr/`)
+  beside the run directory.
 - In watch mode the run directory lasts until vitest exits.
 - From a worktree whose `TMPDIR` is the main checkout, the run directory lives
   in the main checkout for the length of the run. `/decksmith-*/` ignores it,
