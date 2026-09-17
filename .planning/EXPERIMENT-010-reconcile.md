@@ -319,5 +319,50 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
   branch nothing can reach is a gate that cannot fail, and deleting it would make it
   silently absent the next time a real destination is tighter. Both new tests were proved
   able to fail by restoring the stale row, which turns exactly those two red.
-- **Latin caption typography is not cross-machine deterministic** — with no CJK bundle the
-  stack falls to Helvetica/Arial. Byte-identical on this machine, untested elsewhere.
+- ~~**Latin caption typography is not cross-machine deterministic** — with no CJK bundle the
+  stack falls to Helvetica/Arial. Byte-identical on this machine, untested elsewhere.~~
+  **MEASURED 2026-09-18 on a second machine**
+  ([2026-09-18-linux-determinism.md](2026-09-18-linux-determinism.md)). Both halves of the
+  guess were right, and the consequence is smaller than it sounds. The stack does fall
+  through: `Arial | Arial-BoldMT` for every glyph on the Mac, `Liberation Sans |
+  LiberationSans-Bold` for every glyph on `ubuntu-latest`, over the narrated demo's own 62
+  cues at 1920x1080 and 1080x1920.
+
+  ```
+  run 1 vs run 2 on the same machine   62/62 PNGs byte-identical, both machines, both formats
+  Mac vs Linux, same cue               0/62 identical; per-band PSNR 18.15-24.15 dB
+  band box, line breaks, laid-out width per cue   identical, and the widths to 0.000 px
+  ```
+
+  So **the layout is portable and the pixels are not.** Liberation Sans is metric-compatible
+  with Arial and the measurement agrees to a thousandth of a pixel — same box, same breaks,
+  nothing reflows. What changes is the outline of each glyph, which is why no PNG matches.
+  Opened side by side, the worst pair (cue 55) reads the same at playback size; at 4x the
+  letterforms are visibly a different typeface (`t`'s top cut, the apostrophe). The 18 dB
+  is measured over a band-sized crop that is mostly glyph edge and is **not** on drift's
+  whole-frame 40 dB scale.
+
+  Still untested: a Linux without `fonts-liberation`, where `Arial` falls to DejaVu Sans,
+  which is *not* metric-compatible. That one would reflow. `fc-match Arial` says so; it was
+  not rendered.
+- **The build gates measure a font the render never draws.** Found 2026-09-18, not fixed.
+  `openDeck` (`src/render/capture.ts`) loads `index.html` directly, so hyperframes' compiler
+  never runs and nothing gives the deck's `"Inter"` a face — each host fills it from its own
+  fallback. On the s12 line chart the gate page draws `.SF NS` on the Mac and `DejaVu Sans`
+  on Linux, and the value label "29.88" is 110.08 px wide on one and 126.53 px on the other.
+  The demo's `build` therefore **FAILs on Linux** with `svg_text_overprint` — true of the
+  DejaVu page, false of the render, where the labels stand clear on both machines. The Mac's
+  PASS is no better founded; it is a verdict about San Francisco. `src/emit/svg.ts` lays
+  these labels out from pinned Inter metrics and they are then checked in whatever sans the
+  host has, which is invariant 9 inside the gate stack rather than inside a deck. Presumably
+  true of every gate that runs on `openDeck`, and of the sweep — unmeasured. The fix is to
+  give the gate page the faces the render gets; that is a design change, not a one-liner.
+- **DeckSmith's own Chrome launches cannot start on a stock Ubuntu 24.04 runner.** Found
+  2026-09-18, not fixed. GitHub's image sets
+  `kernel.apparmor_restrict_unprivileged_userns=1`, and `openDeck` and `renderCaptions` pass
+  no `--no-sandbox`, so Chrome dies with `FATAL: … No usable sandbox!`. `build` then degrades
+  `fidelity` to a `not_measured` warning and **passes** — a green deck on a machine where no
+  gate that needs a browser ran at all. `render --subtitles burn` would get further before
+  failing: `captionBlocker` checks that a Chrome exists, not that it launches, and
+  hyperframes' own capture passes `--no-sandbox`. Whether to pass the flag, require the
+  sysctl, or fail loudly instead of warning is a call for whoever owns Linux support.
