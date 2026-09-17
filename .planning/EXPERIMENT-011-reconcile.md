@@ -416,9 +416,16 @@ the real server for the first time.
 - **Zip symlink entries** reasoned safe (fflate yields bytes, the server calls
   `writeFile`, nothing calls `symlink`) but not tested with a real symlink archive.
 - **Chromium only.** The page leans on `:has()` throughout; Safari and Firefox unchecked.
-- **`narrate` and `build` must be given the same canvas** and nothing enforces it. A
+- ~~**`narrate` and `build` must be given the same canvas** and nothing enforces it. A
   mismatch changes the stop count and puts sentences on reveals that are not there. The
-  server always passes one format to both, so the server is safe; the CLI is not.
+  server always passes one format to both, so the server is safe; the CLI is not.~~
+  **CLOSED 2026-09-18.** It was true on 0.5.2. `narrate --width 1600 --height 900` then
+  `build --format deck-16x9` exited 0 with PASS, and the stack beat, refused at 1600×900,
+  spoke four sentences as one 20.35s segment over its first reveal. `narration.json` now
+  records the canvas, and `build`, `emitDeck`, `emitComposition` and `planTiming` refuse
+  another one, naming both canvases and the fix. Narration written before the record still
+  builds, with a warning. See
+  [`2026-09-18-narrate-build-canvas.md`](2026-09-18-narrate-build-canvas.md).
 - **No rendered-glyph-size gate.** `canvasWarnings` is the only thing that will ever say
   a canvas is too small, and it is a warning. A 500×281 deck that happens to lay out
   ships unreadable and PASSes.
