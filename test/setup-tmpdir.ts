@@ -28,9 +28,24 @@
  * worker is done, so a background write a test left running cannot land in a
  * directory that has already gone and fail the run with an unhandled ENOENT.
  *
+ * WHY AN `exit` LISTENER AS WELL AS THE TEARDOWN, AND WHY PREPENDED. Vitest
+ * calls the teardown only from `Vitest.close()`. On SIGINT or SIGTERM, vitest
+ * 3.2.7's own handler (`addCleanupListeners` in `vitest/dist/chunks/cli-api.*.js`)
+ * calls `process.exit()` directly, so `close()` never runs. Measured on
+ * 2026-09-18, a run stopped that way left its whole directory behind, with
+ * everything its tests had made inside it. That handler is also registered on
+ * `exit`, and calling `process.exit()` from inside an `exit` listener ends the
+ * process before any later listener runs. A plain `process.once("exit")` added
+ * here would come after it and never run. `prependOnceListener` puts this one
+ * first. It uses `rmSync` because an `exit` listener cannot wait on anything.
+ * SIGKILL still skips both. So does a crash that kills node outright. And a
+ * signal sent to the vitest process alone, not its group, can leave forked
+ * workers running with nobody to report to, and they can still write under
+ * the old path after it is removed.
+ *
  * The guard still runs first, so the run directory itself never lands in this
  * checkout. From a worktree pointed at another checkout it does, for the length
- * of the run, and teardown removes it.
+ * of the run, and it is removed on the way out.
  *
  * TypeScript rather than `.mjs` because vitest transforms it natively, which
  * keeps `npm test` free of any build precondition, and `scripts/build.mjs`
@@ -47,7 +62,20 @@ export default function setup(): () => void {
   const run = mkdtempSync(join(tmpdir(), "decksmith-test-"));
   process.env.TMPDIR = run;
 
+  const onExit = (): void => {
+    try {
+      rmSync(run, { recursive: true, force: true, maxRetries: 3 });
+    } catch (error) {
+      // A throw from the first `exit` listener stops every listener after it,
+      // vitest's own terminal cleanup included (checked on node 24.14.0). Name
+      // the directory instead, so it can be removed by hand.
+      process.stderr.write(`setup-tmpdir: could not remove ${run} on exit: ${String(error)}\n`);
+    }
+  };
+  process.prependOnceListener("exit", onExit);
+
   return () => {
+    process.off("exit", onExit);
     // Restored before the removal, so nothing vitest does while closing asks
     // for a temp directory that no longer exists.
     if (before === undefined) delete process.env.TMPDIR;

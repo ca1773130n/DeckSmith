@@ -12,11 +12,20 @@
  * Nothing here touches the network: narration is a hand-written fixture in the
  * exact shape `narrate` returns.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename } from "node:path";
+import { constants, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -34,6 +43,7 @@ import {
   storyboardSchema,
 } from "../src/types.js";
 import { scanNarration } from "../src/verify/index.js";
+import setupTmpdir from "./setup-tmpdir.js";
 
 function format(id: string): Format {
   const f = FORMATS[id];
@@ -457,6 +467,106 @@ describe("TMPDIR guard wiring", () => {
     });
     expect(child.trim()).toBe(dir);
   });
+
+  it("removes the run's directory at teardown, and puts TMPDIR and the exit listeners back", () => {
+    // The cleanup itself, which the two tests above only make reachable. Take
+    // the removal out of the teardown and every other test stays green while
+    // each run leaves its directory, and everything the suite made in it, behind.
+    const saved = process.env.TMPDIR;
+    const listeners = process.listenerCount("exit");
+    const teardown = setupTmpdir();
+    const run = process.env.TMPDIR ?? "";
+    try {
+      expect(basename(run)).toMatch(/^decksmith-test-/);
+      expect(existsSync(run)).toBe(true);
+      expect(process.listenerCount("exit")).toBe(listeners + 1);
+    } finally {
+      teardown();
+    }
+    expect(process.env.TMPDIR).toBe(saved);
+    expect(existsSync(run)).toBe(false);
+    expect(process.listenerCount("exit")).toBe(listeners);
+  });
+
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "removes the run's directory when vitest is stopped by %s",
+    async (signal) => {
+      // Vitest answers both signals with `process.exit()` and never calls the
+      // teardown, and on 2026-09-18 that left the whole run directory behind. The
+      // only way to reach that path is a real vitest process, so this starts one
+      // whose single test signals its own process. `threads` keeps that test
+      // inside the process being stopped, so no forked worker outlives it.
+      const work = mkdtempSync(join(tmpdir(), "ds-signal-"));
+      try {
+        const root = join(work, "root");
+        const outer = join(work, "tmp");
+        const report = join(work, "report.txt");
+        mkdirSync(root);
+        mkdirSync(outer);
+        const config = {
+          test: {
+            globals: true,
+            pool: "threads",
+            include: ["probe.mjs"],
+            globalSetup: [fileURLToPath(new URL("./setup-tmpdir.ts", import.meta.url))],
+          },
+        };
+        writeFileSync(
+          join(root, "vitest.config.mjs"),
+          `export default ${JSON.stringify(config)};\n`,
+        );
+        writeFileSync(
+          join(root, "probe.mjs"),
+          [
+            'import { mkdtempSync, writeFileSync } from "node:fs";',
+            'import { tmpdir } from "node:os";',
+            'import { join } from "node:path";',
+            'it("is stopped", async () => {',
+            '  writeFileSync(process.env.PROBE_REPORT, mkdtempSync(join(tmpdir(), "probe-")));',
+            "  process.kill(process.pid, process.env.PROBE_SIGNAL);",
+            "  await new Promise((resolve) => setTimeout(resolve, 10_000));",
+            "});",
+            "",
+          ].join("\n"),
+        );
+
+        // The nested run must not think it is a worker of this one.
+        const env: NodeJS.ProcessEnv = {};
+        for (const [key, value] of Object.entries(process.env)) {
+          if (!key.startsWith("VITEST")) env[key] = value;
+        }
+        Object.assign(env, { TMPDIR: outer, PROBE_REPORT: report, PROBE_SIGNAL: signal });
+
+        const vitest = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url));
+        let output = "";
+        const code = await new Promise<number | null>((resolve, reject) => {
+          const child = spawn(
+            process.execPath,
+            [vitest, "run", "--config", "vitest.config.mjs", "--root", root],
+            { cwd: root, env },
+          );
+          child.stdout.on("data", (chunk) => {
+            output += chunk;
+          });
+          child.stderr.on("data", (chunk) => {
+            output += chunk;
+          });
+          child.on("error", reject);
+          child.on("exit", resolve);
+        });
+
+        // The probe ran, inside a run directory under the TMPDIR it was given,
+        // and the process really went out through the signal.
+        expect(existsSync(report), output).toBe(true);
+        expect(readFileSync(report, "utf8").startsWith(join(outer, "decksmith-test-"))).toBe(true);
+        expect(code, output).toBe(128 + constants.signals[signal]);
+        expect(readdirSync(outer).filter((name) => name.startsWith("decksmith-test-"))).toEqual([]);
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+    60_000,
+  );
 
   it("does not touch the environment when the library is merely imported", async () => {
     // The reason the barrel exports rather than calls. An absent TMPDIR is
