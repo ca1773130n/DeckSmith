@@ -11,6 +11,17 @@ root, left 562 directories: `decksmith-server-*` 256, `ds-mcp-*` 68,
 `decksmith-transcode-*` 4. `vitest.config.ts` already named
 `test/setup-tmpdir.ts` in `setupFiles`.
 
+**Read that as a snapshot, not as four identical runs.** Nine of the ten
+prefixes are exactly four times what one `npm test` leaves under "Measurement"
+below — 17, 16, 10, 9, 9, 6, 6, 2 and 1 against 68, 64, 40, 36, 36, 24, 24, 8
+and 4. `decksmith-server-*` is not: 256 is 64 a run, against 35 measured, where
+four runs would give 140. The ten prefixes also sum to 560, not the 562
+reported. So whatever those sessions were doing made `decksmith-server-*`
+directories beyond the four suites — `test/server.test.ts` is the only thing in
+this repo that makes them, so a partial or repeated run of that file is the
+likely extra. The controlled numbers are the ones under "Measurement"; this
+count is what was reported, and only nine of its rows scale.
+
 ## Why that setup file neither prevented it nor cleaned it up
 
 It only ran `guardTmpdir()`, which does two things and neither is cleanup:
@@ -104,6 +115,16 @@ The other options, and why they lost:
   still write into it. That would surface as an ENOENT unhandled rejection and
   fail the run. This is a risk read from the design, not something measured.
   Teardown in `globalSetup` runs only after every file is done.
+
+One `src/tmpdir.ts` change came with the move, added after review. The guard's
+warning was deduped by `VITEST_WORKER_ID`, because `setupFiles` ran the guard
+once per worker and a dozen identical lines is not twelve times the warning.
+From `globalSetup` it runs once, in the parent, which carries no worker id, so
+the dedup stopped suppressing anything the suite prints — and the processes that
+still carry an id are the ones a test SPAWNS, which inherit it from their
+worker and whose `TMPDIR` nobody is watching. The dedup is gone, and the test
+that asserted a silent worker now asserts the warning is printed with
+`VITEST_WORKER_ID` set.
 
 ## After
 
