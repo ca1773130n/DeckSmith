@@ -349,7 +349,7 @@ Startup says what is missing before anyone waits on it:
 ```
 decksmith: http://127.0.0.1:8475
 decksmith: work /tmp/decksmith-server, one job at a time, 8 may wait
-decksmith: no auth, no TLS. Bound to 127.0.0.1 — set DECKSMITH_HOST to open it, knowing that.
+decksmith: no auth. Bound to 127.0.0.1, so anyone with an account on this machine can spend your Codex quota — set DECKSMITH_TOKEN_FILE to require a token.
 decksmith: codex, edge-tts and ffmpeg all found
 decksmith: images via codex, then svg
 ```
@@ -360,15 +360,24 @@ for pictures still finishes, on the tool's own SVG if it has to.
 
 ### The HTTP surface
 
-| Route | What it does |
-|---|---|
-| `POST /api/jobs` | multipart: `file` (.md/.markdown/.txt/.zip) plus option fields → `202 {id}` |
-| `GET /api/jobs/:id` | `{state, stage, steps[], log[], error, result, queuePosition}` |
-| `GET /api/jobs/:id/events` | the same payload as SSE on every change |
-| `GET /api/formats` | the presets, themes, tones, densities and canvas bounds the picker draws from |
-| `GET /d/:id/...` | the built deck, served statically; `/d/:id/deck.html` is the player |
-| `GET /player.js` | the `<decksmith-player>` element, as an ES module — see below |
-| `GET /examples/embed.html` | a page that embeds two decks with it, and the file you copy |
+| Route | What it does | With a token file |
+|---|---|---|
+| `POST /api/jobs` | multipart: `file` (.md/.markdown/.txt/.zip) plus option fields → `202 {id}` | token |
+| `POST /api/jobs/:id/retry` | runs a job the server kept on disk again, under a new id | token |
+| `GET /api/jobs/:id` | `{state, stage, steps[], log[], error, result, queuePosition}` | token |
+| `GET /api/jobs/:id/events` | the same payload as SSE on every change | token |
+| `GET /api/formats` | the presets, themes, tones, densities and canvas bounds the picker draws from | token |
+| `GET /d/:id/...` | the built deck, served statically; `/d/:id/deck.html` is the player | public |
+| `GET /player.js` | the `<decksmith-player>` element, as an ES module — see below | public |
+| `GET /examples/embed.html` | a page that embeds two decks with it, and the file you copy | token |
+| `GET /` | the uploader; with a token file and no session, the login page | public |
+| `POST /login`, `POST /logout` | set or clear the session cookie, then 303 to `/` | public, only with a token file |
+
+"Token" means `Authorization: Bearer <token>` or the session cookie the login page sets.
+A route that is not in this table answers 401 when a token file is configured, so a route
+added later starts out private. A deck id is 128 random bits and is meant to be shared,
+which is why `/d/` stays public; the job routes are keyed by the same id, which is why
+they do not.
 
 Options on `POST`, all optional, all defaulted server-side: `format`, `width`+`height`,
 `theme`, `slides`, `lang`, `tone`, `density`, `speed`, `narrate`, `voice`, `images`,
@@ -392,40 +401,86 @@ generous one.
 | Variable | Default | Why |
 |---|---|---|
 | `PORT` | `8475` | |
-| `DECKSMITH_HOST` | `127.0.0.1` | There is no auth. Opening it should require typing something. |
+| `DECKSMITH_HOST` | `127.0.0.1` | `127.0.0.1`, `::1` and `localhost` are loopback. **Anything else refuses to start** without `DECKSMITH_TOKEN_FILE`, `DECKSMITH_TLS_CERT` and `DECKSMITH_TLS_KEY` — `127.0.0.2` and `::ffff:127.0.0.1` included. |
+| `DECKSMITH_TOKEN_FILE` | unset | A file holding the token (`openssl rand -base64 32 > f; chmod 600 f`). Set, every route but the public ones in the table above needs it, on any bind. Refused unless it is a regular file, not readable by group or others, 32–1024 characters, one line. |
+| `DECKSMITH_TLS_CERT` / `DECKSMITH_TLS_KEY` | unset | A PEM chain, leaf first, and its **unencrypted** PEM key (mode 600). Set both or neither. On an exposed bind the certificate's subjectAltNames are the only `Host` names the server answers to. |
+| `DECKSMITH_TOKEN` | — | **Not read, and refused if present**, even empty: ignoring it would leave a server someone believes is protected open, and an environment variable reaches shell history and every process the server starts. |
 | `DECKSMITH_WORK` | `$TMPDIR/decksmith-server` | One directory per job; swept by age. |
 | `DECKSMITH_MAX_UPLOAD` | 25 MB | |
 | `DECKSMITH_MAX_QUEUE` | `8` | Concurrency is 1. Past 8 the answer is "full", not "position 400". |
 | `DECKSMITH_JOB_TTL_MIN` | `120` | Files outlive the in-memory record; orphans are swept on boot. |
 | `DECKSMITH_JOBS_PER_HOUR` | `5` | Per IP. Charged only on an **accepted** job. |
 | `DECKSMITH_REQS_PER_MIN` | `240` | Per IP. |
-| `DECKSMITH_FETCH_FIGURES` | off | See below. |
-| `DECKSMITH_DECK_SANDBOX` | on | Serves decks under `CSP: sandbox`. |
+| `DECKSMITH_FETCH_FIGURES` | on | See below. |
+| `DECKSMITH_DECK_SANDBOX` | on | Serves decks under `CSP: sandbox`. Turning it off is refused with a token file or on an exposed bind. |
 | `DECKSMITH_IMAGES` | unset | `openai` names a separate image backend for `illustrate`. Unset, pictures come from the Codex account, then the tool's own SVG. |
 | `DECKSMITH_IMAGES_API_KEY` | | The backend's key. Environment only — never a preference, a config file, a `.deck`, or an error message. |
 | `DECKSMITH_IMAGES_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible `images/generations` endpoint. |
 | `DECKSMITH_IMAGES_MODEL` | `gpt-image-2` | The backend's model. The Codex rung draws with the account's own. |
 
-**Remote figures are off by default, and that is a security decision.** `fetchFigures`
-does `readFile(src)` on anything that is not an http URL, so an uploaded document
-containing `![](../../../etc/ssh/ssh_host_rsa_key)` would have this process read it.
-Relative paths are resolved inside the upload directory and confined there; http figures
-are dropped with a named warning unless you turn them on. A hostname allowlist does not
-close the SSRF — DNS can answer differently the second time — so none is pretended.
+**Remote figures are fetched by default, and what makes that safe is not the flag.** A
+paper's markdown usually links its images rather than attaching them. `guardFigures` in
+`src/server/pipeline.ts` drops any figure whose host resolves to a private, loopback or
+link-local address, and the fetch checks the address again when it connects, because DNS
+can answer differently the second time. `fetchFigures` does `readFile(src)` on anything
+that is not an http URL, so an uploaded document containing
+`![](../../../etc/ssh/ssh_host_rsa_key)` would have this process read it: relative paths
+are resolved inside the upload directory and confined there. `DECKSMITH_FETCH_FIGURES=0`
+drops every http figure with a named warning. (The table above said "off" until
+2026-09-18, while `main.ts` defaulted it on.)
+
+### Opening it to a network
+
+To use a server on another machine yourself, leave it on loopback and tunnel:
+`ssh -L 8475:127.0.0.1:8475 <host>`, then open `http://127.0.0.1:8475` locally. Nothing
+else is needed. If other people have accounts on either machine, add a token file.
+
+To bind anything else, the server needs all three:
+
+```sh
+openssl rand -base64 32 > ~/.decksmith-token && chmod 600 ~/.decksmith-token
+DECKSMITH_HOST=0.0.0.0 \
+DECKSMITH_TOKEN_FILE=~/.decksmith-token \
+DECKSMITH_TLS_CERT=/etc/decksmith/fullchain.pem \
+DECKSMITH_TLS_KEY=/etc/decksmith/privkey.pem \
+npm run serve
+```
+
+Missing any of them, it refuses to start, names every problem at once, and exits 1 before
+it touches the work directory. There is no override. The certificate must list the names
+people will type as subjectAltNames: those names, and nothing else, are what the server
+answers to, so DNS rebinding is refused on this bind as well as on loopback. There is no
+plain-http listener or redirect beside it, and no HSTS. Renewing the certificate or
+rotating the token means restarting.
+
+A browser gets a login page at `/`. The token goes in a password field, so a password
+manager can keep it. The server sets a cookie: `__Host-decksmith` over TLS, `decksmith`
+on plain loopback, `HttpOnly`, `SameSite=Strict`, valid seven days. It is signed with a
+key derived from the token, so it survives a restart, and rotating the token file logs
+every browser out. Because the cookie is Strict, a link from another site to the server
+shows the login page even to someone logged in. Scripts send
+`Authorization: Bearer <token>` instead. A write that relies on the cookie must carry
+`Sec-Fetch-Site` or `Origin`; a current browser sends both on a POST. Ten wrong tokens from one address
+lock that address out for fifteen minutes, including a right token sent during that time.
+The log records refusals and never the token, a cookie or an `Authorization` header.
+
+Every response that is not a deck file carries `X-Frame-Options: DENY` and
+`Content-Security-Policy: … frame-ancestors 'none'`, so nothing can frame the uploader,
+the API, or an error page.
 
 ### What is missing before this is public
 
-This runs a demo on a laptop. It is **not** ready to face the internet, and the gap is
-not a polish gap:
+A token and TLS are in: see "Opening it to a network" above. This is what is still
+missing, and some of it is not a polish gap:
 
-- **No authentication and no TLS.** Anyone who can reach the port can spend your Codex
-  quota. This is why the default bind is loopback.
-- **DNS rebinding is refused only on a loopback bind.** A write another site's page makes
-  a browser send is refused on any bind: `Sec-Fetch-Site`, or `Origin` where that is
-  missing. But a rebinding page is same-origin to itself, and the only thing that gives it
-  away is a `Host` naming something other than the server. On `127.0.0.1` that check is
-  on. On any other `DECKSMITH_HOST` the server cannot know its own names, so the check is
-  off until it is given an allowlist.
+- **One token, no accounts.** Everyone who holds the token is the same user, with the same
+  quota and the same view of every job whose id they know. A single session cannot be
+  revoked: rotate the token file and restart. No roles, no per-token quota, no OIDC.
+- **No reverse-proxy support.** `X-Forwarded-*` is not read (see the rate-limit item
+  below), and on a loopback bind the `Host` check refuses whatever public name a proxy
+  forwards.
+- **Without a token file, loopback is open to this machine.** Anyone with an account on it
+  can reach `127.0.0.1`. `DECKSMITH_TOKEN_FILE` on loopback turns the token on there too.
 - **Codex spend is unmetered per upload.** The per-IP hourly limit is the only brake, and
   it is per-IP.
 - **Rate limiting is by `socket.remoteAddress` only.** `X-Forwarded-For` is deliberately
@@ -440,6 +495,17 @@ not a polish gap:
   drives the composition through `iframe.contentDocument`, so an opaque origin makes
   every slide render blank while the job reports `done`. Real isolation means serving
   `/d/:id` from a **separate origin**, which is a second listener and is not built.
+- **A deck shown inside the uploader can act as whoever is logged in.** The deck is
+  same-origin with the page around it, so its script can call `parent.fetch`. That call
+  runs under the uploader's policy, not the deck's `connect-src 'none'`, and carries the
+  session. Measured: a stub deck doing this queued a job
+  (`.planning/2026-09-18-deck-parent-reach.md`). A deck opened on its own can no longer do
+  it, because nothing it could frame will load. Another site cannot set this up: the
+  cookie is `SameSite=Strict` and `/examples/embed.html`, which frames any deck named in
+  its query string, needs the token. What is left needs hostile content converted by the
+  operator, script that survives into the deck, and the operator viewing that deck in the
+  uploader. `DECKSMITH_JOBS_PER_HOUR` still caps what it can spend. The fix is the separate
+  deck origin above.
 - **No persistence.** A restart forgets every job record. The files survive and are swept
   by age on boot.
 - **Disk is bounded only by TTL × queue rate**, and uploaded files are not scanned.

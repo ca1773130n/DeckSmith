@@ -401,8 +401,21 @@ the real server for the first time.
   `maxSeconds` — and it would change 16:9 output bytes, so it was **not** done in a pass
   whose job was to keep 16:9 identical. Unchanged by this pass either way: the old code
   produced the identical warning.
-- ~~**No CSRF token**~~ **CSRF CLOSED 2026-09-17; no auth, no TLS still open.** See the
-  README's "What is missing before this is public". `foreignRequest` in
+- ~~**No CSRF token**~~ **CSRF CLOSED 2026-09-17;** ~~no auth, no TLS still open.~~
+  **AUTH AND TLS CLOSED 2026-09-18** (branch `feat/server-auth-tls`). A bind that is not
+  exactly `127.0.0.1`, `::1` or `localhost` refuses to start without
+  `DECKSMITH_TOKEN_FILE`, `DECKSMITH_TLS_CERT` and `DECKSMITH_TLS_KEY`; the certificate's
+  SANs are the Host allowlist, so the rebinding check below now runs on every bind. With a
+  token, every route but `/d/`, `/player.js` and the login needs a bearer or a
+  `SameSite=Strict` session cookie. Evidence: `test/server.test.ts` R1–R12, A1–A14,
+  H1–H6, F1–F2 and, in the renderer's Chrome, B1–B6 and M1; seven deliberate regressions
+  (framing headers, cookie-write rule, Origin scheme, limiter check, the UI's 401 branch,
+  work directory before the policy, session upper bound) failed 32 of those tests between
+  them. By hand, from the built server: login, upload, SSE progress and a CLI-built deck
+  playing in `<decksmith-player>`, over http on loopback and over https as `deck.test`
+  on an exposed bind. Still open: a deck shown inside the uploader can use the session,
+  see `.planning/2026-09-18-deck-parent-reach.md` and the README's "What is missing before
+  this is public". The CSRF closure, as of 2026-09-17: `foreignRequest` in
   `src/server/http.ts` refuses a write whose `Sec-Fetch-Site` (or, lacking it, `Origin`)
   says another site sent it, and — on a loopback bind — any request whose `Host` is not
   a loopback name, which is what stops DNS rebinding walking past the first check. Before
