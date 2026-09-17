@@ -92,6 +92,27 @@ the slide's end it seeks the scene's timeline into its own handoff tween. Nothin
 Unit cases in `test/deck.test.ts` pin the seam's own numbers: both scenes up at 7.0, 7.05,
 7.167 and 7.399; s2 gone at 7.4; the half-open ends; and the fallback.
 
+**Those cases did not pin the fix, and review caught it.** They test `showingAt` alone.
+Put main's slide-window rule back inside `paint()`, rebuild, and `test/deck.test.ts` plus
+`test/deck-page.test.ts` still passed, 51 of 51, with the Chrome suite running. The
+Chrome suite only asserts resting stops, and no stop falls inside a handoff. So `paint`
+is now exported and driven through a fake frame: scene divs that answer
+`getAttribute("data-duration")` and timelines that record their seeks. Three cases:
+both scenes displayed and seeked on all 24 60Hz ticks from 7.000 to 7.383; s2 still
+up at 7.399 and gone, unseeked, at 7.4; and a div with no `data-duration` falling back
+to the slide. Measured 2026-09-18 by mutation, each run through the gate after a rebuild:
+
+| mutation in `paint()` | new `paint` cases failing | pre-existing deck tests |
+| --- | --- | --- |
+| main's rule `t >= startTime && t < endTime` | 2 of 3 | 51 of 51 pass, deck-page's 6 included |
+| `clip = Number.NaN` | 2 of 3 | 45 of 45 pass (unit file only) |
+| reads `"duration"` instead of `"data-duration"` | 2 of 3 | 45 of 45 pass (unit file only) |
+
+The case that survives every mutation is the fallback, which is main's behaviour by
+design. The export does not reach `deck.html`: the runtime bundle is an IIFE, and
+`dist/deck-runtime.js` has the same sha1 (`ba772ef`) with and without it, so the sweep
+receipt does not move.
+
 ## 4. After
 
 Same storyboard, rebuilt with the change.
@@ -144,6 +165,9 @@ mid-dive). That is run-to-run render noise on identical input, not the change.
   Invariant 9 is the obvious suspect and was not checked.
 - **`test/deck-page.test.ts` does not step through a glide frame by frame.** In the silent
   build of its plain fixture the only cross-slide step is 2.62s, over `MAX_SPAN`, so it
-  cuts; the test's narrated build was not checked. The new unit cases cover the
-  decision, not the painted frame. The frame evidence above was produced by a scratch
-  harness that was not committed.
+  cuts; the test's narrated build was not checked. The unit cases cover `paint()`'s
+  display and seek calls against a fake frame. They do not cover the painted pixels,
+  or whether the real scene div carries the attribute; `test/emit.test.ts` and
+  `test/camera.test.ts` pin that on the emitted HTML instead. CI installs no Chrome, so
+  a glide case there would be skipped anyway. The frame evidence above was produced by
+  a scratch harness that was not committed.
