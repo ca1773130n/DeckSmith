@@ -1504,7 +1504,7 @@ export function assertNarrationCanvas(
     `The narration was staged for ${describeCanvas(was)}, but this deck is laid out at ${describeCanvas(built)}. ` +
       `A beat can reveal a different number of things at another size, or not be drawn at all, so the sentences would be spoken over reveals that are not there. ` +
       `Re-run \`decksmith narrate\` with ${canvasFlags(built)}, the canvas this build was given. ` +
-      `Audio is cached by text, voice, rate and pitch, so a sentence that splits the same way is not synthesised again.`,
+      `Into the same directory, a sentence that splits the same way is not synthesised again: audio is cached by text, voice, rate and pitch.`,
   );
 }
 
