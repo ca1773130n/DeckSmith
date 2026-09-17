@@ -326,14 +326,18 @@ describe("narrate", () => {
     });
 
     expect(out.voice).toBe("en-US-AndrewMultilingualNeural");
-    // No format given: staged, and recorded, at the default canvas. See
-    // test/narration-canvas.test.ts for what `build` does with the record.
+    // No format given: staged, and recorded, at the default canvas, with the
+    // stop count the build compares. See test/narration-canvas.test.ts for what
+    // `build` does with the record.
     expect(out.canvas).toEqual({
       format: "deck-16x9",
       width: 1920,
       height: 1080,
       captionReserve: 0,
     });
+    expect(out.stops).toEqual({ b2: stops });
+    // `density: "high"` caps nothing, and JSON has no Infinity to say so with.
+    expect(out.speakingStops).toBeUndefined();
     expect(out.beats.b2?.map((s) => s.stop)).toEqual([...Array(stops).keys()]);
     expect(said).toHaveLength(stops);
     expect(out.beats.b2?.[0]?.text).toBe("Line 1.");

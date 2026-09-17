@@ -15,8 +15,8 @@
  */
 import type { z } from "zod";
 import { emitScene } from "../emit/archetypes/index.js";
-import type { EmitContext } from "../emit/kit.js";
-import { ink } from "../emit/theme.js";
+import type { EmitContext, Theme } from "../emit/kit.js";
+import { deckLook, ink } from "../emit/theme.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Source, Storyboard } from "../types.js";
 import {
@@ -24,7 +24,6 @@ import {
   FORMATS,
   type Format,
   type NarrationCanvas,
-  narrationCanvas,
   type prefsSchema,
   type segmentSchema,
 } from "../types.js";
@@ -33,7 +32,13 @@ import { pickVoice } from "./voices.js";
 
 type Prefs = z.infer<typeof prefsSchema>;
 type Segment = z.infer<typeof segmentSchema>;
-type Narration = { voice: string; canvas: NarrationCanvas; beats: Record<string, Segment[]> };
+type Narration = {
+  voice: string;
+  canvas: NarrationCanvas;
+  stops: Record<string, number>;
+  speakingStops?: number;
+  beats: Record<string, Segment[]>;
+};
 
 /* ------------------------------------------------------------------- Stops */
 
@@ -59,11 +64,22 @@ export function stopCount(holds: readonly number[]): number {
  * `onBeatError`, which is where a missing slide is reported and where a caller
  * without that hook still gets the error. Throwing here instead killed the whole
  * job one stage early, with the hook the caller had passed never reached.
+ *
+ * `theme` must be the one the build stages with, `deckLook(storyboard).theme`,
+ * which is what `narrate` passes: the font face it names decides whether a beat
+ * fits. The `ink` default is for a caller that has no storyboard and no
+ * CJK-language beat.
  */
-export function stopsFor(beat: Beat, source: Source, format: Format, sid = "s1"): number {
+export function stopsFor(
+  beat: Beat,
+  source: Source,
+  format: Format,
+  sid = "s1",
+  theme: Theme = ink,
+): number {
   // `start: 0` because this counts STOPS and throws the scene away — the clock
   // a clip would be seeked on is not consulted and not published.
-  const ctx: EmitContext = { source, format, theme: ink, sid, start: 0 };
+  const ctx: EmitContext = { source, format, theme, sid, start: 0 };
   try {
     return stopCount(emitScene(beat, ctx).holds);
   } catch {
@@ -117,6 +133,24 @@ export function planSegments(text: string, stops: number): string[] {
   return out;
 }
 
+/**
+ * How many stops `planSegments` gives words to, for a beat staged with `stops`
+ * stops under a density cap of `cap`.
+ *
+ * Two stagings that answer the same number split `text` identically, sentence
+ * for sentence and stop for stop: the first n-1 speaking stops get one sentence
+ * each and the last gets the rest. So this, not the raw stop count, is what has
+ * to agree between `narrate` and a build. A beat with three sentences reads the
+ * same over four stops as over five; the extra stop is silent either way.
+ */
+export function speakingStopCount(
+  text: string,
+  stops: number,
+  cap = Number.POSITIVE_INFINITY,
+): number {
+  return Math.min(Math.max(1, Math.min(stops, cap)), splitSentences(text).length);
+}
+
 /* --------------------------------------------------------------- Narration */
 
 export interface NarrateOpts {
@@ -166,7 +200,11 @@ export async function narrate(
   const paced = durationPlan(prefs, storyboard.beats.length);
   const { pitch } = prefs.narration;
   const rate = paced.rate;
+  // The build's look, not a default one: the font face decides what fits.
+  const { theme } = deckLook(storyboard);
   const beats: Record<string, Segment[]> = {};
+  /** Recorded so a build can check its own staging against it. */
+  const staged: Record<string, number> = {};
 
   for (const [i, beat] of storyboard.beats.entries()) {
     const text = beat.narration?.trim();
@@ -179,8 +217,8 @@ export async function narrate(
     // words spoken — `planSegments` joins the surplus onto the last speaking stop
     // — so the deck can come out long, but never comes out having silently
     // deleted what the author wrote.
-    const stops = Math.min(stopsFor(beat, source, format, `s${i + 1}`), paced.speakingStops);
-    const plan = planSegments(text, stops);
+    const count = stopsFor(beat, source, format, `s${i + 1}`, theme);
+    const plan = planSegments(text, Math.min(count, paced.speakingStops));
     for (const [stop, line] of plan.entries()) {
       if (!line) continue; // a silent stop holds on the animation alone
       const speech = await synthesize(line, {
@@ -200,8 +238,148 @@ export async function narrate(
         cues: speech.cues,
       });
     }
-    if (segments.length > 0) beats[beat.id] = segments;
+    if (segments.length > 0) {
+      beats[beat.id] = segments;
+      staged[beat.id] = count;
+    }
   }
 
-  return { voice, canvas: narrationCanvas(format), beats };
+  return {
+    voice,
+    canvas: narrationCanvas(format),
+    stops: staged,
+    ...(Number.isFinite(paced.speakingStops) ? { speakingStops: paced.speakingStops } : {}),
+    beats,
+  };
+}
+
+/* ------------------------------------------------- Narration against a build */
+
+/** The part of a narration a build checks, as `narrate` wrote it. */
+export interface NarrationStaging {
+  canvas?: NarrationCanvas | undefined;
+  stops?: Readonly<Record<string, number>> | undefined;
+  speakingStops?: number | undefined;
+  beats: Readonly<Record<string, readonly { text: string }[]>>;
+}
+
+/** What `narrate` records about the format it staged against. */
+export function narrationCanvas(format: Format): NarrationCanvas {
+  return {
+    format: format.id,
+    width: format.width,
+    height: format.height,
+    captionReserve: format.captionReserve ?? 0,
+  };
+}
+
+function describeCanvas(c: NarrationCanvas): string {
+  const size = `${c.width}×${c.height}`;
+  const named = c.format in FORMATS ? `${c.format} at ${size}` : size;
+  return c.captionReserve > 0 ? `${named} with ${c.captionReserve}px kept for captions` : named;
+}
+
+/**
+ * The `narrate` flags that stage at this canvas. A custom canvas is named by its
+ * size alone: `--width/--height` over the default profile give the same box as
+ * over any other.
+ */
+function canvasFlags(c: NarrationCanvas): string {
+  const size =
+    c.format in FORMATS ? `--format ${c.format}` : `--width ${c.width} --height ${c.height}`;
+  return c.captionReserve > 0 ? `${size} --reserve-captions` : size;
+}
+
+/**
+ * The warning for narration that records no stop counts, or undefined.
+ *
+ * ACCEPTED, NOT REFUSED. That is every `narration.json` and every pack written
+ * before `narrate` recorded them. Refusing would make each of those decks
+ * unbuildable until re-narrated, and a pack carries the mp3s but not the TTS
+ * cache sidecars, so for an unpacked deck that is every sentence synthesised
+ * again. The cost is that an old file staged differently still builds wrong,
+ * and this sentence is the only thing that says it was not checked. The library
+ * has no channel for it; the CLI prints it.
+ */
+export function uncheckedNarration(
+  narration: NarrationStaging,
+  format: Format,
+): string | undefined {
+  if (narration.stops) return undefined;
+  const built = narrationCanvas(format);
+  return (
+    `the narration records no stop counts, because it was written before \`narrate\` recorded them, so nothing checks that its sentences were split over the stops this deck stages at ${describeCanvas(built)}. ` +
+    `Narration staged differently puts its sentences on the wrong reveals. Re-run \`decksmith narrate\` with ${canvasFlags(built)} to record them.`
+  );
+}
+
+/**
+ * Refuse narration whose sentences were split over stops this build does not
+ * stage.
+ *
+ * `staged` is each beat THIS DECK DRAWS mapped to its stop count here: a beat
+ * the build leaves out, by refusal or by budget, speaks nowhere and cannot be
+ * wrong. For each one that has segments, the speaking-stop count `narrate` split
+ * against is compared with the one this staging gives (`speakingStopCount`).
+ *
+ * COMPARED PER BEAT, NOT BY CANVAS. The canvas was the first version of this
+ * check and it was wrong both ways: it refused `deck-16x9` narration built at
+ * `short-9x16`, which stages every drawn demo beat identically, and it passed a
+ * Korean deck whose font face made `narrate` and `build` stage one beat
+ * differently at the same size. A beat's own stop count is the fact both sides
+ * record, so it also catches a params edit that moves the count without
+ * changing a word, which `scanNarrationDrift` cannot see.
+ *
+ * THROWN, NOT REPORTED, for the reason `scanNarrationDrift` is an error: the
+ * two sides are recorded facts that must agree, and what gets through is a deck
+ * whose voice describes reveals that are not on screen. `place` clamps a stop
+ * past the end, `assertFits` skips a clamped one, and `build` printed PASS on
+ * the measured case.
+ */
+export function assertNarrationStaging(
+  narration: NarrationStaging,
+  staged: ReadonlyMap<string, number>,
+  format: Format,
+): void {
+  const recorded = narration.stops;
+  if (!recorded) return;
+  const cap = narration.speakingStops ?? Number.POSITIVE_INFINITY;
+  const moved: string[] = [];
+  for (const [id, here] of staged) {
+    const segments = narration.beats[id];
+    if (!segments?.length) continue;
+    // The words as they were split, not `beat.narration`: this compares how they
+    // were laid out, and `scanNarrationDrift` owns whether they are the words.
+    const text = segments.map((s) => s.text).join(" ");
+    const then = recorded[id];
+    if (
+      then !== undefined &&
+      speakingStopCount(text, then, cap) === speakingStopCount(text, here, cap)
+    ) {
+      continue;
+    }
+    const was = then === undefined ? "no stop count recorded" : `narrated over ${then}`;
+    moved.push(`${id} (${was}, ${here} here)`);
+  }
+  if (moved.length === 0) return;
+
+  const built = narrationCanvas(format);
+  const was = narration.canvas;
+  const sameBox =
+    was?.width === built.width &&
+    was.height === built.height &&
+    was.captionReserve === built.captionReserve;
+  const why = !was
+    ? ""
+    : sameBox
+      ? `It was narrated at this same canvas, ${describeCanvas(built)}, so the beats themselves stage differently now: a params edit, or a DeckSmith version that stages them another way. `
+      : `It was staged for ${describeCanvas(was)}, and this deck is laid out at ${describeCanvas(built)}, where a beat can reveal a different number of things or not be drawn at all. `;
+  throw new Error(
+    `The narration splits its sentences over a different number of stops than this deck stages, for ${moved.length} beat(s): ${moved.join(", ")}. ` +
+      why +
+      `Built like this, those sentences would be spoken over reveals that are not there. ` +
+      `Re-run \`decksmith narrate\` with ${canvasFlags(built)}, the canvas this build was given. ` +
+      `In the directory the narration was made in, only sentences that now split differently are synthesised again, because audio is cached there by text, voice, rate and pitch. ` +
+      `An unpacked .deck carries the audio but not that cache, so there every sentence is synthesised again.`,
+  );
 }

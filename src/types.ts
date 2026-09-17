@@ -929,19 +929,10 @@ export const segmentSchema = z.object({
 });
 
 /**
- * The canvas a narration's sentences were split against.
- *
- * `narrate` lays a beat's sentences over the stops its emitter stages, and the
- * emitter stages at a size. MEASURED on 2026-09-18 with the demo's `stack` and
- * `data-table` beats: at 1600×900 both are refused, `stopsFor` answers one stop
- * for each, and all four sentences of each become one segment on the landing.
- * Built at 1920×1080 the same beats have four stops, so the deck spoke a 20s
- * paragraph over the first reveal and left the other three silent, and `build`
- * printed PASS. See `assertNarrationCanvas`.
- *
- * `format` is recorded for the message only. What is compared is the drawable
- * box, width, height and caption reserve, because that is all staging reads:
- * `deck-16x9` and `video-16x9` share one and stage identically.
+ * The canvas a narration's sentences were split against. Recorded so a refusal
+ * can say where the narration was staged and which `narrate` flags stage it
+ * where the build is; it is NOT what is compared. See `assertNarrationStaging`
+ * in src/narrate/narrate.ts.
  */
 export const narrationCanvasSchema = z.object({
   format: z.string(),
@@ -950,14 +941,35 @@ export const narrationCanvasSchema = z.object({
   captionReserve: z.number().min(0),
 });
 
+export type NarrationCanvas = z.infer<typeof narrationCanvasSchema>;
+
 export const narrationSchema = z.object({
   voice: z.string(),
   /**
-   * Optional because every `narration.json` written before this field existed
-   * has none, and every pack the server wrote carries one of those. See
-   * `assertNarrationCanvas` for what a build does with it.
+   * `canvas`, `stops` and `speakingStops` are what `narrate` split the sentences
+   * over. All three are optional because every `narration.json` and every pack
+   * written before they were recorded has none of them; a build accepts such a
+   * file unchecked, and the CLI says so.
    */
   canvas: narrationCanvasSchema.optional(),
+  /**
+   * The stop count the emitter staged for each narrated beat, before the density
+   * cap, keyed by beat id.
+   *
+   * THIS is what a build compares, not the canvas. MEASURED 2026-09-18: the
+   * canvas is a proxy that is wrong both ways. Narration made at `deck-16x9` was
+   * refused at `short-9x16` and with `--reserve-captions`, where not one demo
+   * beat that draws changes its stop count and the built files were
+   * byte-identical to a matched build. And a `lang: "ko"` callout narrated and
+   * built at the same 1380×776 was one stop in `narrate` and four in the build,
+   * because `narrate` staged with another font face.
+   */
+  stops: z.record(z.string(), z.number().int().positive()).optional(),
+  /**
+   * The narration density's cap on how many of a beat's stops speak. Absent
+   * when every stop may, which is `density: "high"`: JSON has no Infinity.
+   */
+  speakingStops: z.number().int().positive().optional(),
   beats: z.record(z.string(), z.array(segmentSchema)),
 });
 
@@ -1433,79 +1445,6 @@ export function resizeFormat(base: Format, width: number, height: number): Forma
 /** Whether this format's canvas was given rather than named. */
 export function isCustom(format: Format): boolean {
   return !(format.id in FORMATS);
-}
-
-/* ------------------------------------------------------ Narration's canvas */
-
-export type NarrationCanvas = z.infer<typeof narrationCanvasSchema>;
-
-/** What `narrate` records about the format it staged against. */
-export function narrationCanvas(format: Format): NarrationCanvas {
-  return {
-    format: format.id,
-    width: format.width,
-    height: format.height,
-    captionReserve: format.captionReserve ?? 0,
-  };
-}
-
-function describeCanvas(c: NarrationCanvas): string {
-  const size = `${c.width}×${c.height}`;
-  const named = c.format in FORMATS ? `${c.format} at ${size}` : size;
-  return c.captionReserve > 0 ? `${named} with ${c.captionReserve}px kept for captions` : named;
-}
-
-/**
- * The `narrate` flags that stage at this canvas. A custom canvas is named by its
- * size alone: `--width/--height` over the default profile give the same box as
- * over any other, and the box is all staging reads.
- */
-function canvasFlags(c: NarrationCanvas): string {
-  const size =
-    c.format in FORMATS ? `--format ${c.format}` : `--width ${c.width} --height ${c.height}`;
-  return c.captionReserve > 0 ? `${size} --reserve-captions` : size;
-}
-
-/**
- * Refuse narration that was staged for a different canvas than the deck.
- *
- * THROWN, NOT REPORTED, for the reason `scanNarrationDrift` is an error: the two
- * sides are recorded facts that must agree, and what gets through is a deck
- * whose voice describes reveals that are not on screen. No gate downstream sees
- * it. The measured case in `narrationCanvasSchema` passed every one.
- *
- * NARRATION THAT RECORDS NO CANVAS IS ACCEPTED, and the return value says so.
- * That is every `narration.json` and every pack written before `narrate`
- * recorded one. Refusing them would make each of those decks unbuildable until
- * it is re-narrated, and a pack carries mp3s but not the cache sidecars, so for
- * an unpacked deck that means synthesising every sentence again over the
- * network. The server, which wrote most of them, always gave both stages one
- * format. So an unrecorded canvas is a warning the caller prints, not a guess
- * either way.
- */
-export function assertNarrationCanvas(
-  narration: { canvas?: NarrationCanvas | undefined },
-  format: Format,
-): string | undefined {
-  const built = narrationCanvas(format);
-  const was = narration.canvas;
-  if (!was) {
-    return (
-      `the narration records no canvas, because it was written before \`narrate\` recorded one, so nothing checks that it was staged for ${describeCanvas(built)}. ` +
-      `Narration staged at another size puts its sentences on the wrong reveals. Re-run \`decksmith narrate\` with ${canvasFlags(built)} to record it.`
-    );
-  }
-  const same =
-    was.width === built.width &&
-    was.height === built.height &&
-    was.captionReserve === built.captionReserve;
-  if (same) return undefined;
-  throw new Error(
-    `The narration was staged for ${describeCanvas(was)}, but this deck is laid out at ${describeCanvas(built)}. ` +
-      `A beat can reveal a different number of things at another size, or not be drawn at all, so the sentences would be spoken over reveals that are not there. ` +
-      `Re-run \`decksmith narrate\` with ${canvasFlags(built)}, the canvas this build was given. ` +
-      `Into the same directory, a sentence that splits the same way is not synthesised again: audio is cached by text, voice, rate and pitch.`,
-  );
 }
 
 /* ------------------------------------------------------------------ Verify */

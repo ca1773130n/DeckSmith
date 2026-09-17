@@ -11,18 +11,17 @@
  * timeline, wraps whatever the emitter returns, and closes the document.
  */
 import type { z } from "zod";
+import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
 import { embedUrl } from "../pack/media.js";
 import { type Cut, selectBeats } from "../plan/select.js";
-import { familyFor } from "../source/fonts.js";
-import {
-  assertNarrationCanvas,
-  type Beat,
-  type Format,
-  type Inside,
-  type NarrationCanvas,
-  type Source,
-  type Storyboard,
-  type segmentSchema,
+import type {
+  Beat,
+  Format,
+  Inside,
+  NarrationCanvas,
+  Source,
+  Storyboard,
+  segmentSchema,
 } from "../types.js";
 import { emitScene } from "./archetypes/index.js";
 import {
@@ -44,14 +43,7 @@ import {
 } from "./camera.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, tweenText } from "./kit.js";
-import {
-  baseCss,
-  type DeckTheme,
-  FONT_BUNDLE_DIR,
-  FONT_BUNDLE_HREF,
-  pace,
-  resolveTheme,
-} from "./theme.js";
+import { baseCss, deckLook, FONT_BUNDLE_DIR, FONT_BUNDLE_HREF, pace } from "./theme.js";
 
 /** Pinned: a floating CDN version would break determinism between renders. */
 /**
@@ -144,11 +136,13 @@ export interface DeckNarration {
   /** Directory holding the mp3s, relative to `deck.html`. */
   dir: string;
   /**
-   * The canvas `narrate` staged the stops at. Absent on narration written before
-   * it was recorded, which is accepted; present and different is refused. See
-   * `assertNarrationCanvas`.
+   * What `narrate` split the sentences over: the canvas, each narrated beat's
+   * stop count, and the density cap. Absent on narration written before they
+   * were recorded, which builds unchecked. See `assertNarrationStaging`.
    */
-  canvas?: NarrationCanvas;
+  canvas?: NarrationCanvas | undefined;
+  stops?: Record<string, number> | undefined;
+  speakingStops?: number | undefined;
   beats: Record<string, Segment[]>;
 }
 
@@ -292,16 +286,12 @@ export function planCut(
   format: Format,
   opts: DeckOptions = {},
 ): Cut {
-  // HERE, because this is where narration first meets a staged beat: every
-  // segment is sized against the holds this format stages, and `layout`, and so
-  // `emitDeck` and `emitComposition`, come through this call. What returns is
-  // the unrecorded-canvas warning, which has no channel here and is the
-  // caller's to print.
-  if (opts.narration) assertNarrationCanvas(opts.narration, format);
-  const { theme } = deckLook(storyboard, opts);
+  const { theme } = deckLook(storyboard, opts.theme);
   const speed = opts.speed ?? 1;
   const floor = storyboard.beats.filter((b) => b.weight >= format.minWeight);
   const seconds: Record<string, number> = {};
+  /** Each drawn beat's stop count, as this deck stages it. */
+  const stops = new Map<string, number>();
   /** Floor survivors an emitter refused. Empty unless `onBeatError` was given. */
   const undrawable = new Set<string>();
   floor.forEach((beat, i) => {
@@ -328,6 +318,7 @@ export function planCut(
       return;
     }
     seconds[beat.id] = beatSeconds(beat.seconds * speed, scene, segments);
+    stops.set(beat.id, stopCount(scene.holds));
   });
   if (floor.length > 0 && undrawable.size === floor.length) {
     throw new Error(`every one of ${floor.length} beat(s) failed to draw — there is no deck`);
@@ -358,23 +349,17 @@ export function planCut(
     ? { ...storyboard, beats: storyboard.beats.filter((b) => !undrawable.has(b.id)) }
     : storyboard;
   // `Format` satisfies `SelectionBudget` structurally: minWeight, maxSeconds, id.
-  return selectBeats(board, format, seconds);
-}
-
-/**
- * Theme and font family, resolved the same way for the measuring pass and the
- * real one. Two resolutions that could disagree would put the cut on different
- * holds from the deck it is a cut of.
- */
-function deckLook(storyboard: Storyboard, opts: DeckOptions) {
-  const base = resolveTheme(opts.theme ?? storyboard.theme);
-  // The deck's copy is written in the storyboard's language, so that — not the
-  // source's — decides whether a font bundle has to ship. Same function `ingest`
-  // subsets with: a stack naming a family the bundle does not declare falls back
-  // silently, which is the whole of invariant 9.
-  const family = familyFor(storyboard.lang);
-  const theme: DeckTheme = family ? { ...base, fontStack: `"${family}", ${base.fontStack}` } : base;
-  return { family, theme };
+  const cut = selectBeats(board, format, seconds);
+  // HERE, because this is where narration first meets a staged beat: every
+  // segment is sized against these holds, and `layout`, and so `emitDeck` and
+  // `emitComposition`, come through this call. Over the KEPT beats only: one the
+  // budget cut speaks nowhere, and refusing a build over it would refuse a deck
+  // that plays correctly.
+  if (opts.narration) {
+    const kept = new Map(cut.kept.map((b) => [b.id, stops.get(b.id) ?? 1]));
+    assertNarrationStaging(opts.narration, kept, format);
+  }
+  return cut;
 }
 
 /** The one pass over the beats. Both artifacts are rendered from its result. */
@@ -390,7 +375,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     );
   }
 
-  const { family, theme } = deckLook(storyboard, opts);
+  const { family, theme } = deckLook(storyboard, opts.theme);
   const speed = opts.speed ?? 1;
 
   const archetypeCss = new Set<string>();
