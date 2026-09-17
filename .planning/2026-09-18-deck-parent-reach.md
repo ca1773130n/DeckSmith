@@ -1,9 +1,15 @@
 # What a deck's script can still reach, with a token on
 
-**A deck opened on its own can no longer post a job. A deck shown inside the
-uploader still can.** The first result is new with the anti-framing headers
-that came in alongside the token. The second is a hole that stays open, and the
-README now says so.
+**A deck opened on its own can no longer post a job, by either route it has. A
+deck shown inside the uploader still can.** The first result took two fixes, not
+one: the anti-framing headers in §1, and — after a reviewer pointed out that the
+conclusion in §3 did not follow from its own evidence — `connect-src 'none'` on
+`/examples/embed.html` in §3. The second is a hole that stays open, and the
+README says so.
+
+§3 is also a record of getting this wrong in the direction that feels safe: three
+true statements, one conclusion that did not follow, and a browser measurement
+that settled it in a minute once anyone thought to make it.
 
 Measured 2026-09-18 on macOS, Node 24.14.0, puppeteer-core 25.10.0, and the
 renderer's Chrome (chrome-headless-shell 152.0.7977.30 from the hyperframes
@@ -53,22 +59,61 @@ cookie and the `Origin`, so `foreignRequest` and the cookie-write rule both pass
 own origin it should flip to a refusal, and the README's "What is missing" should
 change in the same commit.
 
-## 3. What that means
+## 3. A deck steering the viewer into embed.html (B7)
 
-The attacker's script has to reach a deck's output, and then the operator has to
-open that deck in the uploader. Nothing on another site can arrange that last
-step:
+**This section said the opposite until the same day, and it was wrong.** What it
+said was that nothing on another site can put a deck next to the viewer's
+session, because the cookie is `SameSite=Strict` and `/examples/embed.html` is
+behind the token. Both facts are true and the conclusion does not follow.
 
-- the session cookie is `SameSite=Strict`, so a cross-site link to `/` lands on
-  the login page, not on an uploader holding a session. B4 measured this: a
-  cross-site navigation to `/examples/embed.html?a=/d/<id>/` reached the server
-  with no cookie and got 401. From the server's own site it did not get 401;
-- `/examples/embed.html` is behind the token, because it frames whatever deck its
-  query string names as soon as it opens;
-- a third party framing `/d/<id>/deck.html` sends no cookie (B5).
+`SameSite=Strict` withholds the cookie from a navigation ANOTHER SITE starts. It
+sends it on one THIS ORIGIN starts. `/d/` is public and a deck opens top-level,
+so a link from anywhere puts a hostile deck on screen as its own top-level
+document — and a top-level document is not subject to `allow-top-navigation`,
+which governs a nested one navigating its parent. It can set `location`. That
+second hop is same-site, and it carries the session.
+
+Measured 2026-09-18, same machine and Chrome as above, through the BUILT server
+(a source tree has no `dist/embed.html`, so /examples/embed.html is a 500 there
+and a source server would have "passed" by serving nothing). The deck's script:
+
+```js
+if (window.top === window) location.href = "/examples/embed.html?a=" + ownDirectory;
+else parent.fetch("/api/jobs", { method: "POST", body: fd });
+```
+
+Chrome followed the link from another site to `/d/<id>/deck.html` with **no
+cookie**, as B5 says; the deck then navigated itself, and that request for
+`/examples/embed.html?a=…` arrived **with the session cookie** and got **200**.
+embed.html framed the attacker's own deck, same-origin with it, and:
+
+| embed.html's CSP | `parent.fetch("/api/jobs")` | jobs queued |
+| --- | --- | --- |
+| CONTROL, as the PR shipped it (`PAGE_CSP`) | `status 202` | **1, as the viewer** |
+| with `connect-src 'none'` (`EMBED_CSP`) | `rejected TypeError` | **0** |
+
+One directive, and nothing else changed between the rows. It costs the page
+nothing: neither `examples/embed.html` nor `src/deck/player.ts` makes a `fetch`,
+`XMLHttpRequest`, `EventSource`, `sendBeacon` or WebSocket, and `connect-src`
+does not govern framing, so the decks it exists to show still load.
+`test/server.test.ts` "B7" pins both halves — that the steering navigation still
+carries the session, and that the fetch is refused anyway.
+
+## 4. A second listener on this host (M2)
+
+Also measured, and also not what the PR assumed. Cookies have no port (RFC 6265
+§1), so a plain `http.createServer` on another port of `127.0.0.1` was sent this
+server's cookie by the browser, name and value, on an ordinary navigation. The
+cookie is now named `decksmith-<port>` and its MAC covers `host:port`, which
+stops two instances colliding and stops either honouring the other's session —
+but it does not and cannot hide the value from a neighbour. `test/server.test.ts`
+"M2" pins it, and the README says plainly what that lets a local account do.
+
+## 5. What that means
 
 What is left needs the operator to convert hostile content, for script to survive
-into the deck, and for the operator to watch it in the uploader. `jobsPerHour`
-still caps what that script can spend. The real fix is serving `/d/` from a
-separate origin, which the `__Host-` cookie would never reach. That is the next
-design, and it is not built.
+into the deck, and for the operator to watch it **in the uploader** — the one page
+that must be able to reach the API and so cannot have `connect-src`.
+`jobsPerHour` still caps what that script can spend. The real fix for all of it —
+M1, B7 and M2 together — is serving `/d/` from a separate origin, which a
+`__Host-` cookie would never reach. That is the next design, and it is not built.

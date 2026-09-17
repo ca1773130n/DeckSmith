@@ -403,7 +403,7 @@ generous one.
 | `PORT` | `8475` | |
 | `DECKSMITH_HOST` | `127.0.0.1` | `127.0.0.1`, `::1` and `localhost` are loopback. **Anything else refuses to start** without `DECKSMITH_TOKEN_FILE`, `DECKSMITH_TLS_CERT` and `DECKSMITH_TLS_KEY` — `127.0.0.2` and `::ffff:127.0.0.1` included. |
 | `DECKSMITH_TOKEN_FILE` | unset | A file holding the token (`openssl rand -base64 32 > f; chmod 600 f`). Set, every route but the public ones in the table above needs it, on any bind. Refused unless it is a regular file, not readable by group or others, 32–1024 characters, one line. |
-| `DECKSMITH_TLS_CERT` / `DECKSMITH_TLS_KEY` | unset | A PEM chain, leaf first, and its **unencrypted** PEM key (mode 600). Set both or neither. On an exposed bind the certificate's subjectAltNames are the only `Host` names the server answers to. |
+| `DECKSMITH_TLS_CERT` / `DECKSMITH_TLS_KEY` | unset | A PEM chain, leaf first, and its **unencrypted** PEM key (mode 600). Set both or neither. Refused unless the certificate is PEM (not DER), matches the key, is in date, has subjectAltNames, and loads into OpenSSL at TLS 1.2. On an exposed bind those subjectAltNames are the only `Host` names the server answers to, and the startup banner prints one of them. |
 | `DECKSMITH_TOKEN` | — | **Not read, and refused if present**, even empty: ignoring it would leave a server someone believes is protected open, and an environment variable reaches shell history and every process the server starts. |
 | `DECKSMITH_WORK` | `$TMPDIR/decksmith-server` | One directory per job; swept by age. |
 | `DECKSMITH_MAX_UPLOAD` | 25 MB | |
@@ -449,24 +449,77 @@ npm run serve
 Missing any of them, it refuses to start, names every problem at once, and exits 1 before
 it touches the work directory. There is no override. The certificate must list the names
 people will type as subjectAltNames: those names, and nothing else, are what the server
-answers to, so DNS rebinding is refused on this bind as well as on loopback. There is no
+answers to, so DNS rebinding is refused on this bind as well as on loopback — and the
+startup banner prints a URL built from one of those SANs, not from the bind address,
+because `https://0.0.0.0:8475` is a URL this server answers 403 to. The certificate is
+checked as far as OpenSSL will check it before anything is created on disk: a PEM chain
+(a DER file is refused by name, with the `openssl x509 -inform der` line that converts
+it), matching the key, in date, with SANs — and then loaded into a real
+`tls.createSecureContext`, so a key OpenSSL will not use, such as an RSA key under 2048
+bits, is a refusal here rather than an OpenSSL stack trace out of `listen`. There is no
 plain-http listener or redirect beside it, and no HSTS. Renewing the certificate or
 rotating the token means restarting.
 
 A browser gets a login page at `/`. The token goes in a password field, so a password
-manager can keep it. The server sets a cookie: `__Host-decksmith` over TLS, `decksmith`
-on plain loopback, `HttpOnly`, `SameSite=Strict`, valid seven days. It is signed with a
-key derived from the token, so it survives a restart, and rotating the token file logs
-every browser out. Because the cookie is Strict, a link from another site to the server
-shows the login page even to someone logged in. Scripts send
-`Authorization: Bearer <token>` instead. A write that relies on the cookie must carry
-`Sec-Fetch-Site` or `Origin`; a current browser sends both on a POST. Ten wrong tokens from one address
-lock that address out for fifteen minutes, including a right token sent during that time.
-The log records refusals and never the token, a cookie or an `Authorization` header.
+manager can keep it. The server sets a cookie named for the port it is bound to —
+`__Host-decksmith-8475` over TLS, `decksmith-8475` on plain loopback — `HttpOnly`,
+`SameSite=Strict`, valid seven days. It is signed with a key derived from the token and
+from `host:port`, so it survives a restart, rotating the token file logs every browser
+out, and a second DeckSmith on the same machine neither overwrites this one's cookie nor
+accepts a session it minted. Scripts send `Authorization: Bearer <token>` instead. A
+write that relies on the cookie must carry `Sec-Fetch-Site` or `Origin`; a current
+browser sends both on a POST. Ten wrong tokens from one address lock that address out for
+fifteen minutes, including a right token sent during that time; the lockout is logged
+once and every attempt refused during it is logged too. The log records refusals and
+never the token, a cookie or an `Authorization` header.
+
+Three things that cookie does **not** do, each of which this README claimed until
+2026-09-18:
+
+- **Logging out does not revoke the session.** `POST /logout` clears the browser's copy.
+  The value is a MAC over an expiry, checked with no server-side state, so a copy taken
+  before the logout keeps working until it expires — up to seven days. Rotating the token
+  file and restarting is what actually revokes.
+- **`SameSite=Strict` does not stop another site steering a logged-in viewer.** It
+  withholds the cookie from a navigation another site starts, and sends it on one this
+  origin starts. A deck is public and opens top-level, so a link from anywhere can put a
+  hostile deck on screen, and that deck can navigate itself to
+  `/examples/embed.html?a=<its own directory>` — a same-site hop, which arrives with the
+  session. Measured, and it queued a job. `/examples/embed.html` now carries
+  `connect-src 'none'`, which is what refuses that job; the page needs no network of its
+  own, and the decks it frames still load.
+- **The cookie is not confined to this port.** Cookies have no port (RFC 6265 §1), so the
+  browser sends this one to every listener on the host. See below.
 
 Every response that is not a deck file carries `X-Frame-Options: DENY` and
 `Content-Security-Policy: … frame-ancestors 'none'`, so nothing can frame the uploader,
 the API, or an error page.
+
+#### What a same-host attacker can still do
+
+Anything on this machine that the browser can be made to talk to is handed the session
+cookie, because cookies are scoped by host and never by port. So, with a token file set
+and a browser logged in, another local account can:
+
+- **read the session cookie** by getting the browser to make any request to a port it
+  listens on — a page the viewer opens, an image, a redirect — and then **replay that
+  value from a script**, as the logged-in user, until it expires. Naming the cookie after
+  the port does not hide it; nothing this server does can, because the decision is the
+  browser's. The fix is not on this host: it is a distinct hostname per service, or decks
+  and API on separate origins with a `__Host-` cookie that cannot leave one;
+- **read the token file**, if its mode allows it — which is why a mode other than 600 is a
+  refusal at startup;
+- **lock the owner out for fifteen minutes** by sending ten wrong tokens. Every local
+  process shares `127.0.0.1` as far as `socket.remoteAddress` is concerned, and that is
+  the only key the limiter has. The lockout and each refusal during it are in the log, so
+  it is at least visible;
+- **reach a loopback bind at all, when no token file is set.** That is the default.
+
+Over the LAN, with an exposed bind, none of the above follows: the cookie is `__Host-`
+and `Secure`, the connection is TLS 1.2 or better with no plain-http listener beside it,
+and a request by any name the certificate does not list is refused before the token is
+even considered. What a LAN attacker gets without the token is the deck files whose
+128-bit id they already know, and nothing else.
 
 ### What is missing before this is public
 
@@ -475,7 +528,10 @@ missing, and some of it is not a polish gap:
 
 - **One token, no accounts.** Everyone who holds the token is the same user, with the same
   quota and the same view of every job whose id they know. A single session cannot be
-  revoked: rotate the token file and restart. No roles, no per-token quota, no OIDC.
+  revoked, and neither can logging out revoke one: rotate the token file and restart. No
+  roles, no per-token quota, no OIDC.
+- **The session cookie is shared with every other port on this host**, and a captured one
+  replays until it expires. See "What a same-host attacker can still do" above.
 - **No reverse-proxy support.** `X-Forwarded-*` is not read (see the rate-limit item
   below), and on a loopback bind the `Host` check refuses whatever public name a proxy
   forwards.
@@ -486,7 +542,9 @@ missing, and some of it is not a polish gap:
 - **Rate limiting is by `socket.remoteAddress` only.** `X-Forwarded-For` is deliberately
   not read, because unproxied it is a header the client writes. Behind a reverse proxy
   every client therefore looks like one address and the limits collapse — teach the proxy
-  to rate-limit, or teach this to trust exactly one hop.
+  to rate-limit, or teach this to trust exactly one hop. On a loopback bind every local
+  process is already that one address, so the failed-token lockout is a denial of service
+  any local account can aim at the owner; it is logged, not prevented.
 - **Deck files are readable by anyone holding the 128-bit id.**
 - **The deck sandbox does not isolate the origin, and cannot on one host.** Decks are
   served under `Content-Security-Policy: sandbox allow-scripts allow-same-origin
@@ -499,13 +557,14 @@ missing, and some of it is not a polish gap:
   same-origin with the page around it, so its script can call `parent.fetch`. That call
   runs under the uploader's policy, not the deck's `connect-src 'none'`, and carries the
   session. Measured: a stub deck doing this queued a job
-  (`.planning/2026-09-18-deck-parent-reach.md`). A deck opened on its own can no longer do
-  it, because nothing it could frame will load. Another site cannot set this up: the
-  cookie is `SameSite=Strict` and `/examples/embed.html`, which frames any deck named in
-  its query string, needs the token. What is left needs hostile content converted by the
-  operator, script that survives into the deck, and the operator viewing that deck in the
-  uploader. `DECKSMITH_JOBS_PER_HOUR` still caps what it can spend. The fix is the separate
-  deck origin above.
+  (`.planning/2026-09-18-deck-parent-reach.md`). A deck opened on its own cannot: nothing
+  it could frame will load, and the one page it can navigate the viewer to,
+  `/examples/embed.html`, carries `connect-src 'none'` — both measured, both with their
+  control. So what is left needs hostile content converted by the operator, script that
+  survives into the deck, and the operator watching that deck **in the uploader**, which
+  is the one page that must be able to reach the API.
+  `DECKSMITH_JOBS_PER_HOUR` still caps what it can spend. The fix is the separate deck
+  origin above.
 - **No persistence.** A restart forgets every job record. The files survive and are swept
   by age on boot.
 - **Disk is bounded only by TTL × queue rate**, and uploaded files are not scanned.
