@@ -1,5 +1,5 @@
-import { readdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import { codexCommand, codexPlanner, SCHEMA } from "../src/plan/codex.js";
 import { renderSource } from "../src/plan/prompt.js";
@@ -295,17 +295,22 @@ describe("codexPlanner response path", () => {
     await expect(replay("   ")).rejects.toThrow(/no final message/);
   });
 
+  // Its OWN directory, named by the path the run was handed. Counting
+  // `decksmith-plan-*` in the shared tmpdir raced every planner run in a test
+  // file running in parallel: CI on 2026-09-17 saw 1 before and 0 after, on a
+  // tree that had passed two hours earlier.
   it("cleans up its temp directory even when the run fails", async () => {
-    const before = await readdir(tmpdir());
+    let dir = "";
     await expect(
       codexPlanner(source, {
-        run: () => Promise.reject(new Error("boom")),
+        run: async ({ outPath }) => {
+          dir = dirname(outPath);
+          throw new Error("boom");
+        },
       }),
     ).rejects.toThrow("boom");
-    const after = await readdir(tmpdir());
-    expect(after.filter((d) => d.startsWith("decksmith-plan-")).length).toBe(
-      before.filter((d) => d.startsWith("decksmith-plan-")).length,
-    );
+    expect(dir).toContain("decksmith-plan-");
+    await expect(stat(dir)).rejects.toThrow(/ENOENT/);
   });
 
   // The schema always admits a brief, so the model can write one it was never
