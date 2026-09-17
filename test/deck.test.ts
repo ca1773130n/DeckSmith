@@ -15,6 +15,7 @@ import {
   refused,
   type SlideSpec,
   type Stop,
+  showingAt,
 } from "../src/deck/runtime.js";
 import type { Narration } from "../src/deck/subtitles.js";
 import { emitDeck, PLAYER_FILE } from "../src/emit/composition.js";
@@ -154,6 +155,38 @@ describe("planTransition", () => {
 
   it("makes a zero-length span a no-op", () => {
     expect(planTransition(7.5, 7.5)).toEqual(cut);
+  });
+});
+
+describe("showingAt", () => {
+  // The seam that blinked, as `build` wrote it: s2's slide is [3, 7) and its
+  // clip 4.4 long; s3 opens at 7 on nothing but background for 0.15s.
+  const out: SlideSpec = { sceneId: "s2", startTime: 3, endTime: 7 };
+  const inc: SlideSpec = { sceneId: "s3", startTime: 7, endTime: 17.8 };
+
+  it("keeps the outgoing scene up through its handoff, over the incoming one's empty opening", () => {
+    // Taking the island's `endTime` hid s2 at 7.0 and a glide showed eleven
+    // ticks of flat background. The engine keeps it until 3 + 4.4.
+    for (const t of [7, 7.05, 7.167, 7.399]) {
+      expect(showingAt(out, 4.4, t), `s2 at ${t}`).toBe(true);
+      expect(showingAt(inc, 11.2, t), `s3 at ${t}`).toBe(true);
+    }
+  });
+
+  it("uses the engine's half-open window: gone at its clip's end, absent before its start", () => {
+    expect(showingAt(out, 4.4, 7.4)).toBe(false);
+    expect(showingAt(inc, 11.2, 6.999)).toBe(false);
+    expect(showingAt(inc, 11.2, 18.199)).toBe(true);
+    expect(showingAt(inc, 11.2, 18.2)).toBe(false);
+  });
+
+  it("falls back to the island's window when the clip cannot be read", () => {
+    // A scene div with no `data-duration` (NaN, as `paint` reads it), an empty
+    // one (0), or nonsense: none of them may shorten or unbound the slide.
+    for (const clip of [Number.NaN, 0, -1]) {
+      expect(showingAt(out, clip, 6.999)).toBe(true);
+      expect(showingAt(out, clip, 7)).toBe(false);
+    }
   });
 });
 

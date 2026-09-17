@@ -70,6 +70,14 @@
  *    lives on the clip and nowhere else. The 150ms proposed here turned out to
  *    be short by half; `HANDOFF_SECONDS` carries the luma trace that fixes it.
  *
+ *    IT CLOSED IN THE RENDER AND NOT IN deck.html, until 2026-09-18. The engine
+ *    reads the clip; `paint()` in `src/deck/runtime.ts` read the island's slide
+ *    window, so a presented deck gliding across a seam still hid the outgoing
+ *    scene on the seam's instant — eleven 60Hz ticks of flat background on a
+ *    `stack`→`pipeline` seam at hyperframes 0.8.43, while the mp4 of the same
+ *    deck had none at any of its three seams. `showingAt` now gives `paint()`
+ *    the engine's rule. `.planning/2026-09-18-scene-boundary-blink.md`.
+ *
  *    That dip is a compromise and it is worth naming. The spike's version keeps
  *    the container lit while the contained scene arrives inside it, which needs
  *    both scenes on screen at once — and `hyperframes lint` rejects that
