@@ -20,6 +20,13 @@
  * `Authorization` header are never logged, and no message here prints a file's
  * contents or a fingerprint of the token: an unsalted hash prefix in a log is an
  * offline oracle for a weak one.
+ *
+ * A SESSION BELONGS TO ONE LISTENER, not to the host. The port is in the cookie's
+ * name and `host:port` is inside the MAC, because cookies have no port and two
+ * DeckSmiths reading one token file would otherwise be interchangeable to a
+ * browser. That is a collision fix, NOT confidentiality: the browser still hands
+ * this cookie to every listener on the host, and the README says what that lets a
+ * local account do.
  */
 import {
   createHash,
@@ -31,6 +38,7 @@ import {
   X509Certificate,
 } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import { createSecureContext } from "node:tls";
 
 /**
  * A loopback bind, spelled exactly as `DECKSMITH_HOST` must spell it. Anything
@@ -42,6 +50,14 @@ export const LOOPBACK_BINDS = ["127.0.0.1", "::1", "localhost"];
 
 /** How long a browser session lasts. A constant, not a setting. */
 export const SESSION_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * The floor `createDeckServer` gives OpenSSL, and the floor `readTls` validates
+ * against. ONE CONSTANT because the two must not drift: validating a pair under
+ * a laxer policy than the server will use is a refusal that never fires and a
+ * stack trace at listen instead.
+ */
+export const TLS_MIN_VERSION = "TLSv1.2" as const;
 
 /** Slack for a clock that moved backwards between minting and checking. */
 const SKEW_MS = 60_000;
@@ -188,13 +204,47 @@ export function resolveSecurity(
   };
 }
 
-/** The lines `main.ts` prints about how the server is reached. Never the token. */
+/**
+ * A name from the certificate that a browser can actually open.
+ *
+ * A DNS name first, because that is what someone types, and a wildcard is
+ * skipped: `*.wild.test` is not a host. Otherwise the first IP SAN, bracketed if
+ * it is v6. `undefined` when the certificate names only wildcards — then the
+ * banner lists the SANs instead of inventing a URL.
+ */
+function reachableName(san: string | undefined): string | undefined {
+  const parts = (san ?? "").split(",").map((part) => part.trim());
+  const dns = parts.find((part) => part.startsWith("DNS:") && !part.startsWith("DNS:*"));
+  if (dns) return dns.slice("DNS:".length);
+  const ip = parts.find((part) => part.startsWith("IP Address:"));
+  if (!ip) return undefined;
+  const addr = ip.slice("IP Address:".length);
+  return addr.includes(":") ? `[${addr}]` : addr;
+}
+
+/**
+ * The lines `main.ts` prints about how the server is reached. Never the token.
+ *
+ * THE URL MUST BE ONE THIS SERVER ANSWERS TO. On an exposed bind the `Host`
+ * allowlist is the certificate's SANs and nothing else, and the bind address is
+ * almost never one of them — `https://0.0.0.0:8475`, which this banner used to
+ * print, is a URL the server refuses with 403. So the exposed banner prints a
+ * name from the certificate and says separately what it is bound to.
+ */
 export function securityBanner(security: Security, port: number): string[] {
   const host = security.host.includes(":") ? `[${security.host}]` : security.host;
-  const lines = [`${security.tls ? "https" : "http"}://${host}:${port}`];
+  const scheme = security.tls ? "https" : "http";
+  const reachable = security.loopback
+    ? undefined
+    : reachableName(security.tls?.x509.subjectAltName);
+  const lines = [
+    reachable !== undefined || security.loopback || !security.tls
+      ? `${scheme}://${reachable ?? host}:${port}`
+      : `${scheme}://${host}:${port} — but this server answers only to ${security.tls.x509.subjectAltName}`,
+  ];
   if (security.tls) {
     lines.push(
-      `tls: ${security.tls.certPath}, names ${security.tls.x509.subjectAltName}, valid to ${security.tls.x509.validTo}`,
+      `tls: ${security.tls.certPath}, bound to ${host}, names ${security.tls.x509.subjectAltName}, valid to ${security.tls.x509.validTo}`,
     );
   }
   if (security.auth) {
@@ -280,6 +330,24 @@ function readTls(
     problems.push(`${keyWhere} is readable by other users; chmod 600 it.`);
   }
 
+  // BY THE HEADER, BEFORE `X509Certificate`, BECAUSE THE TWO DISAGREE.
+  // `new X509Certificate(der)` parses DER happily and so does `checkPrivateKey`,
+  // so a DER file used to pass every check here and then throw
+  // ERR_OSSL_PEM_NO_START_LINE out of `createServer` — after main.ts had made the
+  // work directory. Measured on Node 24.14.0 / OpenSSL 3.5.5. What the server
+  // hands OpenSSL is a PEM chain, so that is what this accepts.
+  //
+  // The banner is spelled here and NOT in the message: `R10` proves no message
+  // this file writes contains `-----BEGIN`, which is how a leaked file body would
+  // look, and a message that quotes the banner would defeat that test for a
+  // sentence that reads no better.
+  if (!cert.toString("latin1").includes("-----BEGIN CERTIFICATE-----")) {
+    problems.push(
+      `${certWhere} is not a PEM chain: a PEM certificate opens with a BEGIN CERTIFICATE line and this file has none. ` +
+        "If it is DER, convert it with: openssl x509 -inform der -in <file> -out <file>.pem.",
+    );
+    return undefined;
+  }
   let x509: X509Certificate;
   try {
     x509 = new X509Certificate(cert);
@@ -331,12 +399,41 @@ function readTls(
       `${certWhere} expires ${x509.validTo}, in ${Math.ceil((to - now) / 86_400_000)} day(s). Replace it and restart.`,
     );
   }
+
+  // LAST, AND AGAINST THE THING THAT WILL ACTUALLY LOAD THEM. Everything above
+  // is Node's own parsing, and OpenSSL has rules Node's parsers do not apply: an
+  // RSA-512 key is a `KeyObject` that `checkPrivateKey` agrees with and that
+  // OpenSSL then refuses as ERR_SSL_EE_KEY_TOO_SMALL at its security level.
+  // Measured on Node 24.14.0 / OpenSSL 3.5.5. The same options `createDeckServer`
+  // passes, so a pair that survives this cannot fail there — and the failure
+  // arrives here, before main.ts creates the work directory, rather than as an
+  // OpenSSL stack trace out of `listen`.
+  if (problems.length === before) {
+    try {
+      createSecureContext({ cert, key, minVersion: TLS_MIN_VERSION });
+    } catch (err) {
+      problems.push(
+        `OpenSSL will not load ${certWhere} with ${keyWhere}: ${codeOf(err)}${reasonOf(err)}. ` +
+          "Check that the certificate is the leaf-first PEM chain for that key, and that the key is strong enough for this OpenSSL's security level (an RSA key needs 2048 bits or more).",
+      );
+    }
+  }
   return problems.length === before ? { cert, key, x509 } : undefined;
 }
 
 function codeOf(err: unknown): string {
   const code = (err as { code?: unknown })?.code;
   return typeof code === "string" ? code : "unreadable";
+}
+
+/**
+ * OpenSSL's own short phrase for the failure — "ee key too small", "no start
+ * line" — which says more than the code alone. A reason is a fixed string from
+ * OpenSSL's table, never a path and never anything the files contain.
+ */
+function reasonOf(err: unknown): string {
+  const reason = (err as { reason?: unknown })?.reason;
+  return typeof reason === "string" && reason !== "" ? ` (${reason})` : "";
 }
 
 /** An environment switch. Shared with main.ts so the two cannot parse one variable two ways. */
@@ -372,32 +469,59 @@ export function bearerOf(header: string): string | null {
 }
 
 /**
+ * The cookie's name, WITH THE PORT IN IT.
+ *
  * `__Host-` over TLS: the browser then refuses the cookie unless it is `Secure`,
  * `Path=/` and has no `Domain`, so nothing on a sibling host can plant or read
  * it. Plain loopback cannot use the prefix, which requires `Secure`.
+ *
+ * THE PORT IS IN THE NAME BECAUSE COOKIES HAVE NO PORT. RFC 6265 §1 says so
+ * outright: `127.0.0.1:8475` and `127.0.0.1:9000` share one jar. Without the
+ * suffix a second DeckSmith on this host overwrites the first one's cookie and
+ * the viewer is silently logged out of it — and, since both derive the same key
+ * from the same token file, each would have accepted the other's session as its
+ * own. Neither happens now.
+ *
+ * IT IS NOT CONFIDENTIALITY. The browser still SENDS this cookie to every
+ * listener on the host, whatever the name; scoping only stops them colliding and
+ * stops one server honouring another's session. See `sessionBinding`.
  */
-export function cookieName(tls: boolean): string {
-  return tls ? "__Host-decksmith" : "decksmith";
+export function cookieName(tls: boolean, port: number): string {
+  return `${tls ? "__Host-" : ""}decksmith-${port}`;
 }
 
-function sessionMac(keys: AuthKeys, exp: string): string {
-  return createHmac("sha256", keys.sessionKey).update(`v1.${exp}`).digest("base64url");
+/**
+ * What a session is valid FOR: this bind and this port, inside the MAC.
+ *
+ * The cookie name keeps two instances' cookies apart in the browser. This keeps
+ * them apart in the server: a session minted by the instance on :8475 fails the
+ * MAC on :9000 even though both derived `sessionKey` from the same token file,
+ * so a second instance cannot be logged into with the first one's cookie.
+ */
+export function sessionBinding(host: string, port: number): string {
+  return `${host}:${port}`;
+}
+
+function sessionMac(keys: AuthKeys, bind: string, exp: string): string {
+  return createHmac("sha256", keys.sessionKey).update(`v2\n${bind}\n${exp}`).digest("base64url");
 }
 
 /**
  * A session is `<exp>.<mac>`, stateless: a restart keeps every browser logged
  * in, which is what "Run it again" after a restart needs. Revocation is
- * rotating the token file, because the key is derived from it.
+ * rotating the token file, because the key is derived from it — POST /logout
+ * clears the browser's copy and nothing else, so a value captured before it
+ * stays good until `exp`.
  */
-export function mintSession(keys: AuthKeys, nowMs: number): string {
+export function mintSession(keys: AuthKeys, nowMs: number, bind: string): string {
   const exp = String(Math.floor(nowMs / 1000) + SESSION_SECONDS);
-  return `${exp}.${sessionMac(keys, exp)}`;
+  return `${exp}.${sessionMac(keys, bind, exp)}`;
 }
 
-export function sessionValid(keys: AuthKeys, value: string, nowMs: number): boolean {
+export function sessionValid(keys: AuthKeys, value: string, nowMs: number, bind: string): boolean {
   if (!/^\d{10}\.[A-Za-z0-9_-]{43}$/.test(value)) return false;
   const [exp = "", mac = ""] = value.split(".");
-  if (!timingSafeEqual(Buffer.from(sessionMac(keys, exp)), Buffer.from(mac))) return false;
+  if (!timingSafeEqual(Buffer.from(sessionMac(keys, bind, exp)), Buffer.from(mac))) return false;
   const expMs = Number(exp) * 1000;
   // The upper bound refuses a value minted under a future clock, or by a build
   // with a longer lifetime, rather than honouring it for years.

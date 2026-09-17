@@ -11,9 +11,9 @@
  * entry, and the test asserts both that it is refused BY NAME and that the
  * sibling directory it aimed at is still empty afterwards.
  */
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes, X509Certificate } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import {
   createServer,
@@ -39,12 +39,14 @@ import { EMBED_ORIGINS } from "../src/pack/media.js";
 import { chromePath } from "../src/render/capture.js";
 import {
   authKeys,
+  cookieName,
   mintSession,
   resolveSecurity,
   type Security,
   type SecurityDeps,
   SecurityRefusal,
   securityBanner,
+  sessionBinding,
   type TlsMaterial,
 } from "../src/server/auth.js";
 import { explain } from "../src/server/errors.js";
@@ -825,18 +827,167 @@ const TOKEN = `SENTINEL-${"k".repeat(35)}`;
 const KEYS = authKeys(TOKEN);
 const BEARER = { authorization: `Bearer ${TOKEN}` };
 
-/** The TLS fixtures. See test/fixtures/tls/README.md — test-only, and public. */
-const tlsFixture = (name: string) =>
-  fileURLToPath(new URL(`./fixtures/tls/${name}`, import.meta.url));
-const TLS_CERT = readFileSync(tlsFixture("server.crt"));
+/* ------------------------------------------------------------- TLS, made here */
+
+/**
+ * The certificates and keys these tests need, MADE AT TEST TIME.
+ *
+ * They used to be three committed `.key` files under test/fixtures/tls/. They
+ * were test-only and protected nothing, and it did not matter: a private key in
+ * the repository is a private key in every clone, in every fork, and in every
+ * secret scanner's report — GitGuardian failed this branch's CI on all three,
+ * and it was right to. A scanner that has to be taught which keys are pretend is
+ * a scanner nobody reads.
+ *
+ * So `openssl` makes them, once per run, into a directory under TMPDIR that
+ * `afterAll` removes. Three pieces, matching what the tests need:
+ *
+ *   - `server.crt`/`server.key`: the pair an https server here starts with. SANs
+ *     deck.test, *.wild.test, 127.0.0.1 and ::1, valid 100 years. Its CN is
+ *     `cn-only.test` ON PURPOSE — a name that is NOT a SAN — so the Host tests
+ *     prove the allowlist ignores the subject;
+ *   - `cn-only.crt`/`cn-only.key`: a common name and no subjectAltName, which
+ *     browsers reject and `resolveSecurity` refuses;
+ *   - `other.key`: a key belonging to no certificate here.
+ *
+ * FAILS RATHER THAN SKIPS WHERE CI RUNS. `openssl` is on every GitHub runner and
+ * on macOS; the one place it is plausibly missing is a bare Windows checkout, and
+ * there this skips with its reason printed. In CI a missing openssl is a failure,
+ * because a silent skip of the whole TLS half is exactly the green gate over
+ * nothing this project keeps finding.
+ */
+const TLS_DIR = mkdtempSync(join(tmpdir(), "decksmith-tls-"));
+const TLS_MADE: string | true = (() => {
+  const run = (...args: string[]) => execFileSync("openssl", args, { cwd: TLS_DIR, stdio: "pipe" });
+  try {
+    const self = (name: string, subject: string, ...ext: string[]) =>
+      run(
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:P-256",
+        "-nodes",
+        "-keyout",
+        `${name}.key`,
+        "-out",
+        `${name}.crt`,
+        "-days",
+        "36500",
+        "-subj",
+        subject,
+        ...ext,
+      );
+    self(
+      "server",
+      "/CN=cn-only.test",
+      "-addext",
+      "subjectAltName=DNS:deck.test,DNS:*.wild.test,IP:127.0.0.1,IP:::1",
+    );
+    self("cn-only", "/CN=cn-only.test");
+    run("genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", "other.key");
+    // A DER copy of the good certificate: valid X.509 that is not a PEM chain,
+    // which is one of the two pairs `readTls` has to refuse rather than let
+    // OpenSSL throw at `listen`.
+    run("x509", "-in", "server.crt", "-outform", "der", "-out", "server.der");
+    // The other one: a pair nothing here can fault and OpenSSL will not load.
+    // RSA-1024 is a perfectly good `KeyObject` that `checkPrivateKey` agrees
+    // with, and `ee key too small` at OpenSSL's default security level. The key
+    // comes from Node rather than openssl because `genpkey` on a small modulus
+    // is the part most likely to differ between the OpenSSL this runs on and the
+    // LibreSSL macOS ships; signing an existing key does not.
+    writeFileSync(
+      join(TLS_DIR, "weak.key"),
+      generateKeyPairSync("rsa", {
+        modulusLength: 1024,
+        privateKeyEncoding: { type: "pkcs8", format: "pem" },
+        publicKeyEncoding: { type: "spki", format: "pem" },
+      }).privateKey,
+    );
+    run(
+      "req",
+      "-x509",
+      "-new",
+      "-key",
+      "weak.key",
+      "-out",
+      "weak.crt",
+      "-days",
+      "36500",
+      "-subj",
+      "/CN=weak.test",
+      "-addext",
+      "subjectAltName=DNS:deck.test",
+    );
+    return true;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+})();
+if (TLS_MADE !== true && process.env.CI) {
+  throw new Error(
+    `openssl is required to run these tests and did not work: ${TLS_MADE}. ` +
+      "The TLS material is generated rather than committed; see test/server.test.ts.",
+  );
+}
+/** True when the generated material is there. Gates the suites that need it. */
+const TLS_OK = TLS_MADE === true;
+/** A test that cannot run without `openssl`. In CI the throw above fires first. */
+const itTls = it.skipIf(!TLS_OK);
+afterAll(() => {
+  rmSync(TLS_DIR, { recursive: true, force: true });
+});
+
+const tlsFixture = (name: string) => join(TLS_DIR, name);
+/**
+ * Read a generated file, or the empty buffer when openssl did not run — the
+ * suites that use these are skipped in that case, and a module-scope throw would
+ * take the other nine hundred assertions in this file down with it.
+ */
+const tlsBytes = (name: string) => (TLS_OK ? readFileSync(tlsFixture(name)) : Buffer.alloc(0));
+const TLS_CERT = tlsBytes("server.crt");
 const TLS: TlsMaterial = {
   cert: TLS_CERT,
-  key: readFileSync(tlsFixture("server.key")),
-  x509: new X509Certificate(TLS_CERT),
+  key: tlsBytes("server.key"),
+  // Parsed lazily-ish: an empty buffer is not a certificate, and the suites that
+  // touch `TLS.x509` are the ones `TLS_OK` gates.
+  x509: TLS_OK ? new X509Certificate(TLS_CERT) : (undefined as unknown as X509Certificate),
 };
 
 /** The deck CSP as it was before tokens existed, pinned whole. */
 const DECK_CSP = `sandbox allow-scripts allow-same-origin allow-downloads; connect-src 'none'; frame-src 'self' ${EMBED_ORIGINS.join(" ")}`;
+
+/** The repository root, from this file. */
+const ROOT = fileURLToPath(new URL("../", import.meta.url));
+
+/**
+ * `dist/server/`, rebuilt from the current source ONCE per run and shared.
+ *
+ * Two suites need the built server for different reasons — "the built server",
+ * where running the real artifact is the whole point, and B7, which needs the
+ * real /examples/embed.html that only dist/ has — and the second must not
+ * silently depend on the first having run first. `npm run build` does not build
+ * this directory; `build:server` does, and it is seconds.
+ */
+let serverBuild: Promise<{ createDeckServer: typeof createDeckServer }> | undefined;
+function builtServer(): Promise<{ createDeckServer: typeof createDeckServer }> {
+  serverBuild ??= (async () => {
+    // FAILS, never skips. CI's `npm ci` builds dist/ through `prepare`, so this
+    // only fires on a checkout nobody built — which is the one place a skip
+    // would be read as a pass.
+    if (!existsSync(join(ROOT, "dist", "index.js"))) {
+      throw new Error(
+        "dist/index.js is missing. Run `npm run build` first: `npm run check` does not build, and these tests start the built server.",
+      );
+    }
+    await execFileP("npm", ["run", "build:server"], { cwd: ROOT });
+    return (await import(pathToFileURL(join(ROOT, "dist", "server", "http.js")).href)) as {
+      createDeckServer: typeof createDeckServer;
+    };
+  })();
+  return serverBuild;
+}
 
 const servers: (() => Promise<void>)[] = [];
 async function closeServers(): Promise<void> {
@@ -848,7 +999,7 @@ async function closeServers(): Promise<void> {
  * what the server believes it is bound to, so an exposed bind can be tested
  * without one. `runs` counts calls into the pipeline, `logs` collects the log.
  */
-async function serve(over: Partial<ServeOptions> = {}) {
+async function serve(over: Partial<ServeOptions> = {}, make = createDeckServer) {
   const work = await scratch();
   const logs: string[] = [];
   const counter = { runs: 0 };
@@ -862,7 +1013,7 @@ async function serve(over: Partial<ServeOptions> = {}) {
     return { deckUrl: `/d/${job.id}/deck.html`, slides: 4, duration: 12, warnings: [] };
   };
   const run = over.run ?? stub;
-  const { server, queue } = createDeckServer({
+  const { server, queue } = make({
     port: 0,
     host: "127.0.0.1",
     work,
@@ -884,6 +1035,10 @@ async function serve(over: Partial<ServeOptions> = {}) {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as AddressInfo).port;
   const base = `${over.tls ? "https" : "http"}://127.0.0.1:${port}`;
+  // The cookie's name and the MAC's binding both carry this listener's port, so
+  // neither can be a literal in a test: every server here binds port 0.
+  const cookie = cookieName(over.tls !== undefined, port);
+  const bind = sessionBinding(over.host ?? "127.0.0.1", port);
   servers.push(
     () =>
       new Promise<void>((r) => {
@@ -898,6 +1053,12 @@ async function serve(over: Partial<ServeOptions> = {}) {
     work,
     logs,
     server,
+    /** This listener's cookie name: `decksmith-<port>`, `__Host-`-prefixed over TLS. */
+    cookie,
+    /** What this listener MACs its sessions over. */
+    bind,
+    /** A `Cookie:` header this listener accepts, as a browser would send it. */
+    session: (at = Date.now(), keys = KEYS) => `${cookie}=${mintSession(keys, at, bind)}`,
     get runs() {
       return counter.runs;
     },
@@ -1063,8 +1224,15 @@ async function deckOnDisk(work: string, html = "<h1>deck</h1>"): Promise<string>
   return id;
 }
 
-/** A session cookie header for `KEYS`, as a browser would send it. */
-const sessionFor = (at = Date.now(), name = "decksmith") => `${name}=${mintSession(KEYS, at)}`;
+/**
+ * A session cookie header for `KEYS`, as a browser would send it.
+ *
+ * Every argument comes from the server it is for: the name carries its port and
+ * the MAC carries its bind, so a cookie minted for one listener is refused by
+ * another. `serve()` returns `session()`, which is this with both filled in.
+ */
+const sessionFor = (bind: string, name: string, at = Date.now()) =>
+  `${name}=${mintSession(KEYS, at, bind)}`;
 
 /** The name=value of a Set-Cookie line, and its attributes lowercased. */
 function parseSetCookie(line: string): { name: string; value: string; attrs: string[] } {
@@ -1457,7 +1625,7 @@ describe("the startup policy", () => {
   });
   const tokenFile = (content = `${TOKEN}\n`, mode = 0o600) => put(content, mode);
   /** The fixture pair; the key copied to 0600, because git does not keep modes. */
-  async function pair(key = readFileSync(tlsFixture("server.key")), cert = TLS_CERT) {
+  async function pair(key = tlsBytes("server.key"), cert = TLS_CERT) {
     return {
       DECKSMITH_TLS_CERT: await put(cert, 0o644, ".crt"),
       DECKSMITH_TLS_KEY: await put(key, 0o600, ".key"),
@@ -1503,7 +1671,7 @@ describe("the startup policy", () => {
     },
   );
 
-  it("R3: an exposed bind with half of what it needs names exactly the other half", async () => {
+  itTls("R3: an exposed bind with half of what it needs names exactly the other half", async () => {
     const tokenOnly = refusal({
       DECKSMITH_HOST: "0.0.0.0",
       DECKSMITH_TOKEN_FILE: await tokenFile(),
@@ -1519,29 +1687,35 @@ describe("the startup policy", () => {
     expect(tlsOnly.message).not.toMatch(/DECKSMITH_TLS_(CERT|KEY)/);
   });
 
-  it("R4: half a TLS pair is refused on loopback too, naming the half that is unset", async () => {
-    const { DECKSMITH_TLS_CERT, DECKSMITH_TLS_KEY } = await pair();
-    expect(refusal({ DECKSMITH_TLS_CERT }).message).toMatch(/^DECKSMITH_TLS_KEY is unset/);
-    expect(refusal({ DECKSMITH_TLS_KEY }).message).toMatch(/^DECKSMITH_TLS_CERT is unset/);
-  });
+  itTls(
+    "R4: half a TLS pair is refused on loopback too, naming the half that is unset",
+    async () => {
+      const { DECKSMITH_TLS_CERT, DECKSMITH_TLS_KEY } = await pair();
+      expect(refusal({ DECKSMITH_TLS_CERT }).message).toMatch(/^DECKSMITH_TLS_KEY is unset/);
+      expect(refusal({ DECKSMITH_TLS_KEY }).message).toMatch(/^DECKSMITH_TLS_CERT is unset/);
+    },
+  );
 
-  it("R5: DECKSMITH_TOKEN is refused on any bind, even empty, and points at the file", async () => {
-    const exposed = {
-      DECKSMITH_HOST: "0.0.0.0",
-      DECKSMITH_TOKEN_FILE: await tokenFile(),
-      ...(await pair()),
-    };
-    for (const env of [
-      { DECKSMITH_TOKEN: TOKEN },
-      { DECKSMITH_TOKEN: "" },
-      { ...exposed, DECKSMITH_TOKEN: TOKEN },
-    ]) {
-      const err = refusal(env);
-      expect(err.problems).toHaveLength(1);
-      expect(err.message).toMatch(/^DECKSMITH_TOKEN is set/);
-      expect(err.message).toContain("DECKSMITH_TOKEN_FILE");
-    }
-  });
+  itTls(
+    "R5: DECKSMITH_TOKEN is refused on any bind, even empty, and points at the file",
+    async () => {
+      const exposed = {
+        DECKSMITH_HOST: "0.0.0.0",
+        DECKSMITH_TOKEN_FILE: await tokenFile(),
+        ...(await pair()),
+      };
+      for (const env of [
+        { DECKSMITH_TOKEN: TOKEN },
+        { DECKSMITH_TOKEN: "" },
+        { ...exposed, DECKSMITH_TOKEN: TOKEN },
+      ]) {
+        const err = refusal(env);
+        expect(err.problems).toHaveLength(1);
+        expect(err.message).toMatch(/^DECKSMITH_TOKEN is set/);
+        expect(err.message).toContain("DECKSMITH_TOKEN_FILE");
+      }
+    },
+  );
 
   it("R6: a token file is refused for each thing wrong with it, and a good one is read", async () => {
     const missing = join(dir, "no-such-token");
@@ -1567,27 +1741,30 @@ describe("the startup policy", () => {
     }
   });
 
-  it("R7: the deck sandbox cannot be turned off once there is a token or a network", async () => {
-    const token = await tokenFile();
-    for (const env of [
-      { DECKSMITH_DECK_SANDBOX: "0", DECKSMITH_TOKEN_FILE: token },
-      {
-        DECKSMITH_DECK_SANDBOX: "off",
-        DECKSMITH_HOST: "0.0.0.0",
-        DECKSMITH_TOKEN_FILE: token,
-        ...(await pair()),
-      },
-    ]) {
-      const err = refusal(env);
-      expect(err.problems).toHaveLength(1);
-      expect(err.message).toMatch(/^DECKSMITH_DECK_SANDBOX is off/);
-    }
-    // On bare loopback it is still the operator's call, as it was.
-    expect(resolveSecurity({ DECKSMITH_DECK_SANDBOX: "0" }, deps()).sandboxDecks).toBe(false);
-  });
+  itTls(
+    "R7: the deck sandbox cannot be turned off once there is a token or a network",
+    async () => {
+      const token = await tokenFile();
+      for (const env of [
+        { DECKSMITH_DECK_SANDBOX: "0", DECKSMITH_TOKEN_FILE: token },
+        {
+          DECKSMITH_DECK_SANDBOX: "off",
+          DECKSMITH_HOST: "0.0.0.0",
+          DECKSMITH_TOKEN_FILE: token,
+          ...(await pair()),
+        },
+      ]) {
+        const err = refusal(env);
+        expect(err.problems).toHaveLength(1);
+        expect(err.message).toMatch(/^DECKSMITH_DECK_SANDBOX is off/);
+      }
+      // On bare loopback it is still the operator's call, as it was.
+      expect(resolveSecurity({ DECKSMITH_DECK_SANDBOX: "0" }, deps()).sandboxDecks).toBe(false);
+    },
+  );
 
-  const validFrom = Date.parse(TLS.x509.validFrom);
-  const validTo = Date.parse(TLS.x509.validTo);
+  const validFrom = TLS_OK ? Date.parse(TLS.x509.validFrom) : 0;
+  const validTo = TLS_OK ? Date.parse(TLS.x509.validTo) : 0;
   const encryptedKey = (type: "pkcs8" | "pkcs1") =>
     Buffer.from(
       type === "pkcs8"
@@ -1619,10 +1796,38 @@ describe("the startup policy", () => {
       "DECKSMITH_TLS_CERT",
     ],
     [
+      // PEM on the outside, rubbish inside: the one path where `X509Certificate`
+      // is what refuses, now that the header is checked before it.
       "a certificate that is not PEM",
-      async () => ({ ...(await pair()), DECKSMITH_TLS_CERT: await put(`${TOKEN} not a cert`) }),
+      async () => ({
+        ...(await pair()),
+        DECKSMITH_TLS_CERT: await put(
+          "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+        ),
+      }),
       undefined,
       /^DECKSMITH_TLS_CERT \(.*\) is not a PEM certificate\.$/,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      // REVIEWER 3, MEASURED. `new X509Certificate(der)` parses this happily and
+      // `checkPrivateKey` agrees with it, so before the header check it passed
+      // every gate here and threw ERR_OSSL_PEM_NO_START_LINE out of
+      // `createServer` — after main.ts had made the work directory.
+      "a DER certificate, which every check here used to accept",
+      async () => ({ ...(await pair()), DECKSMITH_TLS_CERT: await put(tlsBytes("server.der")) }),
+      undefined,
+      /^DECKSMITH_TLS_CERT \(.*\) is not a PEM chain: .*openssl x509 -inform der/s,
+      "DECKSMITH_TLS_CERT",
+    ],
+    [
+      // REVIEWER 3, THE OTHER HALF. Nothing Node parses can fault this pair; the
+      // certificate matches the key, the SANs are there and it is in date. What
+      // refuses it is OpenSSL, at the same `minVersion` the server will use.
+      "a key OpenSSL will not load, which nothing Node parses can fault",
+      () => pair(tlsBytes("weak.key"), tlsBytes("weak.crt")),
+      undefined,
+      /^OpenSSL will not load DECKSMITH_TLS_CERT \(.*\) with DECKSMITH_TLS_KEY \(.*\): ERR_SSL_EE_KEY_TOO_SMALL \(ee key too small\)\./,
       "DECKSMITH_TLS_CERT",
     ],
     [
@@ -1641,14 +1846,14 @@ describe("the startup policy", () => {
     ],
     [
       "a key from another pair",
-      () => pair(readFileSync(tlsFixture("other.key"))),
+      () => pair(tlsBytes("other.key")),
       undefined,
       /^DECKSMITH_TLS_KEY \(.*\) does not belong to the certificate in DECKSMITH_TLS_CERT/,
       "DECKSMITH_TLS_KEY",
     ],
     [
       "a certificate with only a common name",
-      () => pair(readFileSync(tlsFixture("cn-only.key")), readFileSync(tlsFixture("cn-only.crt"))),
+      () => pair(tlsBytes("cn-only.key"), tlsBytes("cn-only.crt")),
       undefined,
       /^DECKSMITH_TLS_CERT \(.*\) has no subjectAltName, and browsers ignore the common name/,
       "DECKSMITH_TLS_CERT",
@@ -1671,7 +1876,7 @@ describe("the startup policy", () => {
       "a key other users can read",
       async () => ({
         ...(await pair()),
-        DECKSMITH_TLS_KEY: await put(readFileSync(tlsFixture("server.key")), 0o644),
+        DECKSMITH_TLS_KEY: await put(tlsBytes("server.key"), 0o644),
       }),
       undefined,
       /^DECKSMITH_TLS_KEY \(.*\) is readable by other users; chmod 600 it\.$/,
@@ -1679,7 +1884,7 @@ describe("the startup policy", () => {
     ],
   ];
 
-  it.each(TLS_REFUSALS)(
+  itTls.each(TLS_REFUSALS)(
     "R8: refuses %s in a sentence of its own",
     async (_, env, now, sentence, variable) => {
       const e = await env();
@@ -1692,7 +1897,7 @@ describe("the startup policy", () => {
     },
   );
 
-  it("R8: no two of those refusals say the same thing", async () => {
+  itTls("R8: no two of those refusals say the same thing", async () => {
     const said = new Set<string>();
     for (const [, env, now] of TLS_REFUSALS) {
       said.add(refusal(await env(), deps(now)).message.replace(/\([^)]*\)/g, "(path)"));
@@ -1702,14 +1907,14 @@ describe("the startup policy", () => {
     expect(refusal(await pair(encryptedKey("pkcs1"))).message).toMatch(/is encrypted/);
   });
 
-  it("R9: a certificate that expires within 14 days starts, with one warning", async () => {
+  itTls("R9: a certificate that expires within 14 days starts, with one warning", async () => {
     const security = resolveSecurity(await pair(), deps(validTo - 10 * 86_400_000));
     expect(security.tls?.x509.subjectAltName).toContain("DNS:deck.test");
     expect(security.warnings).toHaveLength(1);
     expect(security.warnings[0]).toMatch(/expires .*, in 10 day\(s\)/);
   });
 
-  it("R10: no refusal, banner or warning carries the token", async () => {
+  itTls("R10: no refusal, banner or warning carries the token", async () => {
     const said: string[] = [];
     const run = (env: NodeJS.ProcessEnv, d = deps()) => {
       try {
@@ -1737,33 +1942,68 @@ describe("the startup policy", () => {
       deps(validTo - 86_400_000),
     );
     expect(said.join("\n")).toContain("auth: token from");
-    expect(said.join("\n")).toContain("https://0.0.0.0:8475");
+    // A NAME FROM THE CERTIFICATE, not the bind: see R12.
+    expect(said.join("\n")).toContain("https://deck.test:8475");
+    expect(said.join("\n")).not.toContain("https://0.0.0.0:8475");
     expect(said.join("\n")).toContain("expires");
     expect(said.filter((line) => line.includes("SENTINEL"))).toEqual([]);
   });
 
-  it("R11: createDeckServer itself refuses an exposed bind without both auth and tls", async () => {
-    const options: ServeOptions = {
-      port: 0,
-      host: "0.0.0.0",
-      work: await scratch(),
-      maxUploadBytes: 1 << 20,
-      maxQueued: 4,
-      ttlMs: 60_000,
-      jobsPerHour: 100,
-      requestsPerMinute: 1000,
-      fetchRemoteFigures: false,
-      sandboxDecks: true,
-      removeDir: () => {},
-      log: () => {},
+  itTls(
+    "R11: createDeckServer itself refuses an exposed bind without both auth and tls",
+    async () => {
+      const options: ServeOptions = {
+        port: 0,
+        host: "0.0.0.0",
+        work: await scratch(),
+        maxUploadBytes: 1 << 20,
+        maxQueued: 4,
+        ttlMs: 60_000,
+        jobsPerHour: 100,
+        requestsPerMinute: 1000,
+        fetchRemoteFigures: false,
+        sandboxDecks: true,
+        removeDir: () => {},
+        log: () => {},
+      };
+      expect(() => createDeckServer(options)).toThrow(/needs both `auth` and `tls`/);
+      expect(() => createDeckServer({ ...options, auth: KEYS })).toThrow(/needs both/);
+      expect(() => createDeckServer({ ...options, tls: TLS })).toThrow(/needs both/);
+      expect(() => createDeckServer({ ...options, auth: KEYS, tls: TLS })).not.toThrow();
+      expect(() =>
+        createDeckServer({ ...options, host: "127.0.0.1", auth: KEYS, sandboxDecks: false }),
+      ).toThrow(/sandboxDecks: false/);
+    },
+  );
+
+  /**
+   * R12 — THE BANNER'S URL IS ONE THE SERVER ANSWERS TO.
+   *
+   * On an exposed bind the `Host` allowlist is the certificate's SANs and only
+   * those, so the bind address is almost never one of them: the banner printed
+   * `https://0.0.0.0:8475`, which this server refuses with 403 and the hint
+   * "answers only to the names its certificate lists". Both halves are asserted
+   * together — the name the banner prints, and that `foreignRequest` accepts it —
+   * because the bug was exactly that those two disagreed.
+   */
+  itTls("R12: an exposed banner prints a certificate name, and says what it bound to", async () => {
+    const env = {
+      DECKSMITH_HOST: "0.0.0.0",
+      DECKSMITH_TOKEN_FILE: await tokenFile(),
+      ...(await pair()),
     };
-    expect(() => createDeckServer(options)).toThrow(/needs both `auth` and `tls`/);
-    expect(() => createDeckServer({ ...options, auth: KEYS })).toThrow(/needs both/);
-    expect(() => createDeckServer({ ...options, tls: TLS })).toThrow(/needs both/);
-    expect(() => createDeckServer({ ...options, auth: KEYS, tls: TLS })).not.toThrow();
-    expect(() =>
-      createDeckServer({ ...options, host: "127.0.0.1", auth: KEYS, sandboxDecks: false }),
-    ).toThrow(/sandboxDecks: false/);
+    const lines = securityBanner(resolveSecurity(env, deps()), 8475);
+    expect(lines[0]).toBe("https://deck.test:8475");
+    expect(lines[1]).toContain("bound to 0.0.0.0");
+    expect(lines[1]).toContain("DNS:deck.test");
+    // The wildcard is not a host anyone can type, so it is never the one chosen.
+    expect(lines[0]).not.toContain("*");
+
+    // And loopback still prints the bind, which IS what it answers to.
+    expect(securityBanner(resolveSecurity({}, deps()), 8475)[0]).toBe("http://127.0.0.1:8475");
+    expect(securityBanner(resolveSecurity({ DECKSMITH_HOST: "::1" }, deps()), 8475)[0]).toBe(
+      "http://[::1]:8475",
+    );
   });
 });
 
@@ -1775,19 +2015,11 @@ describe("the startup policy", () => {
  * before it listens — or at all.
  */
 describe("the built server", () => {
-  const root = fileURLToPath(new URL("../", import.meta.url));
+  const root = ROOT;
   afterEach(closeServers);
 
   beforeAll(async () => {
-    // FAILS, never skips. CI's `npm ci` builds dist/ through `prepare`, so this
-    // only fires on a checkout nobody built — which is the one place a skip
-    // would be read as a pass.
-    if (!existsSync(join(root, "dist", "index.js"))) {
-      throw new Error(
-        "dist/index.js is missing. Run `npm run build` first: `npm run check` does not build, and these tests start the built server.",
-      );
-    }
-    await execFileP("npm", ["run", "build:server"], { cwd: root });
+    await builtServer();
   }, 120_000);
 
   it("R12: refuses an exposed bind before it listens, and before it creates the work directory", async () => {
@@ -1828,9 +2060,7 @@ describe("the built server", () => {
    * above describes.
    */
   it("F1: serves its pages unframeable but unsandboxed, and embed.html only with the token", async () => {
-    const built = (await import(pathToFileURL(join(root, "dist", "server", "http.js")).href)) as {
-      createDeckServer: typeof createDeckServer;
-    };
+    const built = await builtServer();
     const { server } = built.createDeckServer({
       port: 0,
       host: "127.0.0.1",
@@ -1848,7 +2078,9 @@ describe("the built server", () => {
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     servers.push(() => new Promise<void>((r) => server.close(() => r())));
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const port = (server.address() as AddressInfo).port;
+    const base = `http://127.0.0.1:${port}`;
+    const cookie = sessionFor(sessionBinding("127.0.0.1", port), cookieName(false, port));
 
     expect((await raw(base, "GET", "/examples/embed.html", {})).status).toBe(401);
     const player = await raw(base, "GET", "/player.js", {});
@@ -1858,7 +2090,7 @@ describe("the built server", () => {
     const pages: [string, Raw, string][] = [
       ["embed.html", await raw(base, "GET", "/examples/embed.html", BEARER), "decksmith-player"],
       ["the login page", await raw(base, "GET", "/", {}), 'name="token"'],
-      ["the uploader", await raw(base, "GET", "/", { cookie: sessionFor() }), 'id="compose"'],
+      ["the uploader", await raw(base, "GET", "/", { cookie }), 'id="compose"'],
     ];
     for (const [what, page, marker] of pages) {
       expect(page.status, what).toBe(200);
@@ -1868,6 +2100,13 @@ describe("the built server", () => {
       expect(csp, what).toContain("frame-ancestors 'none'");
       expect(csp, what).toContain("form-action 'self'");
       expect(csp, what).not.toContain("sandbox");
+    }
+    // F1: EMBED.HTML AND NOTHING ELSE CARRIES `connect-src 'none'`. It is the one
+    // page a deck can steer a logged-in viewer into (see `EMBED_CSP`); the
+    // uploader posts and polls, so it cannot have the directive and does not.
+    expect(pages[0]?.[1].headers["content-security-policy"]).toContain("connect-src 'none'");
+    for (const page of [pages[1], pages[2]]) {
+      expect(page?.[1].headers["content-security-policy"]).not.toContain("connect-src");
     }
     // The real uploader, with the form that only a server with a token draws.
     expect(pages[2]?.[1].text).toContain('action="/logout"');
@@ -1977,7 +2216,7 @@ describe("the token gate", () => {
 
   it("A4: a wrong bearer beside a valid cookie is a wrong bearer", async () => {
     const s = await authed();
-    const cookie = sessionFor();
+    const cookie = s.session();
     expect((await raw(s.base, "GET", "/api/formats", { cookie })).status).toBe(200);
     const both = await raw(s.base, "GET", "/api/formats", { cookie, authorization: "Bearer nope" });
     expect(both.status).toBe(401);
@@ -1991,7 +2230,7 @@ describe("the token gate", () => {
     const set = res.headers["set-cookie"] ?? [];
     expect(set).toHaveLength(1);
     const cookie = parseSetCookie(set[0] as string);
-    expect(cookie.name).toBe("decksmith");
+    expect(cookie.name).toBe(s.cookie);
     expect(cookie.value).toMatch(/^\d{10}\.[A-Za-z0-9_-]{43}$/);
     expect(cookie.attrs).toEqual(
       expect.arrayContaining(["path=/", "httponly", "samesite=strict", "max-age=604800"]),
@@ -2027,7 +2266,7 @@ describe("the token gate", () => {
 
   it("A7: the cookie alone opens the uploader, a job, its events, and the no-script form", async () => {
     const s = await authed();
-    const cookie = sessionFor();
+    const cookie = s.session();
     const page = await raw(s.base, "GET", "/", { cookie });
     expect(page.status).toBe(200);
     expect(page.text).toContain('id="compose"');
@@ -2065,7 +2304,7 @@ describe("the token gate", () => {
       s.base,
       "POST",
       "/api/jobs",
-      { cookie: sessionFor(), "content-type": contentType },
+      { cookie: s.session(), "content-type": contentType },
       body,
     );
     expect(cookieWrite.status).toBe(403);
@@ -2090,7 +2329,7 @@ describe("the token gate", () => {
         s.base,
         "POST",
         "/api/jobs",
-        { ...headers, cookie: sessionFor(), "content-type": contentType },
+        { ...headers, cookie: s.session(), "content-type": contentType },
         body,
       );
       expect(res.status).toBe(403);
@@ -2104,45 +2343,83 @@ describe("the token gate", () => {
     const t0 = 1_900_000_000_000;
     let clock = t0;
     const s = await authed({ now: () => clock });
+    const name = s.cookie;
     const status = async (cookie: string, base = s.base) =>
       (await raw(base, "GET", "/api/formats", { cookie })).status;
     const login = await raw(s.base, "POST", "/login", form, credentials(TOKEN));
-    const minted = parseSetCookie((login.headers["set-cookie"] ?? [])[0] as string).value;
+    const set = parseSetCookie((login.headers["set-cookie"] ?? [])[0] as string);
+    const minted = set.value;
     const [exp = "", mac = ""] = minted.split(".");
     expect(Number(exp)).toBe(Math.floor(t0 / 1000) + 604_800);
-    expect(await status(`decksmith=${minted}`)).toBe(200);
+    expect(set.name).toBe(name);
+    expect(await status(`${name}=${minted}`)).toBe(200);
 
-    expect(await status(`decksmith=${Number(exp) + 1}.${mac}`)).toBe(401);
-    expect(await status(`decksmith=${mintSession(authKeys(`${TOKEN}-rotated`), t0)}`)).toBe(401);
-    // A restart: a second server, the same token, no state shared.
+    expect(await status(`${name}=${Number(exp) + 1}.${mac}`)).toBe(401);
+    expect(await status(`${name}=${mintSession(authKeys(`${TOKEN}-rotated`), t0, s.bind)}`)).toBe(
+      401,
+    );
+    // A restart: a second server, the same token, no state shared. Its port
+    // differs, so the cookie has to be re-minted for it — which is the point of
+    // A10b below; what survives a restart is the KEY, not this exact value.
     const restarted = await authed({ now: () => clock });
-    expect(await status(`decksmith=${minted}`, restarted.base)).toBe(200);
+    expect(await status(restarted.session(clock), restarted.base)).toBe(200);
 
     clock = Number(exp) * 1000 - 1000;
-    expect(await status(`decksmith=${minted}`)).toBe(200);
+    expect(await status(`${name}=${minted}`)).toBe(200);
     clock = Number(exp) * 1000;
-    expect(await status(`decksmith=${minted}`)).toBe(401);
+    expect(await status(`${name}=${minted}`)).toBe(401);
 
     // Minted further out than this server ever mints, past a minute of skew.
     clock = t0;
-    expect(await status(`decksmith=${mintSession(KEYS, t0 + 2 * 60_000)}`)).toBe(401);
-    expect(await status(`decksmith=${mintSession(KEYS, t0 + 30_000)}`)).toBe(200);
+    expect(await status(`${name}=${mintSession(KEYS, t0 + 2 * 60_000, s.bind)}`)).toBe(401);
+    expect(await status(`${name}=${mintSession(KEYS, t0 + 30_000, s.bind)}`)).toBe(200);
 
-    expect(await status(`decksmith=junk; decksmith=${minted}`)).toBe(200);
-    expect(await status("decksmith=junk")).toBe(401);
+    expect(await status(`${name}=junk; ${name}=${minted}`)).toBe(200);
+    expect(await status(`${name}=junk`)).toBe(401);
+  });
+
+  /**
+   * A10b — THE COOKIE BELONGS TO ONE LISTENER, NOT TO THE HOST.
+   *
+   * RFC 6265 gives cookies no port, so everything on 127.0.0.1 shares one jar. A
+   * second DeckSmith on this machine reading the same token file derives the
+   * same `sessionKey`, and before the port went into the name and into the MAC
+   * it would both overwrite this server's cookie in the browser and accept the
+   * session this server minted. Both halves are checked: the names differ, and
+   * each server refuses the other's value even when it is handed over under its
+   * OWN name — which is what a captured cookie replayed by hand looks like.
+   *
+   * WHAT THIS DOES NOT DO is stop the other listener READING the cookie. The
+   * browser sends it to every port on the host; see the README.
+   */
+  it("A10b: two servers on this host do not share a cookie name or a session", async () => {
+    const a = await authed();
+    const b = await authed();
+    expect(a.cookie).not.toBe(b.cookie);
+    expect(a.bind).not.toBe(b.bind);
+    const status = (base: string, cookie: string) =>
+      raw(base, "GET", "/api/formats", { cookie }).then((r) => r.status);
+    expect(await status(a.base, a.session())).toBe(200);
+    expect(await status(b.base, b.session())).toBe(200);
+    // Each other's value, under the name the receiving server looks for.
+    const relabel = (from: string, to: string) => `${to}${from.slice(from.indexOf("="))}`;
+    expect(await status(b.base, relabel(a.session(), b.cookie))).toBe(401);
+    expect(await status(a.base, relabel(b.session(), a.cookie))).toBe(401);
+    // And under its own name, which is what the browser actually sends along.
+    expect(await status(b.base, a.session())).toBe(401);
   });
 
   it("A11: logging out clears the cookie by name, and only for this site", async () => {
     const s = await authed();
     const out = await raw(s.base, "POST", "/logout", {
-      cookie: sessionFor(),
+      cookie: s.session(),
       "sec-fetch-site": "same-origin",
       origin: "null",
     });
     expect(out.status).toBe(303);
     expect(out.headers.location).toBe("/");
     const cleared = parseSetCookie((out.headers["set-cookie"] ?? [])[0] as string);
-    expect(cleared.name).toBe("decksmith");
+    expect(cleared.name).toBe(s.cookie);
     expect(cleared.value).toBe("");
     expect(cleared.attrs).toEqual(
       expect.arrayContaining(["path=/", "httponly", "samesite=strict", "max-age=0"]),
@@ -2163,9 +2440,21 @@ describe("the token gate", () => {
     expect((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).status).toBe(429);
     expect((await raw(s.base, "GET", "/api/formats", BEARER)).status).toBe(429);
     // A cookie is not a guess, so it is not held back with them.
-    expect((await raw(s.base, "GET", "/api/formats", { cookie: sessionFor(clock) })).status).toBe(
+    expect((await raw(s.base, "GET", "/api/formats", { cookie: s.session(clock) })).status).toBe(
       200,
     );
+
+    // A12b — THE LOCKOUT IS IN THE LOG, AND SO IS WHAT IT REFUSED. Silent before:
+    // the owner of a loopback server that another local account had locked out
+    // saw a 429 with no history behind it, and the correct tokens refused during
+    // the window left no trace at all. Once per window for the lockout itself —
+    // after the tenth failure nothing reaches the charge — and once per refusal.
+    const log = s.logs.join("\n");
+    expect(log.match(/ is locked out for 15 minutes after 10 wrong tokens/g)).toHaveLength(1);
+    expect(log).toMatch(/^login: refused from .* — locked out$/m);
+    expect(log).toMatch(/^auth: refused GET \/api\/formats from .* — locked out$/m);
+    expect(log).not.toContain("SENTINEL");
+
     clock += 15 * 60_000;
     expect((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).status).toBe(303);
   });
@@ -2196,7 +2485,7 @@ describe("the token gate", () => {
       ((await raw(s.base, "POST", "/login", form, credentials(TOKEN))).headers["set-cookie"] ??
         [])[0] as string,
     ).value;
-    const cookie = `decksmith=${session}`;
+    const cookie = `${s.cookie}=${session}`;
     await raw(s.base, "POST", "/login", form, credentials(`${TOKEN}-typo`));
     await raw(s.base, "GET", "/api/formats", BEARER);
     await raw(s.base, "GET", "/api/formats", { authorization: `Bearer ${TOKEN}x` });
@@ -2249,7 +2538,7 @@ describe("the token gate", () => {
 
 /* ------------------------------------------------------- a certificate's names */
 
-describe("an exposed bind, over https", () => {
+describe.skipIf(!TLS_OK)("an exposed bind, over https", () => {
   afterEach(closeServers);
   const exposed = (over: Partial<ServeOptions> = {}) =>
     serve({ host: "0.0.0.0", auth: KEYS, tls: TLS, ...over });
@@ -2337,7 +2626,7 @@ describe("an exposed bind, over https", () => {
 
   it("H3: without fetch metadata, the Origin a cookie write needs is the https one", async () => {
     const s = await exposed();
-    const cookie = sessionFor(Date.now(), "__Host-decksmith");
+    const cookie = s.session();
     const host = `deck.test:${s.port}`;
     const { body, contentType } = upload();
     const submit = (origin: string) =>
@@ -2345,7 +2634,12 @@ describe("an exposed bind, over https", () => {
     expect((await submit(`https://${host}`)).status).toBe(202);
     expect((await submit(`http://${host}`)).status).toBe(403);
     // And over TLS the plain name is not the session's.
-    const plainName = await raw(s.base, "GET", "/api/formats", { cookie: sessionFor(), host });
+    // The same session under the name a PLAIN server would have set: over TLS
+    // the `__Host-` name is the only one this server reads.
+    const plainName = await raw(s.base, "GET", "/api/formats", {
+      cookie: sessionFor(s.bind, cookieName(false, s.port)),
+      host,
+    });
     expect(plainName.status).toBe(401);
   });
 
@@ -2364,7 +2658,7 @@ describe("an exposed bind, over https", () => {
     );
     expect(res.status).toBe(303);
     const cookie = parseSetCookie((res.headers["set-cookie"] ?? [])[0] as string);
-    expect(cookie.name).toBe("__Host-decksmith");
+    expect(cookie.name).toBe(`__Host-decksmith-${s.port}`);
     expect(cookie.attrs).toEqual(
       expect.arrayContaining(["secure", "path=/", "httponly", "samesite=strict"]),
     );
@@ -2510,7 +2804,7 @@ describe("what may be framed", () => {
     "F1: the uploader and the login page are unframeable but not sandboxed (token %s)",
     async (auth) => {
       const s = await serve(auth ? { auth: KEYS } : {});
-      const pages = [await raw(s.base, "GET", "/", auth ? { cookie: sessionFor() } : {})];
+      const pages = [await raw(s.base, "GET", "/", auth ? { cookie: s.session() } : {})];
       if (auth) pages.push(await raw(s.base, "GET", "/", {}));
       for (const page of pages) {
         expect(page.status).toBe(200);
@@ -2712,7 +3006,7 @@ window.probe = function (src) {
     await logIn(page, s.base);
     expect(await page.$("#compose")).not.toBeNull();
 
-    const session = (await page.browserContext().cookies()).find((c) => c.name === "decksmith");
+    const session = (await page.browserContext().cookies()).find((c) => c.name === s.cookie);
     expect(session?.httpOnly).toBe(true);
     expect(session?.sameSite).toBe("Strict");
 
@@ -2738,7 +3032,7 @@ window.probe = function (src) {
 
     const events = seen.filter((r) => r.url.endsWith("/events"));
     expect(events.length).toBeGreaterThan(0);
-    expect(events.every((r) => r.cookie?.startsWith("decksmith="))).toBe(true);
+    expect(events.every((r) => r.cookie?.startsWith(`${s.cookie}=`))).toBe(true);
     expect(seen.filter((r) => r.method === "POST" && r.url === "/api/jobs")).toHaveLength(1);
     expect(urls.filter((u) => u.includes(TOKEN))).toEqual([]);
     expect(seen.filter((r) => r.url.includes(TOKEN))).toEqual([]);
@@ -2801,6 +3095,89 @@ window.probe = function (src) {
     const after = seen.slice(before);
     expect(after.find((r) => r.url.startsWith("/examples/embed.html?"))?.cookie).toBeUndefined();
     expect(after.filter((r) => r.url.startsWith("/d/"))).toEqual([]);
+  }, 60_000);
+
+  /**
+   * B7 — A DECK CANNOT WALK THE VIEWER INTO embed.html AND SPEND AS THEM.
+   *
+   * REVIEWER 2'S FINDING, MEASURED HERE BOTH WAYS. B4 showed that a cross-site
+   * navigation to `/examples/embed.html?a=…` arrives with no cookie and gets 401,
+   * and the PR read that as "another site cannot steer a logged-in viewer into a
+   * deck that uses the session". It does not follow. `SameSite=Strict` withholds
+   * the cookie from a navigation ANOTHER SITE starts; it sends it on one THIS
+   * origin starts. A deck opened top-level — from a link on any site, since /d/
+   * is public — is its own top-level document, so it can set `location` itself,
+   * and that second navigation is same-site. It lands on embed.html as the
+   * logged-in viewer, with the attacker's own deck framed inside a page that is
+   * same-origin with it, and `parent.fetch` then runs under EMBED.HTML's policy.
+   *
+   * So the test asserts the steering and the refusal separately, because they are
+   * separate facts and only the second one is new:
+   *
+   *   1. the navigation happens and DOES carry the session — `SameSite=Strict`
+   *      never stopped it, and this is the half the PR had wrong;
+   *   2. the fetch is refused all the same, because `EMBED_CSP` gives that one
+   *      page `connect-src 'none'`. No job is queued.
+   *
+   * THE BUILT SERVER, not the source one: from a source tree /examples/embed.html
+   * is a 500 (there is no src/embed.html), so a source server would "pass" this
+   * by serving nothing at all. `npm ci` builds dist/ through `prepare`.
+   */
+  it("B7: a deck steers the viewer into embed.html with their session, and still cannot spend it", async () => {
+    const built = await builtServer();
+    const STEER = `<!doctype html><meta charset="utf-8"><title>steer</title><body><script>
+if (window.top === window) {
+  location.href = "/examples/embed.html?a=" +
+    encodeURIComponent(location.pathname.replace(/deck\\.html$/, ""));
+} else {
+  var fd = new FormData();
+  fd.append("url", "https://example.com/steered");
+  try {
+    parent.fetch("/api/jobs", { method: "POST", body: fd }).then(
+      function (r) { parent.__steer = "status " + r.status; },
+      function (e) { parent.__steer = "rejected " + e.name; });
+  } catch (e) { parent.__steer = "threw " + e.name; }
+}
+</script>`;
+    const s = await serve({ auth: KEYS, run: never }, built.createDeckServer);
+    const id = await deckOnDisk(s.work, STEER);
+    // One job holds the runner, so anything accepted afterwards shows in depth.
+    expect(
+      (await post(s.base, [{ name: "url", value: "https://example.com/hold" }], BEARER)).status,
+    ).toBe(202);
+    const page = await fresh();
+    await logIn(page, s.base);
+    const seen = watchRequests(s.server);
+
+    // FROM ANOTHER SITE'S LINK, which is the case the claim was about.
+    const evil = await elsewhere({
+      "/link": `<!doctype html><script>location.href = ${JSON.stringify(`${s.base}/d/${id}/deck.html`)}</script>`,
+    });
+    const steered = page.waitForResponse((r) =>
+      r.url().startsWith(`${s.base}/examples/embed.html?`),
+    );
+    await page.goto(`${evil}/link`).catch(() => {});
+    expect((await steered).status()).toBe(200);
+
+    // 1. The deck's own navigation carried the session. The cross-site hop that
+    //    started the chain did not — that is B4, and it is still true.
+    const embed = seen.find((r) => r.url.startsWith("/examples/embed.html?"));
+    expect(embed?.cookie).toContain(`${s.cookie}=`);
+    expect(seen.find((r) => r.url === `/d/${id}/deck.html`)?.cookie).toBeUndefined();
+
+    // 2. And the framed deck's `parent.fetch` was refused by embed.html's CSP.
+    const outcome = await page
+      .waitForFunction(() => (window as unknown as { __steer?: string }).__steer, {
+        timeout: 20_000,
+      })
+      .then((handle) => handle.jsonValue());
+    expect(outcome).toMatch(/^rejected /);
+    await sleep(1000);
+    expect({ outcome, depth: s.queue.depth, runs: s.runs }).toEqual({
+      outcome,
+      depth: 0,
+      runs: 1,
+    });
   }, 60_000);
 
   it("B5: another site may frame a deck, and the deck's request carries no cookie", async () => {
@@ -2905,6 +3282,49 @@ window.probe = function (src) {
     const outcome = await reach.jsonValue();
     for (let i = 0; i < 50 && s.runs < 2; i++) await sleep(100);
     expect({ outcome, runs: s.runs }).toEqual({ outcome: "status 202", runs: 2 });
+  }, 60_000);
+
+  /**
+   * M2 — ANOTHER PORT ON THIS HOST IS SENT THE SESSION COOKIE, AND ALWAYS WILL BE.
+   *
+   * Pinned for the same reason M1 is: the README makes a claim about it and the
+   * claim has to stay true. RFC 6265 §1 gives cookies no port — "cookies for a
+   * given host are shared across all the ports on that host" — so every listener
+   * on 127.0.0.1 is handed this server's cookie by the browser, and a value read
+   * out of that header replays against this server from a script until it
+   * expires. Naming the cookie `decksmith-<port>` does not change it and was
+   * never meant to (A10b says what it does change); nothing inside this server
+   * can change it, because the decision is the browser's.
+   *
+   * If this ever flips — a browser shipping port-scoped cookies, or /d/ and the
+   * API moving to separate origins with a `__Host-` cookie that cannot leave
+   * one — the README's "What a same-host attacker can still do" changes with it.
+   */
+  it("M2: every other listener on this host is sent the session cookie", async () => {
+    const s = await serve({ auth: KEYS });
+    const sent: (string | undefined)[] = [];
+    const neighbour = createServer((req, res) => {
+      sent.push(req.headers.cookie);
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html>neighbour");
+    });
+    await new Promise<void>((r) => neighbour.listen(0, "127.0.0.1", r));
+    servers.push(
+      () =>
+        new Promise<void>((r) => {
+          neighbour.closeAllConnections();
+          neighbour.close(() => r());
+        }),
+    );
+    const port = (neighbour.address() as AddressInfo).port;
+    expect(port).not.toBe(s.port);
+
+    const page = await fresh();
+    await logIn(page, s.base);
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
+    // Same host, different port, and the cookie goes anyway — under this
+    // server's name, with this server's value.
+    expect(sent.some((c) => c?.includes(`${s.cookie}=`))).toBe(true);
   }, 60_000);
 });
 

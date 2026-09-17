@@ -17,7 +17,10 @@
  *     unframeable, so a deck cannot borrow a same-origin realm that has no such
  *     rule (`BASELINE_CSP`). That does not stop a deck shown inside the uploader
  *     reaching its parent — see the README's "What is missing";
- *   - three rate limits per IP: requests, the expensive verb, and failed tokens;
+ *   - three rate limits per IP: requests, the expensive verb, and failed tokens.
+ *     The last one is logged when it runs out and on every request it refuses
+ *     afterwards, because on loopback every local process IS that one IP and the
+ *     lockout is therefore something a neighbour can aim at the owner;
  *   - a write another site's page makes a browser send is refused, and so is any
  *     request by a name the server does not answer to (`foreignRequest`);
  *   - with a token file configured, every route but the deck files, the player
@@ -41,8 +44,10 @@ import {
   cookieValues,
   LOOPBACK_BINDS,
   mintSession,
+  sessionBinding,
   sessionCookie,
   sessionValid,
+  TLS_MIN_VERSION,
   type TlsMaterial,
   tokenMatches,
 } from "./auth.js";
@@ -94,8 +99,32 @@ const FRAME_SRC = [
  * if something does load it.
  */
 const BASELINE_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox";
-/** The uploader and embed.html: their own scripts and frames, but nobody frames them. */
+/** The uploader: its own scripts and frames, but nobody frames it. */
 const PAGE_CSP = "frame-ancestors 'none'; form-action 'self'; base-uri 'none'";
+/**
+ * embed.html: the uploader's policy AND `connect-src 'none'`.
+ *
+ * THE PAGE A DECK STEERS THE VIEWER INTO. A deck is served with
+ * `allow-top-navigation` withheld, but a deck opened TOP-LEVEL is its own top
+ * browsing context, so nothing stops it setting `location` — and a navigation it
+ * starts is same-site with this origin, so the `SameSite=Strict` cookie goes
+ * along. `/examples/embed.html?a=/d/<its own id>/` therefore lands as the
+ * logged-in viewer, with the attacker's deck framed inside a page that is
+ * same-origin with it: `parent.fetch("/api/jobs")` then runs under THIS policy,
+ * not the deck's. That is the whole of `SameSite=Strict`'s protection against a
+ * link from another site, walked around in one hop, and it was measured before
+ * this directive existed — a job queued as the viewer.
+ *
+ * `'none'` AND NOT `'self'`, and it costs the page nothing: neither
+ * examples/embed.html nor src/deck/player-element.ts (served as /player.js)
+ * makes a single `fetch`, `XMLHttpRequest`, `EventSource`, `sendBeacon` or
+ * WebSocket — the page takes deck URLs from its form or query string and frames
+ * them. `connect-src` does not govern framing, so the decks it exists to show
+ * still load. The uploader cannot have this: it posts jobs and polls them, which
+ * is why the deck-inside-the-uploader hole (M1) stays open and stays in the
+ * README.
+ */
+const EMBED_CSP = `${PAGE_CSP}; connect-src 'none'`;
 /** The login page runs no script, loads nothing, and posts only to itself. */
 const LOGIN_CSP = `default-src 'none'; style-src 'unsafe-inline'; ${PAGE_CSP}`;
 
@@ -271,7 +300,6 @@ export function createDeckServer(opts: ServeOptions): {
   // credential or an expired cookie costs nothing: neither is a guess.
   const failures = new RateLimiter(10, 15 * 60_000, now);
   const tls = opts.tls;
-  const cookie = cookieName(tls !== undefined);
   const site: Site = {
     loopback,
     scheme: tls ? "https" : "http",
@@ -294,7 +322,7 @@ export function createDeckServer(opts: ServeOptions): {
   // answers is a second port to get wrong.
   const server = tls
     ? createTlsServer(
-        { cert: tls.cert, key: tls.key, minVersion: "TLSv1.2", handshakeTimeout: 10_000 },
+        { cert: tls.cert, key: tls.key, minVersion: TLS_MIN_VERSION, handshakeTimeout: 10_000 },
         handler,
       )
     : createServer(handler);
@@ -335,7 +363,7 @@ export function createDeckServer(opts: ServeOptions): {
       if (req.method === "POST" && path === "/logout") {
         res.writeHead(303, {
           location: "/",
-          "set-cookie": clearedCookie(cookie, tls !== undefined),
+          "set-cookie": clearedCookie(cookieFor(req), tls !== undefined),
           "cache-control": "no-store",
         });
         res.end();
@@ -426,7 +454,10 @@ export function createDeckServer(opts: ServeOptions): {
     //
     // BEHIND THE TOKEN, unlike /player.js. It is a same-origin page that frames
     // whatever deck its query string names as soon as it opens, so a link to it
-    // is a way to put a chosen deck next to the viewer's session.
+    // is a way to put a chosen deck next to the viewer's session. The token is
+    // not enough on its own — a deck the viewer already has open can navigate
+    // them here WITH their session — so this page also carries `connect-src
+    // 'none'`; see `EMBED_CSP`.
     if (req.method === "GET" && path === "/examples/embed.html") {
       const file = fileURLToPath(new URL("../embed.html", import.meta.url));
       return readFile(file).then(
@@ -434,7 +465,7 @@ export function createDeckServer(opts: ServeOptions): {
           res.writeHead(200, {
             "content-type": "text/html; charset=utf-8",
             "cache-control": "no-cache",
-            ...policy(PAGE_CSP),
+            ...policy(EMBED_CSP),
           });
           res.end(html);
         },
@@ -747,10 +778,17 @@ export function createDeckServer(opts: ServeOptions): {
       // the uploader is same-origin with its parent, so `parent.fetch` runs under
       // the uploader's policy, which has no `connect-src` — measured, see
       // .planning/2026-09-18-deck-parent-reach.md. With a token configured that
-      // request carries the viewer's session. `SameSite=Strict` and a private
-      // embed.html stop another site steering someone into that; the real fix
-      // is serving /d/ from a separate origin, and so is the other half, a deck
-      // reading another deck's DOM.
+      // request carries the viewer's session. The real fix is serving /d/ from a
+      // separate origin, and so is the other half, a deck reading another deck's
+      // DOM.
+      //
+      // AND `SameSite=Strict` DOES NOT STOP ANOTHER SITE SETTING THAT UP, which
+      // this used to claim as well. The cookie is not sent on a cross-site
+      // navigation, but it IS sent on one this origin starts — so a deck opened
+      // from a link anywhere, being its own top-level document, can navigate
+      // itself to `/examples/embed.html?a=<its own directory>` and arrive there
+      // as the logged-in viewer with itself framed. `EMBED_CSP` above is what
+      // closes it, by giving that one page `connect-src 'none'`.
       //
       // `frame-src 'self'`, AND IT MUST NOT BE `'none'`. The intent is the one
       // `'none'` sounds like — a deck may not frame a third party, whatever an
@@ -834,6 +872,53 @@ export function createDeckServer(opts: ServeOptions): {
   }
 
   /**
+   * WHICH LISTENER THIS IS — the port the request arrived on.
+   *
+   * Read from the socket rather than from `opts.port` because `PORT=0` (and
+   * every test here) binds port 0 and learns the port from the kernel, so
+   * `opts.port` would name a listener nobody is talking to. `localPort` is the
+   * port this connection was accepted on, which is exactly the thing the cookie
+   * has to be scoped by.
+   */
+  function portOf(req: IncomingMessage): number {
+    return req.socket.localPort ?? opts.port;
+  }
+
+  /** This listener's cookie name. See `cookieName` for why the port is in it. */
+  function cookieFor(req: IncomingMessage): string {
+    return cookieName(tls !== undefined, portOf(req));
+  }
+
+  /** What this listener's sessions are MAC'd over. See `sessionBinding`. */
+  function bindingFor(req: IncomingMessage): string {
+    return sessionBinding(opts.host, portOf(req));
+  }
+
+  /**
+   * Charge a wrong token, and SAY SO — including the moment the address runs out.
+   *
+   * The lockout used to be silent in both directions: nothing recorded that an
+   * address had been locked out, and nothing recorded the requests refused while
+   * it was. On loopback that matters more than it looks, because every local
+   * process shares one `remoteAddress`: ten wrong tokens from any account on
+   * this machine lock the owner out for fifteen minutes, and the owner's only
+   * evidence was a 429 with no history behind it.
+   *
+   * Once per window, not once per attempt: after the tenth failure `blocked`
+   * short-circuits before anything reaches here, so this line is printed exactly
+   * when the budget runs out.
+   */
+  function chargeFailure(ip: string, line: string): void {
+    failures.take(ip);
+    opts.log(line);
+    if (failures.blocked(ip)) {
+      opts.log(
+        `auth: ${ip} is locked out for 15 minutes after 10 wrong tokens; a correct token is refused until the window ends`,
+      );
+    }
+  }
+
+  /**
    * What this request presents.
    *
    * AN `Authorization` HEADER IS THE ONLY CREDENTIAL WHEN IT IS THERE. A wrong
@@ -852,14 +937,19 @@ export function createDeckServer(opts: ServeOptions): {
       const token = bearerOf(header);
       if (token === null) return "wrong";
       const ip = ipOf(req);
-      if (failures.blocked(ip)) return "blocked";
+      if (failures.blocked(ip)) {
+        opts.log(`auth: refused ${req.method} ${path} from ${ip} — locked out`);
+        return "blocked";
+      }
       if (tokenMatches(auth, token)) return "bearer";
-      failures.take(ip);
-      opts.log(`auth: wrong bearer on ${req.method} ${path} from ${ip}`);
+      chargeFailure(ip, `auth: wrong bearer on ${req.method} ${path} from ${ip}`);
       return "wrong";
     }
     const at = now();
-    return cookieValues(req.headers.cookie, cookie).some((v) => sessionValid(auth, v, at))
+    const bind = bindingFor(req);
+    return cookieValues(req.headers.cookie, cookieFor(req)).some((v) =>
+      sessionValid(auth, v, at, bind),
+    )
       ? "cookie"
       : "none";
   }
@@ -901,6 +991,7 @@ export function createDeckServer(opts: ServeOptions): {
     const ip = ipOf(req);
     res.setHeader("cache-control", "no-store");
     if (failures.blocked(ip)) {
+      opts.log(`login: refused from ${ip} — locked out`);
       closing(req, res);
       return loginPage(
         res,
@@ -921,13 +1012,16 @@ export function createDeckServer(opts: ServeOptions): {
     if (tokenMatches(auth, token)) {
       res.writeHead(303, {
         location: "/",
-        "set-cookie": sessionCookie(cookie, mintSession(auth, now()), tls !== undefined),
+        "set-cookie": sessionCookie(
+          cookieFor(req),
+          mintSession(auth, now(), bindingFor(req)),
+          tls !== undefined,
+        ),
       });
       res.end();
       return;
     }
-    failures.take(ip);
-    opts.log(`login: refused from ${ip}`);
+    chargeFailure(ip, `login: refused from ${ip}`);
     res.setHeader("www-authenticate", 'Bearer realm="decksmith"');
     return loginPage(res, 401, "That is not this server's token.");
   }
