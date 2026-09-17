@@ -14,7 +14,9 @@
  *     traversal in the URL fails the same way a traversal in a zip entry does;
  *   - a deck is a stranger's document turned into HTML, so it is served into a
  *     CSP sandbox and cannot reach the origin that serves the uploader;
- *   - two rate limits per IP: one for requests, one for the expensive verb.
+ *   - two rate limits per IP: one for requests, one for the expensive verb;
+ *   - a write another site's page makes a browser send is refused, and so is any
+ *     request by a non-loopback name while bound to loopback (`foreignRequest`).
  */
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -199,6 +201,12 @@ export function createDeckServer(opts: ServeOptions): { server: Server; queue: Q
       return send(res, 429, {
         error: { message: "Too many requests.", hint: "Slow down and retry in a minute." },
       });
+    }
+
+    const refused = foreignRequest(req, opts.host);
+    if (refused) {
+      opts.log(`refused: ${req.method} ${path} — ${refused.message}`);
+      return send(res, 403, { error: refused });
     }
 
     if (req.method === "GET" && (path === "/" || path === "/index.html")) {
@@ -741,6 +749,69 @@ export class RateLimiter {
  */
 function ipOf(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
+}
+
+/** A loopback bind, and the names a browser can reach one by, as `URL.hostname` spells them. */
+const LOOPBACK_BINDS = ["127.0.0.1", "::1", "localhost"];
+const LOOPBACK_NAMES = ["127.0.0.1", "[::1]", "localhost"];
+
+/**
+ * Why a browser on some other site sent this, or null if nothing says it did.
+ *
+ * DNS REBINDING FIRST, on every method. A page at evil.example that re-resolves
+ * its own name to 127.0.0.1 is same-origin to itself, so every header below
+ * reads clean, and it can read the answers too. The name it used cannot be
+ * forged: `Host` still says evil.example. ponytail: checked only on a loopback
+ * bind, because on any other address the names it is reachable by are not known
+ * here; an allowlist is the upgrade if that bind is ever meant to face a browser.
+ *
+ * CSRF SECOND, on anything that is not a read. A multipart POST is CORS-simple,
+ * so any site can make its visitor's browser send one, and CORS only stops that
+ * site reading the reply. `Sec-Fetch-Site` says where it came from; `Origin` is
+ * the fallback for a browser without fetch metadata. `same-site` is refused too:
+ * a different port on localhost is the same site. A request carrying neither
+ * header is not from a browser, and curl is not a confused deputy.
+ *
+ * `Origin: null` IS REFUSED, AND THIS SERVER'S OWN PAGE SENDS IT. Measured in
+ * the renderer's Chrome: the uploader's no-script `<form>` posts `Origin: null`,
+ * because `Referrer-Policy: no-referrer` below nulls it on a form navigation,
+ * and passes only because `Sec-Fetch-Site: same-origin` is read first. Its
+ * `fetch` sends the real origin. So the one client this costs is a browser old
+ * enough to lack fetch metadata AND running without script — and `null` is
+ * also what a sandboxed frame on any site sends.
+ */
+function foreignRequest(
+  req: IncomingMessage,
+  bound: string,
+): { message: string; hint: string } | null {
+  const host = req.headers.host ?? "";
+  if (LOOPBACK_BINDS.includes(bound)) {
+    let name = "";
+    try {
+      name = new URL(`http://${host}`).hostname;
+    } catch {
+      // An unparseable Host names no loopback address; refused below.
+    }
+    if (!LOOPBACK_NAMES.includes(name)) {
+      return {
+        message: `Refused a request addressed to "${host}".`,
+        hint: "This server is bound to loopback and answers only to 127.0.0.1, localhost or [::1]. Open it by one of those names.",
+      };
+    }
+  }
+  if (req.method === "GET" || req.method === "HEAD") return null;
+  const site = req.headers["sec-fetch-site"];
+  const origin = req.headers.origin;
+  const foreign =
+    site !== undefined
+      ? site !== "same-origin" && site !== "none"
+      : origin !== undefined && origin !== `http://${host}`;
+  return foreign
+    ? {
+        message: "Refused a request from another site.",
+        hint: "Submit from this server's own page. Another site's page cannot start a job here, because the job would spend this machine's Codex quota.",
+      }
+    : null;
 }
 
 const MIME: Record<string, string> = {

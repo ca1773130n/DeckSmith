@@ -401,8 +401,15 @@ the real server for the first time.
   `maxSeconds` — and it would change 16:9 output bytes, so it was **not** done in a pass
   whose job was to keep 16:9 identical. Unchanged by this pass either way: the old code
   produced the identical warning.
-- **No CSRF token, no auth, no TLS.** See the README's "What is missing before this is
-  public". `POST /api/jobs` is a CORS-simple request; this is the item to fix first.
+- ~~**No CSRF token**~~ **CSRF CLOSED 2026-09-17; no auth, no TLS still open.** See the
+  README's "What is missing before this is public". `foreignRequest` in
+  `src/server/http.ts` refuses a write whose `Sec-Fetch-Site` (or, lacking it, `Origin`)
+  says another site sent it, and — on a loopback bind — any request whose `Host` is not
+  a loopback name, which is what stops DNS rebinding walking past the first check. Before
+  the fix a cross-site submission was measured at 202, job queued, from four header
+  shapes. After it, in the renderer's Chrome: a page on `localhost` posting to
+  `127.0.0.1` by form and by no-cors `fetch` gets 403; the uploader's own `fetch` and
+  its no-script form get 202.
 - **SSE tested only via the fallback and via `fetch`.** The live run above used SSE
   successfully, but the 20-second heartbeat and a proxy that buffers the stream are still
   untested.
