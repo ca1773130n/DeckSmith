@@ -157,14 +157,15 @@ export function guardTmpdir(): void {
     );
   }
 
-  // Vitest runs this once per worker, and a dozen identical lines is not twelve
-  // times the warning. `VITEST_WORKER_ID` is absent outside vitest, so a binary
-  // that calls this still says it.
-  const worker = process.env.VITEST_WORKER_ID;
-  if (worker === undefined || worker === "1") {
-    process.stderr.write(
-      `tmpdir: TMPDIR pointed at ${before}, inside the source tree, so every mkdtemp ` +
-        `would land in the repo. Using ${after}. Fix the environment — this only stops the mess.\n`,
-    );
-  }
+  // Said every time it fires. It used to be deduped by `VITEST_WORKER_ID`,
+  // because the suite called this from `setupFiles` — once per worker, where a
+  // dozen identical lines is not twelve times the warning. The call moved to
+  // `globalSetup` and now happens once, in the vitest parent, which has no
+  // worker id. What still carries one is a process a test SPAWNS — the CLI, the
+  // server, the MCP entry all call this at import — so the dedup had come to
+  // silence exactly the runs whose `TMPDIR` nobody is watching.
+  process.stderr.write(
+    `tmpdir: TMPDIR pointed at ${before}, inside the source tree, so every mkdtemp ` +
+      `would land in the repo. Using ${after}. Fix the environment — this only stops the mess.\n`,
+  );
 }

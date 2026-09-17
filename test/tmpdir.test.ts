@@ -32,11 +32,6 @@ function setEnv(name: Name, value: string | undefined): void {
 beforeEach(() => {
   saved = {};
   for (const name of NAMES) saved[name] = process.env[name];
-  // Pinned, not inherited: the guard dedups its warning by worker id, and which
-  // worker this file lands in depends on `--maxWorkers`. Worker 1 is the one
-  // that speaks.
-  process.env.VITEST_WORKER_ID = "1";
-
   // Captured rather than ignored — "said out loud" is a behaviour this file
   // asserts on, and silencing it keeps a passing run quiet.
   written = [];
@@ -150,14 +145,19 @@ describe("guardTmpdir", () => {
     expect(written).toHaveLength(1);
   });
 
-  it("still fixes the environment on a worker that does not do the talking", () => {
+  it("says so in a process carrying a worker id, which is now a spawned one", () => {
+    // The warning used to be deduped by `VITEST_WORKER_ID`, back when the suite
+    // ran the guard once per worker from `setupFiles`. It runs once in the
+    // vitest parent now, which has no worker id, so the only processes left
+    // holding one are those a test spawns — and a spawned CLI that moves its
+    // own `TMPDIR` has to say so like any other.
     process.env.VITEST_WORKER_ID = "7";
     process.env.TMPDIR = packageRoot();
 
     guardTmpdir();
 
     expect(insideRoot(tmpdir())).toBe(false);
-    expect(written).toHaveLength(0);
+    expect(written).toHaveLength(1);
   });
 
   it("throws rather than stripping variables until it likes the answer", () => {
