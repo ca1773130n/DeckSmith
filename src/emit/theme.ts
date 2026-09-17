@@ -11,7 +11,8 @@
  * `.figwrap` is how a rule ends up being decided by emission order, so nothing
  * an emitter styles is styled here as well.
  */
-import type { Format } from "../types.js";
+import { familyFor } from "../source/fonts.js";
+import type { Format, Storyboard } from "../types.js";
 import {
   PAD_X,
   PAD_Y,
@@ -25,7 +26,7 @@ import {
   type VarValue,
   zoomOf,
 } from "./kit.js";
-import type { DeckTheme } from "./themes/index.js";
+import { type DeckTheme, resolveTheme } from "./themes/index.js";
 
 export {
   type DeckTheme,
@@ -36,6 +37,33 @@ export {
   THEME_NAMES,
   THEMES,
 } from "./themes/index.js";
+
+/**
+ * The theme a storyboard's scenes are staged with, and the font family it ships.
+ *
+ * ONE RESOLUTION for every place that emits a beat to learn how it stages:
+ * `planCut` and `layout`, `planTiming`, and `narrate`. It is not only colour.
+ * The family goes first in `fontStack`, `faceOf` reads it, and a Hangul or CJK
+ * face measures Latin runs wider, so a beat can fit in one theme and be refused
+ * in the other. MEASURED 2026-09-18: `narrate` staged with the bare `ink` theme,
+ * and a `lang: "ko"` callout at 1380×776 was one stop there and four in the
+ * build, so its three sentences played as one segment over the first card.
+ *
+ * `name` overrides `storyboard.theme`, as `--theme` does at build.
+ */
+export function deckLook(
+  storyboard: Pick<Storyboard, "theme" | "lang">,
+  name?: string,
+): { family: string | null; theme: DeckTheme } {
+  const base = resolveTheme(name ?? storyboard.theme);
+  // The deck's copy is written in the storyboard's language, so that — not the
+  // source's — decides whether a font bundle has to ship. Same function `ingest`
+  // subsets with: a stack naming a family the bundle does not declare falls back
+  // silently, which is the whole of invariant 9.
+  const family = familyFor(storyboard.lang);
+  const theme: DeckTheme = family ? { ...base, fontStack: `"${family}", ${base.fontStack}` } : base;
+  return { family, theme };
+}
 
 /** Where `ingest` writes the subsetted font bundle, relative to the deck. */
 export const FONT_BUNDLE_DIR = "assets/fonts";

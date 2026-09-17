@@ -751,6 +751,20 @@ that just appeared, and the deck advances on speech rather than on a number some
 guessed. Write one sentence per reveal, in reveal order. Fewer sentences than stops leaves
 the later reveals silent; more, and the surplus joins the last one.
 
+**A beat's stop count can depend on the canvas.** At 1600×900 the demo's stack beat does
+not fit, so `narrate` puts all four of its sentences on one stop; at 1920×1080 it has four.
+So `narrate` takes the same `--format`, `--width`/`--height` and `--reserve-captions` flags
+as `build`, and `narration.json` records the stop count each narrated beat was split over.
+`build` compares that count with its own staging for every beat it keeps, and refuses a
+beat whose sentences it would split differently. The error names the beats and prints the
+`narrate` flags that fix it. Narration made once at the default canvas still builds the
+short, the `--reserve-captions` deck and an unpacked `.deck` wherever those stage the kept
+beats the same way, which on the demo is every one. Re-narrating in the directory the
+narration was made in only synthesises sentences that now split differently. An unpacked
+`.deck` has no TTS cache, so there it synthesises all of them. A `narration.json` or pack
+written before the counts were recorded still builds, and `build` says it could not check
+it. See `.planning/2026-09-18-narrate-build-canvas.md`.
+
 Playback reads the audio element's own clock, never a timer: a timer agrees with the audio
 right up until the first stall, and a stall is exactly when a viewer looks at the subtitle
 to find out what they missed. `m` mutes (captions keep tracking, and a muted element is
