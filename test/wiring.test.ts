@@ -12,8 +12,11 @@
  * Nothing here touches the network: narration is a hand-written fixture in the
  * exact shape `narrate` returns.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -418,21 +421,41 @@ describe("TMPDIR guard wiring", () => {
     expect(text).not.toMatch(/^guardTmpdir\(\);$/m);
   });
 
-  it("runs the guard for the test suite, through the setup file vitest names", async () => {
+  it("runs the guard for the test suite, through the global setup vitest names", async () => {
     // The FOURTH call site, and the only one with no entry point to hang it on.
-    // `setupFiles` is a single array: an edit that assigns a different setup file
-    // drops the guard from the entire suite silently. Nothing would notice — the
-    // guard is a no-op wherever TMPDIR is already sane, so CI stays green while
-    // the directories come back here, and `.gitignore` hides them while they do.
+    // `globalSetup` is a single array: an edit that assigns a different file
+    // drops the guard and the run's own temp directory from the entire suite
+    // silently. Nothing would notice — the guard is a no-op wherever TMPDIR is
+    // already sane, so CI stays green while the directories come back here, and
+    // `.gitignore` hides them while they do.
     const config = await stripped(new URL("../vitest.config.ts", import.meta.url));
-    expect(config).toMatch(/setupFiles:\s*\[[^\]]*"\.\/test\/setup-tmpdir\.ts"/);
+    expect(config).toMatch(/globalSetup:\s*\[[^\]]*"\.\/test\/setup-tmpdir\.ts"/);
 
     // And that the file it names still calls the guard rather than importing it
     // — which is the trap `src/tmpdir.ts` sets by having no top-level side
-    // effect: naming the module itself in `setupFiles` would guard nothing.
+    // effect — and calls it BEFORE making the run's directory, which would
+    // otherwise be made inside the checkout.
     const setup = await stripped(new URL("./setup-tmpdir.ts", import.meta.url));
-    expect(setup).toMatch(/^guardTmpdir\(\);$/m);
+    const called = setup.search(/^[ \t]*guardTmpdir\(\);$/m);
+    expect(called).toBeGreaterThan(-1);
     expect(setup.match(/\bguardTmpdir\b/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(setup.search(/\bmkdtempSync\(/)).toBeGreaterThan(called);
+  });
+
+  it("runs each test file, and each process a test starts, in the run's own temp directory", () => {
+    // What makes the cleanup reach anything. Global setup sets TMPDIR in the
+    // PARENT process, and that only arrives here because vitest copies
+    // `process.env` into its workers after global setup has run. If a vitest
+    // upgrade took that copy earlier, every `mkdtemp` in the suite would go back
+    // to the shared temp directory and stay there, with every test still green.
+    const dir = tmpdir();
+    expect(basename(dir)).toMatch(/^decksmith-test-/);
+    // A child with no explicit env — how Chrome, ffmpeg and our own CLI are
+    // started — has to land in the same place.
+    const child = execFileSync(process.execPath, ["-p", "require('node:os').tmpdir()"], {
+      encoding: "utf8",
+    });
+    expect(child.trim()).toBe(dir);
   });
 
   it("does not touch the environment when the library is merely imported", async () => {
