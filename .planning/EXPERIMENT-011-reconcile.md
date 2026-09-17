@@ -421,10 +421,14 @@ the real server for the first time.
   server always passes one format to both, so the server is safe; the CLI is not.~~
   **CLOSED 2026-09-18.** It was true on 0.5.2. `narrate --width 1600 --height 900` then
   `build --format deck-16x9` exited 0 with PASS, and the stack beat, refused at 1600×900,
-  spoke four sentences as one 20.35s segment over its first reveal. `narration.json` now
-  records the canvas, and `build`, `emitDeck`, `emitComposition` and `planTiming` refuse
-  another one, naming both canvases and the fix. Narration written before the record still
-  builds, with a warning. See
+  spoke four sentences as one 20.35s segment over its first reveal. The server was not safe
+  either: `narrate` staged with the bare `ink` theme and the build with the storyboard
+  language's font, and a `lang: "ko"` callout at 1380×776 was one stop in one and four in
+  the other. `narrate` now stages with the build's `deckLook` and records each narrated
+  beat's stop count. `emitDeck`, `emitComposition` and `planTiming` refuse a kept beat whose
+  sentences would split differently. A different canvas that stages the kept beats the same
+  builds: `deck-16x9` narration at `short-9x16` came out byte-identical to matched
+  narration. Narration written before the record still builds, with a warning. See
   [`2026-09-18-narrate-build-canvas.md`](2026-09-18-narrate-build-canvas.md).
 - **No rendered-glyph-size gate.** `canvasWarnings` is the only thing that will ever say
   a canvas is too small, and it is a warning. A 500×281 deck that happens to lay out

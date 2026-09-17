@@ -2,7 +2,8 @@
 
 Closes the `EXPERIMENT-011-reconcile.md` bullet "`narrate` and `build` must be given the
 same canvas and nothing enforces it". Measured on `origin/main` at 3e5f90a (0.5.2), then
-fixed on `fix/narrate-build-canvas`.
+fixed on `fix/narrate-build-canvas`. The first fix compared canvases; review showed that
+was wrong both ways, and it now compares each kept beat's stops. Both are recorded below.
 
 ## Was it already caught? No
 
@@ -26,6 +27,8 @@ At 1600×900, `b08` (stack) and `b11` (data-table) are refused. At 1920×1080 wi
 
 The refusal is the only mechanism on the demo storyboard, not a rule for every storyboard:
 holds depend on params and `beat.seconds`, and nothing proves they never depend on the box.
+That sweep was `lang: "en"`. For a CJK language the font face changes what fits too; see
+the Korean case below.
 
 ## Measured through the real CLI, before the fix
 
@@ -45,66 +48,103 @@ the first shows only the "Dense carrier" layer, the second all four layers. So t
 described the queries, synchronisation and compact-state layers while the viewer saw the
 carrier alone.
 
-MCP submits a job to the same `runPipeline` as the server. The server passes one
-`options.format` object to both `narrate` and `buildDeck`, so neither can mismatch.
+## The first fix, and why it was replaced
+
+The first commits on this branch recorded `canvas: { format, width, height, captionReserve }`
+and refused a build whose box differed. Review measured that proxy wrong in both
+directions, and both findings held when re-measured here.
+
+**It refused correct builds.** Full demo, stubbed TTS, library probe on the branch at
+fd87ceb: narration made at `deck-16x9` threw at `short-9x16` and at `deck-16x9` with the
+caption reserve. Among beats drawn at both canvases, 0 of 15 changed their stop count in
+either pairing. Review had built both pairings through the CLI on main and got
+`index.html`, `timing.json` and `deck.html` byte-identical to a matched build. That broke
+three workflows README documents: fitting a short, `render --subtitles burn` over
+`build --reserve-captions`, and rebuilding an unpacked `.deck` offline. The printed fix was
+also wrong for the last one. It said re-narrating into the same directory is all cache
+hits, but a pack carries the mp3s and not the cache sidecars (`audioNames` in `src/cli.ts`),
+so review's re-narrate synthesised 43 of 43 sentences.
+
+**It passed a real mismatch.** `stopsFor` staged with the bare `ink` theme. The build
+stages with `deckLook`, which puts `"Noto Sans KR"` (or JP/SC/TC) first in `fontStack` for
+a CJK `lang`. `faceOf` reads that, and a Hangul face measures Latin runs wider. Probe, demo
+`b01 b02` with `lang: "ko"` at 1380×776: `stopsFor` said 1 stop for the `b02` callout and the
+build's theme staged 4. `narrate` wrote one segment on stop 0, `emitDeck` accepted it, and
+review's CLI build printed PASS with frames showing the CTM card alone at stop 0. An
+earlier version of this document said the server and MCP could not mismatch because
+`runPipeline` hands one `options.format` to both stages. That was wrong for the same
+reason: one format, but two themes. The type comment calling the box "all staging reads"
+was wrong too.
 
 ## The fix
 
-- `narrate` records `canvas: { format, width, height, captionReserve }` in
-  `narration.json` (`narrationCanvas`, `src/types.ts`).
-- `assertNarrationCanvas` throws when the recorded box differs from the build's. It names
-  both canvases and the `narrate` flags that stage for the build's. It runs in `planCut`,
-  which covers `emitDeck`, `emitComposition` and so `buildDeck`, and again in `planTiming`.
-  CLI `build` also calls it before it writes anything.
-- The id is not compared. `deck-16x9` and `video-16x9` are the same box and stage the same.
-- `narrate --reserve-captions` exists now. The reserve changes staging, and without the flag
-  a `build --reserve-captions` could never be paired with narration.
-- The CLI's `loadNarration` and the server pipeline carry `canvas` through, and the pack
-  schema is `narrationSchema`, so packs keep it.
+- **`narrate` stages with the build's look.** `deckLook` moved from `src/emit/composition.ts`
+  to `src/emit/theme.ts`, and `planCut`, `layout`, `planTiming` and `narrate` all call it.
+  `planTiming` had its own copy, and `narrate` had none.
+- **`narration.json` records what the sentences were split over**: `stops` (each narrated
+  beat's staged stop count, before the density cap), `speakingStops` (the cap, absent at
+  `density: "high"`) and `canvas`.
+- **A build compares speaking stops per kept beat, not canvases.** `assertNarrationStaging`
+  (`src/narrate/narrate.ts`) takes each beat the deck draws and its stop count at this
+  staging. It compares `speakingStopCount(text, stops, cap)`, which is
+  `min(stops, cap, sentences)`, the number `planSegments` splits over, against the recorded
+  count. Equal counts mean identical segments. `planCut` runs the check over `cut.kept`, so
+  a beat the budget or an emitter refusal leaves out cannot refuse the deck. `planTiming`
+  runs it over the beats it lays out. The canvas is used only to word the error: it says
+  whether the canvas differs or the beats themselves moved (a params edit, or another
+  DeckSmith version), and which `narrate` flags stage for this build.
+- The error no longer promises cache hits. It says unchanged sentences are cached only in
+  the directory the narration was made in, and that an unpacked `.deck` re-synthesises
+  everything.
+- `narrate --reserve-captions` stays. Without it, narration for a reserve build whose
+  staging differs could never be recorded.
+- `loadNarration` and the server pipeline now spread the whole record rather than copying
+  fields one by one, so a new field cannot be dropped on the way to the check.
 
-After the fix, same storyboard and stubs, rebuilt `dist/cli.js`:
+After, rebuilt `dist/cli.js`, stubbed edge-tts that logs every synthesis, full demo:
 
 | narrate | build | result |
 | --- | --- | --- |
-| `--width 1600 --height 900` | `--format deck-16x9` | exit 1 with the output directory still empty: "staged for 1600×900, but this deck is laid out at deck-16x9 at 1920×1080 … Re-run `decksmith narrate` with --format deck-16x9" |
-| `--format deck-16x9` | `--width 1600 --height 900` | exit 1, names `--width 1600 --height 900` |
-| `--format deck-16x9` | `--format deck-16x9 --reserve-captions` | exit 1, names `--format deck-16x9 --reserve-captions` |
-| `--format deck-16x9` | `--format deck-16x9` | exit 0, PASS, 15 segments |
-| `--format deck-16x9` | `--format video-16x9` | check passes (same box), PASS |
-| `--format deck-16x9 --reserve-captions` | same | check passes, b11 left out as before, PASS |
-| 0.5.2 file, no canvas, staged at 1600×900 | `--format deck-16x9` | builds, PASS, prints "the narration records no canvas … Re-run `decksmith narrate` with --format deck-16x9 to record it" |
+| default (`deck-16x9`) | `--format short-9x16` | not refused. `index.html` and `timing.json` byte-identical to the build narrated with `--format short-9x16`. Both end `FAIL — 1 error(s)` on the same unrelated `text_box_overflow` at t=58.75s |
+| default | `--reserve-captions` | not refused, PASS. `index.html`, `timing.json` and `deck.html` byte-identical to the build narrated with `--reserve-captions` |
+| default, then `pack` / `unpack` | `--format short-9x16` from the unpacked dir | not refused, 0 synthesis calls. `index.html` and `timing.json` byte-identical to the matched short build |
+| `--width 1600 --height 900` | `--format deck-16x9` | exit 1, no `index.html`: "for 2 beat(s): b08 (narrated over 1, 4 here), b11 (narrated over 1, 4 here). It was staged for 1600×900, and this deck is laid out at deck-16x9 at 1920×1080 …" |
+| `lang: "ko"` `b01 b02`, `--width 1380 --height 776` | same | PASS. `stops` records `b02: 4`, and `b02` has segments on stops 0, 1, 2 |
+
+Frames from `decksmith frames` on that Korean deck, at the `b02` holds (7.45s, 8.35s,
+9.25s, 10.2s), all opened: stop 0 shows the CTM card, stop 1 adds Window-wise, stop 2 adds
+This work, and stop 3 adds the footer. The three sentences sit on stops 0 to 2: the
+landing line, then the CTM/window-wise sentence, then the one-query-per-position sentence.
+Stop 3 is silent. Before the fix, all three were one segment over the CTM card alone.
 
 ## Backward compatibility: a decision
 
-**Narration with no `canvas` is accepted, and the CLI says it was not checked.** Refusing it
-would make every `narration.json` and every pack written so far unbuildable until it is
-re-narrated. A pack carries the mp3s but not the TTS cache sidecars, so for an unpacked
-deck that means synthesising every sentence again over the network. The server wrote most
-of those packs and always gave both stages one format. The cost of this choice is the last
-row above: an old mismatched file still builds wrong, with a warning. The library path
+**Narration with no `stops` builds unchecked, and the CLI says so** (`uncheckedNarration`).
+Refusing would make every `narration.json` and every pack written so far unbuildable until
+re-narrated, which for an unpacked pack means synthesising every sentence again. The cost is
+that an old file staged differently still builds wrong, with a warning. The library path
 (`emitDeck`, `buildDeck`) accepts such a file silently, because it has no channel to warn
-on. Tests: "narration written before the canvas was recorded" in
+on. Tests: "narration written before its staging was recorded" in
 `test/narration-canvas.test.ts`.
 
-## Considered and not done
+## Tests that fail with the check broken
 
-Recording each beat's stop count instead of the canvas would refuse only when staging
-really differs. It would also catch a params edit that changes the count without changing
-the words, which neither check catches today. It was not done here because the bullet is
-about the canvas, and because a canvas refusal is cheap to fix: when the split does not
-change, re-narrating into the same directory is all cache hits. It would be a separate change.
+Four mutations on c3dd3f8, each restored with `git checkout -- src`, run over
+`test/narration-canvas.test.ts` and `test/narrate.test.ts`:
 
-## Tests that fail with the check removed
+1. `narrate` back on the bare `ink` theme: 1 fails (the Korean callout is narrated over the
+   build's stops).
+2. The `planCut` call removed: 6 fail (emitDeck, emitComposition, same-canvas wording,
+   budget-kept, density cap, Korean refusal).
+3. Raw stop counts compared instead of speaking counts: 1 fails (the density-cap test).
+4. `loadNarration` copying only `voice`, `dir` and `beats`, dist rebuilt: the CLI test
+   fails. The unchecked build ran the gates and exited 0.
 
-Three runs, each restored with `git checkout -- src` afterwards:
+## Not covered
 
-1. The calls in `planCut` and `planTiming` removed: four tests in
-   `test/narration-canvas.test.ts` fail (emitDeck, emitComposition, planTiming, caption
-   reserve). The CLI test still passed, because `dist/cli.js` was not rebuilt and the CLI
-   has its own early call.
-2. The `planTiming` call, `canvas` in `narrationSchema` and the carry in `loadNarration`
-   removed together: the planTiming test, the schema test and the CLI test fail. The CLI
-   test failed at its own schema parse of `narration.json`, so this run does not isolate
-   the loader.
-3. Only `loadNarration`'s carry removed, dist rebuilt: the CLI test fails. The build ran
-   the gates and exited 0.
+- `assertInsideResolves` (`src/plan/refs.ts`) still emits with the bare `ink` theme at
+  `deck-16x9`. It checks element ids, not stops, and whether the face changes what it sees
+  was not measured.
+- `build --theme` is not passed to `narrate`. All three themes have the same `fontStack`
+  today, so it cannot change staging. If a theme ever does, the per-beat check refuses the
+  build rather than letting it through.
