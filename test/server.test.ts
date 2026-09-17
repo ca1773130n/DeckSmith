@@ -12,7 +12,7 @@
  * sibling directory it aimed at is still empty afterwards.
  */
 import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -947,6 +947,123 @@ describe("the HTTP surface", () => {
     expect(res.error?.message).toMatch(/both a "file" part and a "url" field/);
     expect(res.error?.hint).toMatch(/one or the other/);
     expect(queue.depth).toBe(0);
+  });
+
+  /**
+   * A request carrying the headers a BROWSER attaches. `fetch` in Node sends
+   * none of them, and will not let a caller set `host` at all, so every test
+   * above is a non-browser client whether it meant to be or not.
+   */
+  function raw(
+    base: string,
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    body?: Buffer,
+  ): Promise<{ status: number; error?: { message: string; hint: string } }> {
+    return new Promise((done, failed) => {
+      const req = request(`${base}${path}`, { method, headers }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          const json = JSON.parse(Buffer.concat(chunks).toString() || "{}") as {
+            error?: { message: string; hint: string };
+          };
+          done({ status: res.statusCode ?? 0, ...(json.error ? { error: json.error } : {}) });
+        });
+      });
+      req.on("error", failed);
+      req.end(body);
+    });
+  }
+
+  const upload = () => multipart([{ name: "file", value: "# P\n", filename: "p.md" }]);
+
+  /**
+   * CSRF. A multipart POST is a CORS-simple request: any page on any site can
+   * make its visitor's browser send one, with no preflight, and the job runs on
+   * this machine's Codex quota. CORS stops that page READING the answer, not
+   * the request being made. What stops it is the browser saying where the
+   * request came from — `Sec-Fetch-Site`, or `Origin` where that is missing.
+   */
+  it.each([
+    ["a page on another site", { "sec-fetch-site": "cross-site", origin: "https://evil.example" }],
+    [
+      "another port on the same site",
+      { "sec-fetch-site": "same-site", origin: "http://127.0.0.1:1" },
+    ],
+    ["a browser that predates fetch metadata", { origin: "https://evil.example" }],
+    ["a sandboxed frame", { origin: "null" }],
+  ])("refuses a job submitted by %s, without queueing anything", async (_, headers) => {
+    const { base, queue } = await serve();
+    const { body, contentType } = upload();
+    const res = await raw(
+      base,
+      "POST",
+      "/api/jobs",
+      { ...headers, "content-type": contentType },
+      body,
+    );
+    expect(res.status).toBe(403);
+    expect(res.error?.message).toMatch(/another site/);
+    expect(queue.depth).toBe(0);
+  });
+
+  it("refuses a retry another site asks for", async () => {
+    const { base } = await serve();
+    const res = await raw(base, "POST", `/api/jobs/${"A".repeat(22)}/retry`, {
+      "sec-fetch-site": "cross-site",
+    });
+    // 403 rather than the route's own 404: the refusal comes before routing.
+    expect(res.status).toBe(403);
+  });
+
+  it("still takes a job from its own page, and from a client that is not a browser", async () => {
+    const { base } = await serve();
+    const { body, contentType } = upload();
+    const headers: Record<string, string>[] = [
+      { "sec-fetch-site": "same-origin", origin: base },
+      { origin: base },
+      {},
+    ];
+    for (const h of headers) {
+      const res = await raw(base, "POST", "/api/jobs", { ...h, "content-type": contentType }, body);
+      expect(res.status, JSON.stringify(h)).toBe(202);
+    }
+  });
+
+  /**
+   * DNS REBINDING, which walks straight past the check above. A page at
+   * evil.example re-resolves its own name to 127.0.0.1, and from then on its
+   * requests here are same-origin by every header they carry — and, unlike a
+   * CSRF, it can read the answers. The one thing it cannot forge is the name it
+   * used: `Host` still says evil.example.
+   */
+  it("answers only to a loopback name while bound to loopback", async () => {
+    const { base } = await serve();
+    const port = new URL(base).port;
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]) {
+      expect((await raw(base, "GET", "/api/formats", { host })).status, host).toBe(200);
+    }
+    const rebound = `evil.example:${port}`;
+    const read = await raw(base, "GET", "/api/formats", { host: rebound });
+    expect(read.status).toBe(403);
+    expect(read.error?.message).toContain(rebound);
+
+    const { body, contentType } = upload();
+    const res = await raw(
+      base,
+      "POST",
+      "/api/jobs",
+      {
+        host: rebound,
+        origin: `http://${rebound}`,
+        "sec-fetch-site": "same-origin",
+        "content-type": contentType,
+      },
+      body,
+    );
+    expect(res.status).toBe(403);
   });
 
   /**

@@ -420,9 +420,12 @@ not a polish gap:
 
 - **No authentication and no TLS.** Anyone who can reach the port can spend your Codex
   quota. This is why the default bind is loopback.
-- **No CSRF defence.** `POST /api/jobs` is `multipart/form-data`, which is a CORS-*simple*
-  request: any website a victim visits can make their browser submit a job. There is no
-  token and no `Origin` check. Fix that before `DECKSMITH_HOST` is ever anything else.
+- **DNS rebinding is refused only on a loopback bind.** A write another site's page makes
+  a browser send is refused on any bind: `Sec-Fetch-Site`, or `Origin` where that is
+  missing. But a rebinding page is same-origin to itself, and the only thing that gives it
+  away is a `Host` naming something other than the server. On `127.0.0.1` that check is
+  on. On any other `DECKSMITH_HOST` the server cannot know its own names, so the check is
+  off until it is given an allowlist.
 - **Codex spend is unmetered per upload.** The per-IP hourly limit is the only brake, and
   it is per-IP.
 - **Rate limiting is by `socket.remoteAddress` only.** `X-Forwarded-For` is deliberately
