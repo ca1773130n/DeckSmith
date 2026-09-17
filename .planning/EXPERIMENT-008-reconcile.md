@@ -237,11 +237,24 @@ Excluding KaTeX internals puts s5 at 42px, and invariant 5 is intact.
 - **`connector_detached` on `#s2-pipe` survives in both formats** — pre-existing, a
   warning, and it fires on the shipping format unchanged. It moved 328→486px at 9:16 as
   the loop route changed.
-- **The blink at scene boundaries is diagnosed and unfixed.** Every scene opens on 150ms of
+- ~~**The blink at scene boundaries is diagnosed and unfixed.** Every scene opens on 150ms of
   background because `chromeIn` starts at 0.15s, and the hyperframes engine swaps scene
   visibility on one instant. The measurements, the disproved alternatives and the exact fix
   are recorded in `src/emit/camera.ts`'s header; it needs `composition.ts` to let a scene's
-  clip outlast its step, which is not a `camera.ts` change.
+  clip outlast its step, which is not a `camera.ts` change.~~ **CLOSED 2026-09-18. It was
+  half closed already, and the other half is fixed now.** The render did not reproduce at
+  hyperframes 0.8.43. `composition.ts` already gives every scene but the last a clip one
+  `HANDOFF_SECONDS` longer than its slide. An mp4 of a four-scene `deck-16x9` deck
+  (the plain and camera fixtures joined, seams at 3.0, 7.0 and 17.8, one cameraed) has 0
+  background-only frames within ±0.5s of any seam. Its only 7 are t = 0–0.2, the deck's own
+  opening. `deck.html` DID reproduce: `paint()` in `src/deck/runtime.ts` took visibility
+  from the island's slide window instead of the clip. A glide from 6.2s to 8.55s, stepped
+  by hand at 60Hz, showed 11 ticks (7.000–7.167s) of background and presenter chrome only.
+  `showingAt` now applies the engine's `start <= t < start + data-duration`. The same glide
+  has 0 such ticks, the screenshots differ from main only inside 7.000–7.383s, and they are
+  byte-identical from 7.4s on. `index.html` is byte-identical, and only `deck.html` changed.
+  Evidence, method and what is still open are in
+  [`2026-09-18-scene-boundary-blink.md`](2026-09-18-scene-boundary-blink.md).
 - **`equationSize`'s calibration is an estimate.** `texUnits` was fitted against KaTeX's
   real 14.66em render for the demo's equations. It caps size against the box and no longer
   overflows, but it is a glyph-width model, not a measurement, and an unusual TeX string

@@ -928,8 +928,48 @@ export const segmentSchema = z.object({
   cues: z.array(cueSchema),
 });
 
+/**
+ * The canvas a narration's sentences were split against. Recorded so a refusal
+ * can say where the narration was staged and which `narrate` flags stage it
+ * where the build is; it is NOT what is compared. See `assertNarrationStaging`
+ * in src/narrate/narrate.ts.
+ */
+export const narrationCanvasSchema = z.object({
+  format: z.string(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  captionReserve: z.number().min(0),
+});
+
+export type NarrationCanvas = z.infer<typeof narrationCanvasSchema>;
+
 export const narrationSchema = z.object({
   voice: z.string(),
+  /**
+   * `canvas`, `stops` and `speakingStops` are what `narrate` split the sentences
+   * over. All three are optional because every `narration.json` and every pack
+   * written before they were recorded has none of them; a build accepts such a
+   * file unchecked, and the CLI says so.
+   */
+  canvas: narrationCanvasSchema.optional(),
+  /**
+   * The stop count the emitter staged for each narrated beat, before the density
+   * cap, keyed by beat id.
+   *
+   * THIS is what a build compares, not the canvas. MEASURED 2026-09-18: the
+   * canvas is a proxy that is wrong both ways. Narration made at `deck-16x9` was
+   * refused at `short-9x16` and with `--reserve-captions`, where not one demo
+   * beat that draws changes its stop count and the built files were
+   * byte-identical to a matched build. And a `lang: "ko"` callout narrated and
+   * built at the same 1380×776 was one stop in `narrate` and four in the build,
+   * because `narrate` staged with another font face.
+   */
+  stops: z.record(z.string(), z.number().int().positive()).optional(),
+  /**
+   * The narration density's cap on how many of a beat's stops speak. Absent
+   * when every stop may, which is `density: "high"`: JSON has no Infinity.
+   */
+  speakingStops: z.number().int().positive().optional(),
   beats: z.record(z.string(), z.array(segmentSchema)),
 });
 

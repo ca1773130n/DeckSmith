@@ -263,27 +263,63 @@ export function frameOf(player: Player): Frame | null {
 }
 
 /**
+ * Whether a scene is on screen at composition time `t`: from its slide's start
+ * until its CLIP ends, which is the engine's own rule — hyperframes shows a clip
+ * while `start <= t < start + data-duration`, and nothing else.
+ *
+ * THE CLIP, NOT THE SLIDE, and the slide was a live blink. `composition.ts`
+ * lets every scene but the last outlast its slide by one handoff, so the
+ * outgoing scene dissolves over the incoming one's empty opening — `chromeIn`
+ * puts first ink at 0.15s. The render honoured that; this function used the
+ * island's `endTime`, hid the outgoing scene on the seam's instant, and a glide
+ * across a seam cut a lit slide to flat background. Measured 2026-09-18 on
+ * deck.html at hyperframes 0.8.43 with a hand-stepped 60Hz clock, gliding
+ * 6.2s -> 8.55s over a `stack` -> `pipeline` seam at 7.0s: ELEVEN ticks,
+ * 7.000s through 7.167s, of background and presenter chrome alone, while the
+ * mp4 of the same deck had no background-only frame at any seam. See
+ * `.planning/2026-09-18-scene-boundary-blink.md`.
+ *
+ * `clip` is the scene div's `data-duration`. Anything unusable falls back to the
+ * island's window, which is what every deck did before the handoff existed.
+ */
+export function showingAt(slide: SlideSpec, clip: number, t: number): boolean {
+  const start = slide.startTime ?? 0;
+  const end =
+    Number.isFinite(clip) && clip > 0 ? start + clip : (slide.endTime ?? Number.POSITIVE_INFINITY);
+  return t >= start && t < end;
+}
+
+/**
  * Put the composition on the frame at time `t`.
  *
  * `player.seek()` moves the player's own clock; under the render engine that is
  * enough, because the engine drives each scene's timeline and clip visibility
  * itself. The standalone player bundle does neither — so a seeked deck shows
  * every scene stacked with all its entrance tweens still at their `from` state,
- * i.e. blank. Scenes are addressed by the ids the island already carries, so
- * this needs nothing scraped from the DOM.
+ * i.e. blank. Scenes are addressed by the ids the island already carries; the
+ * one thing read off the scene itself is how long its clip runs, because the
+ * island only knows the slide (see `showingAt`).
+ *
+ * Exported so test/deck.test.ts can drive it through a fake frame. Testing
+ * `showingAt` alone left this function free to stop calling it: put main's
+ * slide-window rule back here and every deck test passed, the Chrome suite
+ * included, because test/deck-page.test.ts only checks resting stops and no
+ * stop falls inside a handoff. The deck-runtime bundle is an IIFE, so the
+ * export does not reach deck.html.
  */
-function paint(frame: Frame, slides: readonly SlideSpec[], t: number): void {
+export function paint(frame: Frame, slides: readonly SlideSpec[], t: number): void {
   for (const slide of slides) {
-    const start = slide.startTime ?? 0;
-    const end = slide.endTime ?? Number.POSITIVE_INFINITY;
-    const showing = t >= start && t < end;
-
     // Duck-typed, not `instanceof HTMLElement`: the iframe is a separate realm
     // with its own constructors, so an instanceof against ours is always false
     // and the scene never gets hidden.
     const el = frame.doc.getElementById(slide.sceneId) as HTMLElement | null;
+    const clip = Number(el?.getAttribute?.("data-duration") ?? Number.NaN);
+    const showing = showingAt(slide, clip, t);
+
     if (el?.style) el.style.display = showing ? "" : "none";
-    if (showing) frame.timelines[slide.sceneId]?.seek(Math.max(0, t - start));
+    // Past the slide's end this seeks into the scene's own handoff tween, which
+    // is what fades it out; the incoming scene is seeked alongside it.
+    if (showing) frame.timelines[slide.sceneId]?.seek(Math.max(0, t - (slide.startTime ?? 0)));
   }
 }
 

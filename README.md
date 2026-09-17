@@ -249,7 +249,13 @@ artifact. Three are worth reading as patterns rather than bugs:
   sampled frames, because `marginV` was measured to clear *player chrome* and nothing ever
   guaranteed it cleared the *composition*. Both in
   [`.planning/EXPERIMENT-010-reconcile.md`](.planning/EXPERIMENT-010-reconcile.md). The
-  caption one is **closed**: `build --reserve-captions` gives the band its own strip and
+  seam one is **closed** in the render: each scene's clip outlasts its slide and dissolves
+  over the next scene's empty opening. It stayed open in `deck.html` until 2026-09-18,
+  because the presented deck's own visibility pass read the slide instead of the clip,
+  and gliding across a seam still showed eleven 60Hz ticks of background. Every gate was
+  green, and it was found by stepping that glide one tick at a time —
+  [`.planning/2026-09-18-scene-boundary-blink.md`](.planning/2026-09-18-scene-boundary-blink.md).
+  The caption one is **closed**: `build --reserve-captions` gives the band its own strip and
   `fidelity` fails a deck that draws into it. It is worth reading for how it closed —
   the plan written to fix it asserted that every archetype lays out into `contentH`, ten
   of them do not, and the first fix therefore changed the worst stop by nothing at all.
@@ -869,6 +875,20 @@ subtitle cues. So the sentence a viewer hears is the sentence that belongs to th
 that just appeared, and the deck advances on speech rather than on a number somebody
 guessed. Write one sentence per reveal, in reveal order. Fewer sentences than stops leaves
 the later reveals silent; more, and the surplus joins the last one.
+
+**A beat's stop count can depend on the canvas.** At 1600×900 the demo's stack beat does
+not fit, so `narrate` puts all four of its sentences on one stop; at 1920×1080 it has four.
+So `narrate` takes the same `--format`, `--width`/`--height` and `--reserve-captions` flags
+as `build`, and `narration.json` records the stop count each narrated beat was split over.
+`build` compares that count with its own staging for every beat it keeps, and refuses a
+beat whose sentences it would split differently. The error names the beats and prints the
+`narrate` flags that fix it. Narration made once at the default canvas still builds the
+short, the `--reserve-captions` deck and an unpacked `.deck` wherever those stage the kept
+beats the same way, which on the demo is every one. Re-narrating in the directory the
+narration was made in only synthesises sentences that now split differently. An unpacked
+`.deck` has no TTS cache, so there it synthesises all of them. A `narration.json` or pack
+written before the counts were recorded still builds, and `build` says it could not check
+it. See `.planning/2026-09-18-narrate-build-canvas.md`.
 
 Playback reads the audio element's own clock, never a timer: a timer agrees with the audio
 right up until the first stall, and a stall is exactly when a viewer looks at the subtitle

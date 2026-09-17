@@ -182,7 +182,7 @@ pre-existing, and grew from 232px to 380px when density made the boxes taller.
   moved within their own windows. The same shape AGENTS.md recorded for the silent demo
   on 2026-09-04 at 0.7.90 (11 of 3120 differing, worst 43.53 dB).
 
-  **What this does not settle.** Two premises of the original entry have changed, and
+  ~~**What this does not settle.** Two premises of the original entry have changed, and
   only one can be tested. Inter IS now installed on this machine, so the stated trigger —
   a host without the font — was not recreated; uninstalling system fonts to recreate it
   was not done. And the deck still ships no `@font-face`: all three themes name
@@ -191,7 +191,27 @@ pre-existing, and grew from 232px to 380px when density made the boxes taller.
   `test/verify.test.ts`'s StaticGuard fixture), which is also why no StaticGuard warning
   names it. So render determinism on a machine without Inter depends on that lookup
   succeeding identically twice. That is plausible and **unmeasured**; the cause of the
-  original 9.20 dB was never established either, so "it went away" is the whole finding.
+  original 9.20 dB was never established either, so "it went away" is the whole finding.~~
+  **MEASURED, 2026-09-18, on two hosts without Inter**
+  ([2026-09-18-linux-determinism.md](2026-09-18-linux-determinism.md)). At 0.8.43, commit
+  3e5f90a, the same narrated deck, byte-identical as built on both machines:
+
+  ```
+  Mac (M4, macOS 26.3)       7757/7975 byte-identical, worst  83.03 dB at frame 1049  PASS
+  ubuntu-latest (x86_64)     7921/7975 byte-identical, worst 106.18 dB at frame 5319  PASS
+  ```
+
+  One premise above was wrong: Inter is **not** installed on this Mac (no `fc-list`
+  entry, and Chrome draws `"Inter"` in `.SF NS` on a page the compiler has not rewritten).
+  It does not matter to the render, which never uses a system Inter: hyperframes injects
+  400/700/900 from its own bundle and fetches the other weights from Google Fonts, and
+  the 44 woff2 files the Linux run fetched were byte-identical to the Mac's cache. So drift
+  within a machine holds on a host without the font. Across machines frames are NOT
+  identical (7/7975, sampled PSNR 23–29 dB, text only, some blocks 1px higher on Linux),
+  which `drift` never compares. The gates are a different story: they run on a page with
+  no Inter at all, so their verdicts follow the host's fallback, and the demo's `build`
+  FAILs on Linux — see EXPERIMENT-010's open list. The 9.20 dB original is still
+  unexplained.
 - ~~**The burn-in subtitle path is still unexercised** — this machine's ffmpeg has no
   libass.~~ **CLOSED 2026-09-17.** The reason given had stopped being true: the libass
   path was deleted, and the band is now drawn in a browser and composited with `overlay`,
