@@ -27,7 +27,7 @@ import { type AddressInfo, connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { connect as tlsConnect } from "node:tls";
+import { createSecureContext, connect as tlsConnect } from "node:tls";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { zipSync } from "fflate";
@@ -47,6 +47,7 @@ import {
   SecurityRefusal,
   securityBanner,
   sessionBinding,
+  TLS_MIN_VERSION,
   type TlsMaterial,
 } from "../src/server/auth.js";
 import { explain } from "../src/server/errors.js";
@@ -892,15 +893,22 @@ const TLS_MADE: string | true = (() => {
     // OpenSSL throw at `listen`.
     run("x509", "-in", "server.crt", "-outform", "der", "-out", "server.der");
     // The other one: a pair nothing here can fault and OpenSSL will not load.
-    // RSA-1024 is a perfectly good `KeyObject` that `checkPrivateKey` agrees
-    // with, and `ee key too small` at OpenSSL's default security level. The key
-    // comes from Node rather than openssl because `genpkey` on a small modulus
-    // is the part most likely to differ between the OpenSSL this runs on and the
-    // LibreSSL macOS ships; signing an existing key does not.
+    // A small RSA key is a perfectly good `KeyObject` that `checkPrivateKey`
+    // agrees with, and `ee key too small` to OpenSSL. The key comes from Node
+    // rather than openssl because `genpkey` on a small modulus is the part most
+    // likely to differ between the OpenSSL this runs on and the LibreSSL macOS
+    // ships; signing an existing key does not.
+    //
+    // 512 BITS, NOT 1024, AND CI IS WHY. A security level is a floor in BITS OF
+    // SECURITY, and level 1 — the default — puts that floor at 80, which RSA-1024
+    // meets. It was refused on the OpenSSL 3.5.5 that Node 24 bundles here and
+    // accepted by the one CI's Node 22 has, so this case went green locally and
+    // red on the runner. 512 is below every level OpenSSL defines, and
+    // `WEAK_REJECTION` below reads the code off OpenSSL rather than assuming it.
     writeFileSync(
       join(TLS_DIR, "weak.key"),
       generateKeyPairSync("rsa", {
-        modulusLength: 1024,
+        modulusLength: 512,
         privateKeyEncoding: { type: "pkcs8", format: "pem" },
         publicKeyEncoding: { type: "spki", format: "pem" },
       }).privateKey,
@@ -935,6 +943,36 @@ if (TLS_MADE !== true && process.env.CI) {
 const TLS_OK = TLS_MADE === true;
 /** A test that cannot run without `openssl`. In CI the throw above fires first. */
 const itTls = it.skipIf(!TLS_OK);
+
+/**
+ * The code THIS OpenSSL refuses the weak pair with, read from OpenSSL itself.
+ *
+ * Asserting a fixed code would be asserting a build detail: the refusal depends
+ * on the security level, and the level's floor is in bits of security rather
+ * than in a key size anyone writes down. What the test is actually for is the
+ * implication — whatever `createSecureContext` refuses, `resolveSecurity`
+ * refuses too, in OpenSSL's own words, before main.ts touches the disk — so the
+ * word to compare against comes from the same call the server will make.
+ *
+ * A LOUD THROW, never a skip, if this OpenSSL loads a 512-bit key: then there is
+ * no weak pair to refuse and the case would silently stop testing anything.
+ */
+const WEAK_REJECTION: string = (() => {
+  if (!TLS_OK) return "";
+  try {
+    createSecureContext({
+      cert: readFileSync(join(TLS_DIR, "weak.crt")),
+      key: readFileSync(join(TLS_DIR, "weak.key")),
+      minVersion: TLS_MIN_VERSION,
+    });
+  } catch (err) {
+    return (err as { code?: string }).code ?? "";
+  }
+  throw new Error(
+    "this OpenSSL loaded a 512-bit RSA key, so there is no pair here for `readTls` to be measured against. " +
+      `Node ${process.version}, OpenSSL ${process.versions.openssl}.`,
+  );
+})();
 afterAll(() => {
   rmSync(TLS_DIR, { recursive: true, force: true });
 });
@@ -1827,7 +1865,9 @@ describe("the startup policy", () => {
       "a key OpenSSL will not load, which nothing Node parses can fault",
       () => pair(tlsBytes("weak.key"), tlsBytes("weak.crt")),
       undefined,
-      /^OpenSSL will not load DECKSMITH_TLS_CERT \(.*\) with DECKSMITH_TLS_KEY \(.*\): ERR_SSL_EE_KEY_TOO_SMALL \(ee key too small\)\./,
+      new RegExp(
+        `^OpenSSL will not load DECKSMITH_TLS_CERT \\(.*\\) with DECKSMITH_TLS_KEY \\(.*\\): ${WEAK_REJECTION}\\b`,
+      ),
       "DECKSMITH_TLS_CERT",
     ],
     [
