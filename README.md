@@ -13,13 +13,19 @@ source.
 
 ## Prerequisites
 
-- Node 22 or later, and nothing else to **generate** a deck. `ingest`, `build`, `pack` and
-  `unpack` are pure Node: they read files, write files, and never open a browser. Decide
-  your deployment on that line — a service that turns papers into decks runs in a plain
-  Node image.
+- Node 22 or later, and nothing else to **generate** a deck. `ingest` of a file, `build`,
+  `pack` and `unpack` run in plain Node. `build` also opens each stop in Chrome when it can
+  find one, and warns `not_measured` when it cannot. Decide your deployment on that line —
+  a service that turns papers into decks runs in a plain Node image.
 - A Chromium build and ffmpeg to **render or check** one. `verify` drives the HyperFrames
   gates in a headless browser, and the MP4 encode is ffmpeg's. Both arrive with the
   hyperframes toolchain during `npm install`; there is nothing to install by hand.
+- On Linux, Chrome's sandbox needs unprivileged user namespaces, and Ubuntu 23.10 and later
+  deny them by default. DeckSmith then opens its own pages, the gates' view of a deck and a
+  caption band, without the sandbox, as HyperFrames' render always does, and prints a
+  `chrome:` line saying so. `ingest` of a URL refuses instead, because that page comes from
+  the web. `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or an AppArmor
+  profile for Chrome, gives the sandbox back.
 - Three commands reach outside for their own reasons: `plan` runs the Codex CLI, `narrate`
   runs edge-tts over the network, and `illustrate` asks an image backend or that same Codex
   account for pictures — and draws its own when neither will.

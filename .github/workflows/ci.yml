@@ -55,11 +55,10 @@ jobs:
       - run: npm run build
       - run: npx hyperframes browser ensure
 
-      # Ubuntu 24.04 denies the unprivileged user namespaces Chrome's sandbox
-      # needs, and DeckSmith's own launches pass no --no-sandbox. Without this
-      # every browser gate reports not_measured, and the build passes having
-      # checked nothing. .planning/2026-09-18-linux-determinism.md, section 4.
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # A STOCK runner, on purpose: Ubuntu 24.04 denies the unprivileged user
+      # namespaces Chrome's sandbox needs, which is what most Linux users have.
+      # `launchOwnPage` (src/render/capture.ts) must get the gates' page open
+      # anyway; before it, every gate here reported not_measured and passed.
 
       - name: Build the demo through every gate
         shell: bash
