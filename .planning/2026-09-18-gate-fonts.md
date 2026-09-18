@@ -83,7 +83,27 @@ The only line that differs is the composition's line count, 869 → 870.
 
 ## 4. Linux
 
-TO FILL: CI job `demo` on `ubuntu-latest`, and the control on `main`.
+Measured on GitHub `ubuntu-latest` with the userns sysctl lifted, the same way as
+`.planning/2026-09-18-linux-determinism.md`. `fc-match Inter` gives DejaVu Sans and no
+Inter is installed. Two temporary branches, each carrying one workflow and the scan
+script, were deleted after reading:
+
+| | control: `main` at 3f13cf4 (run 35303092463) | fix: ffadd75 (run 35303189671) |
+| --- | --- | --- |
+| silent demo `build` | **FAIL**: 1 error, 21 warnings | PASS: 0 errors, 21 warnings |
+| the error | `svg_text_overprint` in s12: "29.88" over "+0.30", 6 pairs | — |
+| glyphs by face, 67 instants | DejaVu Sans 216,312; KaTeX 5,561 | Inter 217,518; KaTeX 5,561; DejaVu Sans 201 |
+
+The fix's 21 warnings on Linux are line for line the Mac's 21. The 201 DejaVu glyphs are
+the same three arrows as the Mac's 201 `.SF NS` ones. Inter's counts differ by 67 between
+the machines, which this does not explain.
+
+The control reproduces the failure at hyperframes 0.8.43, so it is not specific to the
+0.8.35 pin the earlier measurement used.
+
+The permanent check is the `demo` job in `.github/workflows/ci.yml`. It builds the demo
+on Linux through every gate, and it fails if any gate reports `not_measured`, because a
+gate that cannot launch Chrome otherwise warns and passes.
 
 ## 5. Still open
 
