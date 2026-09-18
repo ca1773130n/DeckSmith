@@ -408,6 +408,37 @@ describe.skipIf(chrome === null)("deck.html, opened in the renderer's own browse
     }
   }, 120_000);
 
+  it("draws its text in the Inter it ships, not the viewer's fallback", async () => {
+    // Every theme's stack opens with "Inter", and until `build` shipped the face
+    // the deck declared none. HyperFrames' compiler supplies Inter only inside a
+    // render, so the presented deck drew SF on a Mac and DejaVu on Linux, and so
+    // did the page every build gate measures. A face is `loaded` only once text
+    // in the document asked for it, so this also fails on a face declared and
+    // never used.
+    const open = await present();
+    try {
+      await arrived(open, 0);
+      const loaded = await open.page.evaluate(async () => {
+        const el = document.querySelector("hyperframes-player");
+        const iframe = el?.shadowRoot?.querySelector("iframe") ?? el?.querySelector("iframe");
+        const doc = (iframe as HTMLIFrameElement | null)?.contentDocument;
+        if (!doc) return -1;
+        await doc.fonts.ready;
+        return [...doc.fonts].filter(
+          (f) => f.family.replace(/["']/g, "") === "Inter" && f.status === "loaded",
+        ).length;
+      });
+      expect(loaded, "the composition was never reached").not.toBe(-1);
+      expect(
+        loaded,
+        "no Inter face loaded: the deck is drawn in the host's fallback",
+      ).toBeGreaterThan(0);
+      expect(open.loud).toEqual([]);
+    } finally {
+      await open.close();
+    }
+  }, 120_000);
+
   it("advances and goes back, by key and by click, and the composition follows", async () => {
     const open = await present();
     try {

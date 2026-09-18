@@ -5,6 +5,9 @@
  * family is, and a family it cannot resolve falls back to a generic face without
  * failing anything (EXPERIMENT-002). Google's `&text=` dynamic subsetting turns
  * shipping our own from a ~120-file unicode-range pull into one 39 KB woff2.
+ *
+ * The allowlist only acts inside a render, so a Latin deck ships its Inter too —
+ * from a package rather than this file: see `vendorInter` in src/build/files.ts.
  */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -19,7 +22,7 @@ export interface FontBundle {
   files: string[];
 }
 
-/** The family a language needs shipped, or null when the renderer supplies one. */
+/** The CJK family a language needs subset, or null: the deck ships Inter (`vendorInter`). */
 export function familyFor(lang: string): string | null {
   const tag = lang.toLowerCase();
   if (tag.startsWith("ko")) return "Noto Sans KR";

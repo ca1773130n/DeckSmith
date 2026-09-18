@@ -850,8 +850,8 @@ Three, each a position rather than a hue.
 
 `mono`'s four tones are a grey ladder plus one red rather than four hues, because value is
 what survives a bad projector and hue is not; four hues would have collapsed into one
-grey. All three keep the Inter stack — font families auto-resolve from a fixed allowlist,
-and a serif naming a family the bundle does not declare falls back silently.
+grey. All three keep the Inter stack — `build` ships Inter beside every deck, and a serif
+naming a family the deck does not declare falls back silently.
 
 A theme is a name and a palette, and that is the whole extension point: a new one is a
 file in `src/emit/themes/` plus a line in `THEMES`. No archetype learns it exists.
@@ -1204,8 +1204,10 @@ mechanically rather than free-hand.
   presented, never rendered, and its subtitle loop legitimately reads a clock.
 - `deck.html` never contains the string `data-composition-id`. A root-level HTML file that
   does trips lint's `multiple_root_compositions`, and the deck stops being navigable.
-- Fonts auto-resolve only from a fixed allowlist. Inter is on it, Noto Sans KR is not, so
-  every CJK deck ships its own subsetted `@font-face` or the text silently falls back.
+- Every deck declares the face its stack names. A CJK deck ships a subsetted Noto; every
+  other deck ships Inter from `@fontsource-variable/inter`. HyperFrames resolves Inter from
+  its own allowlist, but only inside a render: the gates' page and `deck.html` never run its
+  compiler, and without the deck's own face they drew SF on a Mac and DejaVu on Linux.
 - Audience text never goes below 40px at 1920x1080, display equations sit at 60–76px. A
   30px equation passes every automated gate and is unreadable from row six.
 - **No archetype declares its own content width.** The box comes from

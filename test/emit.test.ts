@@ -344,7 +344,7 @@ describe("emitComposition", () => {
     expect(windows[1]?.start).toBe(6);
   });
 
-  it("ships a font bundle only for languages outside the auto-resolve allowlist", () => {
+  it("links a font stylesheet only for a CJK language; build hands Latin its Inter", () => {
     expect(html).not.toContain("assets/fonts/fonts.css");
     const ko = emitComposition(
       storyboardSchema.parse({ ...storyboard, lang: "ko" }),

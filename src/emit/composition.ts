@@ -199,8 +199,9 @@ export interface DeckOptions {
    * naming a family the bundle does not declare falls back silently.
    *
    * Passed in rather than read here because this function does no I/O. Absent,
-   * the link is emitted as before, so a caller that has no bundle is unchanged
-   * and every non-CJK deck is byte-identical either way.
+   * the link is emitted as before, so a caller that has no bundle is unchanged.
+   * `build` passes one for every deck: a Latin deck's is the vendored Inter
+   * (`vendorInter` in src/build/files.ts), for the same reason.
    */
   fontCss?: string;
 }
