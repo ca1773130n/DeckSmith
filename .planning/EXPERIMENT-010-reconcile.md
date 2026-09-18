@@ -345,7 +345,9 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
   Still untested: a Linux without `fonts-liberation`, where `Arial` falls to DejaVu Sans,
   which is *not* metric-compatible. That one would reflow. `fc-match Arial` says so; it was
   not rendered.
-- **The build gates measure a font the render never draws.** Found 2026-09-18, not fixed.
+- ~~**The build gates measure a font the render never draws.** Found 2026-09-18, not fixed.~~
+  **CLOSED 2026-09-18:** every Latin deck now ships Inter, see
+  `.planning/2026-09-18-gate-fonts.md`. The record below is kept as found.
   `openDeck` (`src/render/capture.ts`) loads `index.html` directly, so hyperframes' compiler
   never runs and nothing gives the deck's `"Inter"` a face — each host fills it from its own
   fallback. On the s12 line chart the gate page draws `.SF NS` on the Mac and `DejaVu Sans`

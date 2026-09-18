@@ -261,10 +261,11 @@ export function id(sid: string, part: string, i?: number): string {
  * against a true 0.653, W 0.918 against 1.003, and every all-caps eyebrow in the
  * demo was then predicted 3-4% SHORT. `KERN_SLACK` covers what is left.
  *
- * MEASURED, NOT PARSED. Reading real metrics at emit time means parsing the
- * subsetted bundle, and a Latin deck ships no bundle at all — HyperFrames
- * resolves Inter itself (src/source/fonts.ts). So the numbers are taken once, in
- * Chrome, against the Inter that Google Fonts serves, and pinned here.
+ * MEASURED, NOT PARSED. Reading real metrics at emit time means parsing a font
+ * file inside a pure function. So the numbers are taken once, in Chrome, against
+ * the Inter that Google Fonts serves, and pinned here. A built deck ships that
+ * same face: `vendorInter` (src/build/files.ts) copies @fontsource-variable/inter,
+ * which measured 0.0000 px apart from Google's on 2026-09-18.
  *
  * `node scripts/measure-type.mjs` re-derives every number in this block and
  * prints it ready to paste; `test/svg.test.ts` holds the result against ten

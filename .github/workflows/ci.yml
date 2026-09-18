@@ -35,3 +35,37 @@ jobs:
       # No render step. Rendering needs Chromium and ffmpeg and costs minutes per
       # deck; the gates that catch renderer mistakes live in `decksmith verify`
       # and run against a built deck, not against every push.
+
+  demo:
+    # The demo, built through every gate on a machine with no Inter installed.
+    # Until the deck shipped its own Inter, the gates measured the host's
+    # fallback instead (DejaVu Sans here) and this build FAILED on chart labels
+    # that stand clear in the render. See .planning/2026-09-18-gate-fonts.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx hyperframes browser ensure
+
+      # Ubuntu 24.04 denies the unprivileged user namespaces Chrome's sandbox
+      # needs, and DeckSmith's own launches pass no --no-sandbox. Without this
+      # every browser gate reports not_measured, and the build passes having
+      # checked nothing. .planning/2026-09-18-linux-determinism.md, section 4.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Build the demo through every gate
+        shell: bash
+        run: |
+          node demo/build.mjs
+          node dist/cli.js build demo/storyboard.json --source demo/source.json \
+            -o "$RUNNER_TEMP/deck" 2>&1 | tee "$RUNNER_TEMP/build.log"
+          # A gate that could not open the deck warns and passes. Here that is a failure.
+          if grep -q not_measured "$RUNNER_TEMP/build.log"; then exit 1; fi

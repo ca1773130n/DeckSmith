@@ -24,11 +24,12 @@
  *     is inlined as a data: URI, every weight is explicitly loaded, and the run
  *     aborts if Inter and a deliberately absent family measure the same.
  *
- * WHY INTER. A Latin deck ships no font bundle — `familyFor` returns null and
- * HyperFrames resolves Inter itself from its own allowlist (src/source/fonts.ts)
- * — so Inter is what the rendered video is set in. The face comes from the same
- * Google Fonts endpoint `bundleFont` already calls. Needs network and the Chrome
- * `render` already requires.
+ * WHY INTER. Every theme's stack opens with it, and `build` ships it beside every
+ * Latin deck (`vendorInter` in src/build/files.ts), so Inter is what the gates,
+ * the player and the rendered video all set. The face comes from the Google
+ * Fonts endpoint `bundleFont` already calls; the vendored package measured
+ * 0.0000 px apart from it on 2026-09-18. Needs network and the Chrome `render`
+ * already requires.
  */
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";

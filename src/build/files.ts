@@ -28,7 +28,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DeckNarration } from "../emit/composition.js";
-import { bundleFont } from "../source/fonts.js";
+import { bundleFont, familyFor } from "../source/fonts.js";
 import type { Source, Storyboard } from "../types.js";
 
 /** Progress, for a caller that has somewhere to put it. */
@@ -244,6 +244,8 @@ export async function copyAudio(
  * Every glyph a document or plan can put on screen: serializing the whole object
  * over-collects ids and TeX, but those are ASCII and the bundle only exists for
  * CJK — over-collecting costs a few bytes, under-collecting costs a tofu box.
+ *
+ * A Latin deck gets `vendorInter` instead: nothing to subset, nothing to fetch.
  */
 export async function refreshFont(
   storyboard: Storyboard,
@@ -251,6 +253,11 @@ export async function refreshFont(
   out: string,
   step: Step,
 ): Promise<string | undefined> {
+  if (familyFor(storyboard.lang) === null) {
+    const css = await vendorInter(join(out, "assets", "fonts"));
+    step("build: vendored Inter beside the deck");
+    return css;
+  }
   try {
     const bundle = await bundleFont(
       storyboard.lang,
@@ -268,4 +275,54 @@ export async function refreshFont(
     );
     return undefined;
   }
+}
+
+/**
+ * Inter, beside every deck whose language needs no CJK bundle.
+ *
+ * Every theme's stack opens with "Inter", and until this the deck declared no
+ * face for it. HyperFrames' compiler supplies one — an embedded copy plus a
+ * Google Fonts fetch — but only on the way to a render. Nothing else that opens
+ * `index.html` runs that compiler: not the gates' page (`openDeck`), not
+ * `deck.html`'s player, not an embed. Each drew the host's fallback instead, SF
+ * on a Mac and DejaVu on Linux, so the build gates judged a font the video never
+ * draws — the demo's s12 chart FAILED `svg_text_overprint` on Linux over labels
+ * that stand clear in the render — and a viewer without Inter installed saw a
+ * different deck from the one that was checked. That is invariant 9, inside the
+ * gate stack. Declaring the face in the deck gives all four readers one font;
+ * the compiler skips any family a document already declares, so the render also
+ * stops fetching Inter over the network.
+ *
+ * `@fontsource-variable/inter` is Google's Inter: across "29.88", a headline, an
+ * eyebrow and "Wolf Tavern", at 400/500/600/700, it measures 0.0000 px apart
+ * from the face Google Fonts serves, which is the face svg.ts's `ADVANCE` was
+ * pinned against (measured 2026-09-18). Pinned by package-lock, so a deck's
+ * metrics stop following whatever Google serves that day.
+ *
+ * All seven `wght-normal` subsets, copied whole: `unicode-range` means a page
+ * fetches only the ranges its text touches, and choosing subsets from the text
+ * would miss glyphs the emitter writes itself. No italic, because nothing emits
+ * one. `block` rather than the package's `swap`, which is what the compiler
+ * declares: a swap paints fallback text first, and a gate or a frame taken in
+ * that window measures the wrong font.
+ */
+async function vendorInter(dir: string): Promise<string> {
+  const pkg = dirname(createRequire(import.meta.url).resolve("@fontsource-variable/inter"));
+  const css = await readFile(join(pkg, "index.css"), "utf8");
+  await mkdir(dir, { recursive: true });
+  for (const [, name] of css.matchAll(/url\(\.\/files\/([^)]+)\)/g)) {
+    await cp(join(pkg, "files", name ?? ""), join(dir, name ?? ""));
+  }
+  const ours = css
+    .replaceAll("font-family: 'Inter Variable'", "font-family: 'Inter'")
+    .replaceAll("font-display: swap", "font-display: block")
+    .replace(/url\(\.\/files\/([^)]+)\) format\('woff2-variations'\)/g, "url($1) format('woff2')");
+  // A rewrite that matched nothing is a deck declaring 'Inter Variable', or a
+  // url() into a directory it does not ship: the silent fallback again. Loud.
+  if (/Inter Variable|\.\/files\/|swap/.test(ours) || !ours.includes("font-family: 'Inter';")) {
+    throw new Error(
+      `@fontsource-variable/inter's index.css changed shape; update vendorInter (${pkg})`,
+    );
+  }
+  return ours;
 }
