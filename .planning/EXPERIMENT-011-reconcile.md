@@ -393,7 +393,12 @@ the real server for the first time.
 
 ## Still open
 
-- **`unknown_canvas` on every custom build.** `verify`'s budget gate resolves a profile
+- **CLOSED 2026-09-19:** `timing.json` now records the format (`id`, `minWeight` and any
+  finite budget), and the budget gate uses that record when its canvas matches the
+  composition's. A `post-1x1` built at 1200×1200 went from `unknown_canvas` to checked
+  against the 140 s it inherits. `index.html` is byte-identical; only `timing.json` gains a
+  field. A deck built before this still falls back to the pixel lookup. As found:
+  ~~**`unknown_canvas` on every custom build.**~~ `verify`'s budget gate resolves a profile
   from *pixels* (`profilesFor`), so a canvas no preset declares gets
   `warning budget unknown_canvas`. The message is true and the direction is safe, but it
   is routine on custom canvases. The fix is for the composition to record the format it

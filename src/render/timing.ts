@@ -138,6 +138,17 @@ export interface Timing {
    * written without it, and those decks did reserve nothing.
    */
   captionReserve?: number;
+  /**
+   * The format the deck was built for: its id and its duration budget.
+   *
+   * The composition records only pixels, and `verify` used to find the budget
+   * by looking those up among the presets. A custom canvas matches none, so
+   * every custom build read "no duration budget applies" — true of the pixels
+   * and false of the deck, which inherits the budget of the profile it was
+   * resized from (`resizeFormat`). Optional, and absent falls back to the pixel
+   * lookup: every `timing.json` written before this lacks it.
+   */
+  format?: { id: string; minWeight: number; maxSeconds?: number; warnSeconds?: number };
   scenes: TimedScene[];
   segments: TimedSegment[];
 }
@@ -484,6 +495,15 @@ export function planTiming(input: TimingInput): Timing {
     // `emitDeck` and `writeTiming` are handed the same `format`, so this cannot
     // disagree with the box the archetypes actually drew into.
     captionReserve: format.captionReserve ?? 0,
+    // An unbudgeted format's limit is Infinity, which JSON writes as `null`.
+    // Left out instead: recorded as a format with no limit, never with a limit
+    // of null or zero.
+    format: {
+      id: format.id,
+      minWeight: format.minWeight,
+      ...(Number.isFinite(format.maxSeconds) && { maxSeconds: format.maxSeconds }),
+      ...(format.warnSeconds !== undefined && { warnSeconds: format.warnSeconds }),
+    },
     scenes,
     segments,
   };

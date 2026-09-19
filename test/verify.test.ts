@@ -477,6 +477,50 @@ describe("scanBudget", () => {
     expect(findings[0]?.message).toContain("1234x567");
   });
 
+  it("holds a custom canvas to the budget its build recorded", () => {
+    // `--format post-1x1 --width 1200 --height 1200` inherits post-1x1's 140s.
+    // The pixels match no preset; the build's timing.json says what it was.
+    const recorded = {
+      id: "custom-1200x1200",
+      minWeight: 0,
+      maxSeconds: 140,
+      width: 1200,
+      height: 1200,
+    };
+    expect(
+      scanBudget(composition(1200, 1200, [60, 60]), undefined, undefined, undefined, recorded),
+    ).toEqual([]);
+
+    const over = scanBudget(
+      composition(1200, 1200, [100, 100]),
+      undefined,
+      undefined,
+      undefined,
+      recorded,
+    );
+    expect(over[0]?.rule).toBe("over_budget");
+    expect(over[0]?.message).toContain("custom-1200x1200 allows 2m20s");
+  });
+
+  it("does not trust a record of another canvas", () => {
+    // A timing.json left by an earlier build of this directory at another size.
+    const stale = {
+      id: "custom-1200x1200",
+      minWeight: 0,
+      maxSeconds: 140,
+      width: 1200,
+      height: 1200,
+    };
+    const findings = scanBudget(
+      composition(1234, 567, [10]),
+      undefined,
+      undefined,
+      undefined,
+      stale,
+    );
+    expect(findings[0]?.rule).toBe("unknown_canvas");
+  });
+
   it("ignores a file that is not a composition", () => {
     expect(scanBudget("<html><body><p>deck.html, not index.html</p></body></html>")).toEqual([]);
   });

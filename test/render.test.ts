@@ -181,6 +181,11 @@ describe("planTiming", () => {
     narration,
   });
 
+  it("records the format it was built for, so verify need not guess it from pixels", () => {
+    // deck-16x9 is unbudgeted: no limit is recorded, never a limit of zero.
+    expect(timing.format).toEqual({ id: "deck-16x9", minWeight: format("deck-16x9").minWeight });
+  });
+
   it("agrees with the island about where every scene holds", () => {
     // planTiming asserts this internally; assert it again from the outside so a
     // regression cannot be hidden by the assertion being skipped.
