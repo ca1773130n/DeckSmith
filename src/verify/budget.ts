@@ -88,6 +88,15 @@ export function readCanvas(html: string): Canvas | undefined {
  * be its own is a gate people learn to ignore. Today the two 16:9 profiles have
  * the same (absent) budget, so the reading is exact as well as safe.
  */
+/** What the budget gate reads off a format, whether a preset or the one `build` recorded. */
+export type BudgetFormat = Pick<Format, "id" | "minWeight" | "maxSeconds" | "warnSeconds">;
+
+/** `timing.json`'s record of the format, with the canvas it was recorded for. */
+export interface RecordedFormat extends BudgetFormat {
+  width: number;
+  height: number;
+}
+
 export function profilesFor(
   width: number,
   height: number,
@@ -120,11 +129,21 @@ export function scanBudget(
   storyboard?: Storyboard,
   kept?: readonly Beat[],
   formats: Readonly<Record<string, Format>> = FORMATS,
+  recorded?: RecordedFormat,
 ): Finding[] {
   const canvas = readCanvas(html);
   if (!canvas) return [];
 
-  const profiles = profilesFor(canvas.width, canvas.height, formats);
+  // THE BUILD'S OWN RECORD FIRST. A custom canvas matches no preset, so the
+  // pixel lookup found nothing and every custom build warned `unknown_canvas`,
+  // although its format carried the budget it inherited (`resizeFormat`). The
+  // record counts only for the canvas it describes: a `timing.json` left by an
+  // earlier build of another size is stale, and then the lookup is the honest
+  // answer.
+  const profiles: BudgetFormat[] =
+    recorded && recorded.width === canvas.width && recorded.height === canvas.height
+      ? [recorded]
+      : profilesFor(canvas.width, canvas.height, formats);
   if (profiles.length === 0) {
     // Not pedantry: a canvas no profile declares gets no budget check at all,
     // and "no rule applied" is indistinguishable from "the rule passed".
@@ -140,7 +159,7 @@ export function scanBudget(
 
   const names = profiles.map((f) => f.id).join(" / ");
   // An absent budget is an unbudgeted format, never a zero-length one.
-  const cap = (f: Format) => f.maxSeconds ?? Number.POSITIVE_INFINITY;
+  const cap = (f: BudgetFormat) => f.maxSeconds ?? Number.POSITIVE_INFINITY;
   const maxSeconds = Math.max(...profiles.map(cap));
   const warnSeconds = Math.max(...profiles.map((f) => f.warnSeconds ?? cap(f)));
 
@@ -197,7 +216,7 @@ function remedy(
   html: string,
   over: number,
   maxSeconds: number,
-  profiles: readonly Format[],
+  profiles: readonly BudgetFormat[],
   storyboard?: Storyboard,
   emitted?: readonly Beat[],
 ): string {

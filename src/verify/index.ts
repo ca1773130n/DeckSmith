@@ -12,7 +12,7 @@ import { DECK_PAGE } from "../emit/composition.js";
 import { arcProblems } from "../plan/arc.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Prefs } from "../prefs.js";
-import { TIMING_FILE } from "../render/timing.js";
+import { TIMING_FILE, type Timing } from "../render/timing.js";
 import {
   type Beat,
   DIAGRAMMATIC,
@@ -165,12 +165,19 @@ export async function verify(
     await readFile(join(dir, DECK_PAGE), "utf8").catch(() => ""),
     await listFiles(dir),
   );
-  const budget = html.flatMap(([, text]) => scanBudget(text, storyboard, kept));
+  const timing = await readTiming(dir);
+  const recorded =
+    typeof timing?.format?.id === "string"
+      ? { ...timing.format, width: timing.width, height: timing.height }
+      : undefined;
+  const budget = html.flatMap(([, text]) =>
+    scanBudget(text, storyboard, kept, undefined, recorded),
+  );
   const type = html.flatMap(([file, text]) => scanTypeFloor(text, file));
   // Needs the manifest AND the beats it was built from, so it runs only where
   // both are in hand — `build`, not `verify <dir>`. Absent either, silence: a
   // check that cannot see its inputs must not report that it found nothing.
-  const lead = kept ? await readTiming(dir).then((t) => (t ? scanNarrationLead(kept, t) : [])) : [];
+  const lead = kept && timing ? scanNarrationLead(kept, timing) : [];
   const ours = [...determinism, ...narration, ...budget, ...type, ...lead];
   // ONE READING OF THE STOPS, HANDED TO BOTH GATES.
   //
@@ -304,9 +311,7 @@ export function scanNarration(page: string, files: ReadonlySet<string>): Finding
  * failure is already reported where it happens, and reporting it twice from a
  * gate would say the deck is broken in two ways when it is broken in one.
  */
-async function readTiming(
-  dir: string,
-): Promise<Parameters<typeof scanNarrationLead>[1] | undefined> {
+async function readTiming(dir: string): Promise<Timing | undefined> {
   const raw = await readFile(join(dir, TIMING_FILE), "utf8").catch(() => "");
   if (!raw) return undefined;
   try {
