@@ -33,7 +33,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Cue } from "../deck/subtitles.js";
-import { chromePath } from "./capture.js";
+import { chromePath, launchOwnPage } from "./capture.js";
 import type { BurnStyle } from "./ffmpeg.js";
 import { wrap } from "./timing.js";
 
@@ -241,11 +241,12 @@ export async function renderCaptions(
   await writeFile(page, captionPage(cues, style, href));
 
   const { default: puppeteer } = await import("puppeteer-core");
-  const browser = await puppeteer.launch({
-    executablePath: await chromePath(CAPTION_NEED),
-    headless: true,
-    args: ["--force-device-scale-factor=1", "--hide-scrollbars"],
-  });
+  const executablePath = await chromePath(CAPTION_NEED);
+  const browser = await launchOwnPage(
+    (args) => puppeteer.launch({ executablePath, headless: true, args }),
+    ["--force-device-scale-factor=1", "--hide-scrollbars"],
+    "the caption band",
+  );
   try {
     const tab = await browser.newPage();
     await tab.setViewport({ width: style.width, height: style.height, deviceScaleFactor: 1 });

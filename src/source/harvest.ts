@@ -44,7 +44,7 @@ import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { fetchGuarded } from "../net/fetch.js";
 import { policyFor } from "../pack/media.js";
-import { chromePath } from "../render/capture.js";
+import { chromePath, SANDBOX_FIX, sandboxMissing } from "../render/capture.js";
 import { type Figure, figureSchema, type Source } from "../types.js";
 import { type ImageFormat, imageSize, sniffFormat } from "./assets.js";
 import { CONTENT_MARKER, type ContentPick, readContentRegion } from "./readability.js";
@@ -393,24 +393,35 @@ async function readInBrowser(
   timeoutMs: number,
 ): Promise<{ seen: Seen; pick: ContentPick }> {
   const { default: puppeteer } = await import("puppeteer-core");
-  const browser = await puppeteer.launch({
-    executablePath: await chromePath("read the page with"),
-    headless: true,
-    // Chrome's own background traffic — variations, safe browsing, first-run
-    // pings — never goes through page interception, so it is switched off here
-    // rather than assumed absent. It is not an SSRF path, but "the browser makes
-    // no requests" should be true of the whole process, not just of the tab.
-    args: [
-      "--disable-background-networking",
-      "--disable-extensions",
-      "--no-default-browser-check",
-      "--no-first-run",
-      // The floor under interception — see the note above. Not a hardening
-      // nicety: without it the open-proxy property holds only as fast as CDP
-      // happens to be that run.
-      "--host-resolver-rules=MAP * ~NOTFOUND",
-    ],
-  });
+  const browser = await puppeteer
+    .launch({
+      executablePath: await chromePath("read the page with"),
+      headless: true,
+      // Chrome's own background traffic — variations, safe browsing, first-run
+      // pings — never goes through page interception, so it is switched off here
+      // rather than assumed absent. It is not an SSRF path, but "the browser makes
+      // no requests" should be true of the whole process, not just of the tab.
+      args: [
+        "--disable-background-networking",
+        "--disable-extensions",
+        "--no-default-browser-check",
+        "--no-first-run",
+        // The floor under interception — see the note above. Not a hardening
+        // nicety: without it the open-proxy property holds only as fast as CDP
+        // happens to be that run.
+        "--host-resolver-rules=MAP * ~NOTFOUND",
+      ],
+      // No `--no-sandbox` fallback here, unlike `launchOwnPage`: this is a page
+      // from the web, and a renderer bug it triggers is exactly what the sandbox
+      // contains. Refused, with the fix, rather than Chrome's raw FATAL.
+    })
+    .catch((err: unknown) => {
+      if (!sandboxMissing(err)) throw err;
+      throw new Error(
+        `Chrome has no usable sandbox on this host, and a page from the web is not opened ` +
+          `without one. ${SANDBOX_FIX}, then ingest again — or save the page and ingest the file.`,
+      );
+    });
   try {
     const page = await browser.newPage();
     await page.setRequestInterception(true);

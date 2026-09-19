@@ -106,6 +106,51 @@ export async function chromePath(need = "open the deck with"): Promise<string> {
 }
 
 /**
+ * Whether Chrome died for want of a sandbox. Stock Ubuntu 24.04, GitHub's
+ * `ubuntu-latest` included, sets `kernel.apparmor_restrict_unprivileged_userns=1`.
+ * Chrome's sandbox needs exactly those namespaces, so it exits at launch with
+ * `FATAL:zygote_host_impl_linux.cc(…)] No usable sandbox!`, which puppeteer
+ * quotes in the error it throws.
+ */
+export function sandboxMissing(err: unknown): boolean {
+  return /No usable sandbox/.test(err instanceof Error ? err.message : String(err));
+}
+
+/** How a person gets the sandbox back. */
+export const SANDBOX_FIX =
+  "`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or give Chrome an AppArmor profile";
+
+/**
+ * Launch Chrome for a page DeckSmith wrote itself: a built deck, a caption band.
+ *
+ * On a host with no usable sandbox (`sandboxMissing`) every gate that opens the
+ * deck reported `not_measured`, a warning, so `build` PASSED having measured
+ * nothing (.planning/2026-09-18-linux-determinism.md §4). The sandbox stays on
+ * wherever Chrome can have one. Only when Chrome refuses to start without it is
+ * the launch retried with `--no-sandbox`, and stderr says so. That is no wider
+ * than the render already is: hyperframes launches its own capture with
+ * `--no-sandbox` every time, on this same deck.
+ *
+ * Pages from the web never come here: `harvest` refuses instead.
+ */
+export async function launchOwnPage<T>(
+  launch: (args: string[]) => Promise<T>,
+  args: string[],
+  what: string,
+): Promise<T> {
+  try {
+    return await launch(args);
+  } catch (err) {
+    if (!sandboxMissing(err)) throw err;
+    process.stderr.write(
+      `chrome: this host gives Chrome no sandbox, so ${what} runs without one, as ` +
+        `hyperframes' render always does. To keep the sandbox: ${SANDBOX_FIX}.\n`,
+    );
+    return launch([...args, "--no-sandbox"]);
+  }
+}
+
+/**
  * The pinned runtime, from node_modules rather than the CDN the player would
  * reach for. Invariant 4 is about the composition, but a gate that fetches
  * anything is a gate that fails on a train.
@@ -172,10 +217,9 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
   const timeout = opts.timeoutMs ?? 60_000;
   const { default: puppeteer } = await import("puppeteer-core");
   const chrome = await resolveChrome();
-  const browser = await puppeteer.launch({
-    executablePath: chrome.path,
-    headless: true,
-    args: [
+  const browser = await launchOwnPage(
+    (args) => puppeteer.launch({ executablePath: chrome.path, headless: true, args }),
+    [
       // A retina host would otherwise hand back a 2x frame, whose clip is not the
       // renderer's.
       "--force-device-scale-factor=1",
@@ -189,7 +233,8 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
       "--use-angle=swiftshader",
       "--enable-unsafe-swiftshader",
     ],
-  });
+    "the gates' page",
+  );
 
   try {
     const page = await browser.newPage();

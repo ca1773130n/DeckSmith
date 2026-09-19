@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import type { Cue } from "../src/deck/subtitles.js";
 import { type DeckNarration, emitComposition, planCut } from "../src/emit/composition.js";
 import { captionPage, overlayGraph, overlayInputs, union } from "../src/render/captions.js";
-import { frameName } from "../src/render/capture.js";
+import { frameName, launchOwnPage, sandboxMissing } from "../src/render/capture.js";
 import {
   audioGraph,
   burnStyle,
@@ -1217,6 +1217,49 @@ describe("captions", () => {
       { x: 80.9, y: 1540.2, w: 500.5, h: 120.6 },
     ]);
     expect(box).toEqual({ x: 80, y: 1540, width: 502, height: 121 });
+  });
+});
+
+describe("a host with no Chrome sandbox", () => {
+  // What puppeteer threw on GitHub's stock ubuntu-latest, Ubuntu 24.04.5 with
+  // kernel.apparmor_restrict_unprivileged_userns = 1 (run 35407330294), trimmed.
+  const refused = new Error(
+    "Failed to launch the browser process:  Code: null\n\nstderr:\n" +
+      "[0918/235301.173020:FATAL:content/browser/zygote_host/zygote_host_impl_linux.cc:129] " +
+      "No usable sandbox! If you are running on Ubuntu 23.10+ or another Linux distro that has " +
+      "disabled unprivileged user namespaces with AppArmor, see https://chromium.googlesource.com/…",
+  );
+
+  it("recognises Chrome's refusal and nothing else", () => {
+    expect(sandboxMissing(refused)).toBe(true);
+    expect(sandboxMissing(new Error("Failed to launch the browser process! ENOENT"))).toBe(false);
+  });
+
+  it("retries a page DeckSmith wrote without the sandbox, and only then", async () => {
+    const calls: string[][] = [];
+    const launch = async (args: string[]) => {
+      calls.push(args);
+      if (!args.includes("--no-sandbox")) throw refused;
+      return "browser";
+    };
+    expect(await launchOwnPage(launch, ["--hide-scrollbars"], "a test page")).toBe("browser");
+    expect(calls).toEqual([["--hide-scrollbars"], ["--hide-scrollbars", "--no-sandbox"]]);
+
+    // A host that HAS a sandbox keeps it: one launch, no flag.
+    const kept: string[][] = [];
+    await launchOwnPage(async (args) => kept.push(args), ["--hide-scrollbars"], "a test page");
+    expect(kept).toEqual([["--hide-scrollbars"]]);
+  });
+
+  it("does not hide any other launch failure behind a retry", async () => {
+    let n = 0;
+    const missing = new Error("Failed to launch the browser process! ENOENT");
+    const launch = async () => {
+      n++;
+      throw missing;
+    };
+    await expect(launchOwnPage(launch, [], "a test page")).rejects.toBe(missing);
+    expect(n).toBe(1);
   });
 });
 

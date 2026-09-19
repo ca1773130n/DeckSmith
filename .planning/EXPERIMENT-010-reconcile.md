@@ -359,8 +359,14 @@ The one warning on each build is the pre-existing `connector_detached` on `#s2-p
   host has, which is invariant 9 inside the gate stack rather than inside a deck. Presumably
   true of every gate that runs on `openDeck`, and of the sweep — unmeasured. The fix is to
   give the gate page the faces the render gets; that is a design change, not a one-liner.
-- **DeckSmith's own Chrome launches cannot start on a stock Ubuntu 24.04 runner.** Found
-  2026-09-18, not fixed. GitHub's image sets
+- ~~**DeckSmith's own Chrome launches cannot start on a stock Ubuntu 24.04 runner.** Found
+  2026-09-18, not fixed.~~ **CLOSED 2026-09-19** (PR #105). `launchOwnPage` in
+  `src/render/capture.ts` retries the gates' page and the caption band with `--no-sandbox`
+  only when Chrome refuses to start without one, and prints a `chrome:` line; `harvest`
+  refuses instead. On a stock 24.04.5 runner the silent demo went from PASS with
+  `fidelity not_measured` (run 35407330294, at 2ee5d05) to PASS with every gate run and the
+  Mac's 21 warnings (run 35407703518). The caption band was not exercised on Linux. The
+  record below is kept as found. GitHub's image sets
   `kernel.apparmor_restrict_unprivileged_userns=1`, and `openDeck` and `renderCaptions` pass
   no `--no-sandbox`, so Chrome dies with `FATAL: … No usable sandbox!`. `build` then degrades
   `fidelity` to a `not_measured` warning and **passes** — a green deck on a machine where no
