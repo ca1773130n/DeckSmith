@@ -5,7 +5,11 @@
  * guards one of two promises: a CLASSIC theme measures and emits exactly what it
  * did before packs existed, and a PACK is measured in the face it is drawn in.
  */
+import { mkdtemp, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { refreshFont, vendorFace } from "../src/build/files.js";
 import {
   chromeCss,
   chromeHeight,
@@ -27,8 +31,17 @@ import {
   typeOf,
   wrap,
 } from "../src/emit/svg.js";
-import { ink } from "../src/emit/theme.js";
-import { CLASSIC_TYPE, em, lineBox, stackFor, TYPES, typeForStack } from "../src/emit/type.js";
+import { baseCss, type DeckTheme, deckLook, ink, PACKS } from "../src/emit/theme.js";
+import {
+  CLASSIC_TYPE,
+  em,
+  familyOf,
+  lineBox,
+  stackFor,
+  TYPES,
+  typeForStack,
+} from "../src/emit/type.js";
+import { storyboardSchema } from "../src/types.js";
 
 /** A pack face whose Latin glyphs are `glyphs`, whatever spec carries it. */
 function measuredIn(glyphs: MeasuredFace): PackFace {
@@ -249,5 +262,155 @@ describe("the chrome a pack draws, and what it is charged", () => {
     expect(css).toContain(`font-size:${t.headline.size}px`);
     // Accent, not muted: the eyebrow is this spec's colour accent.
     expect(css).toContain(`color:${ink.accent}`);
+  });
+});
+
+/* ------------------------------------------------------------------- packs */
+
+describe("the v2 packs", () => {
+  const names = Object.keys(PACKS);
+
+  it("is at least five packs, both grounds twice over, each its own pairing", () => {
+    expect(names.length).toBeGreaterThanOrEqual(5);
+    const grounds = names.map((n) => PACKS[n]?.ground);
+    expect(grounds.filter((g) => g === "dark").length).toBeGreaterThanOrEqual(2);
+    expect(grounds.filter((g) => g === "light").length).toBeGreaterThanOrEqual(2);
+    const pairs = names.map((n) => typeOf(faceOf(PACKS[n]?.fontStack ?? "")).key);
+    expect(new Set(pairs).size).toBe(names.length);
+    expect(pairs).not.toContain("classic");
+  });
+
+  it.each(names)("%s declares its display stack as its type spec does", (name) => {
+    const p = PACKS[name] as DeckTheme;
+    expect(p.displayStack).toBe(typeOf(faceOf(p.fontStack)).displayStack);
+  });
+
+  /**
+   * The skin rule, enforced: a property a measurement reads may not appear. An
+   * absolutely positioned pseudo-element is outside the flow; `position:
+   * relative` with no offset moves nothing.
+   */
+  const PAINT = new Set([
+    "color",
+    "background",
+    "background-image",
+    "background-size",
+    "border-color",
+    "border-top-color",
+    "border-top-style",
+    "border-radius",
+    "box-shadow",
+    "text-decoration",
+    "text-decoration-color",
+    "text-decoration-thickness",
+    "text-underline-offset",
+  ]);
+  const PSEUDO = new Set([
+    ...PAINT,
+    "content",
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "width",
+    "height",
+  ]);
+
+  it.each(names)("%s's skin paints and never moves a box", (name) => {
+    const skin = (PACKS[name] as DeckTheme).skin ?? "";
+    expect(skin.length).toBeGreaterThan(0);
+    const rules = [...skin.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    expect(rules.length).toBe(skin.split("}").length - 1);
+    for (const [, selector = "", body = ""] of rules) {
+      const pseudo = /::(before|after)/.test(selector);
+      const decls = body
+        .split(";")
+        .filter(Boolean)
+        .map((d) => d.split(":")[0]?.trim() ?? "");
+      for (const prop of decls) {
+        const allowed = pseudo ? PSEUDO : new Set([...PAINT, "position"]);
+        expect(allowed.has(prop), `${name}: ${selector.trim()} sets ${prop}`).toBe(true);
+      }
+      if (pseudo) expect(body, `${name}: ${selector.trim()}`).toContain("position:absolute");
+      else if (decls.includes("position")) expect(body).toContain("position:relative");
+    }
+  });
+
+  it("appends a pack's skin to the base stylesheet, and nothing for a classic theme", () => {
+    const fmt = { id: "deck-16x9", width: 1920, height: 1080, minWeight: 0, navigable: true };
+    expect(baseCss(ink, fmt)).not.toContain(".scene .eyebrow");
+    const signal = PACKS.signal as DeckTheme;
+    expect(baseCss(signal, fmt).endsWith(signal.skin ?? "-")).toBe(true);
+  });
+
+  it("puts a CJK deck's bundled family in front of the chrome stack too", () => {
+    const { theme } = deckLook({ theme: "folio", lang: "ko" });
+    expect(theme.fontStack.startsWith('"Noto Sans KR", ')).toBe(true);
+    expect(theme.displayStack?.startsWith('"Noto Sans KR", ')).toBe(true);
+    // And the chrome is still measured at the pack's scale, in Hangul.
+    const face = faceOf(theme.fontStack) as PackFace;
+    expect(face.script).toBe("hangul");
+    expect(face.type).toBe(TYPES.serif);
+  });
+
+  it("leaves a classic theme's chrome stack absent", () => {
+    expect(deckLook({ theme: "ink", lang: "ko" }).theme.displayStack).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------- fonts */
+
+describe("vendored pack faces", () => {
+  it.each(Object.keys(FACE_METRICS) as MeasuredFace[])(
+    "%s ships beside the deck under the family its stack names",
+    async (face) => {
+      const dir = await mkdtemp(join(tmpdir(), "ds-face-"));
+      const css = await vendorFace(face, dir);
+      expect(css).toContain(`font-family: '${familyOf(face)}';`);
+      expect(css).not.toContain("Variable");
+      expect(css).toContain("font-display: block");
+      const urls = [...css.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1] ?? "");
+      expect(urls.length).toBeGreaterThan(0);
+      const files = await readdir(dir);
+      for (const u of urls) expect(files).toContain(u);
+    },
+  );
+
+  it("vendors a Latin pack's faces with Inter, and only Inter for a classic theme", async () => {
+    const storyboard = storyboardSchema.parse({
+      sourceId: "x",
+      title: "t",
+      beats: [
+        { id: "b1", intent: "i", archetype: "title", seconds: 4, params: { headline: "Hi" } },
+      ],
+    });
+    const source = {
+      id: "x",
+      title: "t",
+      lang: "en",
+      sections: [],
+      figures: [],
+      equations: [],
+      tables: [],
+    };
+    const classic = await refreshFont(
+      storyboard,
+      source,
+      await mkdtemp(join(tmpdir(), "ds-f-")),
+      () => {},
+    );
+    expect(classic).toContain("font-family: 'Inter';");
+    expect(classic).not.toContain("Space Grotesk");
+    const pack = await refreshFont(
+      storyboard,
+      source,
+      await mkdtemp(join(tmpdir(), "ds-f-")),
+      () => {},
+      "chalk",
+    );
+    expect(pack).toContain("font-family: 'Inter';");
+    expect(pack).toContain("font-family: 'Space Grotesk';");
+    expect(pack).toContain("font-family: 'IBM Plex Sans';");
   });
 });

@@ -28,6 +28,9 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DeckNarration } from "../emit/composition.js";
+import { faceOf, typeOf } from "../emit/svg.js";
+import { deckLook } from "../emit/theme.js";
+import { familyOf, type LatinFace } from "../emit/type.js";
 import { bundleFont, familyFor } from "../source/fonts.js";
 import type { Source, Storyboard } from "../types.js";
 
@@ -246,17 +249,28 @@ export async function copyAudio(
  * CJK — over-collecting costs a few bytes, under-collecting costs a tofu box.
  *
  * A Latin deck gets `vendorInter` instead: nothing to subset, nothing to fetch.
+ * On a v2 style pack it also gets the pack's own faces (`vendorFace`), named by
+ * the pack's type spec — `theme` is the name the build resolved, as `--theme`.
+ * A CJK deck needs none of them: the Noto bundle is first in every stack and
+ * covers Latin, so the pack's faces would ship and never draw.
  */
 export async function refreshFont(
   storyboard: Storyboard,
   source: Source,
   out: string,
   step: Step,
+  theme?: string,
 ): Promise<string | undefined> {
   if (familyFor(storyboard.lang) === null) {
-    const css = await vendorInter(join(out, "assets", "fonts"));
+    const dir = join(out, "assets", "fonts");
+    const css = await vendorInter(dir);
     step("build: vendored Inter beside the deck");
-    return css;
+    const type = typeOf(faceOf(deckLook(storyboard, theme).theme.fontStack));
+    const extra = [...new Set([type.body, type.display])].filter((f) => f !== "inter");
+    const faces: string[] = [];
+    for (const face of extra) faces.push(await vendorFace(face, dir));
+    if (extra.length) step(`build: vendored ${extra.map(familyOf).join(", ")} for the pack`);
+    return [css, ...faces].join("\n");
   }
   try {
     const bundle = await bundleFont(
@@ -307,22 +321,46 @@ export async function refreshFont(
  * that window measures the wrong font.
  */
 async function vendorInter(dir: string): Promise<string> {
-  const pkg = dirname(createRequire(import.meta.url).resolve("@fontsource-variable/inter"));
+  return vendorFontsource("@fontsource-variable/inter", "Inter", dir);
+}
+
+/** The package each pack face is vendored from, pinned by package-lock like Inter. */
+const FONTSOURCE: Readonly<Record<Exclude<LatinFace, "inter">, string>> = {
+  "source-serif-4": "@fontsource-variable/source-serif-4",
+  "space-grotesk": "@fontsource-variable/space-grotesk",
+  "ibm-plex-sans": "@fontsource-variable/ibm-plex-sans",
+};
+
+/**
+ * A v2 pack's face, vendored exactly the way Inter is: the package's `wght`
+ * subsets copied whole, declared under the name the pack's stack uses, `block`
+ * not `swap`. These are the files `scripts/measure-faces.mjs` measured, so the
+ * width table in `src/emit/faces.ts` describes what the deck draws.
+ */
+export async function vendorFace(face: Exclude<LatinFace, "inter">, dir: string): Promise<string> {
+  return vendorFontsource(FONTSOURCE[face], familyOf(face), dir);
+}
+
+async function vendorFontsource(pkgName: string, family: string, dir: string): Promise<string> {
+  const pkg = dirname(createRequire(import.meta.url).resolve(pkgName));
   const css = await readFile(join(pkg, "index.css"), "utf8");
   await mkdir(dir, { recursive: true });
   for (const [, name] of css.matchAll(/url\(\.\/files\/([^)]+)\)/g)) {
     await cp(join(pkg, "files", name ?? ""), join(dir, name ?? ""));
   }
+  const declared = `${family} Variable`;
   const ours = css
-    .replaceAll("font-family: 'Inter Variable'", "font-family: 'Inter'")
+    .replaceAll(`font-family: '${declared}'`, `font-family: '${family}'`)
     .replaceAll("font-display: swap", "font-display: block")
     .replace(/url\(\.\/files\/([^)]+)\) format\('woff2-variations'\)/g, "url($1) format('woff2')");
-  // A rewrite that matched nothing is a deck declaring 'Inter Variable', or a
+  // A rewrite that matched nothing is a deck declaring '<family> Variable', or a
   // url() into a directory it does not ship: the silent fallback again. Loud.
-  if (/Inter Variable|\.\/files\/|swap/.test(ours) || !ours.includes("font-family: 'Inter';")) {
-    throw new Error(
-      `@fontsource-variable/inter's index.css changed shape; update vendorInter (${pkg})`,
-    );
+  if (
+    ours.includes(declared) ||
+    /\.\/files\/|swap/.test(ours) ||
+    !ours.includes(`font-family: '${family}';`)
+  ) {
+    throw new Error(`${pkgName}'s index.css changed shape; update vendorFontsource (${pkg})`);
   }
   return ours;
 }

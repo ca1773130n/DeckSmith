@@ -397,7 +397,7 @@ export async function buildDeck(
   // linking it and therefore needs the CSS in hand. It also writes the woff2
   // into `out`, which is why `out` must exist by here — it does; `buildDeck`
   // made it above.
-  const fontCss = await refreshFont(storyboard, source, out, step);
+  const fontCss = await refreshFont(storyboard, source, out, step, opts.theme);
 
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,

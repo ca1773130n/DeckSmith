@@ -738,7 +738,7 @@ lookFlags(
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
-    const fontCss = await refreshFont(storyboard, source, out, step);
+    const fontCss = await refreshFont(storyboard, source, out, step, theme);
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,

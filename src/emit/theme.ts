@@ -32,6 +32,7 @@ export {
   type DeckTheme,
   ink,
   mono,
+  PACKS,
   paper,
   resolveTheme,
   THEME_NAMES,
@@ -61,7 +62,15 @@ export function deckLook(
   // subsets with: a stack naming a family the bundle does not declare falls back
   // silently, which is the whole of invariant 9.
   const family = familyFor(storyboard.lang);
-  const theme: DeckTheme = family ? { ...base, fontStack: `"${family}", ${base.fontStack}` } : base;
+  // A pack's chrome stack needs the same family in front, or a Korean headline
+  // is set by whatever the host has while its body is set in the bundle.
+  const theme: DeckTheme = family
+    ? {
+        ...base,
+        fontStack: `"${family}", ${base.fontStack}`,
+        ...(base.displayStack ? { displayStack: `"${family}", ${base.displayStack}` } : {}),
+      }
+    : base;
   return { family, theme };
 }
 
@@ -122,7 +131,7 @@ export function baseCss(theme: DeckTheme, format: Format): string {
                padding: ${scenePadding(format)}; display: flex; flex-direction: column;
                justify-content: center; }
 ${referenceSpaceCss(format)}
-${AMBIENT_KEYFRAMES}`;
+${AMBIENT_KEYFRAMES}${theme.skin ? `\n${theme.skin}` : ""}`;
 }
 
 /**
