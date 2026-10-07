@@ -143,11 +143,21 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DECK_PAGE } from "../emit/composition.js";
+import { FIT_FILE } from "../emit/fit.js";
 import { UNFIT_ATTR } from "../emit/tex.js";
 import { openDeck } from "../render/capture.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
 import { type ApparentStop, collectApparent, gradeApparent, midpoints } from "./apparent.js";
+import {
+  collectFillRegion,
+  type FillRow,
+  fillInk,
+  finalStops,
+  gradeFill,
+  measureFill,
+  readFitManifest,
+} from "./fill.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
 import { TYPE_FLOOR_PX } from "./typefloor.js";
 
@@ -260,6 +270,11 @@ export function readReserve(timingText: string | null): number {
 
 export interface FidelityReport {
   stops: Measured[];
+  /**
+   * Main-axis fill at each scene's last hold — measured on every deck, graded
+   * only on a v2 one (`fit.json` present). See `./fill.ts`.
+   */
+  fills: FillRow[];
   /**
    * Both gates' findings — this one's `blank_at_stop` and `overprint`'s
    * `svg_text_overprint`.
@@ -626,6 +641,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
   const floor = opts.floor ?? INK_FLOOR;
   const notMeasured = (why: string): FidelityReport => ({
     stops: [],
+    fills: [],
     findings: [
       {
         severity: "warning",
@@ -646,6 +662,8 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
   // directory, and the only trustworthy statement about what that deck reserved
   // is the one the build wrote into its own manifest.
   const reserve = opts.captionReserve ?? readReserve(timingText);
+  const manifest = readFitManifest(await readFile(join(dir, FIT_FILE), "utf8").catch(() => null));
+  const finals = new Set(finalStops(stops));
 
   let deck: Awaited<ReturnType<typeof openDeck>> | null = null;
   try {
@@ -663,6 +681,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
     const apparent: ApparentStop[] = [];
+    const fills: FillRow[] = [];
     for (const stop of stops) {
       await deck.seek(stop.t);
       const bandTopPx = await page.evaluate(
@@ -687,6 +706,13 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...(await page.evaluate(collectApparent, stop.sid)),
       });
       const frame = await decodePng(await deck.shoot());
+      // THE SAME FRAME again, at a scene's last hold only: how much of its
+      // region the body painted. One DOM read for the region, one more pass
+      // over pixels already decoded.
+      if (finals.has(stop)) {
+        const region = await page.evaluate(collectFillRegion, stop.sid);
+        fills.push(measureFill(frame, fillInk(region, background(frame), INK_DELTA), region, stop));
+      }
       measured.push({
         ...stop,
         ink: inkBelow(frame, bandTopPx),
@@ -709,12 +735,14 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
 
     return {
       stops: measured,
+      fills,
       findings: [
         ...gradeFidelity(measured, floor),
         ...gradeReserve(measured),
         ...gradeOverprint(collided),
         ...gradeApparent(apparent),
         ...gradeUnfit(unfit),
+        ...gradeFill(fills, manifest),
       ],
       elapsedMs: Date.now() - started,
     };
