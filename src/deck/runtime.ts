@@ -17,6 +17,7 @@
  * deck. Zero dependencies, and every DOM lookup is defensive — this ships inside
  * artifacts that will outlive our control.
  */
+import { holdTime, MOTION_ISLAND, parseMotion, seamLead, spanFor } from "./motion.js";
 import { CHANNEL, type FromDeck, isOurs } from "./protocol.js";
 import {
   activeCue,
@@ -525,6 +526,11 @@ export interface Voice {
    * load — see `refused` for why the second one is never retried unasked.
    */
   unlock: () => void;
+  /**
+   * Called once per animation frame while the current stop's audio plays, with
+   * its `currentTime` — the clock v2's hold motion seeks by (src/deck/motion.ts).
+   */
+  onProgress: (fn: (seconds: number) => void) => void;
 }
 
 const SILENT: Voice = {
@@ -535,6 +541,7 @@ const SILENT: Voice = {
   onEnded: () => {},
   onSettled: () => {},
   unlock: () => {},
+  onProgress: () => {},
 };
 
 /**
@@ -670,8 +677,10 @@ export function mountVoice(
    * error leaves `ended` false forever, and a frame loop nobody can end is the
    * one bug a presented deck cannot recover from.
    */
+  let progress: (seconds: number) => void = () => {};
   const follow = () => {
     paint();
+    progress(audio.currentTime);
     const done = audio.ended || (audio.paused && audio.currentTime > 0);
     raf = done ? 0 : requestAnimationFrame(follow);
   };
@@ -771,6 +780,9 @@ export function mountVoice(
     },
     onSettled: (fn) => {
       settled = fn;
+    },
+    onProgress: (fn) => {
+      progress = fn;
     },
     toggleMute: () => {
       muted = !muted;
@@ -989,6 +1001,8 @@ async function start(doc: Document): Promise<void> {
   // Absent island = a deck with no player-page clip in it, which is almost every
   // deck. `NO_CLIPS` keeps the button hidden and costs `go` one call per step.
   const found = parseClips(doc.querySelector(VIDEO_ISLAND)?.textContent);
+  // Absent island = a classic deck, which glides and holds exactly as before.
+  const motion = parseMotion(doc.querySelector(MOTION_ISLAND)?.textContent);
   const clips =
     Object.keys(found).length === 0
       ? NO_CLIPS
@@ -1163,6 +1177,7 @@ async function start(doc: Document): Promise<void> {
 
   /** `instant` marks a jump rather than a step: Home/End, deep link, hashchange. */
   const go = (next: number, instant = false) => {
+    const was = stops[at];
     at = Math.max(0, Math.min(stops.length - 1, next));
     const stop = stops[at] as Stop;
 
@@ -1175,7 +1190,18 @@ async function start(doc: Document): Promise<void> {
     // mid-deck, and startup is the wrong time to have decided.
     const reducedMotion =
       typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const plan = planTransition(shown, stop.t, { reducedMotion });
+    // v2: a step onto the next slide that would otherwise CUT (the outgoing
+    // slide's narration made the span long) cuts to the next slide's start
+    // instead, and the glide below plays its seam and entrance. See `seamLead`.
+    const lead =
+      motion?.seams && frame && !instant && !reducedMotion
+        ? seamLead(shown, was, stop, slides, MAX_SPAN)
+        : null;
+    if (lead !== null) cutTo(lead);
+    const plan =
+      lead !== null
+        ? { animate: true, durationMs: (stop.t - lead) * 1000 }
+        : planTransition(shown, stop.t, { reducedMotion });
     // No frame means nothing to paint, so there is nothing to animate either.
     if (plan.animate && !instant && frame) glide(frame, stop.t, plan.durationMs);
     else cutTo(stop.t);
@@ -1226,6 +1252,23 @@ async function start(doc: Document): Promise<void> {
   // settled answer reaches the clock — the wiring a source-reading test checks,
   // because `start` runs only in a browser.
   voice.onSettled(settleDwell);
+  // v2's HOLD MOTION: while a stop's audio plays, seek its scene through the
+  // stop's own quiet stretch on the audio's clock, so emphasis lands on the word
+  // it was timed to. Never during a glide (that owns the clock), never under
+  // reduced motion (asked per frame, like `go` asks per step), and only on a
+  // stop the island names. See src/deck/motion.ts.
+  voice.onProgress((seconds) => {
+    if (!motion || raf !== 0 || !frame) return;
+    if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches)
+      return;
+    const stop = stops[at] as Stop;
+    const span = spanFor(motion, stop);
+    if (!span) return;
+    const t = holdTime(span, seconds);
+    if (Math.abs(t - shown) < 1e-4) return;
+    paint(frame, slides, t);
+    shown = t;
+  });
   ui.play.addEventListener("click", (e) => {
     e.stopPropagation(); // the deck advances on click; this button must not
     setPlaying(!playing);
