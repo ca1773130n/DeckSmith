@@ -13,7 +13,9 @@
  * that composes these primitives, and putting it here is how a primitive layer
  * turns into six hand-rolled one-offs wearing a shared import.
  */
+import { FACE_METRICS, type FaceMetrics } from "./faces.js";
 import { esc, fromTo, sec, type Tween, type Vars } from "./kit.js";
+import { CLASSIC_TYPE, type LatinFace, type TypeSpec, typeForStack } from "./type.js";
 
 export interface Pt {
   x: number;
@@ -521,10 +523,11 @@ function charUnits(
   tabular: boolean,
   cjkRun: boolean,
   hangul: boolean,
+  m: FaceMetrics | null,
 ): [units: number, scalesWithWeight: boolean] {
   if (tabular) {
-    if (c >= "0" && c <= "9") return [TABULAR_FIGURE, true];
-    if (c === "." || c === ",") return [TABULAR_SEPARATOR, true];
+    if (c >= "0" && c <= "9") return [m ? m.tabularFigure : TABULAR_FIGURE, true];
+    if (c === "." || c === ",") return [m ? m.tabularSeparator : TABULAR_SEPARATOR, true];
   }
   // Before Inter's own table: in a run the CJK face is drawing, its Latin
   // advance is the real one. `scalesWithWeight` is false for the same reason it
@@ -534,7 +537,8 @@ function charUnits(
     const wide = (hangul ? HANGUL_LATIN[c] : undefined) ?? CJK_LATIN[c];
     if (wide !== undefined) return [wide, false];
   }
-  const measured = ADVANCE[c];
+  // A pack's Latin face, when one draws this run; Inter's own table otherwise.
+  const measured = m ? m.advance[c] : ADVANCE[c];
   if (measured !== undefined) return [measured, true];
   // `for (const c of text)` iterates code points, so an astral character
   // arrives whole and `codePointAt` reads it rather than half a surrogate.
@@ -590,7 +594,69 @@ function weightFactor(weight: number): number {
  * why the auto-detection below still runs underneath: the parameter can only
  * widen what a run is charged, never narrow it.
  */
-export type Face = "latin" | "cjk" | "hangul";
+export type Script = "latin" | "cjk" | "hangul";
+
+/**
+ * A v2 style pack's face: the script as above, the Latin face that draws the
+ * run, and the pack's type spec (`./type.ts`).
+ *
+ * An OBJECT rather than a fourth string, and only ever built by `faceOf` and
+ * `displayFace`, because every emitter already threads a `Face` through to
+ * `textWidth` and `chrome*` without looking inside it. That is what lets a pack
+ * change both the width table and the chrome's scale with no emitter learning
+ * packs exist: the measurement rides on the value they already pass.
+ *
+ * `glyphs` only matters when `script` is `"latin"`. A CJK deck draws its Latin
+ * in the bundled Noto face whatever the pack says, and is measured as it always
+ * was.
+ */
+export interface PackFace {
+  readonly script: Script;
+  readonly glyphs: LatinFace;
+  readonly type: TypeSpec;
+}
+
+/**
+ * A bare `Script` is the classic face, exactly as before packs: Inter's table and
+ * `CLASSIC_TYPE`. Every theme that is not a v2 pack still measures as one, so
+ * its bytes do not move.
+ */
+export type Face = Script | PackFace;
+
+/** The script a face sets in. */
+export function scriptOf(face: Face): Script {
+  return typeof face === "string" ? face : face.script;
+}
+
+/** The chrome's type spec. A bare script is classic. */
+export function typeOf(face: Face): TypeSpec {
+  return typeof face === "string" ? CLASSIC_TYPE : face.type;
+}
+
+/**
+ * The same face, measured as the pack's DISPLAY face — what the eyebrow, the
+ * headline and the title slide's headline are set in. Identity for classic.
+ */
+export function displayFace(face: Face): Face {
+  return typeof face === "string" ? face : { ...face, glyphs: face.type.display };
+}
+
+/** Inter's metrics are the module's own constants, so they are `null` here. */
+function metricsOf(face: Face): FaceMetrics | null {
+  if (typeof face === "string" || face.script !== "latin" || face.glyphs === "inter") return null;
+  return FACE_METRICS[face.glyphs];
+}
+
+/** `weightFactor`, for a measured face. Same bands as Inter's. */
+function faceWeight(m: FaceMetrics, weight: number): number {
+  return weight >= 700
+    ? m.weight[700]
+    : weight >= 600
+      ? m.weight[600]
+      : weight >= 500
+        ? m.weight[500]
+        : 1;
+}
 
 /**
  * The face a theme's stack will use, from the family `familyFor` put in front.
@@ -600,9 +666,14 @@ export type Face = "latin" | "cjk" | "hangul";
  * on the em grid at 1.0.
  */
 export function faceOf(fontStack: string): Face {
-  if (/Noto Sans KR/.test(fontStack)) return "hangul";
-  if (/Noto Sans (JP|SC|TC)/.test(fontStack)) return "cjk";
-  return "latin";
+  const script: Script = /Noto Sans KR/.test(fontStack)
+    ? "hangul"
+    : /Noto Sans (JP|SC|TC)/.test(fontStack)
+      ? "cjk"
+      : "latin";
+  // A stack no v2 type spec claims is classic, and stays the bare string it was.
+  const type = typeForStack(fontStack);
+  return type ? { script, glyphs: type.body, type } : script;
 }
 
 export function textWidth(
@@ -622,10 +693,12 @@ export function textWidth(
   // sniff is never wrong when it fires — a run containing Hangul IS drawn by a
   // Hangul face — while `face` defaults to "latin" at the call sites that have
   // not been threaded yet, and must not un-charge those runs.
-  const cjkRun = CJK_RANGE.test(text) || face !== "latin";
-  const hangul = (cjkRun && HANGUL_RANGE.test(text)) || face === "hangul";
+  const script = scriptOf(face);
+  const cjkRun = CJK_RANGE.test(text) || script !== "latin";
+  const hangul = (cjkRun && HANGUL_RANGE.test(text)) || script === "hangul";
+  const m = metricsOf(face);
   for (const c of text) {
-    const [units, scalesWithWeight] = charUnits(c, tabular, cjkRun, hangul);
+    const [units, scalesWithWeight] = charUnits(c, tabular, cjkRun, hangul, m);
     if (scalesWithWeight) weighted += units;
     else emGrid += units;
     chars++;
@@ -647,12 +720,14 @@ export function textWidth(
   // that is enough: reassociating alone flipped `b06-stack:4` from ok to a real
   // label overprint, because its layout sat exactly on a fit boundary. The
   // sweep caught it; nothing else would have.
+  // Inter keeps its own constants and its own bracketing, so a classic deck
+  // computes the identical double it always did.
+  const kern = m ? m.kernSlack : KERN_SLACK;
+  const factor = m ? faceWeight(m, weight) : weightFactor(weight);
   if (emGrid === 0) {
-    return weighted * KERN_SLACK * fontSize * weightFactor(weight) + tracking * fontSize * chars;
+    return weighted * kern * fontSize * factor + tracking * fontSize * chars;
   }
-  return (
-    (weighted * weightFactor(weight) + emGrid) * KERN_SLACK * fontSize + tracking * fontSize * chars
-  );
+  return (weighted * factor + emGrid) * kern * fontSize + tracking * fontSize * chars;
 }
 
 /**

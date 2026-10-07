@@ -179,6 +179,13 @@ export interface Theme {
   /** Highlight tones, addressed by `tone: "a" | "b" | "c" | "d"`. */
   tones: { a: string; b: string; c: string; d: string };
   fontStack: string;
+  /**
+   * The chrome's stack — eyebrow, headline, the title slide's headline — when a
+   * v2 style pack sets it in a face of its own. Absent means `fontStack`, which
+   * is every classic theme. Which spec it belongs to is read off `fontStack`
+   * (`faceOf`), so the two are declared together by the pack (`src/emit/type.ts`).
+   */
+  displayStack?: string;
 }
 
 export interface EmitContext {
