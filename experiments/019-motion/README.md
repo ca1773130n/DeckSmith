@@ -28,6 +28,20 @@ narrower rule; this one reads classic at 100%.
 - Scene windows (`data-start`/`data-duration`) are identical (test/motion.test.ts).
 - The same deck through `build`'s gates: 0 errors and the same 13 warnings both ways.
 
+## Gates and determinism
+
+- `build` (all gates) on three real decks, classic and v2 from the same storyboard and
+  narration: en 0 errors / 13 warnings both ways; ja 0 / 14 both ways; ko 1 error / 12
+  warnings both ways (classic fails the same way; the error text was not inspected).
+  Only the counts were compared, not the findings one by one.
+- `decksmith drift` (render twice at 1 vs 3 workers, PSNR floor 40 dB) on a two-beat
+  narrated v2 deck (16s, 480 frames — a full HypePaper deck needs ~50GB of capture space
+  and the disk had 14GB): PASS, 320/480 frames byte-identical, worst 55.15 dB. The
+  classic control of the same storyboard: PASS, the same 320/480 identical, worst
+  78.72 dB. So v2 changes no frame's reproducibility count; its worst differing frame is
+  noisier — probably the blur and drop-shadow filters, not verified — but 15 dB above the
+  floor.
+
 ## In the presented deck (deck.html, renderer's Chrome, real mp3 narration)
 
 Stepping from slide 2's last stop to slide 3 and holding slide 2's last stop for 9s of its
