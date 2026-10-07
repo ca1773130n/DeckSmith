@@ -8,7 +8,7 @@
 import type { Figure } from "../../types.js";
 import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { esc, words } from "../kit.js";
+import { esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
@@ -215,7 +215,10 @@ function blockLines(text: string, size: number, width: number, face: Face): numb
   let lines = 0;
   /** Width used on the line being filled; 0 when it is empty. */
   let used = 0;
-  for (const run of text.split(/\s+/).filter(Boolean)) {
+  // The atoms `words(…, { unspaced: true })` draws — a CJK run per character —
+  // with a space charged only where the text has one.
+  for (const { text: run, spaced } of wordAtoms(text)) {
+    const gap = spaced ? space : 0;
     const w = textWidth(run, size, 400, 0, false, face);
     if (w > width) {
       // Its own block, from a fresh line, full width to its last line.
@@ -224,8 +227,8 @@ function blockLines(text: string, size: number, width: number, face: Face): numb
       used = width;
     } else if (used === 0) {
       used = w;
-    } else if (used + space + w <= width) {
-      used += space + w;
+    } else if (used + gap + w <= width) {
+      used += gap + w;
     } else {
       lines++;
       used = w;
@@ -460,7 +463,9 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // The claim is the sentence the slide is FOR, so it arrives as a sentence:
   // word by word, in reading order, instead of as a block sliding in from the
   // left. Same words, same measure, same size.
-  const claim = `<div class="claim" id="${sid}-c">${words(p.claim)}</div>`;
+  // v2 sets a CJK claim character by character (`wordAtoms`), so it wraps like
+  // the script it is instead of in sentence-long blocks.
+  const claim = `<div class="claim" id="${sid}-c">${words(p.claim, "w", { unspaced: v2 })}</div>`;
   // `figure.src` is relative to the deck's asset directory.
   const held = plate(fig, sid, beat.id, ctx.start);
   const figure = `<div class="figwrap" id="${sid}-f">${held.html}</div>`;
@@ -487,7 +492,13 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     tween(
       `#${sid}-c .w`,
       { opacity: 0, y: 14 },
-      { opacity: 1, y: 0, duration: 0.5, stagger: 0.05, ease: "power2.out" },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.5,
+        stagger: v2 ? staggerFor(wordAtoms(p.claim).length, 0.05) : 0.05,
+        ease: "power2.out",
+      },
       0.7,
     ),
     tween(`#${sid}-f`, { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, 1.0),

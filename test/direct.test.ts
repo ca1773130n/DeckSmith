@@ -174,9 +174,11 @@ describe("design: the switch", () => {
   it("v2's golden: the demo composition, pinned", () => {
     // Re-pin deliberately, after LOOKING at the frames, when a v2 look changes.
     // Re-pinned 2026-10-08 on the merged preview/design-v2 branch (fit growth,
-    // looks, motion together), after reading the demo's final-hold frames.
+    // looks, motion together), after reading the demo's final-hold frames. And
+    // again in the review fix round: the only change is two claims' stagger
+    // (s9 0.05 → 0.032, s15 → 0.018), so their last word lands by the stop.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "050ad974852d641d8445bcab7549b1483ebd29a8887891486c05b86aaa3d32ab",
+      "cd315aa86caf3a151586c5b9f6ba326221375bfc6a1df1fe15ddefc93c10ff8b",
     );
   });
 

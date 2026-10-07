@@ -783,10 +783,97 @@ export function settle(target: string, at: number, seconds = LIFT_SECONDS, origi
  * transform on an inline box is a no-op, and the rise would render as a plain
  * fade with every gate green.
  */
-export function words(text: string, cls = "w"): string {
+export function words(text: string, cls = "w", opts: { unspaced?: boolean } = {}): string {
+  if (opts.unspaced) {
+    return wordAtoms(text)
+      .map((a, i) => `${i > 0 && a.spaced ? " " : ""}<span class="${cls}">${esc(a.text)}</span>`)
+      .join("");
+  }
   return text
     .split(/\s+/)
     .filter(Boolean)
     .map((w) => `<span class="${cls}">${esc(w)}</span>`)
     .join(" ");
+}
+
+/**
+ * A word-by-word stagger that lands by the stop, however many atoms there are.
+ *
+ * The rise is timed against a fixed hold, so its last atom must start in the
+ * window eight words used to: a CJK claim split per character is 30-60 atoms,
+ * and at a flat 0.05s the second half of the sentence would still be invisible
+ * when the deck stopped on it. Past `full` atoms the spacing shrinks so the
+ * spread stays `base · (full − 1)`. v2 only; classic keeps its flat stagger.
+ */
+export function staggerFor(count: number, base: number, full = 8): number {
+  if (count <= full) return base;
+  return Math.round(((base * (full - 1)) / (count - 1)) * 1000) / 1000;
+}
+
+/** Han and kana: scripts that break between any two characters, and write no spaces. */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿＀-￯]/u;
+/**
+ * Characters a CJK line may not start with (JIS X 4051 / GB/T 15834 kinsoku):
+ * closing brackets and punctuation, the iteration marks and the small kana. Each
+ * rides on the atom before it, so a line never opens on "，" or "。".
+ */
+const NO_LINE_START =
+  /[、。，．：；！？）」』】〕〉》’”・ー〜…ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々ゝゞヽヾ％]/u;
+/** And the ones it may not end with: opening brackets, which ride on the atom after. */
+const NO_LINE_END = /[（「『【〔〈《‘“]/u;
+
+/**
+ * The units `words(…, { unspaced: true })` sets, each an `inline-block` that
+ * rises on its own and is never broken across a line.
+ *
+ * WHY A CJK RUN IS NOT ONE ATOM. Split on whitespace alone, "每个查询只选取最相关的"
+ * is a single inline-block: it cannot wrap inside itself, so it jumps whole to
+ * its own line, and a mixed claim came out "每个查询只选取最 / 相关的 / k 个历史帧；不同 /
+ * token / …" (review, 2026-10-08, zh s10). Han and kana break between any two
+ * characters, so here each character is its own atom, Latin inside the run
+ * ("token", "k") stays one, and kinsoku punctuation rides on its neighbour.
+ * Hangul is spaced like Latin and stays word by word.
+ *
+ * `spaced`: whether whitespace separated this atom from the one before it.
+ */
+export function wordAtoms(text: string): { text: string; spaced: boolean }[] {
+  const out: { text: string; spaced: boolean }[] = [];
+  for (const [r, run] of text.split(/\s+/).filter(Boolean).entries()) {
+    if (!UNSPACED.test(run)) {
+      out.push({ text: run, spaced: r > 0 });
+      continue;
+    }
+    const start = out.length;
+    let latin = "";
+    let carry = "";
+    const push = (t: string) => {
+      out.push({ text: carry + t, spaced: r > 0 && out.length === start });
+      carry = "";
+    };
+    const flush = () => {
+      if (latin) push(latin);
+      latin = "";
+    };
+    for (const ch of run) {
+      // ASCII stays with the Latin it is part of: "38.3", "V2-99", "(k)".
+      if ((ch.codePointAt(0) ?? 0) < 0x80) {
+        latin += ch;
+      } else if (NO_LINE_START.test(ch) && (latin || out.length > start)) {
+        flush();
+        const last = out[out.length - 1] as { text: string };
+        last.text += ch;
+      } else if (NO_LINE_END.test(ch)) {
+        flush();
+        carry += ch;
+      } else if (UNSPACED.test(ch)) {
+        flush();
+        push(ch);
+      } else {
+        latin += ch;
+      }
+    }
+    flush();
+    if (carry) push("");
+  }
+  return out;
 }

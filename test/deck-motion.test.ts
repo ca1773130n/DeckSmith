@@ -232,6 +232,9 @@ describe.skipIf(chrome === null)("v2 motion in deck.html, in the renderer's own 
         };
         requestAnimationFrame(tick);
       });
+      // A v2 deck opens PAUSED and paused is silent (Enter is play/pause, the
+      // founder's call), so it is played first; classic speaks on arrival.
+      if (design === "v2") await page.keyboard.press("Enter");
       await act(async (key) => {
         await page.keyboard.press(key);
       });

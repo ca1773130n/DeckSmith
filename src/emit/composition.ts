@@ -290,6 +290,36 @@ export function emitDeck(
   };
 }
 
+/**
+ * How a v2 deck breaks and tracks CJK text. Empty for any other language.
+ *
+ * KOREAN BREAKS BETWEEN WORDS. Browsers break Hangul between any two syllables
+ * by default, and v2's narrow rail headlines and grown text made that happen on
+ * most rail slides: "생성 조건/인", "가장 높은 종/합 점수", "서로 다/른" (review,
+ * 2026-10-08: 8 of 8 rail headlines on one deck, against 1 break in total on
+ * the classic layouts). `keep-all` breaks only at spaces — which is also how
+ * `wrap` in svg.ts has always MEASURED Korean, so the layout's line counts and
+ * the browser's now agree — and `break-word` still breaks a single word wider
+ * than its line rather than letting it overflow, as `wrap` does.
+ *
+ * JAPANESE AND CHINESE keep breaking between characters, under the strict
+ * kinsoku rules, so a line never opens on small kana or closing punctuation.
+ *
+ * NO TRACKING ON A CJK EYEBROW. Letter-spacing made for Latin capitals pulls
+ * Hangul and kanji apart until "생성 결과의 실패" reads "생 성  결 과 의  실 패".
+ * Tracking only ever made the eyebrow wider, so dropping it never adds a line
+ * the chrome was not charged for.
+ */
+export function cjkTypesetCss(lang: string): string {
+  const l = lang.toLowerCase();
+  const eyebrow = ".scene .eyebrow{letter-spacing:0}";
+  if (l === "ko" || l.startsWith("ko-")) {
+    return [".scene{word-break:keep-all;overflow-wrap:break-word}", eyebrow].join("\n");
+  }
+  if (/^(ja|zh)(-|$)/.test(l)) return [".scene{line-break:strict}", eyebrow].join("\n");
+  return "";
+}
+
 /** The deck page for `design`: classic is untouched, v2 carries the player marker. */
 function withDesign(page: string, design: Design): string {
   return design === "v2" ? markV2(page) : page;
@@ -451,6 +481,10 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
   const holdMotion: Record<string, HoldWindow[]> = {};
 
   const archetypeCss = new Set<string>();
+  if (opts.design === "v2") {
+    const cjk = cjkTypesetCss(storyboard.lang);
+    if (cjk) archetypeCss.add(cjk);
+  }
   const scenes: string[] = [];
   const slides: SlideInput[] = [];
   /** The narration island's view of the same beats, keyed by scene id. */

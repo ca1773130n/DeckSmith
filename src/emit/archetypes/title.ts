@@ -8,7 +8,7 @@
  */
 import type { Format } from "../../types.js";
 import type { Emitter, Theme, Tween, Vars } from "../kit.js";
-import { contentH, contentW, esc, fromTo, words } from "../kit.js";
+import { contentH, contentW, esc, fromTo, staggerFor, wordAtoms, words } from "../kit.js";
 import { displayFace, type Face, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import { em, lineBox } from "../type.js";
@@ -457,13 +457,16 @@ export const title: Emitter<"title"> = (beat, ctx) => {
   // broke as "Compact thought / collides with dense / output" at 16:9 and stranded
   // a single word under a full measure on the first slide anyone sees.
   const head = unwidow(p.headline, width, size, type.title.weight, display);
+  // v2 sets a CJK headline character by character, so it wraps as the script
+  // does rather than in whole sentence-long blocks (see `wordAtoms`).
+  const v2 = ctx.design === "v2";
   const brow = p.eyebrow ? `<div class="eyebrow" id="${sid}-e">${esc(p.eyebrow)}</div>\n  ` : "";
   const sub = p.sub ? `\n  <div class="sub" id="${sid}-s">${esc(p.sub)}</div>` : "";
   // The headline is set word by word so it can RISE word by word. `words()`
   // escapes each one and rejoins with single spaces, so the line breaks exactly
   // where `unwidow` decided it would and the type floor measures the same size.
   const html = `<div class="titleslide">
-  ${brow}<h1 class="bighead" id="${sid}-t" style="font-size:${size}px">${words(head)}</h1>${sub}
+  ${brow}<h1 class="bighead" id="${sid}-t" style="font-size:${size}px">${words(head, "w", { unspaced: v2 })}</h1>${sub}
 </div>`;
 
   const tl: Tween[] = [];
@@ -477,7 +480,13 @@ export const title: Emitter<"title"> = (beat, ctx) => {
     tween(
       `#${sid}-t .w`,
       { opacity: 0, y: 38 },
-      { opacity: 1, y: 0, duration: 0.9, stagger: 0.06, ease: "power3.out" },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.9,
+        stagger: v2 ? staggerFor(wordAtoms(head).length, 0.06) : 0.06,
+        ease: "power3.out",
+      },
       0.4,
     ),
   );

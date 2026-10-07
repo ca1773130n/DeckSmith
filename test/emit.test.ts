@@ -7,13 +7,15 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitScene, emitters } from "../src/emit/archetypes/index.js";
-import { emitComposition, planCut } from "../src/emit/composition.js";
+import { cjkTypesetCss, emitComposition, planCut } from "../src/emit/composition.js";
 import {
   DIM,
   type EmitContext,
   spotlighter,
+  staggerFor,
   type Tween,
   tweenText,
+  wordAtoms,
   words,
 } from "../src/emit/kit.js";
 import { reshape, travel } from "../src/emit/svg.js";
@@ -784,6 +786,30 @@ describe("the reveal verbs", () => {
     });
   });
 
+  describe("v2 CJK typesetting", () => {
+    it("breaks Korean only between words, and Japanese and Chinese under strict kinsoku", () => {
+      // Review 2026-10-08: "생성 조건/인", "가장 높은 종/합 점수" on 8 of 8 rail headlines.
+      expect(cjkTypesetCss("ko")).toContain(".scene{word-break:keep-all;overflow-wrap:break-word}");
+      expect(cjkTypesetCss("ja")).toContain("line-break:strict");
+      expect(cjkTypesetCss("zh-Hans")).toContain("line-break:strict");
+      for (const l of ["ko", "ja", "zh-Hans"]) {
+        expect(cjkTypesetCss(l)).toContain(".scene .eyebrow{letter-spacing:0}");
+      }
+      expect(cjkTypesetCss("en")).toBe("");
+    });
+
+    it("is written into a v2 composition in that language, and never into a classic one", () => {
+      const ko = storyboardSchema.parse({ ...storyboard, lang: "ko" });
+      const v2 = emitComposition(ko, source, format("deck-16x9"), { design: "v2" });
+      const classic = emitComposition(ko, source, format("deck-16x9"));
+      expect(v2).toContain("word-break:keep-all");
+      expect(classic).not.toContain("word-break:keep-all");
+      expect(
+        emitComposition(storyboard, source, format("deck-16x9"), { design: "v2" }),
+      ).not.toContain("keep-all");
+    });
+  });
+
   describe("words", () => {
     it("wraps each word in a span, escaped, rejoined with single spaces", () => {
       expect(words("Attention  <is>\nall you\tneed ")).toBe(
@@ -793,6 +819,54 @@ describe("the reveal verbs", () => {
         '<span class="cw">Q</span> <span class="cw">&amp;</span> <span class="cw">A</span>',
       );
       expect(words("   ")).toBe("");
+    });
+
+    it("v2: sets a CJK run character by character, so it wraps like the script instead of in blocks", () => {
+      // Review 2026-10-08, zh s10: split on whitespace, "每个查询只选取最相关的" was ONE
+      // inline-block that could not wrap inside itself and jumped to its own line.
+      const atoms = wordAtoms("每个查询只选取最相关的 k 个历史帧；不同 token 与注意力");
+      expect(atoms.map((a) => a.text)).toEqual([
+        ..."每个查询只选取最相关的",
+        "k",
+        "个",
+        "历",
+        "史",
+        "帧；", // closing punctuation never opens a line
+        "不",
+        "同",
+        "token",
+        "与",
+        "注",
+        "意",
+        "力",
+      ]);
+      expect(atoms.filter((a) => a.spaced).map((a) => a.text)).toEqual(["k", "个", "token", "与"]);
+      // Latin numbers and names inside a run stay whole; brackets ride inward.
+      expect(wordAtoms("ResNet34版は38.3、「生成」").map((a) => a.text)).toEqual([
+        "ResNet34",
+        "版",
+        "は",
+        "38.3、",
+        "「生",
+        "成」",
+      ]);
+      // Hangul is spaced, and Latin is untouched: both stay word by word.
+      expect(wordAtoms("참조 이미지는 복제된다").map((a) => a.text)).toEqual([
+        "참조",
+        "이미지는",
+        "복제된다",
+      ]);
+      expect(words("Attention is all", "w", { unspaced: true })).toBe(words("Attention is all"));
+      expect(words("帧；不 k", "w", { unspaced: true })).toBe(
+        '<span class="w">帧；</span><span class="w">不</span> <span class="w">k</span>',
+      );
+    });
+
+    it("v2: spreads a long stagger so its last atom still starts where an eighth word would", () => {
+      expect(staggerFor(5, 0.05)).toBe(0.05);
+      expect(staggerFor(8, 0.05)).toBe(0.05);
+      expect(staggerFor(36, 0.05)).toBe(0.01);
+      expect(staggerFor(36, 0.05) * 35).toBeCloseTo(0.05 * 7, 2);
     });
   });
 });
