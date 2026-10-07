@@ -34,7 +34,7 @@ import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/com
 import { FIT_FILE } from "./emit/fit.js";
 import { LOOK_FILE } from "./emit/look.js";
 import { THEME_NAMES } from "./emit/theme.js";
-import { chooseLook, costsNothing } from "./emit/themes/pick.js";
+import { pickTheme } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
@@ -256,7 +256,6 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "design",
     "packSeed",
     "speed",
-    "design",
     "voice",
     "rate",
     "pitch",
@@ -624,11 +623,13 @@ voiceFlags(
 
   // Staged in the look `build` will pick: under `--design v2` the pack decides
   // the chrome's scale and face, and with them how many stops each beat has.
-  const theme = chooseLook({
+  // The same pick `build` makes, refusals included (`pickTheme`), so a pack
+  // build would refuse is never the one narration is staged under.
+  const theme = pickTheme(storyboard, source, format, {
     stated: stated(prefs, "theme"),
-    storyboard,
     design: designFor(prefs, storyboard.design),
     seed: prefs.packSeed,
+    speed: durationPlan(prefs, storyboard.beats.length).speed,
   });
   const narration = await narrate({ ...storyboard, theme }, source, prefs, { dir, format });
   await writeJson(join(dir, NARRATION_FILE), narration);
@@ -759,14 +760,14 @@ lookFlags(
     // A pack changes the chrome's scale and the face, so it can change how many
     // stops a beat has — narration on disk was recorded against one count — or
     // whether a tight beat draws at all. The pick skips any pack that would do
-    // either (`costsNothing`), falling back to the storyboard's own theme, which
-    // is what that narration was staged with. Classic: unchanged.
-    const theme = chooseLook({
+    // either (`costsNothing`), falling back to the storyboard's own theme.
+    // Classic: unchanged. `narrate` makes the same pick (see `pickTheme`).
+    const theme = pickTheme(storyboard, source, format, {
       stated: stated(prefs, "theme"),
-      storyboard,
       design,
       seed: prefs.packSeed,
-      accepts: costsNothing(storyboard, source, format, { speed: paced.speed, narration }),
+      speed: paced.speed,
+      narration,
     });
     if (design === "v2") step(`build: design v2 — style pack "${theme}"`);
     // Before the budget advisories, because it is the reason they are struck at

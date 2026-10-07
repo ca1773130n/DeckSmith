@@ -6,7 +6,7 @@
  * did before packs existed, and a PACK is measured in the face it is drawn in.
  */
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,6 +39,7 @@ import {
   costsNothing,
   fnv1a,
   packWeights,
+  pickTheme,
   rankPacks,
 } from "../src/emit/themes/pick.js";
 import {
@@ -694,6 +695,35 @@ describe("a pack may cost a deck nothing", () => {
       );
     }
   });
+
+  it("is the same pick for narrate and build, and for the CLI, the library and the server", async () => {
+    // Review 2026-10-08: narrate picked without the refusal check, so it could
+    // stage narration under a pack build then refused; and only the CLI picked
+    // a pack at all — buildDeck and the server pipeline stayed in ink.
+    for (const seed of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+      const narrate = pickTheme(board, source, format, { design: "v2", seed, speed: 1 });
+      expect(["folio", "journal"], seed).not.toContain(narrate);
+      expect(narrate).toBe(
+        chooseLook({
+          storyboard: board,
+          design: "v2",
+          seed,
+          accepts: costsNothing(board, source, format, { speed: 1 }),
+        }),
+      );
+    }
+    const out = await mkdtemp(join(tmpdir(), "decksmith-pick-"));
+    // The built library, as a caller gets it: `buildDeck` inlines dist's runtime.
+    const { buildDeck } = (await import(
+      new URL("../dist/index.js", import.meta.url).href
+    )) as typeof import("../src/index.js");
+    const built = await buildDeck(board, source as never, out, { design: "v2", packSeed: "a" });
+    const html = await readFile(join(out, "index.html"), "utf8");
+    const pack = pickTheme(board, source, format, { design: "v2", seed: "a", speed: 1 });
+    expect(pack).not.toBe("ink");
+    expect(html).toContain((PACKS[pack] as DeckTheme).bg);
+    expect(built.files.length).toBeGreaterThan(0);
+  }, 60_000);
 });
 
 /* ----------------------------------------------------------------- goldens */
@@ -760,12 +790,12 @@ describe("v2 pack goldens", () => {
   // Re-pinned 2026-10-08 (review fix round): each pack now draws its own bar
   // corners and tracks and its own title composition, in the skin.
   const GOLDEN: Record<string, string> = {
-    atlas: "a26d28ef7432e965a75e8c50e4aa3241afde8328ff237de21049a3d50a683883",
+    atlas: "e386cf4a9cec913da403052d093dc492e073623768a38fd1a90c57d1b740d5a1",
     blueprint: "b27c387005b3e644f6689307f8c358b81944327605c3439bec5c78b8150e993a",
     chalk: "b8eca602cbc18709cc2aa7f49d06debe28ec857a5164e499477810f8fcde695d",
-    folio: "16abedfe97c79b103947ec741de6349e3852e8d9f5e74d51b56e1695117ff4b8",
-    journal: "95d87eec6733a5bf129925f2184eeca2bdecd3033b72dcda71d8416b2e0f87c9",
-    signal: "3c3bff1ff0d8583588460c02cc557cf61895737862f119979f1adcb7cc4c91d1",
+    folio: "7f0a7aaf15cef6d6f6aa3686899c0778793a0b22c20a2f41f8c8c9fdfbf7a64d",
+    journal: "e77aadd0c1c514b235fe8b349b1f59f67c9de4b0dc9965c08382b13bab2a1e36",
+    signal: "454fc4fd93245904212bd01dea1a49880e1252fec5428c3d821ea12efd066cf6",
   };
 
   it.each(Object.keys(PACKS))("%s emits the composition it emitted when pinned", (name) => {

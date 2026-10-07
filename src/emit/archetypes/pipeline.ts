@@ -959,7 +959,13 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     // content width, so there is no room to grow one — 3% of a 383px box is
     // 11px past an edge with 2px of margin, and `container_overflow` reported
     // exactly that on the last stage. The dim carries the emphasis instead.
-    if (i > 0) tl.push(...spot.dim(`stage${i - 1}`, at + 0.1));
+    // v2: the last part's arrival brings everything back to full instead of
+    // dimming its neighbour, so the slide's FINAL stop — the frame a paused
+    // viewer, a contact sheet and the deck's last hold all show — is whole. The
+    // restore below used to land after that stop, where only a render saw it
+    // (en s3, three of four steps at 0.62 at #3.4; review 2026-10-08).
+    if (i > 0 && !(v2 && i === last)) tl.push(...spot.dim(`stage${i - 1}`, at + 0.1));
+    else if (v2 && i === last && i > 1) tl.push(...spot.restore(at + 0.1));
     holds.push(at + 0.55);
   });
 
@@ -999,7 +1005,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   // The whole row comes back for the last hold: the beat ends on the pipeline
   // as one thing, and a deck that leaves five of six boxes at 0.62 has spent
   // its final seconds saying "look here" about a slide nobody is reading.
-  if (p.stages.length > 1) tl.push(...spot.restore(end + (p.note ? 0.15 : 0)));
+  if (p.stages.length > 1 && !v2) tl.push(...spot.restore(end + (p.note ? 0.15 : 0)));
 
   // The last toned stage if there is one, else the stage the flow ends on —
   // either way the box still being spoken to at the final hold. Its entrance

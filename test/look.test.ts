@@ -12,7 +12,7 @@ import { emitScene } from "../src/emit/archetypes/index.js";
 import { bodyBudget, chrome } from "../src/emit/archetypes/title.js";
 import { openSeconds } from "../src/emit/composition.js";
 import type { EmitContext, ListForm, Scene, Theme } from "../src/emit/kit.js";
-import { contentH, contentW } from "../src/emit/kit.js";
+import { contentH, contentW, DIM } from "../src/emit/kit.js";
 import {
   candidates,
   classicLook,
@@ -456,5 +456,66 @@ describe("a pack's own forms", () => {
       picks.add(d.beats[0]?.signature ?? "");
     }
     expect(picks.size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("the final stop shows the whole slide under v2", () => {
+  // en s3 (review 2026-10-08): three of four pipeline steps at 0.62 opacity at
+  // the slide's last stop, because the restore was timed after it.
+  const dimmedAtLastHold = (scene: Scene): boolean => {
+    const last = Math.max(...scene.holds);
+    const events = scene.tl
+      .filter((t) => t.to.opacity === DIM || (t.from.opacity === DIM && t.to.opacity === 1))
+      .map((t) => ({
+        start: t.at,
+        end: t.at + (typeof t.to.duration === "number" ? t.to.duration : 0),
+        dims: t.to.opacity === DIM,
+      }))
+      .filter((e) => e.start <= last + 1e-9)
+      .sort((a, b) => a.start - b.start);
+    const final = events.at(-1);
+    return !!final && (final.dims || final.end > last + 1e-9);
+  };
+  const stages = (n: number): Beat =>
+    ({
+      id: "b-pipe",
+      archetype: "pipeline",
+      intent: "Flow.",
+      evidence: [],
+      weight: 0.5,
+      seconds: 9,
+      params: {
+        headline: "Four steps",
+        stages: Array.from({ length: n }, (_, i) => ({ label: `Step ${i + 1}` })),
+      },
+    }) as Beat;
+  const panels = {
+    id: "b-call",
+    archetype: "callout",
+    intent: "Point.",
+    evidence: [],
+    weight: 0.5,
+    seconds: 9,
+    params: {
+      headline: "Three findings",
+      panels: [
+        { label: "One", lines: ["a"] },
+        { label: "Two", lines: ["b"] },
+        { label: "Three", lines: ["c"] },
+      ],
+    },
+  } as Beat;
+
+  it.each([
+    ["pipeline", stages(4)],
+    ["callout", panels],
+    ["split-compare", split()],
+  ] as const)("%s: nothing is dimmed at its last hold, while classic still dims it", (_, beat) => {
+    const v2 = emitScene(beat, { ...ctx(), design: "v2" });
+    const classic = emitScene(beat, ctx());
+    expect(dimmedAtLastHold(v2)).toBe(false);
+    expect(dimmedAtLastHold(classic)).toBe(true);
+    // And the stops themselves do not move.
+    expect(v2.holds).toEqual(classic.holds);
   });
 });

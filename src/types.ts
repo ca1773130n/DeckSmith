@@ -801,7 +801,6 @@ export const storyboardSchema = z
  * reads the ones that change how it looks. Neither reaches for a field it does
  * not own, which is why a preferences change never invalidates a storyboard.
  */
-
 export const prefsSchema = z.object({
   /* --- planning --- */
   /** Target beat count. The planner treats it as a target, not a quota. */

@@ -113,14 +113,53 @@ export interface LookChoice {
  * read that way (as `--theme ink` is: the CLI treats a default value as
  * unstated). The v0.8.0 look is `--design classic`, not a v2 deck in ink.
  * Otherwise the first ranked pack `accepts` allows; if it allows none, the
- * storyboard's own theme, which is what any narration on disk was staged
- * against. Never throws.
+ * storyboard's own theme. Never throws.
+ *
+ * NOT "what any narration on disk was staged against", which this used to say:
+ * once `narrate` ran under v2 it staged under its own pick. `narrate` and
+ * `build` agree because both rank with the same seed and both refuse a pack
+ * that drops a beat (`pickTheme` below); give them the same `--pack-seed`.
  */
 export function chooseLook(c: LookChoice): string {
   if (c.stated) return c.stated;
   if (c.design !== "v2" || c.storyboard.theme !== "ink") return c.storyboard.theme;
   const ranked = rankPacks(c.storyboard.beats, c.seed ?? c.storyboard.sourceId);
   return ranked.find((name) => c.accepts?.(name) ?? true) ?? c.storyboard.theme;
+}
+
+/**
+ * The theme every entry point builds with: the CLI's `build` and `narrate`,
+ * the library's `buildDeck` and the server pipeline all come here, so the same
+ * input is the same deck whichever one made it. (Before, only the CLI picked a
+ * pack; a v2 deck from the library or the server stayed in ink.)
+ *
+ * `narration` is the recording on disk, when there is one: a pack must stage
+ * every beat at the stop count it was recorded at. `narrate` itself has none
+ * yet and asks only the other half — that no beat is dropped — which is what
+ * keeps its pick and `build`'s the same.
+ */
+export function pickTheme(
+  storyboard: Storyboard,
+  source: Source,
+  format: Format,
+  opts: {
+    stated?: string | undefined;
+    design: Design;
+    seed?: string | undefined;
+    speed: number;
+    narration?: DeckNarration | undefined;
+  },
+): string {
+  return chooseLook({
+    stated: opts.stated,
+    storyboard,
+    design: opts.design,
+    seed: opts.seed,
+    accepts: costsNothing(storyboard, source, format, {
+      speed: opts.speed,
+      narration: opts.narration,
+    }),
+  });
 }
 
 /**

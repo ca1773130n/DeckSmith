@@ -864,12 +864,19 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     // The note being spoken about is the one at full weight. A figure with five
     // labels around it and no light on any of them is a diagram the viewer has
     // to search; this is the archetype where that costs the most.
-    if (i > 0) tl.push(...spot.dim(`lab${i - 1}`, at + 0.5));
+    // v2: the last part's arrival brings everything back to full instead of
+    // dimming its neighbour, so the slide's FINAL stop — the frame a paused
+    // viewer, a contact sheet and the deck's last hold all show — is whole. The
+    // restore below used to land after that stop, where only a render saw it
+    // (en s3, three of four steps at 0.62 at #3.4; review 2026-10-08).
+    const finale = v2 && i === plan.boxes.length - 1;
+    if (i > 0 && !finale) tl.push(...spot.dim(`lab${i - 1}`, at + 0.5));
+    else if (finale && i > 1) tl.push(...spot.restore(at + 0.5));
     holds.push(at + 0.9);
   });
   // Every label back for the last hold: the figure is read as a whole once its
   // parts have been named.
-  if (plan.boxes.length > 1) {
+  if (plan.boxes.length > 1 && !v2) {
     tl.push(...spot.restore(NOTE_0 + (plan.boxes.length - 1) * STEP + 0.9));
   }
   // Settled before the first hold, not landing on it — a caption still fading up

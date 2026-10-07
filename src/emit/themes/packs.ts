@@ -23,6 +23,15 @@
 import { TYPES, type TypeSpec } from "../type.js";
 import type { DeckTheme } from "./index.js";
 
+/**
+ * In a rail the look draws its own accent kicker over the chrome
+ * (src/emit/look.ts), so a pack's eyebrow mark there would be a second marker
+ * stacked on the first. One rule, appended to every pack that marks its eyebrow
+ * with a pseudo-element.
+ */
+const RAIL_ONE_MARK =
+  ".lk-head .eyebrow::before,.lk-head .eyebrow::after{content:none;position:absolute}";
+
 function typed(t: TypeSpec | undefined): Pick<DeckTheme, "fontStack" | "displayStack"> {
   if (!t) throw new Error("unknown type spec");
   return { fontStack: t.stack, displayStack: t.displayStack };
@@ -44,6 +53,7 @@ export const signal: DeckTheme = {
     "body{background-image:radial-gradient(ellipse 70% 60% at 92% 0%,#ff2d5526 0%,transparent 70%),radial-gradient(ellipse 60% 55% at 0% 100%,#6b2bd921 0%,transparent 70%)}",
     ".scene .eyebrow{position:relative}",
     '.scene .eyebrow::before{content:"";position:absolute;left:0;top:-20px;width:72px;height:6px;border-radius:3px;background:#ff2d55}',
+    RAIL_ONE_MARK,
     ".scene .figwrap,.scene .af-plate{border-color:#ff2d5566;border-radius:18px;box-shadow:0 30px 80px -30px #ff2d5559}",
     ".scene .panel{border-radius:18px}",
     ".scene .sub{border-top-color:#ff2d55}",
@@ -107,6 +117,7 @@ export const atlas: DeckTheme = {
     "body{background-image:radial-gradient(ellipse 85% 75% at 50% 42%,transparent 55%,#00000070 100%)}",
     ".scene .eyebrow{position:relative}",
     '.scene .eyebrow::before{content:"";position:absolute;left:0;top:-20px;width:120px;height:2px;background:#e9a23b}',
+    RAIL_ONE_MARK,
     ".scene .figwrap,.scene .af-plate{border-color:#e9a23b80;border-radius:4px;box-shadow:0 0 0 8px #15110c,0 0 0 9px #e9a23b4d}",
     ".scene .panel{border-radius:4px}",
     ".scene .sub{border-top-color:#e9a23b}",
@@ -138,6 +149,7 @@ export const folio: DeckTheme = {
   skin: [
     ".scene .eyebrow{position:relative}",
     '.scene .eyebrow::after{content:"";position:absolute;left:0;bottom:-9px;width:56px;height:3px;background:#9a2333}',
+    RAIL_ONE_MARK,
     ".scene .figwrap,.scene .af-plate{border-color:#cfc3ae;border-radius:2px;box-shadow:0 1px 0 #0000000d,0 22px 44px -22px #3b2a1047}",
     ".scene .panel{border-radius:4px}",
     ".scene .sub{border-top-color:#9a2333}",
@@ -198,7 +210,10 @@ export const journal: DeckTheme = {
   ...typed(TYPES["plex-serif"]),
   skin: [
     ".scene .eyebrow{position:relative}",
-    '.scene .eyebrow::before{content:"";position:absolute;left:-30px;top:.2em;bottom:.2em;width:6px;border-radius:3px;background:#1f6b4a}',
+    // One marker, on the text's own margin: a dot above the eyebrow. It was a bar
+    // hung 30px left of the margin, beside the rail's own kicker (review 2026-10-08).
+    '.scene .eyebrow::before{content:"";position:absolute;left:0;top:-24px;width:14px;height:14px;border-radius:7px;background:#1f6b4a}',
+    RAIL_ONE_MARK,
     ".scene .figwrap,.scene .af-plate{border-color:#1f6b4a59;border-radius:10px;box-shadow:-10px 0 0 #1f6b4a}",
     ".scene .panel{border-radius:10px}",
     ".scene .sub{border-top-color:#1f6b4a}",

@@ -224,8 +224,16 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       ),
     );
     const emph = Math.min(0.4, step / 2);
+    // v2: the last part's arrival brings everything back to full instead of
+    // dimming its neighbour, so the slide's FINAL stop — the frame a paused
+    // viewer, a contact sheet and the deck's last hold all show — is whole. The
+    // restore below used to land after that stop, where only a render saw it
+    // (en s3, three of four steps at 0.62 at #3.4; review 2026-10-08).
     if (i > 0) {
-      tl.push(...spot.dim(`p${i - 1}`, at + 0.15), settle(`#${sid}-p${i - 1}`, at, emph));
+      const finale = v2 && i === p.panels.length - 1;
+      if (!finale) tl.push(...spot.dim(`p${i - 1}`, at + 0.15));
+      else if (i > 1) tl.push(...spot.restore(at + 0.15));
+      tl.push(settle(`#${sid}-p${i - 1}`, at, emph));
     }
     tl.push(lift(`#${sid}-p${i}`, at, emph));
     holds.push(at + 0.65);
@@ -236,7 +244,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     tl.push(tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at));
     holds.push(at + 0.7);
   }
-  if (p.panels.length > 1) tl.push(...spot.restore(first + p.panels.length * step));
+  if (p.panels.length > 1 && !v2) tl.push(...spot.restore(first + p.panels.length * step));
 
   const grown = sizes(k);
   const region = F.budget(0, 0, 0);

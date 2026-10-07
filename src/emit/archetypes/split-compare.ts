@@ -300,7 +300,11 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       !fig && list.length > 1
         ? Math.min(itemSize * 0.5, Math.max(0, (contentH - stackH) / (list.length - 1)))
         : 0;
-    let y = y0 + contentY + (contentH - stackH - spread * (list.length - 1)) / 2;
+    // v2 sets a list-only side from the top, under its heading: centred, the
+    // slack fell between the heading rule and the first item, ~250px on ja s2
+    // and ko s2 (review 2026-10-08), which read as a list that had come loose.
+    const slack = contentH - stackH - spread * (list.length - 1);
+    let y = y0 + contentY + (isV2(ctx) && !fig ? 0 : slack / 2);
 
     if (fig) {
       const cardX = x0 + (pw - imgW - 2 * PAD) / 2;
@@ -446,8 +450,11 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       ),
       tween(`#${sid}-hair${i}`, DRAW_FROM, { ...DRAW_TO, duration: 0.7, ease: "power2.out" }, t),
     );
+    // v2: the second side's arrival does not dim the first. Its stop is the
+    // slide's last, and a comparison read with one half at 0.62 is a
+    // comparison with one side missing (the restore below came after it).
     if (i > 0) {
-      tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
+      if (!isV2(ctx)) tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
       // The comparison exists once both halves are there, so the divider runs
       // exactly then: it is the only element on the slide that belongs to
       // neither side.
@@ -487,7 +494,9 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // Both halves back at full weight for the last hold: the note is about the
   // PAIR, and a comparison whose left half is dimmed while it is read is a
   // comparison with one side missing.
-  if (sides.length > 1) tl.push(...spot.restore((at[1] ?? 0) + (p.note ? 0.9 : 0.5)));
+  if (sides.length > 1 && !isV2(ctx)) {
+    tl.push(...spot.restore((at[1] ?? 0) + (p.note ? 0.9 : 0.5)));
+  }
 
   return {
     html,

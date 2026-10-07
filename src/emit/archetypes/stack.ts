@@ -594,8 +594,16 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
     // Both halves of the emphasis ride the arrival and last half a step, so the
     // lift on one slab has finished long before the settle on it begins.
     const emph = Math.min(0.4, step / 2);
+    // v2: the last part's arrival brings everything back to full instead of
+    // dimming its neighbour, so the slide's FINAL stop — the frame a paused
+    // viewer, a contact sheet and the deck's last hold all show — is whole. The
+    // restore below used to land after that stop, where only a render saw it
+    // (en s3, three of four steps at 0.62 at #3.4; review 2026-10-08).
     if (i > 0) {
-      tl.push(...spot.dim(`lay${i - 1}`, at + 0.15), settle(`#${sid}-lay${i - 1}`, at, emph));
+      const finale = v2 && i === count - 1;
+      if (!finale) tl.push(...spot.dim(`lay${i - 1}`, at + 0.15));
+      else if (i > 1) tl.push(...spot.restore(at + 0.15));
+      tl.push(settle(`#${sid}-lay${i - 1}`, at, emph));
     }
     // The slab being read stands proud of the pile under it.
     tl.push(lift(`#${sid}-lay${i}`, at, emph));
@@ -623,7 +631,7 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
     holds.push(at + 0.7);
   }
   // The pile is one object again at the last hold.
-  if (count > 1) tl.push(...spot.restore(first + count * step));
+  if (count > 1 && !v2) tl.push(...spot.restore(first + count * step));
 
   return {
     html,

@@ -28,6 +28,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { pickTheme } from "./emit/themes/pick.js";
 import { FIT_FILE } from "./emit/fit.js";
 import { LOOK_FILE } from "./emit/look.js";
 import type { Cut } from "./plan/select.js";
@@ -207,7 +208,13 @@ export type { Cut, Dangling, Dropped, DropRule, SelectionBudget } from "./plan/s
 export { resolveTheme, THEME_NAMES, THEMES } from "./emit/themes/index.js";
 export type { DeckTheme } from "./emit/themes/index.js";
 export { PACKS } from "./emit/themes/packs.js";
-export { chooseLook, type Design, type LookChoice, rankPacks } from "./emit/themes/pick.js";
+export {
+  chooseLook,
+  type Design,
+  type LookChoice,
+  pickTheme,
+  rankPacks,
+} from "./emit/themes/pick.js";
 export { TYPES, type TypeSpec } from "./emit/type.js";
 
 /* ------------------------------------------------------------------ verify */
@@ -375,6 +382,8 @@ export interface BuildDeckOptions {
   theme?: string;
   /** `classic` (default) or `v2`. Overrides `storyboard.design`. See `designSchema`. */
   design?: Design;
+  /** v2: the seed the style pack is ranked by. Default `storyboard.sourceId`. */
+  packSeed?: string;
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
   speed?: number;
   /** Default `FORMATS["deck-16x9"]`. */
@@ -432,11 +441,23 @@ export async function buildDeck(
   // linking it and therefore needs the CSS in hand. It also writes the woff2
   // into `out`, which is why `out` must exist by here — it does; `buildDeck`
   // made it above.
-  const fontCss = await refreshFont(storyboard, source, out, step, opts.theme);
+  // The pack, chosen exactly as the CLI's `build` chooses it (`pickTheme`): a
+  // v2 deck from this function used to stay in ink, unlike the same input built
+  // by the CLI. A stated theme still wins; classic is the storyboard's own.
+  const design = opts.design ?? storyboard.design ?? "classic";
+  const theme = pickTheme(storyboard, source, format, {
+    stated: opts.theme,
+    design,
+    seed: opts.packSeed,
+    speed,
+    narration: opts.narration,
+  });
+  if (design === "v2") step(`build: design v2 — style pack "${theme}"`);
+  const fontCss = await refreshFont(storyboard, source, out, step, theme);
 
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
-    ...(opts.theme ? { theme: opts.theme } : {}),
+    theme,
     ...(opts.design ? { design: opts.design } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
