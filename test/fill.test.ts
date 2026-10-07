@@ -97,6 +97,17 @@ describe("measureFill", () => {
     expect(row.fill).toBe(1.1);
   });
 
+  it("stops at a foot slide's region floor, because the headline is what lies under it", () => {
+    // Body in rows 10-60 of a 10-70 region; the foot headline painted at 80-95.
+    const f = frame(100, 100, [
+      { x: 0, y: 10, w: 100, h: 50 },
+      { x: 0, y: 80, w: 60, h: 15 },
+    ]);
+    const region = { left: 0, right: 100, top: 10, bottom: 70, height: 60, bg: BG };
+    expect(measureFill(f, test, region, stop).fill).toBe(1.417);
+    expect(measureFill(f, test, { ...region, scanBottom: 70 }, stop).fill).toBe(0.833);
+  });
+
   it("reads 0 when the scene had no region, which grades as hollow", () => {
     const row = measureFill(frame(10, 10, []), test, null, stop);
     expect(row.fill).toBe(0);
@@ -130,6 +141,30 @@ describe("fillInk", () => {
 
   it("falls back to the modal colour when the page declared none", () => {
     expect(fillInk(null, [1, 2, 3], 12)).toEqual({ bg: [1, 2, 3], delta: 12 });
+  });
+
+  it("measures against a background plate when a pack paints its ground", () => {
+    // A blueprint-style grid: faint lines every 10 rows, 14 levels off the
+    // ground — over the 12 threshold, so against one colour they are ink.
+    const grid = frame(100, 100, []);
+    for (let y = 0; y < 100; y += 10)
+      for (let x = 0; x < 100; x++) grid.pixels.set([25, 27, 30], (y * 100 + x) * 3);
+    const f = { ...grid, pixels: grid.pixels.slice() };
+    for (let y = 40; y < 60; y++)
+      for (let x = 0; x < 100; x++) f.pixels.set([240, 240, 240], (y * 100 + x) * 3);
+    const region = { left: 0, right: 100, top: 0, bottom: 100, height: 100, bg: BG };
+    // The grid alone reads as a body spanning the region.
+    const at = { sid: "s1", t: 1 };
+    expect(measureFill(f, fillInk(region, BG, 12), region, at).fill).toBe(0.91);
+    // Against the plate only the painted band is ink.
+    expect(measureFill(f, fillInk(region, BG, 12, grid), region, at).fill).toBe(0.2);
+  });
+
+  it("ignores a plate whose size is not the frame's", () => {
+    const f = frame(20, 20, [{ x: 0, y: 5, w: 20, h: 5 }]);
+    const wrong = frame(10, 10, [{ x: 0, y: 0, w: 10, h: 10 }]);
+    const box = { left: 0, right: 20, top: 0, bottom: 20 };
+    expect(inkExtent(f, { bg: BG, delta: 12, plate: wrong }, box)).toEqual(inkExtent(f, test, box));
   });
 });
 

@@ -63,6 +63,16 @@ export interface Box {
 export interface InkTest {
   bg: readonly [number, number, number];
   delta: number;
+  /**
+   * The page's background as a FRAME — every scene hidden, the body's own paint
+   * left — compared pixel for pixel instead of against `bg`. A v2 style pack
+   * paints its ground with gradients, a grid or dots (src/emit/themes/packs.ts),
+   * so no single colour is the background: a 7% cyan grid line on blueprint is
+   * 12 levels off its navy, and atlas's vignette darkens the corners by far more.
+   * Against one colour those read as ink and a sparse slide measured full. When
+   * its size differs from the frame's it is ignored and `bg` is used.
+   */
+  plate?: FrameLike;
 }
 
 interface FrameLike {
@@ -88,8 +98,20 @@ export function inkExtent(frame: FrameLike, test: InkTest, box: Box): Box | null
   const x1 = Math.min(width, Math.ceil(box.right));
   const y0 = Math.max(0, Math.floor(box.top));
   const y1 = Math.min(height, Math.ceil(box.bottom));
+  const plate =
+    test.plate && test.plate.width === width && test.plate.height === height ? test.plate : null;
   const ink = (x: number, y: number): boolean => {
     const i = (y * width + x) * channels;
+    if (plate) {
+      const j = (y * width + x) * plate.channels;
+      return (
+        Math.max(
+          Math.abs((pixels[i] as number) - (plate.pixels[j] as number)),
+          Math.abs((pixels[i + 1] as number) - (plate.pixels[j + 1] as number)),
+          Math.abs((pixels[i + 2] as number) - (plate.pixels[j + 2] as number)),
+        ) > test.delta
+      );
+    }
     return (
       Math.max(
         Math.abs((pixels[i] as number) - br),
@@ -141,6 +163,13 @@ export function inkExtent(frame: FrameLike, test: InkTest, box: Box): Box | null
 export interface FillRegion extends Box {
   height: number;
   /**
+   * How far down body ink is looked for. Absent: the frame's bottom edge, so a
+   * body that spills past its region is measured, not clipped. A `foot` slide
+   * sets it to the region's bottom, because what lies under that region is the
+   * slide's own headline, not spill.
+   */
+  scanBottom?: number;
+  /**
    * The page's own background, `[r, g, b]`, or null when it is not an opaque
    * colour. What "ink" is measured against — see `fillInk`.
    */
@@ -186,6 +215,22 @@ export function collectFillRegion(sid: string): FillRegion | null {
     rgb && (rgb[4] === undefined || Number(rgb[4]) === 1)
       ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
       : null;
+  // `--design v2` placements (src/emit/look.ts) move the chrome off the top of
+  // the body. A rail puts it in a left column, so the body's region is the
+  // column beside it, the full content height; a foot puts it under the body, so
+  // the region is `.lk-main`, which is `flex:1` and so exactly the room the
+  // emitter was budgeted. "Below the headline" would be the rail's empty strip
+  // under its last line, or the foot slide's bottom margin.
+  const railBody = scene.querySelector(".lk-rail > .lk-body");
+  if (railBody) {
+    const b = railBody.getBoundingClientRect();
+    return { ...box, left: b.left, right: b.right, height: content, bg };
+  }
+  const footMain = scene.querySelector(".lk-main");
+  if (footMain) {
+    const b = footMain.getBoundingClientRect();
+    return { ...box, top: b.top, bottom: b.bottom, height: b.height, scanBottom: b.bottom, bg };
+  }
   return chromeBottom > 0
     ? { ...box, top: chromeBottom, height: content - (chromeBottom - chromeTop), bg }
     : { ...box, height: content, bg };
@@ -208,8 +253,22 @@ export function fillInk(
   region: FillRegion | null,
   modal: readonly [number, number, number],
   delta: number,
+  plate?: FrameLike | null,
 ): InkTest {
-  return { bg: region?.bg ?? modal, delta };
+  return { bg: region?.bg ?? modal, delta, ...(plate ? { plate } : {}) };
+}
+
+/**
+ * Run IN THE PAGE: hide (`true`) or restore (`false`) every scene, so one
+ * screenshot between the two is the deck's bare background — `InkTest.plate`.
+ * Opacity on the scene roots rather than visibility, because GSAP's `autoAlpha`
+ * writes `visibility:visible` on descendants and would show through.
+ */
+export function hideScenes(on: boolean): void {
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-composition-id]"))) {
+    if (on) el.style.setProperty("opacity", "0", "important");
+    else el.style.removeProperty("opacity");
+  }
 }
 
 /** One scene's last hold, measured. */
@@ -251,8 +310,9 @@ export function measureFill(
   if (!region || region.height <= 0) {
     return { ...stop, fill: 0, cross: 0, canvas, region: 0 };
   }
-  // Down to the frame's edge, not the region's: spill is measured, not clipped.
-  const body = inkExtent(frame, test, { ...region, bottom: frame.height });
+  // Down to the frame's edge, not the region's: spill is measured, not clipped
+  // — except under a foot headline, whose chrome is what lies below.
+  const body = inkExtent(frame, test, { ...region, bottom: region.scanBottom ?? frame.height });
   const h = region.height;
   const w = region.right - region.left;
   return {

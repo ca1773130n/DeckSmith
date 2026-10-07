@@ -155,6 +155,7 @@ import {
   fillInk,
   finalStops,
   gradeFill,
+  hideScenes,
   measureFill,
   readFitManifest,
 } from "./fill.js";
@@ -715,6 +716,15 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const collided: Overprinted[] = [];
     const apparent: ApparentStop[] = [];
     const fills: FillRow[] = [];
+    // v2 only — a classic deck is not graded for fill, so it pays no extra
+    // capture: the bare background, once, for the fill gate's ink test.
+    let plate: Awaited<ReturnType<typeof decodePng>> | null = null;
+    if (manifest) {
+      await deck.seek(stops[0]?.t ?? 0);
+      await page.evaluate(hideScenes, true);
+      plate = await decodePng(await deck.shoot());
+      await page.evaluate(hideScenes, false);
+    }
     for (const stop of stops) {
       await deck.seek(stop.t);
       const region = await page.evaluate(bodyRegion, stop.sid, CAPTION, FALLBACK_BAND_TOP * height);
@@ -739,7 +749,9 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       // over pixels already decoded.
       if (finals.has(stop)) {
         const region = await page.evaluate(collectFillRegion, stop.sid);
-        fills.push(measureFill(frame, fillInk(region, background(frame), INK_DELTA), region, stop));
+        fills.push(
+          measureFill(frame, fillInk(region, background(frame), INK_DELTA, plate), region, stop),
+        );
       }
       measured.push({
         ...stop,
