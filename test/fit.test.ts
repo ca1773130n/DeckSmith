@@ -407,6 +407,10 @@ describe("callout under v2", () => {
     expect(rows.css).toContain("#s1 .panel{display:grid;grid-template-columns:");
     expect(rows.html).toContain("grid-template-columns:repeat(1, 1fr)");
     expect(rows.holds).toEqual(panels.holds);
+    // Rows share the height, and none is lifted out of line with the others.
+    expect(rows.css).toContain("grid-auto-rows:1fr");
+    expect(rows.tl.some((t) => t.to.scale !== undefined)).toBe(false);
+    expect(panels.tl.some((t) => t.to.scale !== undefined)).toBe(true);
     expect(rows.fill ?? 0).toBeGreaterThan(panels.fill ?? 0);
     const long = beat("callout", {
       headline: "A long one",

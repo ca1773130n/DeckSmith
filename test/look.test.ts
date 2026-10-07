@@ -315,6 +315,17 @@ describe("bar-compare: versus", () => {
     expect(v.fill).toBeGreaterThan(rows.fill ?? 0);
   });
 
+  it("sets each figure's whole glyph box inside the chart", () => {
+    // en s12 (2026-10-08): with the baseline at 0.86em the digits rose out of
+    // the chart (`text_box_overflow` on #s12-v0 and -v1).
+    const v = emitScene(bars(2, [58.4, 87.6]), ctx(vs));
+    for (const m of v.html.matchAll(
+      /<text x="[\d.]+" y="([\d.]+)"[^>]*class="bc-val"[^>]*font-size="(\d+)"/g,
+    )) {
+      expect(Number(m[1])).toBeGreaterThanOrEqual(0.96 * Number(m[2]) - 1e-6);
+    }
+  });
+
   it("refuses anything but two values", () => {
     expect(() => emitScene(bars(3), ctx(vs))).toThrow(/exactly two/);
     expect(() => emitScene(bars(2, [3, -1]), ctx(vs))).toThrow(/negative/);
@@ -456,6 +467,61 @@ describe("a pack's own forms", () => {
       picks.add(d.beats[0]?.signature ?? "");
     }
     expect(picks.size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("equation-walk under a foot headline", () => {
+  it("is refused when the display and its legend do not fit above the foot", () => {
+    // en s4 (2026-10-08): a pack leaning to foot looks picked display@foot for
+    // this four-term walk under a two-line headline, and the legend ran into the
+    // foot chrome (content_overlap at the gate). The beat, as that deck has it.
+    const src = {
+      ...source,
+      equations: [{ id: "eq1", tex: "(\\mathcal{S}, p_0, q, y^*)", display: false }],
+    } as typeof source;
+    const walk = {
+      id: "b-walk",
+      archetype: "equation-walk",
+      intent: "Read it.",
+      evidence: [],
+      weight: 0.5,
+      seconds: 14,
+      params: {
+        eyebrow: "Task specification",
+        headline: "Each task fixes a scene, starting pose, question, and answer.",
+        equationId: "eq1",
+        terms: [
+          { tex: "\\mathcal{S}", label: "The 3D scene to investigate", tone: "a" },
+          { tex: "p_0", label: "The agent's initial pose", tone: "b" },
+          { tex: "q", label: "The natural-language question", tone: "c" },
+          { tex: "y^*", label: "The ground-truth answer", tone: "d" },
+        ],
+      },
+    } as Beat;
+    const foot = { variant: "display", placement: "foot" } as const;
+    const v2 = (look?: Look) => ({ ...ctx(look), source: src, design: "v2" as const });
+    // The grown legend that ran into the foot is not grown there…
+    expect(emitScene(walk, v2(foot)).css).not.toContain("#s1 .leg{font-size:60px}");
+    // …and a walk that cannot fit even at classic sizes is refused, so the
+    // Director takes the top look, which it fits.
+    const six = {
+      ...src,
+      equations: [{ id: "eq1", tex: "(\\mathcal{S}, p_0, q, y^*, a_t, o_t)", display: false }],
+    } as typeof source;
+    const many = {
+      ...walk,
+      params: {
+        ...(walk.params as object),
+        terms: [
+          ...(walk.params as { terms: unknown[] }).terms,
+          { tex: "a_t", label: "The action at step t", tone: "a" },
+          { tex: "o_t", label: "The observation at step t", tone: "b" },
+        ],
+      },
+    } as Beat;
+    const v2six = (look?: Look) => ({ ...ctx(look), source: six, design: "v2" as const });
+    expect(() => emitScene(many, v2six(foot))).toThrow(/foot headline leaves/);
+    expect(() => emitScene(many, v2six())).not.toThrow();
   });
 });
 

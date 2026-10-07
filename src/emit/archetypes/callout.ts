@@ -233,9 +233,11 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       const finale = v2 && i === p.panels.length - 1;
       if (!finale) tl.push(...spot.dim(`p${i - 1}`, at + 0.15));
       else if (i > 1) tl.push(...spot.restore(at + 0.15));
-      tl.push(settle(`#${sid}-p${i - 1}`, at, emph));
+      if (!rowsVariant) tl.push(settle(`#${sid}-p${i - 1}`, at, emph));
     }
-    tl.push(lift(`#${sid}-p${i}`, at, emph));
+    // A table's rows do not stand proud: a lifted row is wider than the rules
+    // of the rows around it, and the table reads as misaligned.
+    if (!rowsVariant) tl.push(lift(`#${sid}-p${i}`, at, emph));
     holds.push(at + 0.65);
   });
 
@@ -291,7 +293,8 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       ...(p.panels.length === 0 ? [] : [ambient(sid, `-p${p.panels.length - 1} .plabel`, BREATHE)]),
       ...(rowsVariant
         ? [
-            `#${sid} .panels{gap:0;border-bottom:2px solid ${theme.rule}}`,
+            // Rows share the table's height evenly, so a short table opens out.
+            `#${sid} .panels{gap:0;grid-auto-rows:1fr;border-bottom:2px solid ${theme.rule}}`,
             `#${sid} .panel{display:grid;grid-template-columns:${labelW}px 1fr;column-gap:${ROW_GUTTER}px;align-content:center;background:none;border:0;border-top:2px solid ${theme.rule};border-radius:0;padding:${ROW_PAD_Y}px 0}`,
             `#${sid} .plabel{grid-row:1 / span ${ROW_MAX_LINES + 1};margin:0}`,
             `#${sid} .pline{grid-column:2;margin-top:0}`,

@@ -814,9 +814,21 @@ ${slide}`;
   // blocks is inside the painted extent. `verify` holds this against the
   // browser; a wrong estimate is reported, not hidden.
   const region = F ? F.budget(0, 0, 0) : bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0);
-  const legSize = v2 ? LEG_SIZE_V2 : 48;
-  const legGap = v2 ? LEG_GAP_V2 : 30;
-  const legH = terms.length * legSize * 1.2 + Math.max(0, terms.length - 1) * legGap;
+  const legHeight = (size: number, gap: number) =>
+    terms.length * size * 1.2 + Math.max(0, terms.length - 1) * gap;
+  // A grown legend that does not fit is not grown. Under a foot headline it is
+  // refused outright: the equation and legend spilled into the foot chrome on an
+  // en deck (3b9eaf0b s4, content_overlap at the gate) once a pack's affinity
+  // picked that look, and the Director has the top look to fall back on.
+  const grows = v2 && eqH + EQ_GAP + legHeight(LEG_SIZE_V2, LEG_GAP_V2) <= region;
+  if (F && eqH + EQ_GAP + legHeight(grows ? LEG_SIZE_V2 : 48, grows ? LEG_GAP_V2 : 30) > region) {
+    throw new Error(
+      `equation-walk ${beat.id}: the display and its legend need more than the ${Math.round(region)}px a foot headline leaves`,
+    );
+  }
+  const legSize = grows ? LEG_SIZE_V2 : 48;
+  const legGap = grows ? LEG_GAP_V2 : 30;
+  const legH = legHeight(legSize, legGap);
   const slack = Math.max(0, region - eqH - legH - EQ_GAP);
 
   return {
@@ -858,7 +870,7 @@ ${slide}`;
       ".term{display:inline-block}",
       legendCss(theme),
       // Scoped, because `legendCss` is the shared block every walk emits once.
-      ...(v2
+      ...(grows
         ? [`#${sid} .legend{gap:${LEG_GAP_V2}px}`, `#${sid} .leg{font-size:${LEG_SIZE_V2}px}`]
         : []),
       // The block, not the term under discussion: which term that is, is a fact

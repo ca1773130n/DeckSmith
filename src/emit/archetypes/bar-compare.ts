@@ -1030,14 +1030,16 @@ function versus(
   const foot = Math.ceil(labelSize * DESCENT) + 4;
   const fixed = VS_GAP + labelBand + VS_GAP + VS_BAR + unitBand + foot;
 
-  let valueSize = Math.min(VS_VALUE_MAX, Math.floor((avail - fixed) / 1.1));
+  let valueSize = Math.min(VS_VALUE_MAX, Math.floor((avail - fixed) / 1.2));
   const wide = (s: number) => printed.some((t) => textWidth(t, s, 700, 0, false, face) > inner);
   while (valueSize > VS_VALUE_MIN && wide(valueSize)) valueSize--;
   if (valueSize < VS_VALUE_MIN || wide(valueSize)) {
     throw new Error(`bar-compare ${beat.id}: no room to set two values as figures`);
   }
-  // The figure's box: its cap height sits on `valueBox`, its descent is the gap.
-  const valueBox = Math.round(valueSize * 1.1);
+  // The figure's glyph box: 1.2em, 0.96em of it above the baseline — set from
+  // the box's top, so no glyph rises out of the chart (`text_box_overflow` on
+  // #s12-v0 on an en deck when the baseline sat at 0.86em).
+  const valueBox = Math.ceil(valueSize * 1.2);
   const H = valueBox + fixed;
   if (H > avail) {
     throw new Error(
@@ -1067,7 +1069,7 @@ function versus(
       countable: !(printed[i] ?? "").includes("e") && decimals <= 4,
     };
   });
-  const valueY = top + Math.round(valueSize * 0.86);
+  const valueY = top + Math.ceil(valueSize * 0.96);
   const labelY = top + valueBox + VS_GAP + labelBand / 2;
   const barY = top + valueBox + VS_GAP + labelBand + VS_GAP;
 
