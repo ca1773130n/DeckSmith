@@ -722,12 +722,31 @@ export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   "equation-morph": "formal",
 };
 
+/**
+ * Which generation of the look a deck is built in.
+ *
+ * `classic` is every deck built before 0.9 and stays byte-identical: it is the
+ * default, so an npm user and every ink golden see no change. `v2` opts into the
+ * redesign (motion grammar, seams, emphasis during narration, and whatever the
+ * other v2 tracks add). One switch rather than one flag per feature, so a deck is
+ * always one coherent design and `--design classic` is a complete rollback.
+ */
+export const designSchema = z.enum(["classic", "v2"]);
+export type Design = z.infer<typeof designSchema>;
+
 export const storyboardSchema = z
   .object({
     sourceId: z.string(),
     title: z.string(),
     lang: z.string().default("en"),
     theme: z.string().default("ink"),
+    /**
+     * The design this storyboard asks to be built in. OPTIONAL with no default,
+     * so a stored storyboard parses to exactly the object it did before this
+     * field existed and nothing hashed from it moves. `--design` on `build`
+     * overrides it; absent everywhere means `classic`.
+     */
+    design: designSchema.optional(),
     beats: z.array(beatSchema).min(1),
   })
   /**
@@ -831,6 +850,8 @@ export const prefsSchema = z.object({
    * both be honoured. `durationPlan` says so in a warning rather than silently.
    */
   animationSpeed: z.number().min(0.25).max(3).default(1),
+  /** `classic` (default, v0.8 bytes) or `v2`. See `designSchema`. */
+  design: designSchema.default("classic"),
 
   /* --- narration --- */
   narration: z

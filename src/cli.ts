@@ -199,7 +199,8 @@ function lengthFlags(cmd: Command): Command {
 function lookFlags(cmd: Command): Command {
   return cmd
     .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
-    .option("--speed <x>", "multiply every animation duration (0.25–3)");
+    .option("--speed <x>", "multiply every animation duration (0.25–3)")
+    .option("--design <name>", "classic (v0.8 look, default) | v2 (the redesign)");
 }
 
 /** Flags that change how it *sounds*. */
@@ -248,6 +249,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "narrationDensity",
     "theme",
     "speed",
+    "design",
     "voice",
     "rate",
     "pitch",
@@ -459,6 +461,9 @@ imageFlags(
     ...planned,
     lang: prefs.lang,
     theme: stated(prefs, "theme") ?? planned.theme,
+    // Recorded only when someone asked, so a storyboard planned without the flag
+    // is byte-for-byte what it was before `design` existed.
+    ...(stated(prefs, "design") ? { design: prefs.design } : {}),
   };
   // A brief with no picture yet is what `--images` asked for; without the flag
   // it is a hole `build` would refuse, and better refused here.
@@ -690,6 +695,9 @@ lookFlags(
     // config file restates it. Language is not overridable here — it describes
     // the copy that is already written, not a wish.
     const theme = stated(prefs, "theme") ?? storyboard.theme;
+    // Same precedence as the theme: a flag or config file, else what the
+    // storyboard was planned under, else the v0.8 look.
+    const design = stated(prefs, "design") ?? storyboard.design ?? "classic";
 
     const out = resolve(o.out);
     await mkdir(out, { recursive: true });
@@ -742,6 +750,7 @@ lookFlags(
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      design,
       ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
@@ -780,7 +789,11 @@ lookFlags(
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
-    const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
+    const look = [
+      theme,
+      design === "classic" ? "" : `design ${design}`,
+      paced.speed === 1 ? "" : `${paced.speed}× speed`,
+    ]
       .filter(Boolean)
       .join(", ");
     // Count what was drawn, not what was offered: below the format's minWeight a
@@ -1015,6 +1028,7 @@ voiceFlags(
     ...chosen,
     lang: stated(chosen, "lang") ?? storyboard.lang,
     theme: stated(chosen, "theme") ?? storyboard.theme,
+    design: stated(chosen, "design") ?? storyboard.design ?? "classic",
   };
 
   const found = await findNarration(sbPath, o.narration);

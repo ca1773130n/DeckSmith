@@ -30,7 +30,7 @@ import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import type { Cut } from "./plan/select.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
-import { type Format, FORMATS, type Source, type Storyboard } from "./types.js";
+import { type Design, type Format, FORMATS, type Source, type Storyboard } from "./types.js";
 
 /* ------------------------------------------------------------------ ingest */
 
@@ -342,6 +342,8 @@ export interface BuildDeckOptions {
   theme?: string;
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
   speed?: number;
+  /** `classic` (default) or `v2`. Overrides `storyboard.design`. */
+  design?: Design;
   /** Default `FORMATS["deck-16x9"]`. */
   format?: Format;
   /** From `narrate`. `dir` is where the mp3s sit relative to `deck.html`. */
@@ -402,6 +404,7 @@ export async function buildDeck(
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
     ...(opts.theme ? { theme: opts.theme } : {}),
+    ...(opts.design ? { design: opts.design } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
     ...(opts.onBeatWarning ? { onBeatWarning: opts.onBeatWarning } : {}),

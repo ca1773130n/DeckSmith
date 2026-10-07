@@ -101,6 +101,7 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (flags.duration !== undefined) patch.duration = number("--duration", flags.duration);
   if (flags.theme !== undefined) patch.theme = flags.theme;
   if (flags.speed !== undefined) patch.animationSpeed = number("--speed", flags.speed);
+  if (flags.design !== undefined) patch.design = flags.design as Prefs["design"];
 
   const narration: Partial<Prefs["narration"]> = {};
   if (flags.narrate !== undefined) narration.enabled = flags.narrate;
@@ -138,6 +139,8 @@ export interface PrefFlags {
   duration?: string | number;
   theme?: string;
   speed?: string | number;
+  /** `--design`: `classic` | `v2`. Validated by the schema, like `--tone`. */
+  design?: string;
   narrate?: boolean;
   voice?: string;
   rate?: string;
