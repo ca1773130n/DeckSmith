@@ -77,6 +77,7 @@ import {
   readStops,
   scanBeatCount,
   scanHeadlines,
+  scanMath,
   scanNarrationDrift,
   scanPaperArc,
   scanRepeatedObject,
@@ -494,6 +495,10 @@ imageFlags(
     // A figure the plan ignored is cheapest to fix here, where the answer is one
     // more beat in a file the author already has open.
     ...scanUnusedFigures(storyboard, source),
+    // Every formula the deck will draw, parsed here by the KaTeX it vendors. A
+    // formula the browser could not parse used to be found at `verify`, after
+    // the build and the narration had been spent on it.
+    ...scanMath(storyboard, source),
   ])
     step(`plan:   ${f.message}`);
 

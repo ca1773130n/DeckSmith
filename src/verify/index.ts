@@ -8,6 +8,8 @@
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { prepareMorph } from "../emit/archetypes/equation-morph.js";
+import { prepareWalk } from "../emit/archetypes/equation-walk.js";
 import { DECK_PAGE } from "../emit/composition.js";
 import { arcProblems } from "../plan/arc.js";
 import { durationPlan } from "../plan/duration.js";
@@ -15,10 +17,12 @@ import type { Prefs } from "../prefs.js";
 import { TIMING_FILE, type Timing } from "../render/timing.js";
 import {
   type Beat,
+  type BeatOf,
   DIAGRAMMATIC,
   type Finding,
   type Source,
   type Storyboard,
+  type Term,
   type Verdict,
 } from "../types.js";
 import { scanBudget } from "./budget.js";
@@ -564,6 +568,49 @@ export function scanUnusedFigures(storyboard: Storyboard, source: Source): Findi
       message: `${unused.length} of ${source.figures.length} source ${noun} ${verb} never cited: ${named}. The authors drew them to carry the argument — a figure worth pointing into is an annotated-figure, one that argues on its own is a claim-figure — or say why this deck does not need it.`,
     },
   ];
+}
+
+/**
+ * Every equation a walk or a morph will draw, parsed now by the KaTeX the deck
+ * vendors, with what `build` will do about each one said in words.
+ *
+ * Run at `plan` because that is when the storyboard is in front of the author
+ * and the cheapest moment to change a beat. Before this, a bad formula was first
+ * parsed by a browser at `verify`, after a deck had been built and narrated
+ * around it: 26 of 92 HypePaper build failures in the week to 2026-10-07.
+ *
+ * It calls the SAME preparation the emitters call (`prepareWalk`,
+ * `prepareMorph`), so what it reports is what `build` will do, not a second
+ * opinion that can drift from it. A WARNING throughout: a repaired formula, a
+ * formula shown as plain source and a dropped term are all drawn without
+ * throwing — and a beat that will be left out is reported again, by name, when
+ * `build` leaves it out.
+ */
+export function scanMath(storyboard: Storyboard, source: Source): Finding[] {
+  const out: Finding[] = [];
+  const say = (rule: string, message: string): void => {
+    out.push({ severity: "warning", gate: "storyboard", rule, message });
+  };
+  for (const beat of storyboard.beats) {
+    try {
+      let notes: string[] = [];
+      if (beat.archetype === "equation-walk") {
+        const params = beat.params as { equationId: string; terms: Term[] };
+        const eq = source.equations.find((e) => e.id === params.equationId);
+        // A dangling id is `assertRefsResolve`'s to report, and it does.
+        if (eq) notes = prepareWalk(eq, params.terms, beat.id).notes;
+      } else if (beat.archetype === "equation-morph") {
+        notes = prepareMorph(beat as BeatOf<"equation-morph">, source).notes;
+      }
+      for (const n of notes) say("tex_repaired", `${beat.id}: ${n}`);
+    } catch (err) {
+      say(
+        "tex_unrenderable",
+        `${beat.id}: ${err instanceof Error ? err.message : String(err)} — build will leave this beat out`,
+      );
+    }
+  }
+  return out;
 }
 
 /**

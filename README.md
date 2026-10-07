@@ -1205,6 +1205,19 @@ mechanically rather than free-hand.
   root timeline holds only a dummy tween spanning the deck.
 - KaTeX renders with `output: "html"`. The default also emits a hidden MathML mirror that
   the layout inspector reads as overlapping text.
+- No TeX reaches a `katex.render` call that KaTeX has not already parsed in Node, with
+  `throwOnError` and the deck's own options (`src/emit/tex.ts`). A formula that fails gets
+  a repair only where it cannot change what the formula says — a missing `\right.`, an
+  unclosed brace, a dropped `\label`, a paper's undefined macro drawn as its name — and the
+  repair is printed at `plan` and again at `build`. One no repair saves is shown as its
+  source in plain text by `equation-walk`, and costs the beat, by name, in
+  `equation-morph`. Until this existed the first parser a formula met was the browser at
+  `verify`, after the deck had been built and narrated: 26 of 92 failed HypePaper builds
+  in the week to 2026-10-07, 25 of them from `wrapTerms` cutting a `\left`/`\right` pair or
+  a superscript in half.
+- `equation-walk` measures its display after fonts and fits it to its box: smaller down to
+  the 40px floor, then broken after top-level relations and operators. One that still does
+  not fit fails `fidelity` as `math_unfit`, with the formula in the message.
 - No `Date.now()`, no `Math.random()`, no network at render time *in the composition*.
   Two renders of an image-free deck must be byte-identical. `deck.html` is exempt: it is
   presented, never rendered, and its subtitle loop legitimately reads a clock.

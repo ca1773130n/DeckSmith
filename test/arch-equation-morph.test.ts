@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { equationMorph } from "../src/emit/archetypes/equation-morph.js";
 import { tweenText } from "../src/emit/kit.js";
 import { evaluate, type Group, type MorphPlan, match, plan } from "../src/emit/morph-runtime.js";
+import { texError } from "../src/emit/tex.js";
 import { ink } from "../src/emit/themes/index.js";
 import type { BeatOf, Format, Source, Term } from "../src/types.js";
 import { beatSchema, FORMATS } from "../src/types.js";
@@ -69,6 +70,46 @@ describe("equation-morph", () => {
   it("refuses a beat where no term is in both equations, and names them", () => {
     expect(() => equationMorph(beat([win]), at(A, B))).toThrow(
       /none of its 1 term\(s\) occur in both.*\\mathcal\{W\}/s,
+    );
+  });
+
+  it("says which term it dropped for being on one side only", () => {
+    const scene = equationMorph(beat([enc, win]), at(A, B));
+    expect(scene.warnings).toEqual([
+      expect.stringMatching(
+        /"\\\\mathcal\{W\}" does not occur in both ea and eb.*"window partition"/,
+      ),
+    ]);
+  });
+
+  // The walk's two wrapping defects reached the morph through the same
+  // `wrapTerms`: a term ending before a folded `\right` took the `\right` with it.
+  it("keys a term that ends just inside a \\left...\\right on both lines, and both lines parse", () => {
+    const a = "y = \\left( a_{\\le t} \\right)";
+    const b = "z = \\left( a_{\\le t} + 1 \\right)";
+    const term = { tex: "a_{\\le t}", label: "the prefix", tone: "a" } as Term;
+    const setup = equationMorph(beat([term]), at(a, b)).setup ?? [];
+    const texs = setup.flatMap((l) =>
+      [...l.matchAll(/katex\.render\('((?:[^'\\]|\\.)*)'/g)].map((m) =>
+        (m[1] as string).replace(/\\(.)/g, "$1"),
+      ),
+    );
+    expect(texs.slice(0, 2).map((t) => texError(t, true))).toEqual([null, null]);
+    expect(texs[0]).toBe("y = \\left( \\htmlClass{term t-a ds-k-a}{a_{\\le t}} \\right)");
+  });
+
+  it("repairs a paper's undefined macro on both lines, and still keys it", () => {
+    const term = { tex: "\\raydir", label: "ray", tone: "a" } as Term;
+    const scene = equationMorph(beat([term]), at("\\raydir = R d", "\\raydir = R K^{-1} p"));
+    expect(
+      (scene.setup ?? []).join("\n").match(/ds-k-a\}\{\\\\operatorname\{raydir\}\}/g),
+    ).toHaveLength(2);
+    expect(scene.warnings).toHaveLength(2);
+  });
+
+  it("refuses a line KaTeX cannot parse even repaired, and names the line", () => {
+    expect(() => equationMorph(beat([enc]), at("x^a^b = \\mathcal{E}(\\mathbf{I})", B))).toThrow(
+      /ea does not parse even after repair \(.*Double superscript.*\).*Formula: "x\^a\^b/s,
     );
   });
 

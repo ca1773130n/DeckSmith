@@ -143,11 +143,13 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DECK_PAGE } from "../emit/composition.js";
+import { UNFIT_ATTR } from "../emit/tex.js";
 import { openDeck } from "../render/capture.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
 import { type ApparentStop, collectApparent, gradeApparent, midpoints } from "./apparent.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
+import { TYPE_FLOOR_PX } from "./typefloor.js";
 
 /**
  * Ink at a stop, as a fraction of the WHOLE frame — not of the measured band.
@@ -577,6 +579,40 @@ function captionBottom(sid: string, selector: string, fallbackPx: number): numbe
   return bottom > 0 ? bottom : fallbackPx;
 }
 
+/** An equation the deck's own fit gave up on: the scene, and the formula. */
+export interface Unfit {
+  sid: string;
+  tex: string;
+}
+
+/**
+ * Run IN THE PAGE: every display `equation-walk`'s fit marked as not fitting.
+ *
+ * Read once, after the ready gate — the fit runs inside it, before any frame,
+ * so the marks are the same at every time the deck could be seeked to.
+ */
+export function collectUnfit(attr: string): Unfit[] {
+  return Array.from(document.querySelectorAll(`[${attr}]`)).map((el) => ({
+    sid: el.closest("[data-composition-id]")?.getAttribute("data-composition-id") ?? "?",
+    tex: el.getAttribute(attr) ?? "",
+  }));
+}
+
+/**
+ * An error per equation that does not fit its box at the type floor even broken
+ * across lines, NAMING THE FORMULA. The layout gate sees the same overflow and
+ * can only say `span.mord`, which tells nobody which of a deck's equations to
+ * shorten.
+ */
+export function gradeUnfit(rows: readonly Unfit[]): Finding[] {
+  return rows.map((r) => ({
+    severity: "error",
+    gate: "fidelity",
+    rule: "math_unfit",
+    message: `${r.sid}: the equation does not fit its box even at the ${TYPE_FLOOR_PX}px floor broken across lines — ${JSON.stringify(r.tex)}. Shorten it in the source, or walk it across two beats.`,
+  }));
+}
+
 /**
  * Seek every declared stop and count the ink below its caption.
  *
@@ -618,6 +654,12 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     // the same three calls. What stays here is only the arithmetic over them.
     deck = await openDeck(dir, { timeoutMs: opts.timeoutMs });
     const { page, height } = deck;
+    // The fit runs in a ready-gate builder; read its marks only once the gate
+    // has lowered the flag, which every composition's gate does, builders or not.
+    await page.waitForFunction("window.__hfTimelinesBuilding === false", {
+      timeout: opts.timeoutMs ?? 60_000,
+    });
+    const unfit = await page.evaluate(collectUnfit, UNFIT_ATTR);
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
     const apparent: ApparentStop[] = [];
@@ -672,6 +714,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...gradeReserve(measured),
         ...gradeOverprint(collided),
         ...gradeApparent(apparent),
+        ...gradeUnfit(unfit),
       ],
       elapsedMs: Date.now() - started,
     };

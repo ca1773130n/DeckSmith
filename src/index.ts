@@ -215,9 +215,13 @@ export { verify } from "./verify/index.js";
  * `scanBeatCount` also fold into `verify`; that one needs the preferences the
  * deck was asked for, which a built directory does not carry — and
  * `scanUnusedFigures` folds in only where the source was passed alongside.
+ * `scanMath` does not fold into `verify`: by then the build has already said
+ * the same thing through `onBeatWarning`, and saying it twice trains people to
+ * stop reading it.
  */
 export {
   scanBeatCount,
+  scanMath,
   scanNarrationDrift,
   scanPaperArc,
   scanHeadlines,

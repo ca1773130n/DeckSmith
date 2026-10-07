@@ -8,8 +8,9 @@
  */
 import type { Term } from "../../types.js";
 import type { Emitter, Theme } from "../kit.js";
-import { contentW, esc, js, spotlighter } from "../kit.js";
+import { contentW, esc, js, raw, spotlighter } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
+import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
 import { chrome, chromeCss, chromeIn, holdsWithin, isPortrait, tween } from "./title.js";
 
@@ -57,10 +58,31 @@ const SYNONYMS: [RegExp, string][] = [
   [/\\mathrm\{d\}/g, "d"],
 ];
 
-/** The normal form, plus `map[i]` = where normalised character `i` began. */
-function normalise(tex: string): { text: string; map: number[] } {
+/**
+ * The normal form, with three maps back into the original, per normalised
+ * character `i`:
+ *
+ * - `map[i]`  where the token it came from began;
+ * - `ends[i]` where that token ended — past all six characters of `\rVert`;
+ * - `lead[i]` where it began INCLUDING a sizing hint folded away just before it,
+ *   so the `(` of `\left(` leads back to the `\left`.
+ *
+ * `ends` and `lead` exist because the span used to be found by reading the NEXT
+ * normalised character's start, which is past any `\right` folded away in
+ * between: a term ending at `a_{\le t}` in `\left(x, a_{\le t}\right)` was
+ * wrapped as `\htmlClass{..}{a_{\le t}\right}` — a `\right` inside a group its
+ * `\left` is outside of, which KaTeX refuses. At the other end, a term opening
+ * on `\left|` was wrapped from the `|`, leaving `\left\htmlClass{..}{|...`.
+ * Those two were 19 and 3 of the 26 KaTeX parse errors HypePaper's decks died
+ * on at `verify` in the week to 2026-10-07.
+ */
+function normalise(tex: string): { text: string; map: number[]; ends: number[]; lead: number[] } {
   let out = "";
   const map: number[] = [];
+  const ends: number[] = [];
+  const lead: number[] = [];
+  /** Where a run of folded-away hints began, waiting for the character it sizes. */
+  let hint: number | null = null;
   for (let i = 0; i < tex.length; ) {
     if (/\s/.test(tex[i] as string)) {
       i++;
@@ -72,42 +94,37 @@ function normalise(tex: string): { text: string; map: number[] } {
       const m = new RegExp(`^(?:${re.source})`).exec(rest);
       return m ? { len: m[0].length, to } : null;
     }).find(Boolean);
-    if (hit) {
-      for (const ch of hit.to) {
-        out += ch;
-        map.push(i);
-      }
-      i += hit.len;
-      continue;
+    const len = hit ? hit.len : 1;
+    const chars = hit ? hit.to : (tex[i] as string);
+    if (chars === "") hint ??= i;
+    for (const ch of chars) {
+      out += ch;
+      map.push(i);
+      ends.push(i + len);
+      lead.push(hint ?? i);
+      hint = null;
     }
-    out += tex[i];
-    map.push(i);
-    i++;
+    i += len;
   }
-  return { text: out, map };
+  return { text: out, map, ends, lead };
 }
 
-/** Where `term` sits in `tex`, comparing normal forms. Null when it is absent. */
+/**
+ * Where `term` sits in `tex`, comparing normal forms. Null when it is absent.
+ *
+ * The span starts at the first matched character's token — with the `\left`
+ * that sizes it, when the term opens on a sized delimiter — and ends where the
+ * last matched character's token ends. Never further: whatever follows the term
+ * in the equation, a `\right` included, is not the term's.
+ */
 export function locate(tex: string, term: string): { start: number; end: number } | null {
   const hay = normalise(tex);
   const needle = normalise(term).text;
   if (needle === "") return null;
   const at = hay.text.indexOf(needle);
   if (at < 0) return null;
-  const start = hay.map[at] as number;
-  const lastNorm = at + needle.length - 1;
-  const lastOrig = hay.map[lastNorm] as number;
-  // The original span runs to the end of the character the last normalised one
-  // came from, which for a folded synonym is longer than one character.
-  let end = lastOrig + 1;
-  while (
-    end < tex.length &&
-    (hay.map[lastNorm + 1] ?? tex.length) > end &&
-    /\s/.test(tex[end] as string)
-  ) {
-    end++;
-  }
-  end = Math.max(end, hay.map[lastNorm + 1] ?? lastOrig + 1);
+  const start = hay.lead[at] as number;
+  const end = hay.ends[at + needle.length - 1] as number;
   return { start, end: Math.min(end, tex.length) };
 }
 
@@ -132,39 +149,187 @@ export function wrapTerms(
   beatId: string,
   /** The class the wrapper carries; the morph adds its key to the walk's tint. */
   cls: (t: Term) => string = (t) => `term t-${t.tone}`,
-): { tex: string; used: Term[]; missing: Term[] } {
+): { tex: string; used: Term[]; missing: Term[]; broken: Term[] } {
+  // Every placement is parsed by KaTeX before it is kept — but only when the
+  // equation parsed BEFORE any wrapping, because otherwise every placement
+  // would be refused for a fault that is not its own. A caller with an equation
+  // KaTeX refuses must repair or degrade it first (see `prepareWalk`).
+  const checked = texError(tex, true) === null;
   let parts: { text: string; raw: boolean }[] = [{ text: tex, raw: true }];
   const used: Term[] = [];
   const missing: Term[] = [];
+  /** Found in the TeX, but no wrapping of it parses. A subset of `missing`. */
+  const broken: Term[] = [];
+  const joined = (ps: { text: string }[]) => ps.map((p) => p.text).join("");
   for (const term of terms) {
     let placed = false;
+    let found = false;
     for (let i = 0; i < parts.length && !placed; i++) {
       const part = parts[i] as { text: string; raw: boolean };
       if (!part.raw) continue;
       const at = locate(part.text, term.tex);
       if (!at) continue;
-      parts = parts.toSpliced(
-        i,
-        1,
-        { text: part.text.slice(0, at.start), raw: true },
-        {
-          text: `\\htmlClass{${cls(term)}}{${part.text.slice(at.start, at.end)}}`,
-          raw: false,
-        },
-        { text: part.text.slice(at.end), raw: true },
-      );
-      used.push(term);
-      placed = true;
+      found = true;
+      const body = `\\htmlClass{${cls(term)}}{${part.text.slice(at.start, at.end)}}`;
+      // Bare first, then as a group of its own. The group is what a span needs
+      // when the TeX before it takes ONE token as an argument — `x^\alpha`
+      // wrapped bare is `x^\htmlClass{..}{\alpha}`, a superscript with no
+      // argument, and that was three of HypePaper's 26 parse errors. Bare is
+      // tried first because a group changes a relation's spacing to an ordinary
+      // atom's, and most spans do not need one.
+      for (const text of [body, `{${body}}`]) {
+        const next = parts.toSpliced(
+          i,
+          1,
+          { text: part.text.slice(0, at.start), raw: true },
+          { text, raw: false },
+          { text: part.text.slice(at.end), raw: true },
+        );
+        if (checked && texError(joined(next), true) !== null) continue;
+        parts = next;
+        used.push(term);
+        placed = true;
+        break;
+      }
     }
-    if (!placed) missing.push(term);
+    if (!placed) {
+      missing.push(term);
+      if (found) broken.push(term);
+    }
   }
   if (used.length === 0) {
     throw new Error(
-      `equation-walk ${beatId}: none of its ${terms.length} term(s) occur in the equation. ` +
+      `equation-walk ${beatId}: none of its ${terms.length} term(s) ${broken.length ? "can be highlighted in" : "occur in"} the equation. ` +
         `Terms: ${terms.map((t) => JSON.stringify(t.tex)).join(", ")}. Equation: ${JSON.stringify(tex)}`,
     );
   }
-  return { tex: parts.map((part) => part.text).join(""), used, missing };
+  return { tex: joined(parts), used, missing, broken };
+}
+
+/** One sentence per term the walk could not highlight. */
+function droppedTerms(eqId: string, missing: Term[], broken: Term[]): string[] {
+  return missing.map((t) =>
+    broken.includes(t)
+      ? `term ${JSON.stringify(t.tex)} is in ${eqId} but no span around it parses, so it is not highlighted and its legend row ("${t.label}") is left out`
+      : `term ${JSON.stringify(t.tex)} does not occur in ${eqId}, so its legend row ("${t.label}") is left out`,
+  );
+}
+
+/** What `prepareWalk` decided about one equation and its terms. */
+export interface PreparedWalk {
+  /** The TeX to render, repaired and term-wrapped. Absent when `plain`. */
+  tex?: string;
+  /** The repaired TeX without wrappers, for measuring. The source TeX when `plain`. */
+  raw: string;
+  /** Set when KaTeX refuses the equation even after repair. */
+  plain?: { error: string };
+  used: Term[];
+  missing: Term[];
+  notes: string[];
+}
+
+/**
+ * Everything the walk needs to draw one equation, decided in Node — so `plan`
+ * can report it and `build` cannot ship a `katex.render` call that throws.
+ *
+ * The equation is parsed and, if KaTeX refuses it, repaired (`repairTex`). Each
+ * term is repaired the same way, so a term spelled with the paper's own macro
+ * still finds it once both are drawn as names. Then the terms are wrapped, each
+ * wrapping parsed before it is kept.
+ *
+ * An equation no repair makes parseable is DEGRADED, not dropped and not
+ * shipped: `plain` is set and the slide shows the TeX source as text, with the
+ * terms still marked so the walk still walks. `notes` says, in words, every
+ * repair, degradation and dropped term — `plan` prints them and `build` reports
+ * them as the beat's warnings.
+ */
+export function prepareWalk(
+  eq: { id: string; tex: string },
+  terms: readonly Term[],
+  beatId: string,
+): PreparedWalk {
+  const fixed = repairTex(eq.tex, true);
+  const notes = fixed.repairs.map((r) => `${eq.id} repaired before drawing: ${r}`);
+  const repairedTerms = terms.map((t) => ({ ...t, tex: repairTex(t.tex, false).tex }));
+  if (fixed.error !== null) {
+    notes.push(
+      `${eq.id} does not parse even after repair (${fixed.error}), so it is shown as its TeX source in plain text — ${JSON.stringify(eq.tex)}`,
+    );
+    // Located against the source as written: that is the text on the slide.
+    const parts = segment(eq.tex, [...terms]);
+    if (parts.used.length === 0) {
+      throw new Error(
+        `equation-walk ${beatId}: none of its ${terms.length} term(s) occur in the equation. ` +
+          `Terms: ${terms.map((t) => JSON.stringify(t.tex)).join(", ")}. Equation: ${JSON.stringify(eq.tex)}`,
+      );
+    }
+    notes.push(...droppedTerms(eq.id, parts.missing, []));
+    return {
+      raw: eq.tex,
+      plain: { error: fixed.error },
+      used: parts.used,
+      missing: parts.missing,
+      notes,
+    };
+  }
+  const walk = wrapTerms(fixed.tex, repairedTerms, beatId);
+  // Back to the planner's own terms, so the legend and the chips are keyed by the
+  // objects the storyboard holds — the repaired TeX is only for finding them.
+  const back = (ts: Term[]) => ts.map((t) => terms[repairedTerms.indexOf(t)] as Term);
+  const used = back(walk.used);
+  const missing = back(walk.missing);
+  notes.push(...droppedTerms(eq.id, missing, back(walk.broken)));
+  return { tex: walk.tex, raw: fixed.tex, used, missing, notes };
+}
+
+/** The source cut at each term's first occurrence, for a slide drawn as plain text. */
+function segment(
+  tex: string,
+  terms: Term[],
+): { parts: { text: string; term?: Term }[]; used: Term[]; missing: Term[] } {
+  let parts: { text: string; term?: Term }[] = [{ text: tex }];
+  const used: Term[] = [];
+  const missing: Term[] = [];
+  for (const term of terms) {
+    const i = parts.findIndex((p) => !p.term && locate(p.text, term.tex));
+    const part = parts[i];
+    const at = part && locate(part.text, term.tex);
+    if (!part || !at) {
+      missing.push(term);
+      continue;
+    }
+    parts = parts.toSpliced(
+      i,
+      1,
+      { text: part.text.slice(0, at.start) },
+      { text: part.text.slice(at.start, at.end), term },
+      { text: part.text.slice(at.end) },
+    );
+    used.push(term);
+  }
+  return { parts, used, missing };
+}
+
+/** The plain-text form of an equation KaTeX refuses: escaped source, terms marked. */
+function plainHtml(tex: string, terms: Term[]): string {
+  return segment(tex, terms)
+    .parts.map((p) =>
+      p.term ? `<span class="term t-${p.term.tone}">${esc(p.text)}</span>` : esc(p.text),
+    )
+    .join("");
+}
+
+/**
+ * A legend chip's contents: the term's TeX for KaTeX when it parses inline
+ * (repaired if it had to be), and its source as plain text when it does not —
+ * a chip is where a viewer reads WHICH symbol, so it is never left empty.
+ */
+export function chipSetup(sid: string, term: Term): string {
+  const fixed = repairTex(term.tex, false);
+  const el = `document.getElementById("${sid}-chip-${term.tone}")`;
+  return fixed.error === null
+    ? `katex.render('${js(fixed.tex)}', ${el}, ${INLINE_OPTS});`
+    : `${el}.textContent = '${js(term.tex)}';`;
 }
 
 /**
@@ -237,6 +402,166 @@ function statements(tex: string, stacked: boolean): string[] {
   return parts.length > 0 ? parts : [tex];
 }
 
+/** The size an equation shown as plain source is set at: the legend's own size. */
+const PLAIN_FONT = 48;
+
+/**
+ * Fit the rendered display to its box, measured — SEAM B, after fonts.
+ *
+ * `equationSize` and `texUnits` pick a size from a glyph count, and a count is
+ * not a width. On HypePaper's decks it was wrong in the dangerous direction:
+ * `\text{K-Score} = 0.1 \cdot \text{Faithfulness} + 0.4 \cdot \text{Visual
+ * Correctness} + ...` was set at the 40px floor and still ran 173px off the
+ * right edge of the canvas, and the gate could only say `span.mord`. So the
+ * browser measures what KaTeX actually drew, and in this order:
+ *
+ *  1. it fits as estimated — nothing changes;
+ *  2. it fits on one line at some size between the floor and the wanted size —
+ *     set that size;
+ *  3. it does not fit on one line even at the floor — re-render it inline, where
+ *     KaTeX breaks after a top-level relation or binary operator exactly as TeX
+ *     does, at the wanted size, and shrink toward the floor until the widest
+ *     unbreakable piece fits and the slide does not spill vertically;
+ *  4. nothing fits — leave it at the floor and mark it with `UNFIT_ATTR`, so
+ *     `fidelity` fails the deck with the formula in the message.
+ *
+ * Every step is a measurement taken once, inside the ready gate, before the
+ * timeline exists; the result is ordinary layout, not a value written from a
+ * callback (invariant 11). The terms keep their `\htmlClass` wrappers across a
+ * re-render, so the walk's tweens find them either way.
+ */
+function mathFit(
+  sid: string,
+  targets: string[],
+  shown: string[],
+  raw: string,
+  want: number,
+  floor: number,
+): string[] {
+  return [
+    `var dsEqFit = (function () {
+                var box = document.getElementById("${sid}-eq");
+                var slide = box && box.parentNode;
+                var bw = box ? box.getBoundingClientRect().width : 0;
+                if (!(bw > 0) || !slide) return "unmeasured";
+                var targets = [${targets.map((id) => `"${id}"`).join(", ")}].map(function (id) { return document.getElementById(id); });
+                var TEX = [${shown.map((s) => `'${js(s)}'`).join(", ")}];
+                var spill0 = slide.scrollHeight - slide.clientHeight;
+                function extent(each) {
+                  var w = 0;
+                  targets.forEach(function (t) {
+                    var lo = Infinity, hi = -Infinity;
+                    Array.prototype.forEach.call(t.querySelectorAll(".katex-html > .base"), function (b) {
+                      var r = b.getBoundingClientRect();
+                      if (each) w = Math.max(w, r.width);
+                      else { lo = Math.min(lo, r.left); hi = Math.max(hi, r.right); }
+                    });
+                    if (!each && hi > lo) w = Math.max(w, hi - lo);
+                  });
+                  return w;
+                }
+                function fits(each) {
+                  return extent(each) <= bw + 0.5 && slide.scrollHeight - slide.clientHeight <= Math.max(1, spill0 + 1);
+                }
+                function settle(each, size) {
+                  size = Math.max(${floor}, Math.min(${want}, Math.floor(size)));
+                  box.style.fontSize = size + "px";
+                  while (!fits(each) && size > ${floor}) {
+                    size = Math.max(${floor}, size - 2);
+                    box.style.fontSize = size + "px";
+                  }
+                  return fits(each);
+                }
+                if (fits(false)) return "fits";
+                var size = parseFloat(box.style.fontSize);
+                if (settle(false, (size * bw) / extent(false))) return "scaled";
+                targets.forEach(function (t, i) { katex.render("\\\\displaystyle " + TEX[i], t, ${INLINE_OPTS}); });
+                box.className += " eq-broken";
+                box.style.fontSize = "${want}px";
+                var wb = extent(true);
+                if (settle(true, wb > bw ? (${want} * bw) / wb : ${want})) return "broken";
+                box.setAttribute("${UNFIT_ATTR}", '${js(raw)}');
+                return "unfit";
+              })()`,
+  ];
+}
+
+/**
+ * Grow each legend chip to hold the glyphs KaTeX set in it.
+ *
+ * A chip is a painted box with 2px of vertical padding, and the layout gate
+ * measures text against the nearest painted box. `x^{\text{gt}}_{<i}` or a
+ * `\frac` sets glyph boxes above and below the line box, so the chip failed
+ * `text_box_overflow` on its own superscript — measured on HypePaper deck
+ * 0ef77cae: the `gt` sat 10px above the chip's top edge. Padding is added only
+ * where a glyph box actually crosses an edge, so a chip that already held its
+ * term is untouched.
+ */
+export function chipFit(sid: string, terms: Term[]): string[] {
+  if (terms.length === 0) return [];
+  return [
+    `[${terms.map((t) => `"${t.tone}"`).join(", ")}].forEach(function (tone) {
+                var chip = document.getElementById("${sid}-chip-" + tone);
+                var r = chip && chip.getBoundingClientRect();
+                if (!r || !(r.height > 0)) return;
+                var k = chip.offsetHeight / r.height;
+                var top = r.top, bottom = r.bottom;
+                Array.prototype.forEach.call(chip.querySelectorAll("span"), function (el) {
+                  for (var n = el.firstChild; n; n = n.nextSibling) {
+                    if (n.nodeType === 3 && n.nodeValue.trim()) {
+                      var q = el.getBoundingClientRect();
+                      top = Math.min(top, q.top);
+                      bottom = Math.max(bottom, q.bottom);
+                      return;
+                    }
+                  }
+                });
+                var cs = getComputedStyle(chip);
+                if (top < r.top) chip.style.paddingTop = parseFloat(cs.paddingTop) + Math.ceil((r.top - top) * k) + "px";
+                if (bottom > r.bottom) chip.style.paddingBottom = parseFloat(cs.paddingBottom) + Math.ceil((bottom - r.bottom) * k) + "px";
+              })`,
+  ];
+}
+
+/** The walk's swell on a term the width of one glyph — the pulse it was designed as. */
+const SWELL = 1.16;
+/** How far a swollen term may grow past each of its own edges, in ems. */
+const SWELL_EM = 0.06;
+
+/**
+ * Each term's swell, from its rendered width, into `dsSwell[tone]`.
+ *
+ * Scaling about the centre grows a term by `(s - 1) / 2` of its width on each
+ * side. A one-glyph term at `SWELL` grows ~0.05em a side and stays inside the
+ * thick space KaTeX sets around a relation; a 600px term at the same scale
+ * grows 48px a side, over its neighbours — measured on HypePaper deck 0ef77cae,
+ * where `G_\theta(...)` covered the `\big\|` before it and the minus after it.
+ * So the growth a side is capped at `SWELL_EM` and the scale is whatever that
+ * allows, never more than `SWELL`: a long term is told by its tint, a short
+ * one by its tint and its pulse.
+ *
+ * `k` divides screen px back into layout px, as `cameraMeasure` and the morph
+ * runtime do; the font size is a layout length.
+ */
+function swellFit(sid: string, terms: Term[]): string[] {
+  return [
+    `var dsSwell = (function () {
+                var out = {};
+                var box = document.getElementById("${sid}-eq");
+                var k = box && box.offsetWidth ? box.getBoundingClientRect().width / box.offsetWidth : 1;
+                var em = box ? parseFloat(getComputedStyle(box).fontSize) : 0;
+                [${terms.map((t) => `"${t.tone}"`).join(", ")}].forEach(function (tone) {
+                  var w = 0;
+                  Array.prototype.forEach.call(document.querySelectorAll("#${sid} .t-" + tone), function (el) {
+                    w = Math.max(w, el.getBoundingClientRect().width / k);
+                  });
+                  out[tone] = w > 0 && em > 0 ? Math.min(${SWELL}, Math.round((1 + (2 * ${SWELL_EM} * em) / w) * 1000) / 1000) : ${SWELL};
+                });
+                return out;
+              })()`,
+  ];
+}
+
 /** One row per term: a chip KaTeX fills in `setup`, and the label. Shared with the morph. */
 export function legendRows(sid: string, terms: Term[], theme: Theme): string {
   return terms
@@ -257,7 +582,10 @@ export function legendCss(theme: Theme): string {
     `.leg{display:flex;gap:26px;align-items:baseline;max-width:1400px;font-size:48px;color:${theme.muted}}`,
     // A common chip width, so the labels share a spine too — the glyphs inside
     // are one symbol each and their natural widths differ by a few pixels.
-    `.chip{display:inline-block;min-width:72px;text-align:center;background:${theme.panel};border-radius:10px;padding:2px 20px;white-space:nowrap;font-weight:700}`,
+    // `flex:none`: beside a long label the chip used to SHRINK below its own
+    // nowrap TeX, which then ran out of the painted box into the label — on a
+    // HypePaper deck, "pixelcoord" 91px past the chip's right edge.
+    `.chip{display:inline-block;flex:none;min-width:72px;text-align:center;background:${theme.panel};border-radius:10px;padding:2px 20px;white-space:nowrap;font-weight:700}`,
   ].join("\n");
 }
 
@@ -274,56 +602,85 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
 
   // Wrapped first, because which terms could be placed decides the legend. A row
   // for a term the equation never showed is the one thing worse than no row.
-  const walk = wrapTerms(eq.tex, p.terms, beat.id);
+  // Parsed, repaired and checked in Node before a byte is emitted: see
+  // `prepareWalk`, and `src/emit/tex.ts` for why.
+  const walk = prepareWalk(eq, p.terms, beat.id);
   const terms = walk.used;
 
   const legend = legendRows(sid, terms, theme);
+  const chips = terms.map((t) => chipSetup(sid, t));
 
-  // Split the raw TeX and the term-wrapped TeX the same way: the delimiters are
-  // untouched by `wrapTerms`, so the two lists line up piece for piece. Measuring
-  // the raw one keeps `\htmlClass{term t-a}{...}`'s class name — eight characters
-  // that render as nothing — out of the width estimate.
-  const stacked = isPortrait(ctx.format);
-  const raw = statements(eq.tex, stacked);
-  const shown = statements(walk.tex, stacked);
-  // The largest size at which the widest statement still fits the box, never
-  // above what the archetype wanted. Floored at the invariant-5 minimum rather
-  // than at the archetype's own 68: at that point an unreadably small equation
-  // and a clipped one are both planner problems, and only one of them lies.
-  //
-  // The wanted size is asked of the LONGEST STATEMENT, not of the whole display:
-  // once the two halves are on their own lines they are each short, and asking
-  // the joined string would hold both at the size a line twice as long wanted.
-  const longest = raw.reduce((a, b) => (b.length > a.length ? b : a));
-  const size = Math.max(
-    MIN_FONT,
-    Math.min(
-      equationSize(longest),
-      Math.floor(contentW(ctx.format) / Math.max(...raw.map(texUnits))),
-    ),
-  );
+  let eqHtml: string;
+  let setup: string[];
+  let measure: string[];
+  if (walk.plain) {
+    // KaTeX refuses this equation even repaired. Its source, as text, with the
+    // terms marked — the walk still walks, and nothing on the slide throws.
+    eqHtml = `<div class="eq eq-plain" id="${sid}-eq" style="font-size:${PLAIN_FONT}px">${plainHtml(eq.tex, terms)}</div>`;
+    setup = chips;
+    measure = [...chipFit(sid, terms), ...swellFit(sid, terms)];
+  } else {
+    // Split the raw TeX and the term-wrapped TeX the same way: the delimiters are
+    // untouched by `wrapTerms`, so the two lists line up piece for piece.
+    // Measuring the raw one keeps `\htmlClass{term t-a}{...}`'s class name —
+    // eight characters that render as nothing — out of the width estimate.
+    //
+    // A split is kept only if every statement parses on its own: `\qquad` inside
+    // a `\left(...\right)` is not a boundary between two equations, and cutting
+    // there hands KaTeX two halves of one.
+    const wrapped = walk.tex as string;
+    const split = statements(wrapped, isPortrait(ctx.format));
+    const stacked = split.length > 1 && split.every((s) => texError(s, true) === null);
+    const raw = statements(walk.raw, stacked);
+    const shown = stacked ? split : [wrapped];
+    // The largest size at which the widest statement still fits the box, never
+    // above what the archetype wanted. Floored at the invariant-5 minimum rather
+    // than at the archetype's own 68: at that point an unreadably small equation
+    // and a clipped one are both planner problems, and only one of them lies.
+    //
+    // The wanted size is asked of the LONGEST STATEMENT, not of the whole
+    // display: once the two halves are on their own lines they are each short,
+    // and asking the joined string would hold both at the size a line twice as
+    // long wanted.
+    //
+    // This is still an ESTIMATE, from a glyph count. `mathFit` below measures the
+    // rendered line and corrects it; see there for what happens when it is wrong.
+    const longest = raw.reduce((a, b) => (b.length > a.length ? b : a));
+    const want = equationSize(longest);
+    const size = Math.max(
+      MIN_FONT,
+      Math.min(want, Math.floor(contentW(ctx.format) / Math.max(...raw.map(texUnits)))),
+    );
+    const body =
+      shown.length === 1
+        ? ""
+        : shown.map((_, i) => `<div id="${sid}-eq${i}"></div>`).join("\n    ");
+    eqHtml = `<div class="eq${shown.length === 1 ? "" : " eqstack"}" id="${sid}-eq" style="font-size:${size}px">${body}</div>`;
+    const targets = shown.map((_, i) => `${sid}-eq${shown.length === 1 ? "" : i}`);
+    setup = [
+      `var OPTS = ${OPTS};`,
+      ...shown.map(
+        (part, i) => `katex.render('${js(part)}', document.getElementById("${targets[i]}"), OPTS);`,
+      ),
+      ...chips,
+    ];
+    // Chips first: a chip that grows to hold its glyphs moves the legend, and the
+    // equation's fit has to be measured against the legend it will really have.
+    measure = [
+      ...chipFit(sid, terms),
+      ...mathFit(sid, targets, shown, walk.raw, want, MIN_FONT),
+      // Last: it measures each term at the size the fit settled on.
+      ...swellFit(sid, terms),
+    ];
+  }
 
-  const body =
-    shown.length === 1 ? "" : shown.map((_, i) => `<div id="${sid}-eq${i}"></div>`).join("\n    ");
   const html = `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format))}
 <div class="eqslide">
-  <div class="eq${shown.length === 1 ? "" : " eqstack"}" id="${sid}-eq" style="font-size:${size}px">${body}</div>
+  ${eqHtml}
   <div class="legend">
     ${legend}
   </div>
 </div>`;
-
-  const setup = [
-    `var OPTS = ${OPTS};`,
-    ...shown.map(
-      (part, i) =>
-        `katex.render('${js(part)}', document.getElementById("${sid}-eq${shown.length === 1 ? "" : i}"), OPTS);`,
-    ),
-    ...terms.map(
-      (t) =>
-        `katex.render('${js(t.tex)}', document.getElementById("${sid}-chip-${t.tone}"), ${INLINE_OPTS});`,
-    ),
-  ];
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
@@ -345,6 +702,10 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   // entrance — this moves a light over a settled line rather than revealing it.
   const spot = spotlighter(sid, ".term");
 
+  // How far each term swells is MEASURED (`swellFit`): `1.16` on a symbol is a
+  // pulse, and on a 600px `G_\theta(x_t^i, x_{<i}^{gt}, t)` it is 48px of term
+  // pushed over the `\big\|` and the minus either side of it.
+  const swell = (t: Term) => raw(`dsSwell.${t.tone}`);
   terms.forEach((term, i) => {
     const at = first + i * step;
     const colour = theme.tones[term.tone];
@@ -361,13 +722,15 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
       tween(
         `#${sid} .t-${term.tone}`,
         { color: theme.fg, scale: 1 },
-        { color: colour, scale: 1.16, duration: 0.5 },
+        { color: colour, scale: swell(term), duration: 0.5 },
         at,
       ),
     );
     const prev = terms[i - 1];
     if (prev) {
-      tl.push(tween(`#${sid} .t-${prev.tone}`, { scale: 1.16 }, { scale: 1, duration: 0.4 }, at));
+      tl.push(
+        tween(`#${sid} .t-${prev.tone}`, { scale: swell(prev) }, { scale: 1, duration: 0.4 }, at),
+      );
     }
     holds.push(at + 0.6);
   });
@@ -376,7 +739,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   if (last) {
     const at = first + terms.length * step;
     tl.push(
-      tween(`#${sid} .t-${last.tone}`, { scale: 1.16 }, { scale: 1, duration: 0.4 }, at),
+      tween(`#${sid} .t-${last.tone}`, { scale: swell(last) }, { scale: 1, duration: 0.4 }, at),
       // The equation is one statement again before the beat ends: the walk was
       // the argument, and what it leaves behind is the whole line, readable.
       ...spot.restore(at),
@@ -387,6 +750,8 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
     html,
     tl,
     setup,
+    measure,
+    ...(walk.notes.length ? { warnings: walk.notes } : {}),
     holds: holdsWithin(holds, beat.seconds),
     css: [
       chromeCss(theme),
@@ -406,6 +771,15 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
       // has its margin zeroed above, so without an explicit gap the two lines
       // would touch and read as one equation broken mid-expression.
       ".eqstack{display:flex;flex-direction:column;gap:32px}",
+      // Set by `mathFit` when one line will not fit at the floor: the display is
+      // re-rendered inline, where KaTeX breaks after a top-level relation or
+      // operator, and the lines it breaks into are centred and spaced as lines.
+      ".eq-broken{line-height:1.5}",
+      // An equation KaTeX refuses, shown as its source. Wraps anywhere, because
+      // TeX source has few spaces and must not run off the slide either. The
+      // deck's own face, not a monospace one: a family the bundle does not
+      // declare falls back silently (invariant 9).
+      ".eq-plain{white-space:pre-wrap;overflow-wrap:anywhere}",
       // Transforms do not apply to inline boxes, and KaTeX spans are inline.
       ".term{display:inline-block}",
       legendCss(theme),

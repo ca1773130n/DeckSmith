@@ -10,6 +10,7 @@
  * defence against the failure mode that actually happens: a plausible-looking
  * `figureId` that exists in no source.
  */
+import { repairTex } from "../emit/tex.js";
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
@@ -849,8 +850,21 @@ export function renderSource(source: Source): string {
   }
 
   out.push("", "== EQUATIONS ==");
-  for (const e of source.equations)
-    out.push(`[equation ${e.id}] ${e.display ? "display" : "inline"} — ${e.tex}`);
+  // The TeX the deck will DRAW, which is the TeX a term has to be found in: a
+  // paper's undefined `\raydir` is drawn as `\operatorname{raydir}`, and a planner
+  // shown only the original writes terms against a spelling that is not on the
+  // slide. An equation no repair rescues is said to be one, so the planner can
+  // choose another rather than walk a formula that will be shown as source.
+  for (const e of source.equations) {
+    const fixed = repairTex(e.tex, true);
+    const note =
+      fixed.error === null
+        ? ""
+        : " (KaTeX cannot draw this one: a walk shows it as plain source, a morph cannot use it)";
+    out.push(
+      `[equation ${e.id}] ${e.display ? "display" : "inline"} — ${fixed.error === null ? fixed.tex : e.tex}${note}`,
+    );
+  }
   if (!source.equations.length)
     out.push("(none — no equation-walk or equation-morph beat is possible)");
 
