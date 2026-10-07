@@ -278,6 +278,24 @@ describe("bar-compare: columns", () => {
   });
 });
 
+describe("bar-compare: rows in a rail, grown", () => {
+  it("sets a unit too wide for either side of the axis from the chart's left edge", () => {
+    // ja 3a447697 b11: five long model names make a wide label gutter, the rail
+    // narrows the chart, and a 16-character unit fits neither after nor before
+    // the axis — it was drawn end-anchored and ran off the chart's left edge.
+    const b = bars(5);
+    b.params.bars = b.params.bars.map((x, i) => ({ ...x, label: `Qwen2.5-VL-${7 * (i + 1)}B` }));
+    b.params.unit = "最良の総合平均を与えたフレーム数・総合平均";
+    const look: Look = { variant: "bars", placement: "rail" };
+    const scene = emitScene(b, { ...ctx(look), design: "v2" });
+    const tag = /<text x="([\d.]+)"[^>]*id="s1-unit"[^>]*>/.exec(scene.html);
+    expect(tag).not.toBeNull();
+    // SVG's default anchor is start, so a start-anchored caption carries none.
+    const anchor = /text-anchor="(\w+)"/.exec(tag?.[0] ?? "")?.[1] ?? "start";
+    expect({ x: Number(tag?.[1]), anchor }).toEqual({ x: 0, anchor: "start" });
+  });
+});
+
 describe("pipeline: stair and column", () => {
   it("steps each stage down, and uses height the row leaves", () => {
     const row = emitScene(pipe(4), ctx());

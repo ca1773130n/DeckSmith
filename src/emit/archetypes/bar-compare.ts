@@ -467,17 +467,23 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const valueFill = (t: "a" | "b" | "c" | "d" | undefined) =>
     t ? theme.tones[t] : toned ? theme.muted : theme.fg;
 
+  const unitW = p.unit ? textWidth(p.unit, MIN_FONT, 500, 0, false, face) : 0;
+  // v2 only: a caption too wide to start at the axis AND to end at it — a long
+  // CJK unit beside a wide label gutter in a rail's narrower chart, which cut
+  // "最良の総合" off the chart's left edge (ja 3a447697) — sets from the
+  // chart's left edge instead. Classic keeps its bytes.
+  const unitFromEdge = v2 && zeroX + unitW > W && zeroX - unitW < 0;
   const unitText = p.unit
     ? text(
         p.unit,
-        { x: zeroX, y: top0 + barsH + 44 },
+        { x: unitFromEdge ? 0 : zeroX, y: top0 + barsH + 44 },
         {
           size: MIN_FONT,
           weight: 500,
           fill: theme.dim,
           // The caption follows the axis, and the axis is only at the left edge
           // when every value is positive.
-          anchor: zeroX + textWidth(p.unit, MIN_FONT, 500, 0, false, face) > W ? "end" : "start",
+          anchor: unitFromEdge || zeroX + unitW <= W ? "start" : "end",
           id: id(sid, "unit"),
         },
       )
