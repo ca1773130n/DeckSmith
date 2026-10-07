@@ -220,6 +220,49 @@ Arrow keys, Space and PageUp/PageDown step; clicking the left or right third doe
 notes; `f` is fullscreen; `m` mutes the voice and `s` hides the subtitles. Every step is
 deep-linkable (`#3` is slide 3, `#3.2` its second reveal).
 
+### The v2 player (`--design v2`)
+
+`build --design v2` (or `"design": "v2"` in the storyboard or config) gives `deck.html` the
+v2 player; everything else about the build is unchanged. A deck that is already built
+gets it without rebuilding:
+
+```bash
+decksmith repack out/            # writes out/deck2.html beside deck.html, never over it
+```
+
+`repack` swaps the inlined runtime, marks the page and checks that every JSON island is
+byte-identical — no Chrome, no TTS, no re-render.
+
+- **One control bar**: play/pause, the counter, narration speed (0.75–2×), `CC`, caption
+  size (S/M/L/XL) and fullscreen — or, in a window too narrow for those beside a caption,
+  play and one settings menu. **It never covers text.** It docks under the slide in spare
+  letterbox (a portrait phone); over the slide's empty bottom padding when that holds a
+  40px target (a slide about 720px tall or more), where it hides 2.5s after the last
+  pointer move while the deck plays; otherwise in a band under the slide that it shares
+  side by side with the captions, whose text is padded in past the buttons.
+  `test/deck-page.test.ts` measures controls against caption text and against every glyph
+  the slide draws, at six viewports.
+- **Play/pause** pauses the voice where it is and carries on from the same word. A deck
+  opens paused; stepping while paused moves the slide silently.
+- **Speed** sets the narration's `playbackRate` live, on the sentence already playing, and
+  divides the reveal glides and every autoplay wait by the same factor so they keep pace.
+  A stop with no narration holds for its reveal and 1.5s at 1×, not the author's gap.
+- **Captions** are sized from the slide (3% of its height, 13px floor; L and XL keep floors
+  of 16 and 19px so the size control works on a phone) and the slide gives up only one
+  two-line strip for them: 84% of the frame at 1080p, 83% in an 800×450 embed (v0.8.0: 77%
+  and 69%), 100% in a portrait letterbox. Long cues are cut to two lines of the strip's
+  actual width, which also splits Japanese and Chinese.
+- **Keys:** Space steps forward (Space is the presenter's key, not play); `Enter` plays and
+  pauses; `c` (or `s`) captions; `<`/`>` speed; `+`/`-` caption size. Letter keys fall back
+  to the physical key under a Korean or Japanese IME. Anything held with Cmd, Ctrl or Alt
+  is left to the browser.
+- **Preferences** — speed, captions on/off, size — come from `?speed=1.25&cc=0&ccsize=l`
+  (this visit only), else from `localStorage` (`decksmith.prefs.v1`), else the defaults.
+  When the viewer changes one, the deck posts
+  `{ type: "decksmith:prefs", speed, cc, ccsize }` to its parent so an embedding site can
+  keep it per user (a cross-site iframe's storage is partitioned), and it applies the same
+  message when the parent sends it. Check `event.origin` on your side.
+
 Stepping forward *plays* the reveal rather than cutting to it — the step layer sweeps the
 composition's timelines across frames instead of seeking once. Backward steps, `Home`/`End`
 and deep links cut, because entrance tweens run in reverse look like elements un-drawing
@@ -784,8 +827,11 @@ invalidates a storyboard you have already edited.
 | `lang` | the source's | plan | BCP-47. Drives the copy, the voice, and the font subset |
 | `tone` | `plain` | plan | `plain` · `academic` · `conversational` · `punchy` |
 | `density` | `normal` | plan | `sparse` · `normal` · `dense` — how much text a slide may carry |
-| `theme` | `ink` | emit | `ink` · `paper` · `mono` |
+| `theme` | `ink` | emit | `ink` · `paper` · `mono`, or a v2 style pack by name (see Themes) |
+| `design` | `classic` | narrate, emit | `classic` is the v0.8.0 look byte for byte · `v2` is the redesign: the v2 player (see "The v2 player") and a style pack per deck when no theme is named |
+| `packSeed` | the source id | narrate, emit | what `design: v2` hashes to pick a pack; pass a paper id so its languages share one |
 | `animationSpeed` | `1` | emit | multiplies every duration, hold and beat length. Below 1 is faster |
+| `design` | `classic` | emit | `classic` (the 0.8 look, byte-identical) · `v2` (the redesign — see [v2 motion](#v2-motion)) |
 | `narration.voice` | picked for `lang`+`tone` | narrate | an explicit edge-tts voice id |
 | `narration.rate` | `+0%` | narrate | edge-tts prosody |
 | `narration.pitch` | `+0Hz` | narrate | edge-tts prosody |
@@ -832,8 +878,8 @@ why `slideCount` did nothing.
 decksmith.config.json: unknown preference "narration.speed". Valid: enabled, voice, rate, pitch, subtitles.
 ```
 
-On the command line: `--slides --lang --tone --density` on `plan`, `--theme --speed` on
-`build`, `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
+On the command line: `--slides --lang --tone --density` on `plan`, `--theme --design
+--pack-seed --speed` on `build` (`--design --pack-seed` on `narrate` too), `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
 --image-model --image-style --image-max` on `plan` and `illustrate`, and all but the image
 flags on `pack`, which records the preferences the deck was made under — whether it was
 illustrated is read off the storyboard itself, the way `narration.enabled` is read off the
@@ -841,8 +887,42 @@ narration beside it.
 
 A preference sitting at its default says nothing, so a stored artifact wins over it and
 loses to anything you type. `plan` stamps `lang` and `theme` into the storyboard it
-writes; `build` then uses the storyboard's unless `--theme` or a config file restates one.
+writes (and `design`, only when one was asked for); `build` then uses the storyboard's
+unless `--theme`/`--design` or a config file restates one.
 Language is never overridden at build time — it describes copy that is already written.
+
+`--design v2` (or `"design": "v2"` in the config file) lets the build vary each beat's
+layout: bars as rows or columns, a pipeline as a row, a stair or a column, a claim beside,
+mirrored against or above its figure, a comparison as columns or rows, and the headline on
+top, in a left rail or under the body. The choice is made by code, deterministically, per
+paper — never by the planner — and it never moves a stop, so narration stays aligned.
+`build` writes the choices to `out/look.json`. Without the flag the deck is the classic one,
+byte for byte. See `.planning/2026-10-07-v2-layout-director.md`.
+
+## v2 motion
+
+`--design v2` replaces the 0.8 deck's single motion — every scene fading up the same
+eyebrow and headline, every seam the same 0.4s dissolve, nothing moving once a slide has
+built — with a grammar planned per deck (`src/emit/motion.ts`):
+
+- **Entrances.** Six verbs — `rise`, `slide`, `snap`, `focus`, `wipe`, `mask` — one per
+  scene, chosen from the source id and beat id, never the same twice in a row, with the
+  stock `rise` capped at a quarter of the deck.
+- **Seams.** `dissolve`, `push`, `lift`, `wipe`, `zoom`, picked from how two neighbouring
+  beats relate (same family → push, a role boundary → zoom, a title → lift, into the close
+  → dissolve), never repeated back to back, and at least three kinds in a deck of ten or
+  more beats. A beat `inside` the one before keeps the camera dive.
+- **Emphasis while the narrator talks.** The part a sentence is about pulses, glows or is
+  underlined, starting on a cue boundary of that sentence inside the quiet stretch after
+  its stop, and is back at rest before the next reveal — so every frame a gate captures
+  at a stop is unchanged.
+
+All of it is `fromTo` tweens with no callbacks, seeded rather than random, and keeps every
+hold, every scene window and `timing.json` exactly as `classic` writes them. In `deck.html`
+a v2 deck also glides through the seam into the next slide (0.8 cut to its first stop,
+already built) and, while a stop's audio plays, seeks the scene through that stop's quiet
+stretch on the audio clock so the emphasis lands on the same word as in the video. Both
+are off under `prefers-reduced-motion`.
 
 ## Themes
 
@@ -861,6 +941,41 @@ naming a family the deck does not declare falls back silently.
 
 A theme is a name and a palette, and that is the whole extension point: a new one is a
 file in `src/emit/themes/` plus a line in `THEMES`. No archetype learns it exists.
+
+### v2 style packs
+
+Six more, each a whole look rather than a palette: its own typeface pairing and type
+scale, ground and accent, eyebrow treatment, figure framing and surface.
+
+| Pack | Ground | Headline / body | Title | Lists | Bars | Leans to |
+|---|---|---|---|---|---|---|
+| `signal` | violet-black, Magma accent | Space Grotesk / Inter | glowing headline | ticks | pills | foot headlines |
+| `blueprint` | navy, cyan | IBM Plex Sans / IBM Plex Sans | drawing frame with corner marks | numbers | square, on dashed tracks | rail headlines |
+| `atlas` | espresso, amber | Source Serif 4 / Inter | centred, frontispiece rule | dots | slightly rounded | top headlines |
+| `folio` | cream, oxblood | Source Serif 4 / Source Serif 4 | masthead rules | numbers | square, no tracks | top headlines, versus |
+| `chalk` | cool white, ultramarine | Space Grotesk / IBM Plex Sans | highlighter under each word | cards | rounded, outlined | foot headlines, tables |
+| `journal` | sage, forest | IBM Plex Sans / Source Serif 4 | side bar down the title | ruled rows | slightly rounded, outlined tracks | rail headlines |
+
+The forms are the pack's `forms` (list marks, Director affinity) and its `skin` (title,
+bars), which may set only paint: colours, shadows, radii, outlines and SVG stroke/fill
+opacity, never a box. In a Korean, Japanese or Chinese deck a pack's serif roles are set
+in Noto Serif KR/JP/SC, bundled beside the sans.
+
+`--theme <pack>` forces one. `--design v2` picks one when nobody named a theme (a
+storyboard's default `ink` counts as nobody): a weighted, deterministic hash of the
+source id (or `--pack-seed`), leaning mildly toward packs that suit the deck's mix of
+archetypes. Over the 176 HypePaper storyboards on disk the busiest pack carries 20.5% of
+decks. With narration on disk, a pack that would stage a beat with a different stop count
+than the narration was recorded at, or that would leave out a beat the storyboard's own
+theme draws, is skipped for the next one; if none fits, the storyboard's own theme is kept.
+So `--design v2` never breaks a narrated rebuild and never costs a slide.
+
+Each pack's faces ship beside a Latin deck, vendored from `@fontsource-variable/*` like
+Inter, and are measured by their own width tables (`src/emit/faces.ts`, written by
+`node scripts/measure-faces.mjs --write`). A CJK deck keeps its Noto bundle first in every
+stack — Noto Serif for a role the pack sets in a serif, Noto Sans otherwise — so the glyph
+shapes change with the pack in every language.
+The packs' interfaces are written up in `.planning/2026-10-07-v2-style-packs.md`.
 
 ## Narration
 
@@ -1278,6 +1393,8 @@ src/prefs.ts          the three-layer preference resolver
 src/emit/kit.ts       the seam between the deck shell and the archetype emitters
 src/emit/archetypes/  one emitter per archetype
 src/emit/themes/      one palette per file; the registry is the extension point
+src/emit/type.ts      type specs: the v2 packs' faces and chrome scale, read by chromeHeight and chromeCss
+src/emit/faces.ts     measured width tables for the packs' Latin faces (generated)
 src/images/           the three rungs a brief is drawn through, and the illustrate step
 src/narrate/          edge-tts, one segment per stop
 src/pack/             the .deck container and its bake/link/embed policy

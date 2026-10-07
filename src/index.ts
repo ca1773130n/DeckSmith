@@ -28,9 +28,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { pickTheme } from "./emit/themes/pick.js";
+import { FIT_FILE } from "./emit/fit.js";
+import { LOOK_FILE } from "./emit/look.js";
 import type { Cut } from "./plan/select.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
-import { type Format, FORMATS, type Source, type Storyboard } from "./types.js";
+import { type Design, type Format, FORMATS, type Source, type Storyboard } from "./types.js";
 
 /* ------------------------------------------------------------------ ingest */
 
@@ -190,11 +193,29 @@ export type { Deck, DeckNarration, DeckOptions } from "./emit/composition.js";
  * itself, exported so it can be run against a budget no `Format` states.
  */
 export { selectBeats } from "./plan/select.js";
+/**
+ * `--design v2`: the Director that picks each beat's look, the look vocabulary
+ * it picks from, and the sameness numbers it reports. Exported so an eval can
+ * measure a corpus of storyboards without building each one.
+ */
+export { direct, summarize } from "./plan/direct.js";
+export type { BeatLook, Direction, LookSummary } from "./plan/direct.js";
+export { candidates, classicLook, LOOK_FILE, signature, VARIANTS } from "./emit/look.js";
+export type { Look, Placement } from "./emit/look.js";
 export type { Cut, Dangling, Dropped, DropRule, SelectionBudget } from "./plan/select.js";
 
 /** Themes are a named, closed set; a consumer needs to enumerate and validate. */
 export { resolveTheme, THEME_NAMES, THEMES } from "./emit/themes/index.js";
 export type { DeckTheme } from "./emit/themes/index.js";
+export { PACKS } from "./emit/themes/packs.js";
+export {
+  chooseLook,
+  type Design,
+  type LookChoice,
+  pickTheme,
+  rankPacks,
+} from "./emit/themes/pick.js";
+export { TYPES, type TypeSpec } from "./emit/type.js";
 
 /* ------------------------------------------------------------------ verify */
 
@@ -238,7 +259,26 @@ export type { CheckOptions } from "./verify/check.js";
  * verdict. `verify` runs it; nothing else has to.
  */
 export { gradeOverprint, MIN_OVERLAP, overprints } from "./verify/overprint.js";
+/**
+ * Motion variety measured off a built composition: modal-entrance share, seam
+ * kinds, ease shares. The M4 exit metrics; see experiments/019-motion.
+ */
+export { motionStats, topTwoEaseShare } from "./verify/motion.js";
+export type { MotionStats } from "./verify/motion.js";
 export type { Overprint, Overprinted, TextRun } from "./verify/overprint.js";
+
+/**
+ * The frame gate on its own, and the fill measure it carries: one browser over
+ * a built deck, every stop seeked and captured. `verify` runs it beside `check`;
+ * exported so an eval can read `fills` — main-axis fill at each scene's last
+ * hold, on a classic deck as on a v2 one — without running the slower half.
+ * `fillBand` and `FIT_FILE` are the definition and the manifest both sides use.
+ */
+export { fidelity } from "./verify/fidelity.js";
+export type { FidelityReport } from "./verify/fidelity.js";
+export { fillBand, FIT_FILE } from "./emit/fit.js";
+export type { Fit, FillBand, FitManifest } from "./emit/fit.js";
+export type { FillRow } from "./verify/fill.js";
 
 /**
  * The determinism gate: render the deck twice and compare. Separate from
@@ -340,6 +380,10 @@ export interface BuildDeckOptions {
   onBeatWarning?: (beatId: string, warning: string) => void;
   /** Any name in `THEME_NAMES`. Overrides `storyboard.theme`. */
   theme?: string;
+  /** `classic` (default) or `v2`. Overrides `storyboard.design`. See `designSchema`. */
+  design?: Design;
+  /** v2: the seed the style pack is ranked by. Default `storyboard.sourceId`. */
+  packSeed?: string;
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
   speed?: number;
   /** Default `FORMATS["deck-16x9"]`. */
@@ -397,11 +441,24 @@ export async function buildDeck(
   // linking it and therefore needs the CSS in hand. It also writes the woff2
   // into `out`, which is why `out` must exist by here — it does; `buildDeck`
   // made it above.
-  const fontCss = await refreshFont(storyboard, source, out, step);
+  // The pack, chosen exactly as the CLI's `build` chooses it (`pickTheme`): a
+  // v2 deck from this function used to stay in ink, unlike the same input built
+  // by the CLI. A stated theme still wins; classic is the storyboard's own.
+  const design = opts.design ?? storyboard.design ?? "classic";
+  const theme = pickTheme(storyboard, source, format, {
+    stated: opts.theme,
+    design,
+    seed: opts.packSeed,
+    speed,
+    narration: opts.narration,
+  });
+  if (design === "v2") step(`build: design v2 — style pack "${theme}"`);
+  const fontCss = await refreshFont(storyboard, source, out, step, theme);
 
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
-    ...(opts.theme ? { theme: opts.theme } : {}),
+    theme,
+    ...(opts.design ? { design: opts.design } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
     ...(opts.onBeatWarning ? { onBeatWarning: opts.onBeatWarning } : {}),
@@ -416,6 +473,8 @@ export async function buildDeck(
 
   await write("index.html", deck.composition);
   await write("hyperframes.json", HYPERFRAMES_JSON);
+  if (deck.fit) await write(FIT_FILE, `${JSON.stringify(deck.fit, null, 2)}\n`);
+  if (deck.looks) await write(LOOK_FILE, `${JSON.stringify(deck.looks, null, 2)}\n`);
 
   // `render` reads this and refuses without it, so a library caller who skipped
   // it got "timing.json is missing, rebuild the deck" — advice that could never

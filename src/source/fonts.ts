@@ -22,6 +22,17 @@ export interface FontBundle {
   files: string[];
 }
 
+/**
+ * The serif companion to `familyFor`: what a v2 pack whose type spec sets a role
+ * in a serif draws that role's CJK in. Without it every CJK deck set its
+ * headlines in Noto Sans whatever the pack said, so the font change that makes
+ * a serif pack a serif pack disappeared for three languages out of four
+ * (review, 2026-10-08).
+ */
+export function serifFamilyFor(lang: string): string | null {
+  return familyFor(lang)?.replace("Noto Sans", "Noto Serif") ?? null;
+}
+
 /** The CJK family a language needs subset, or null: the deck ships Inter (`vendorInter`). */
 export function familyFor(lang: string): string | null {
   const tag = lang.toLowerCase();
@@ -44,9 +55,13 @@ export async function bundleFont(
   lang: string,
   glyphs: string,
   dir: string,
+  opts: { serif?: boolean } = {},
 ): Promise<FontBundle | null> {
   const family = familyFor(lang);
   if (!family) return null;
+  // The serif rides in the same request, so one stylesheet declares both.
+  const serif = opts.serif ? serifFamilyFor(lang) : null;
+  const families = serif ? [family, serif] : [family];
 
   // Sorted and deduplicated: the request must not depend on the order text
   // happened to appear in, or two runs of one deck fetch two different subsets.
@@ -54,7 +69,10 @@ export async function bundleFont(
     .filter((c) => c > " ")
     .sort()
     .join("");
-  const stamp = `/* decksmith ${createHash("sha256").update(`${family}\n${text}`).digest("hex").slice(0, 16)} */`;
+  const stamp = `/* decksmith ${createHash("sha256")
+    .update(`${families.join("+")}\n${text}`)
+    .digest("hex")
+    .slice(0, 16)} */`;
 
   await mkdir(dir, { recursive: true });
   const cssPath = join(dir, "fonts.css");
@@ -62,7 +80,7 @@ export async function bundleFont(
   if (cached.startsWith(stamp)) return { family, css: cached, files: localNames(cached) };
 
   const res = await fetch(
-    `https://fonts.googleapis.com/css2?family=${family.replaceAll(" ", "+")}:wght@400;500;700` +
+    `https://fonts.googleapis.com/css2?${families.map((f) => `family=${f.replaceAll(" ", "+")}:wght@400;500;700`).join("&")}` +
       `&text=${encodeURIComponent(text)}&display=block`,
     { headers: { "User-Agent": UA } },
   );

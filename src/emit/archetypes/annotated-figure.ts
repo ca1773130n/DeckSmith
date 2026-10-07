@@ -22,6 +22,7 @@
  * the label sitting on it. Only which way "out" points has moved.
  */
 import type { BeatOf, Format } from "../../types.js";
+import { fitOf, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentH, contentW, esc, spotlighter } from "../kit.js";
 import type { Box, Pt } from "../svg.js";
@@ -196,6 +197,13 @@ function columns(notes: readonly FigureNote[], stageW: number, face: Face): numb
  * sits smaller in a wider pair of label columns.
  */
 const MAX_UPSCALE = 1.5;
+/**
+ * v2's ceiling: no more than classic's own. It was 2, and the review
+ * (2026-10-08) found figures upscaled past 1.8x visibly soft; claim-figure is
+ * held to 1.25x now, and this archetype may not exceed what it already drew.
+ * Taken only when the plan it produces still fits (`ok`).
+ */
+const GROWN_UPSCALE = MAX_UPSCALE;
 
 const DOT_R = 9;
 const HALO_R = 18;
@@ -344,6 +352,7 @@ function attempt(
   tall: boolean,
   face: Face,
   sides: Sides = { l: true, r: true },
+  upscale = MAX_UPSCALE,
 ): FigureLayout {
   // A row of columns when they are wide enough to read in, two stacked columns
   // otherwise. See `MIN_COL`.
@@ -373,7 +382,7 @@ function attempt(
   const scale = Math.min(
     (plateMax - 2 * PLATE) / fig.width,
     (stageH - bandMin - 2 * PLATE) / fig.height,
-    MAX_UPSCALE,
+    upscale,
   );
   const img: Box = {
     w: fig.width * scale,
@@ -566,10 +575,11 @@ export function planFigure(
   stageH: number,
   tall = false,
   face: Face = "latin",
+  upscale = MAX_UPSCALE,
 ): FigureLayout {
   // Portrait's column is fixed at half the stage, so there is nothing to widen
   // and the search has one entry.
-  if (tall) return attempt(stageW, notes, fig, stageH, 0, true, face);
+  if (tall) return attempt(stageW, notes, fig, stageH, 0, true, face, undefined, upscale);
 
   // TWO AXES, TIGHT FIRST. The margins a figure's own notes actually face, then
   // both — and each arrangement walks the column widths as before.
@@ -586,7 +596,7 @@ export function planFigure(
   let plan: FigureLayout | undefined;
   for (const sides of tries) {
     for (const col of cols) {
-      plan = attempt(stageW, notes, fig, stageH, col, false, face, sides);
+      plan = attempt(stageW, notes, fig, stageH, col, false, face, sides, upscale);
       if (plan.ok) return plan;
     }
   }
@@ -716,7 +726,16 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         `under the ${MIN_STAGE}px floor — shorten the headline or split the beat`,
     );
   }
-  const plan = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face);
+  const classic = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face);
+  const v2 = isV2(ctx);
+  const grown = v2
+    ? planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face, GROWN_UPSCALE)
+    : undefined;
+  // Only a grown plan that FITS replaces the classic one: the labels it leaves
+  // room for are what `ok` reports, and a bigger picture is not worth a label
+  // pushed off its stack. And only one that places every note classic placed:
+  // a hold per note, so a different count would move the narration's stops.
+  const plan = grown?.ok && grown.boxes.length === classic.boxes.length ? grown : classic;
   const stageH = plan.height;
   const plate: Box = {
     x: plan.img.x - PLATE,
@@ -845,22 +864,36 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     // The note being spoken about is the one at full weight. A figure with five
     // labels around it and no light on any of them is a diagram the viewer has
     // to search; this is the archetype where that costs the most.
-    if (i > 0) tl.push(...spot.dim(`lab${i - 1}`, at + 0.5));
+    // v2: the last part's arrival brings everything back to full instead of
+    // dimming its neighbour, so the slide's FINAL stop — the frame a paused
+    // viewer, a contact sheet and the deck's last hold all show — is whole. The
+    // restore below used to land after that stop, where only a render saw it
+    // (en s3, three of four steps at 0.62 at #3.4; review 2026-10-08).
+    const finale = v2 && i === plan.boxes.length - 1;
+    if (i > 0 && !finale) tl.push(...spot.dim(`lab${i - 1}`, at + 0.5));
+    else if (finale && i > 1) tl.push(...spot.restore(at + 0.5));
     holds.push(at + 0.9);
   });
   // Every label back for the last hold: the figure is read as a whole once its
   // parts have been named.
-  if (plan.boxes.length > 1) {
+  if (plan.boxes.length > 1 && !v2) {
     tl.push(...spot.restore(NOTE_0 + (plan.boxes.length - 1) * STEP + 0.9));
   }
   // Settled before the first hold, not landing on it — a caption still fading up
   // when navigation stops is a half-built frame.
   tl.push(tween(`#${sid}-cap`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1.0));
 
+  // The stage `planFigure` used, then the caption under it — over the box less
+  // the chrome. `stageBudget` charges the same three terms.
+  const capLines = Math.min(CAP_LINES, wrap(fig.caption, LAB, STAGE_W, 400, 0, face).length);
+  const region = contentH(ctx.format) - chromeHeight(p.eyebrow, p.headline, STAGE_W, face);
+
   return {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    ...(v2 ? { fit: fitOf(stageH + CAP_GAP + capLines * LAB * CAP_LH, region) } : {}),
+    figureArea: Math.round(plan.img.w * plan.img.h),
     css: [
       chromeCss(theme),
       ".af-stage{position:relative;flex:none}",

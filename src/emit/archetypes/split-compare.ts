@@ -22,10 +22,13 @@
  * device, same order, same claim that these are one question answered twice.
  */
 import type { Figure } from "../../types.js";
-import type { Emitter } from "../kit.js";
-import { contentW, esc, spotlighter } from "../kit.js";
+import { fitOf, isV2 } from "../fit.js";
+import type { Emitter, ListForm, Theme } from "../kit.js";
+import { esc, spotlighter } from "../kit.js";
+import { frameOf, variantOf } from "../look.js";
 import type { Box } from "../svg.js";
 import {
+  circle,
   DRAW_FROM,
   DRAW_TO,
   type Face,
@@ -43,15 +46,12 @@ import {
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
   isPortrait,
   noteCss,
   noteHeight,
-  noteWidth,
   tween,
 } from "./title.js";
 
@@ -157,20 +157,29 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // Every measurement below is charged to the DECK's face, not to each run's
   // own characters: a CJK bundle sets an all-ASCII label in Noto Sans too.
   const face = faceOf(theme.fontStack);
-  const W = contentW(ctx.format);
-  const H = bodyBudget(
-    ctx.format,
-    p.eyebrow,
-    p.headline,
-    noteHeight(p.note, noteWidth(ctx.format), undefined, face),
-    undefined,
-    undefined,
-    face,
-  );
+  // The content box, or what the chosen placement leaves the body
+  // (src/emit/look.ts). Figures a side draws are named so a rail aside never
+  // repeats one.
+  const F = frameOf(ctx, {
+    eyebrow: p.eyebrow,
+    headline: p.headline,
+    drawn: [p.left.figureId, p.right.figureId],
+    evidence: beat.evidence,
+  });
+  const W = F.w;
+  const H = F.budget(noteHeight(p.note, F.noteW, undefined, face));
 
   // Two equal panels with a 2×GUTTER channel between them for the divider —
-  // columns across the box in landscape, rows down it in portrait.
-  const tall = isPortrait(ctx.format);
+  // columns across the box in landscape, rows down it in portrait. The `rows`
+  // variant asks for the stacked arrangement on a wide canvas: two full-width
+  // bands, which is what a pair of short lists reads best as beside a rail.
+  const variant = variantOf(ctx, "split-compare");
+  if (variant === "rows" && figs.some(Boolean)) {
+    // A figure in a band a third of the slide tall is a strip of a figure, and a
+    // pair of figures is compared side by side or not at all.
+    throw new Error(`split-compare ${beat.id}: rows are for lists, and a side here is a figure`);
+  }
+  const tall = isPortrait(ctx.format) || variant === "rows";
   const lanes = tracks(tall ? H : W, 2, GUTTER * 2);
   const pw = tall ? W : (lanes[0]?.w ?? W / 2);
   /** Height one panel has to itself, before its own heading has taken any. */
@@ -291,7 +300,11 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       !fig && list.length > 1
         ? Math.min(itemSize * 0.5, Math.max(0, (contentH - stackH) / (list.length - 1)))
         : 0;
-    let y = y0 + contentY + (contentH - stackH - spread * (list.length - 1)) / 2;
+    // v2 sets a list-only side from the top, under its heading: centred, the
+    // slack fell between the heading rule and the first item, ~250px on ja s2
+    // and ko s2 (review 2026-10-08), which read as a list that had come loose.
+    const slack = contentH - stackH - spread * (list.length - 1);
+    let y = y0 + contentY + (isV2(ctx) && !fig ? 0 : slack / 2);
 
     if (fig) {
       const cardX = x0 + (pw - imgW - 2 * PAD) / 2;
@@ -306,12 +319,21 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       y += cardH + (listH > 0 ? STACK_GAP : 0);
     }
 
-    for (const item of list) {
+    const form = theme.forms?.list ?? "tick";
+    for (const [n, item] of list.entries()) {
       const h = itemHeight(item, itemSize, itemW, face);
+      const gap = itemSize * ITEM_GAP + spread;
       // A tick rather than a dot: it carries the side's tone at the height of the
-      // first line, so a list reads as belonging to its half at a glance.
+      // first line, so a list reads as belonging to its half at a glance. A v2
+      // pack may mark its items its own way (`Theme.forms.list`), all in the same
+      // indent, so no measurement here moves.
       parts.push(
-        roundRect({ x: x0, y: y + itemSize * 0.32, w: 5, h: itemSize * 0.95 }, 2.5, { fill: tone }),
+        ...listMark(
+          form,
+          { x: x0, y, h, w: pw, gap, size: itemSize, n, last: n === list.length - 1 },
+          tone,
+          theme,
+        ),
         text(
           item,
           { x: x0 + INDENT, y: y + h / 2 },
@@ -325,7 +347,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
           },
         ),
       );
-      y += h + itemSize * ITEM_GAP + spread;
+      y += h + gap;
     }
 
     return `<g id="${sid}-side${i}">${parts.join("")}</g>`;
@@ -372,12 +394,14 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       );
 
   const note = p.note ? `\n<div class="sc-note" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
-<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`;
+  const html = F.compose(
+    `<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`,
+  );
 
   const at = [1.15, 2.05];
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
     // The frame before either side of the argument: the divider grows down from
     // under the headline, and the panels arrive into a structure that already exists.
     tween(
@@ -426,8 +450,11 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       ),
       tween(`#${sid}-hair${i}`, DRAW_FROM, { ...DRAW_TO, duration: 0.7, ease: "power2.out" }, t),
     );
+    // v2: the second side's arrival does not dim the first. Its stop is the
+    // slide's last, and a comparison read with one half at 0.62 is a
+    // comparison with one side missing (the restore below came after it).
     if (i > 0) {
-      tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
+      if (!isV2(ctx)) tl.push(...spot.dim(`side${i - 1}`, t + 0.15));
       // The comparison exists once both halves are there, so the divider runs
       // exactly then: it is the only element on the slide that belongs to
       // neither side.
@@ -467,12 +494,23 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // Both halves back at full weight for the last hold: the note is about the
   // PAIR, and a comparison whose left half is dimmed while it is read is a
   // comparison with one side missing.
-  if (sides.length > 1) tl.push(...spot.restore((at[1] ?? 0) + (p.note ? 0.9 : 0.5)));
+  if (sides.length > 1 && !isV2(ctx)) {
+    tl.push(...spot.restore((at[1] ?? 0) + (p.note ? 0.9 : 0.5)));
+  }
 
   return {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    // Already laid out into the whole body budget — the panels and the divider
+    // run its full height, and the note takes the rest — so v2 only REPORTS:
+    // everything under `.sc-body`'s 34px margin is painted extent.
+    ...(isV2(ctx)
+      ? (() => {
+          const region = F.budget(0, 0, 0);
+          return { fit: fitOf(region - 34, region) };
+        })()
+      : {}),
     css: [
       chromeCss(theme),
       ".sc-body{margin-top:34px;display:flex;justify-content:center}",
@@ -482,6 +520,80 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       // `transform`; the breath is on the label itself and moves `filter`, so the
       // two never write the same property on the same element.
       ambient(sid, "-lab1", BREATHE),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };
+
+/**
+ * The mark beside one list item, in the pack's form. Every form sits in the
+ * `INDENT` the tick always had (or behind or under the item), so the item's
+ * text, and every line count measured for it, is where classic put it.
+ *
+ * - `tick`: classic — a bar in the side's tone at the first line's height.
+ * - `number`: 1, 2, 3 in the tone, at the 40px floor: a numbered list.
+ * - `dot`: a disc at the first line's centre.
+ * - `card`: the item on a panel of its own, the tick on its edge.
+ * - `rule`: no mark, a hairline under every item but the last.
+ */
+function listMark(
+  form: ListForm,
+  at: {
+    x: number;
+    y: number;
+    h: number;
+    w: number;
+    gap: number;
+    size: number;
+    n: number;
+    last: boolean;
+  },
+  tone: string,
+  theme: Theme,
+): string[] {
+  const { x, y, h, w, gap, size } = at;
+  const tick = roundRect({ x, y: y + size * 0.32, w: 5, h: size * 0.95 }, 2.5, { fill: tone });
+  const firstLine = y + size * 0.32 + (size * 0.95) / 2;
+  switch (form) {
+    case "number":
+      // At the audience floor (invariant 5), and one digit, so it fits the 40px
+      // indent the tick had: lists here run to five items, not ten.
+      return [
+        text(
+          String(at.n + 1),
+          { x, y: firstLine },
+          {
+            size: MIN_FONT,
+            weight: 700,
+            fill: tone,
+            vAlign: "middle",
+          },
+        ),
+      ];
+    case "dot":
+      return [circle({ x: x + 7, y: firstLine }, Math.round(size * 0.16), { fill: tone })];
+    case "card": {
+      // Inside half the gap above and below, so two cards never touch.
+      const pad = Math.min(gap * 0.45, size * 0.3);
+      const cx = Math.max(0, x - 18);
+      return [
+        roundRect({ x: cx, y: y - pad, w: w + (x - cx), h: h + 2 * pad }, 12, {
+          fill: theme.panel,
+        }),
+        tick,
+      ];
+    }
+    case "rule":
+      return at.last
+        ? []
+        : [
+            line(
+              { x, y: y + h + gap / 2 },
+              { x: x + w, y: y + h + gap / 2 },
+              { stroke: theme.rule, "stroke-width": 2 },
+            ),
+          ];
+    default:
+      return [tick];
+  }
+}

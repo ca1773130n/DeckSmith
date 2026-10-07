@@ -16,7 +16,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { z } from "zod";
 import { slidesFor } from "./plan/duration.js";
-import { prefsSchema, type Source } from "./types.js";
+import { type Design, prefsSchema, type Source } from "./types.js";
 
 export type Prefs = z.infer<typeof prefsSchema>;
 
@@ -100,6 +100,8 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (flags.genre !== undefined) patch.genre = flags.genre as Prefs["genre"];
   if (flags.duration !== undefined) patch.duration = number("--duration", flags.duration);
   if (flags.theme !== undefined) patch.theme = flags.theme;
+  if (flags.design !== undefined) patch.design = flags.design as Prefs["design"];
+  if (flags.packSeed !== undefined) patch.packSeed = flags.packSeed;
   if (flags.speed !== undefined) patch.animationSpeed = number("--speed", flags.speed);
 
   const narration: Partial<Prefs["narration"]> = {};
@@ -128,6 +130,19 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   return patch;
 }
 
+/**
+ * The design a build uses: a `--design` flag or a config file, else what the
+ * storyboard was planned under, else `classic`.
+ *
+ * NOT `stated()`, which treats a value at its default as unsaid. `design` has
+ * no default — it is optional in the schema — so an explicit `classic` is
+ * distinguishable from silence, and it IS the rollback: it has to win over a
+ * storyboard planned under v2.
+ */
+export function designFor(prefs: Pick<Prefs, "design">, recorded?: Design): Design {
+  return prefs.design ?? recorded ?? "classic";
+}
+
 /** The flag surface the CLI exposes. Every one optional: absent means unstated. */
 export interface PrefFlags {
   slides?: string | number;
@@ -137,6 +152,10 @@ export interface PrefFlags {
   genre?: string;
   duration?: string | number;
   theme?: string;
+  /** `--design classic | v2`. */
+  design?: string;
+  /** `--pack-seed`: what v2 hashes to pick a pack. */
+  packSeed?: string;
   speed?: string | number;
   narrate?: boolean;
   voice?: string;

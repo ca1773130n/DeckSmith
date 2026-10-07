@@ -6,15 +6,15 @@
  * caption 200px off-canvas. Only a genuine strip earns the full width.
  */
 import type { Figure } from "../../types.js";
+import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc, words } from "../kit.js";
-import { faceOf, wrap } from "../svg.js";
+import { esc, staggerFor, wordAtoms, words } from "../kit.js";
+import { frameOf, variantOf } from "../look.js";
+import { type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
 import {
   BODY_LH,
   BODY_SIZE,
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
@@ -76,6 +76,182 @@ const BESIDE_COL = 560;
  * has on hand.
  */
 const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
+
+/* ------------------------------------------------------------------ v2 fit */
+
+/** v2: the claim may grow to this, never to more lines than it set on at `CLAIM_SIZE`. */
+const CLAIM_MAX = 72;
+/**
+ * v2: a figure is drawn up to this many times its natural pixel size. The plate
+ * used to be `width:auto;height:auto`, so a 632px figure stayed 632px in a
+ * 1000px column. It was 2, and the review (2026-10-08) found two figures
+ * upscaled 1.8x and 2.07x and visibly blurry (en s11, s13); past about 1.25x a
+ * raster figure is soft, which is a worse slide than a smaller sharp one.
+ */
+const UPSCALE_MAX = 1.25;
+/** `.figwrap`'s padding and border, both sides: what the plate adds around the image. */
+const PLATE_PAD = 34;
+/** Below this aspect a figure is too tall to set full-width above its claim. */
+const UNDER_MIN_ASPECT = 1.5;
+/** Another arrangement must beat the classic one by this much fill to replace it. */
+const SWITCH_MARGIN = 0.08;
+/**
+ * …and must not draw the figure smaller than this share of the classic one's
+ * area. Fill is a vertical extent, so a full-width plate holding a
+ * height-bound image read as FULL while the image shrank: en s13's 491x282
+ * photo in a 1760px plate (review, 2026-10-08).
+ */
+const SWITCH_AREA = 0.9;
+
+type Mode = "tall" | "wide" | "beside";
+
+/** One way to draw the beat, predicted. */
+export interface Arrangement {
+  mode: Mode;
+  claimSize: number;
+  plate: { w: number; h: number };
+  fit: Fit;
+}
+
+/**
+ * The v2 arrangements this beat can take, each with the figure SIZED rather
+ * than capped, and the classic one's mode first.
+ *
+ * The arithmetic is the same the classic path does — `bandFor`'s claim lines,
+ * two-caption-line bands, the plate's padding — but solved FOR the plate's size
+ * instead of capping it: the image gets the largest box that fits both its
+ * column and the height left under the chrome, at its own aspect, up to
+ * `UPSCALE_MAX`. `under` (the full-width arrangement classic reserves for 3:1
+ * strips) is offered to any figure flatter than `UNDER_MIN_ASPECT`, because the
+ * median HypePaper figure is 2.3:1 and beside a 560px claim it is width-bound at
+ * about 450px tall in a 760px region.
+ */
+function arrangements(
+  classic: Mode,
+  fig: Figure,
+  claim: string,
+  caption: string,
+  box: number,
+  region: number,
+  portrait: boolean,
+  face: Face,
+): Arrangement[] {
+  const aspect = fig.width / fig.height;
+  // Against `MEASURE_SLACK` of the column, and counted as the browser sets
+  // `words()`: these line counts are what the plate is then sized against, to
+  // the pixel, so a line the browser adds is a line pushed through the bottom
+  // of the slide. See `blockLines` and the constant.
+  const claimLines = (width: number, size: number) =>
+    blockLines(claim, size, (width - CLAIM_RULE) * MEASURE_SLACK, face);
+  const claimH = (width: number, size: number) =>
+    claimLines(width, size) * Math.round(size * CLAIM_LH);
+  const capH = (width: number) =>
+    16 +
+    wrap(caption, BODY_SIZE, width * MEASURE_SLACK, 400, 0, face).length *
+      Math.round(BODY_SIZE * BODY_LH);
+  /** Grow the claim without adding a line, and without passing `room`. */
+  const grownClaim = (width: number, room: number) => {
+    const lines = claimLines(width, CLAIM_SIZE);
+    let size = CLAIM_MAX;
+    while (size > CLAIM_SIZE && (claimLines(width, size) > lines || claimH(width, size) > room))
+      size--;
+    return size;
+  };
+  const plateIn = (w: number, h: number) => {
+    const k = Math.max(0, Math.min(w / fig.width, h / fig.height, UPSCALE_MAX));
+    return { w: Math.floor(fig.width * k), h: Math.floor(fig.height * k) };
+  };
+  const out: Arrangement[] = [];
+  const add = (mode: Mode) => {
+    if (mode === "beside") {
+      const col = box - BESIDE_COL - 56;
+      const cap = capH(col);
+      const plate = plateIn(col - PLATE_PAD, region - 34 - 26 - PLATE_PAD - cap);
+      const claimSize = grownClaim(BESIDE_COL, region - 34);
+      const right = 26 + plate.h + PLATE_PAD + cap;
+      out.push({
+        mode,
+        claimSize,
+        plate,
+        fit: fitOf(Math.max(claimH(BESIDE_COL, claimSize), right), region),
+      });
+    } else if (mode === "wide") {
+      const half = (box - 56) / 2;
+      // The claim grows only into height the figure does not need at its classic
+      // size (its own pixels, or the box's width). Grown without a bound, a
+      // 120-character claim took the plate down to 206px tall — 40% of what
+      // v0.8.0 drew (set20 8872a314 s3, fix-round Tier A).
+      const classicH = Math.min(fig.height, ((box - PLATE_PAD) * fig.height) / fig.width);
+      const claimSize = grownClaim(half, Math.max(0, region - 26 - PLATE_PAD - 26 - classicH));
+      const row = Math.max(claimH(half, claimSize), capH(half) - 16);
+      const plate = plateIn(box - PLATE_PAD, region - 26 - PLATE_PAD - 26 - row);
+      out.push({ mode, claimSize, plate, fit: fitOf(plate.h + PLATE_PAD + 26 + row, region) });
+    } else {
+      // Stacked: the claim takes the figure's height, so it does not grow here.
+      const band = claimH(box, CLAIM_SIZE);
+      const cap = capH(box);
+      const plate = plateIn(box - PLATE_PAD, region - 34 - band - 26 - PLATE_PAD - cap);
+      const used = band + 26 + plate.h + PLATE_PAD + cap;
+      // `.cf-stack` is `space-evenly`: of the slack, the two gaps between its
+      // children are inside the painted extent and the two ends are not.
+      const slack = Math.max(0, region - 34 - used);
+      out.push({ mode, claimSize: CLAIM_SIZE, plate, fit: fitOf(used + slack / 3, region) });
+    }
+  };
+  add(classic);
+  if (!portrait && classic === "beside" && aspect >= UNDER_MIN_ASPECT) add("wide");
+  return out;
+}
+
+/** The arrangement to draw: the classic mode unless another fills clearly more. */
+export function choose(options: readonly Arrangement[]): Arrangement {
+  const score = (a: Arrangement) => Math.min(1, a.fit.fill);
+  const area = (a: Arrangement) => a.plate.w * a.plate.h;
+  let best = options[0] as Arrangement;
+  for (const a of options.slice(1)) {
+    if (score(a) > score(best) + SWITCH_MARGIN && area(a) >= SWITCH_AREA * area(best)) best = a;
+  }
+  return best;
+}
+
+/**
+ * Lines the claim sets on, counted the way the browser lays out `words()`.
+ *
+ * `words()` makes every whitespace-separated run an `inline-block` so it can
+ * rise on its own — and an inline-block is never broken across a line: a run
+ * that does not fit what is left of the line moves to the next one WHOLE, and
+ * a run wider than the column is a block of its own, full width, wrapping
+ * inside. `wrap` breaks a long run in place, which is the right count for prose
+ * and the wrong one here. On a Japanese claim with Latin numbers in it —
+ * "ResNet34版は38.3 → 46.9、V2-99版は41.9 → …" — `wrap` said four lines and
+ * the browser set eight, and the grown claim ran 44px off the canvas.
+ */
+function blockLines(text: string, size: number, width: number, face: Face): number {
+  const space = textWidth(" ", size, 400, 0, false, face);
+  let lines = 0;
+  /** Width used on the line being filled; 0 when it is empty. */
+  let used = 0;
+  // The atoms `words(…, { unspaced: true })` draws — a CJK run per character —
+  // with a space charged only where the text has one.
+  for (const { text: run, spaced } of wordAtoms(text)) {
+    const gap = spaced ? space : 0;
+    const w = textWidth(run, size, 400, 0, false, face);
+    if (w > width) {
+      // Its own block, from a fresh line, full width to its last line.
+      if (used > 0) lines++;
+      lines += wrap(run, size, width, 400, 0, face).length - 1;
+      used = width;
+    } else if (used === 0) {
+      used = w;
+    } else if (used + gap + w <= width) {
+      used += gap + w;
+    } else {
+      lines++;
+      used = w;
+    }
+  }
+  return used > 0 ? lines + 1 : lines;
+}
 
 /** What the plate holds, and the tag its height cap and its drift rule name. */
 interface Plate {
@@ -203,10 +379,23 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       `claim-figure ${beat.id}: no figure "${p.figureId}" in source ${ctx.source.id}`,
     );
   }
-  const box = contentW(ctx.format);
+  /**
+   * The content box, or what the chosen placement leaves the body
+   * (src/emit/look.ts). The figure this beat draws is named so an aside in the
+   * rail never repeats it.
+   */
+  const F = frameOf(ctx, {
+    eyebrow: p.eyebrow,
+    headline: p.headline,
+    drawn: [p.figureId],
+    evidence: beat.evidence,
+  });
+  const box = F.w;
+  const variant = variantOf(ctx, "claim-figure");
   // PORTRAIT: everything stacks, so the aspect test never applies — a 3.6-aspect
   // strip and a square plate both get the full 860 and differ only in how much
-  // height they then ask for.
+  // height they then ask for. The `stacked` variant asks for that arrangement on
+  // a wide canvas too.
   const portrait = isPortrait(ctx.format);
   const wide = !portrait && fig.width / fig.height >= FULL_WIDTH_ASPECT;
 
@@ -224,8 +413,16 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     wrap(p.claim, CLAIM_SIZE, width - CLAIM_RULE, 400, 0, face).length *
       Math.round(CLAIM_SIZE * CLAIM_LH) +
     34;
-  const rowBudget = bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND, 26, undefined, face);
-  const tall = portrait || (!wide && bandFor(BESIDE_COL) - 34 > rowBudget);
+  const rowBudget = F.budget(CAP_BAND, 26);
+  const tall = portrait || variant === "stacked" || (!wide && bandFor(BESIDE_COL) - 34 > rowBudget);
+  // `mirror` is the beside row with the figure first. Where the row is not drawn —
+  // a strip figure set under, or a claim too long to stand beside — it would
+  // be the classic slide under another name, which is exactly what the sameness
+  // metrics must not be told. So it refuses, and the Director looks elsewhere.
+  const mirror = variant === "mirror";
+  if (mirror && (tall || wide)) {
+    throw new Error(`claim-figure ${beat.id}: mirror needs the beside row, and this beat stacks`);
+  }
 
   // Stacked, the claim is above the figure rather than beside it, so it comes out
   // of the figure's height budget. Measured against the box because that is the
@@ -244,18 +441,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // overflowed by the difference, and the caption's text landed at y=1087.16 on
   // a 1080 canvas — seven pixels, invisible to the gate until it started
   // sampling the deck's own stops rather than nine midpoints of a 92s timeline.
-  const figMax =
-    Math.round(
-      bodyBudget(
-        ctx.format,
-        p.eyebrow,
-        p.headline,
-        CAP_BAND + claimBand,
-        26,
-        tall ? 0 : undefined,
-        face,
-      ),
-    ) - 32;
+  const figMax = Math.round(F.budget(CAP_BAND + claimBand, 26, tall ? 0 : undefined)) - 32;
   // A claim long enough to leave no plate is not a layout to solve, it is a beat
   // to split — the same answer `split-compare` and `callout` already give, in the
   // same words. Without this the cap goes negative, the browser discards an
@@ -268,10 +454,34 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     );
   }
 
+  // v2 decides the arrangement and SIZES the plate, after every classic refusal
+  // above has had its say — so v2 draws exactly the beats classic draws.
+  const v2 = isV2(ctx);
+  // A layout variant (src/emit/look.ts) IS an arrangement, so the fit engine
+  // only sizes it: `mirror` stays a beside row rather than being swapped for the
+  // full-width one, which would be the classic slide under another name.
+  const chosen = v2
+    ? choose(
+        arrangements(
+          tall ? "tall" : wide ? "wide" : "beside",
+          fig,
+          p.claim,
+          fig.caption,
+          box,
+          F.budget(0, 0, 0),
+          portrait,
+          face,
+        ).filter((a) => !mirror || a.mode === "beside"),
+      )
+    : undefined;
+  const mode: Mode = chosen?.mode ?? (tall ? "tall" : wide ? "wide" : "beside");
+
   // The claim is the sentence the slide is FOR, so it arrives as a sentence:
   // word by word, in reading order, instead of as a block sliding in from the
   // left. Same words, same measure, same size.
-  const claim = `<div class="claim" id="${sid}-c">${words(p.claim)}</div>`;
+  // v2 sets a CJK claim character by character (`wordAtoms`), so it wraps like
+  // the script it is instead of in sentence-long blocks.
+  const claim = `<div class="claim" id="${sid}-c">${words(p.claim, "w", { unspaced: v2 })}</div>`;
   // `figure.src` is relative to the deck's asset directory.
   const held = plate(fig, sid, beat.id, ctx.start);
   const figure = `<div class="figwrap" id="${sid}-f">${held.html}</div>`;
@@ -283,18 +493,28 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // thumbnail of the evidence, with its own caption set in a column so narrow it
   // broke "Reconstruction" onto its own line. The figure is the point of the
   // slide, and in portrait it can only be the point at full width.
-  const body = tall
-    ? `<div class="cf-stack">${claim}\n<div>${figure}\n${caption}</div></div>`
-    : wide
-      ? `${figure}\n<div class="cf-under">${claim}\n${caption}</div>`
-      : `<div class="cf-beside">${claim}\n<div>${figure}\n${caption}</div></div>`;
+  const body =
+    mode === "tall"
+      ? `<div class="cf-stack">${claim}\n<div>${figure}\n${caption}</div></div>`
+      : mode === "wide"
+        ? `${figure}\n<div class="cf-under">${claim}\n${caption}</div>`
+        : mirror
+          ? `<div class="cf-beside cf-mirror"><div>${figure}\n${caption}</div>\n${claim}</div>`
+          : `<div class="cf-beside">${claim}\n<div>${figure}\n${caption}</div></div>`;
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
     tween(
       `#${sid}-c .w`,
       { opacity: 0, y: 14 },
-      { opacity: 1, y: 0, duration: 0.5, stagger: 0.05, ease: "power2.out" },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.5,
+        stagger: v2 ? staggerFor(wordAtoms(p.claim).length, 0.05) : 0.05,
+        ease: "power2.out",
+      },
       0.7,
     ),
     tween(`#${sid}-f`, { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, 1.0),
@@ -318,10 +538,20 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     ),
   ];
 
+  // The area the image is painted at: the solved plate under v2, and what
+  // `max-width:100%` and `figMax` leave of its natural size otherwise.
+  const column = mode === "beside" ? box - BESIDE_COL - 56 - PLATE_PAD : box - PLATE_PAD;
+  const natural = Math.min(1, column / fig.width, figMax / fig.height);
+  const figureArea = chosen
+    ? chosen.plate.w * chosen.plate.h
+    : Math.round(fig.width * natural * fig.height * natural);
+
   return {
-    html: `${chrome(sid, p.eyebrow, p.headline, box, face)}\n${body}`,
+    html: F.compose(body),
     tl,
     holds: holdsWithin([1.4, 2.4], beat.seconds),
+    ...(chosen ? { fit: chosen.fit } : {}),
+    figureArea,
     css: [
       chromeCss(theme),
       // 560, not 640: the claim was set in a column narrow enough to break a
@@ -355,7 +585,14 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // rule naming only `img` over a clip is a cap that silently does not
       // apply — the video would render at its natural 1920x1080 and run off the
       // canvas, which is invariant-5 territory that no gate reads.
-      `.figwrap ${held.el}{max-width:100%;max-height:${figMax}px;width:auto;height:auto;display:block}`,
+      //
+      // SCOPED TO THE SCENE UNDER `--design v2`. Scene CSS is one global sheet,
+      // so this per-beat number, written as a bare class rule, is decided for
+      // EVERY claim-figure in the deck by whichever one comes last: measured on a
+      // shipped v0.8.0 deck (3b9eaf0b.en), four rules of 308/492/492/566px, and a
+      // plate solved for 308 then drawn at up to 566. Classic keeps its bytes;
+      // v2 scopes it so each plate gets the height its own slide solved.
+      `${ctx.look || v2 ? `#${sid} ` : ""}.figwrap ${held.el}{max-width:100%;max-height:${figMax}px;width:auto;height:auto;display:block}`,
       `.caption{font-size:${BODY_SIZE}px;line-height:${BODY_LH};color:${theme.dim};margin-top:16px}`,
       // The image, not its wrapper: the wrapper's entrance already writes
       // `transform`. 1.2% of the 550px cap is 3.3px a side, which the wrapper's
@@ -364,6 +601,24 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // over a `<video>` is one ambient rule that animates nothing, and the
       // slide reads as dead rather than as held.
       ambient(sid, `-f ${held.el}`, DRIFT),
+      // v2: the plate is SIZED, not capped, and scoped to this scene. The shared
+      // rule above carries whichever scene's `figMax` the stylesheet emitted
+      // last — `max-height:none` here is what stops a neighbour's cap squashing
+      // this plate. `object-fit` covers the sub-pixel the floors leave.
+      ...(chosen
+        ? [
+            `#${sid} .figwrap ${held.el}{width:${chosen.plate.w}px;height:${chosen.plate.h}px;max-height:none;object-fit:contain}`,
+            // The plate HUGS its image. It was a block as wide as its column, so a
+            // height-bound figure sat small in a wide white slab — on a dark deck,
+            // an empty white box (en s13: 25% of a 1760x318 plate was picture).
+            `#${sid} .figwrap{width:fit-content;max-width:100%;margin-left:auto;margin-right:auto}`,
+            ...(chosen.claimSize === CLAIM_SIZE
+              ? []
+              : [`#${sid} .claim{font-size:${chosen.claimSize}px}`]),
+          ]
+        : []),
+      ...(mirror ? [`#${sid} .cf-mirror{grid-template-columns:1fr ${BESIDE_COL}px}`] : []),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };

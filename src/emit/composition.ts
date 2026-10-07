@@ -11,11 +11,14 @@
  * timeline, wraps whatever the emitter returns, and closes the document.
  */
 import type { z } from "zod";
+import { markV2 } from "../deck/playback.js";
 import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
 import { embedUrl } from "../pack/media.js";
+import { type Direction, direct } from "../plan/direct.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import type {
   Beat,
+  Design,
   Format,
   Inside,
   NarrationCanvas,
@@ -41,8 +44,18 @@ import {
   rigHtml,
   transitWindow,
 } from "./camera.js";
+import type { FitManifest } from "./fit.js";
 import { emitIsland, type SlideInput } from "./island.js";
-import { type EmitContext, esc, type Scene, TEX_MARK, tweenText } from "./kit.js";
+import { type EmitContext, esc, type Scene, TEX_MARK, type Tween, tweenText } from "./kit.js";
+import {
+  emphasize,
+  type HoldWindow,
+  type MotionPlan,
+  planMotion,
+  restyleEntrance,
+  seamIn,
+  seamOut,
+} from "./motion.js";
 import { baseCss, deckLook, FONT_BUNDLE_DIR, FONT_BUNDLE_HREF, pace } from "./theme.js";
 
 /** Pinned: a floating CDN version would break determinism between renders. */
@@ -121,6 +134,17 @@ export interface Deck {
    * PASS. `build` prints every casualty's reason; see src/cli.ts.
    */
   cut: Cut;
+  /**
+   * v2 only: each drawn scene's predicted fill, for `fit.json`. Absent on a
+   * classic build, which writes no manifest and so is not graded for fill.
+   */
+  fit?: FitManifest;
+  /**
+   * `--design v2` only: the look the Director chose for each kept beat, and the
+   * deck's sameness numbers. `build` writes it to `out/look.json`. Absent on a
+   * classic build.
+   */
+  looks?: Direction;
 }
 
 type Segment = z.infer<typeof segmentSchema>;
@@ -154,6 +178,15 @@ export interface DeckNarration {
 export interface DeckOptions {
   /** Overrides `storyboard.theme`. Any name in the registry. */
   theme?: string;
+  /**
+   * Overrides `storyboard.design`. Absent or `classic` emits v0.8.0's bytes.
+   * `v2` marks deck.html for the v2 player (`markV2`), lets the archetypes grow
+   * into their regions and fills `Deck.fit` (see `../emit/fit.ts`), and runs
+   * the Director (src/plan/direct.ts) over the kept beats so each is drawn in
+   * the look it chose (src/emit/look.ts), and turns on the motion grammar in
+   * `motion.ts`: varied entrances, seams and emphasis during narration.
+   */
+  design?: Design;
   /** Multiplies every duration, hold, and beat length. 1 leaves bytes untouched. */
   speed?: number;
   narration?: DeckNarration;
@@ -221,28 +254,75 @@ export function emitDeck(
   source: Source,
   format: Format,
   runtimeJs: string,
-  opts: DeckOptions = {},
+  options: DeckOptions = {},
 ): Deck {
   // ONE layout pass for both artifacts. It used to run twice — once inside
   // `emitComposition` and once here for the slides — which was merely wasteful
   // while the pass was pure string-building, and stops being merely wasteful now
   // that it also emits every beat a second time to measure it.
+  // The storyboard's own design when the caller states none, so a storyboard
+  // planned under v2 is built as v2 by every entry point, not only the CLI.
+  const stated = options.design ?? storyboard.design;
+  const opts: DeckOptions = stated ? { ...options, design: stated } : options;
   const laid = layout(storyboard, source, format, opts);
   const composition = renderComposition(storyboard, format, laid);
   const { cut } = laid;
-  if (!format.navigable) return { composition, cut };
+  const fit = laid.fit ? { fit: laid.fit } : {};
+  const looks = laid.looks ? { looks: laid.looks } : {};
+  if (!format.navigable) return { composition, cut, ...fit, ...looks };
   return {
     composition,
     cut,
-    page: emitDeckPage(
-      storyboard,
-      format,
-      laid.slides,
-      runtimeJs,
-      narrationIsland(opts.narration, laid.spoken),
-      videoIsland(laid.embeds),
+    ...fit,
+    ...looks,
+    page: withDesign(
+      emitDeckPage(
+        storyboard,
+        format,
+        laid.slides,
+        runtimeJs,
+        narrationIsland(opts.narration, laid.spoken),
+        videoIsland(laid.embeds),
+        laid.motion ? motionIsland(laid.holdMotion) : "",
+      ),
+      opts.design ?? "classic",
     ),
   };
+}
+
+/**
+ * How a v2 deck breaks and tracks CJK text. Empty for any other language.
+ *
+ * KOREAN BREAKS BETWEEN WORDS. Browsers break Hangul between any two syllables
+ * by default, and v2's narrow rail headlines and grown text made that happen on
+ * most rail slides: "생성 조건/인", "가장 높은 종/합 점수", "서로 다/른" (review,
+ * 2026-10-08: 8 of 8 rail headlines on one deck, against 1 break in total on
+ * the classic layouts). `keep-all` breaks only at spaces — which is also how
+ * `wrap` in svg.ts has always MEASURED Korean, so the layout's line counts and
+ * the browser's now agree — and `break-word` still breaks a single word wider
+ * than its line rather than letting it overflow, as `wrap` does.
+ *
+ * JAPANESE AND CHINESE keep breaking between characters, under the strict
+ * kinsoku rules, so a line never opens on small kana or closing punctuation.
+ *
+ * NO TRACKING ON A CJK EYEBROW. Letter-spacing made for Latin capitals pulls
+ * Hangul and kanji apart until "생성 결과의 실패" reads "생 성  결 과 의  실 패".
+ * Tracking only ever made the eyebrow wider, so dropping it never adds a line
+ * the chrome was not charged for.
+ */
+export function cjkTypesetCss(lang: string): string {
+  const l = lang.toLowerCase();
+  const eyebrow = ".scene .eyebrow{letter-spacing:0}";
+  if (l === "ko" || l.startsWith("ko-")) {
+    return [".scene{word-break:keep-all;overflow-wrap:break-word}", eyebrow].join("\n");
+  }
+  if (/^(ja|zh)(-|$)/.test(l)) return [".scene{line-break:strict}", eyebrow].join("\n");
+  return "";
+}
+
+/** The deck page for `design`: classic is untouched, v2 carries the player marker. */
+function withDesign(page: string, design: Design): string {
+  return design === "v2" ? markV2(page) : page;
 }
 
 /**
@@ -307,7 +387,7 @@ export function planCut(
       // dropped from the deck, so a refusal over a number nobody reads would
       // delete the beat from the build it was measuring.
       ({ scene } = stageScene(
-        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0 }),
+        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0, ...design(opts) }),
         speed,
       ));
     } catch (err) {
@@ -364,7 +444,12 @@ export function planCut(
 }
 
 /** The one pass over the beats. Both artifacts are rendered from its result. */
-function layout(storyboard: Storyboard, source: Source, format: Format, opts: DeckOptions = {}) {
+function layout(storyboard: Storyboard, source: Source, format: Format, options: DeckOptions = {}) {
+  // The storyboard's own design when the caller states none, resolved ONCE so
+  // the fit engine, the Director and the motion grammar read one answer — and
+  // `emitComposition`, which reaches here without `emitDeck`, gets it too.
+  const stated = options.design ?? storyboard.design;
+  const opts: DeckOptions = stated ? { ...options, design: stated } : options;
   const cut = planCut(storyboard, source, format, opts);
   const beats = cut.kept;
   if (beats.length === 0) {
@@ -378,8 +463,28 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
   const { family, theme } = deckLook(storyboard, opts.theme);
   const speed = opts.speed ?? 1;
+  // AFTER the cut, over the beats that are actually in the deck: "no two
+  // adjacent beats look alike" is a statement about what the audience sees, and
+  // a beat the budget dropped is not between anything. Safe to decide after
+  // `planCut` measured the classic scenes because a look never moves time.
+  const looks =
+    opts.design === "v2"
+      ? direct(beats, { source, format, theme, seed: storyboard.sourceId, design: "v2" })
+      : undefined;
+  // v2's motion grammar, planned once over the beats this format KEPT — a scene
+  // id is a position over those, and so is every seam. `classic` plans nothing
+  // and every branch below that reads `motion` is skipped, which is what keeps
+  // its bytes v0.8.0's.
+  const motion: MotionPlan | undefined =
+    opts.design === "v2" ? planMotion(storyboard.sourceId, beats) : undefined;
+  /** The deck player's hold windows, absolute seconds, keyed by scene id. v2 only. */
+  const holdMotion: Record<string, HoldWindow[]> = {};
 
   const archetypeCss = new Set<string>();
+  if (opts.design === "v2") {
+    const cjk = cjkTypesetCss(storyboard.lang);
+    if (cjk) archetypeCss.add(cjk);
+  }
   const scenes: string[] = [];
   const slides: SlideInput[] = [];
   /** The narration island's view of the same beats, keyed by scene id. */
@@ -413,12 +518,30 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // Rounded to invariant 10's three places, so the number an archetype writes
     // and the number `sceneHtml` publishes as this scene's `data-start` are ONE
     // number rather than two roundings of one.
-    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at) };
+    const look = looks?.looks[i];
+    const ctx: EmitContext = {
+      source,
+      format,
+      theme,
+      sid,
+      start: rnd(at),
+      ...design(opts),
+      ...(look ? { look } : {}),
+    };
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
     const segments = opts.narration?.beats[beat.id];
-    const { scene } = stageScene(emitScene(beat, ctx), speed);
+    // Restyled BEFORE pacing, so its few absolute times (the chrome's
+    // `SEAM_CLEAR`) scale with the deck exactly as the handoff they clear does.
+    // A restyle keeps every tween's end and every hold, so `seconds` below is the
+    // same number either way — and so is `holdsFor`'s in src/render/timing.ts,
+    // which re-emits without it.
+    const emitted = emitScene(beat, ctx);
+    const { scene } = stageScene(
+      motion ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "rise") : emitted,
+      speed,
+    );
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);
 
     // A camera leaves from this scene only if the NEXT surviving beat says it
@@ -440,7 +563,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // speech. So the sum stays raw and only `ctx.start` above is rounded.
     const start = at;
     at += duration;
-    return { beat, sid, scene, segments, inside, dive, duration, start };
+    return { beat, sid, scene, segments, inside, dive, duration, start, seconds };
   });
 
   // Whether ANY scene deferred its timeline behind a measurement. `readyGate`
@@ -478,11 +601,17 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     const over = next ? rnd(Math.min(HANDOFF_SECONDS * speed, next.duration)) : 0;
 
     let scene = cut.scene;
+    if (motion) scene = withMotion(motion, i, cut, scene, theme.accent, speed, holdMotion);
     if (inside && dive) {
       scene = withCamera(sid, inside, format, scene, dive, over);
       archetypeCss.add(cameraCss());
     } else if (over > 0) {
-      scene = { ...scene, tl: [...scene.tl, handoffStatement(sid, duration, over)] };
+      const seam = motion?.seams[i];
+      const out: Tween[] =
+        seam && seam !== "dive"
+          ? seamOut(seam, sid, duration, over)
+          : [handoffStatement(sid, duration, over)];
+      scene = { ...scene, tl: [...scene.tl, ...out] };
     }
 
     if (scene.css) archetypeCss.add(scene.css.trim());
@@ -545,7 +674,98 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     cut,
     builds,
     plugins,
+    // Read off the EMITTER's scene, as warnings are: the camera wrapper is a
+    // layer that was never asked how full the body is.
+    fit:
+      opts.design === "v2"
+        ? ({
+            design: "v2",
+            scenes: cuts.map((c) => ({
+              id: c.sid,
+              beat: c.beat.id,
+              archetype: c.beat.archetype,
+              ...(c.scene.fit ? { fit: c.scene.fit } : {}),
+            })),
+          } satisfies FitManifest)
+        : undefined,
+    looks,
+    motion,
+    holdMotion,
   };
+}
+
+/** `design` for an emit context, only when stated — so a classic context is the object it always was. */
+function design(opts: DeckOptions): { design?: Design } {
+  return opts.design ? { design: opts.design } : {};
+}
+
+/**
+ * The v2 half of one scene's second pass, before its handoff is appended:
+ * the INCOMING half of the seam that joins it to the scene before, and the
+ * emphasis that plays while its narration is spoken.
+ *
+ * The incoming `over` is recomputed with `layout`'s own expression for the
+ * previous scene's handoff — `min(HANDOFF * speed, this scene's duration)` — so
+ * the two halves of a seam are one length.
+ */
+function withMotion(
+  motion: MotionPlan,
+  i: number,
+  cut: {
+    sid: string;
+    scene: Scene;
+    segments?: Segment[] | undefined;
+    duration: number;
+    start: number;
+    seconds: number;
+  },
+  scene: Scene,
+  accent: string,
+  speed: number,
+  holdMotion: Record<string, HoldWindow[]>,
+): Scene {
+  const { sid } = cut;
+  let out = scene;
+  const before = motion.seams[i - 1];
+  if (before !== undefined) {
+    const firstHold = Math.min(...scene.holds.filter((h) => Number.isFinite(h) && h > 0), Infinity);
+    const over = rnd(Math.min(HANDOFF_SECONDS * speed, cut.duration));
+    const incoming = Number.isFinite(firstHold) ? seamIn(before, sid, over, firstHold) : [];
+    if (incoming.length) out = { ...out, tl: [...out.tl, ...incoming] };
+  }
+  if (cut.segments?.length) {
+    const { scene: emphasised, windows } = emphasize(out, sid, {
+      segments: cut.segments,
+      starts: spokenStarts(out, cut.segments).starts,
+      end: cut.seconds,
+      kinds: motion.emphases[i] ?? [],
+      accent,
+    });
+    out = emphasised;
+    if (windows.length) {
+      holdMotion[sid] = windows.map((w) => ({
+        stop: w.stop,
+        at: rnd(cut.start + w.at),
+        from: rnd(cut.start + w.from),
+        to: rnd(cut.start + w.to),
+      }));
+    }
+  }
+  return out;
+}
+
+/**
+ * The motion island, written into a v2 `deck.html` only. The runtime reads its
+ * presence as "this deck has seams worth gliding through" and its `holds` as the
+ * stretches it may seek through on the audio clock (src/deck/motion.ts). Its own
+ * island for the reason `narrationIsland` is: the slideshow manifest is
+ * HyperFrames' schema, not ours.
+ */
+function motionIsland(holds: Record<string, HoldWindow[]>): string {
+  const json = JSON.stringify({ version: 1, seams: true, holds }, null, 2).replace(/</g, "\\u003c");
+  return `\n    <script type="application/decksmith-motion+json">
+${json}
+    </script>`;
 }
 
 type Layout = ReturnType<typeof layout>;
@@ -684,11 +904,23 @@ export function openSeconds(scene: Scene): number {
 function beatSeconds(authored: number, scene: Scene, segments?: Segment[]): number {
   if (!segments?.length) return authored;
   const lastHold = scene.holds.reduce((a, b) => Math.max(a, b), 0);
+  const ends = spokenStarts(scene, segments).end;
+  return Math.max(authored, lastHold + SETTLE_SECONDS, ends + SETTLE_SECONDS);
+}
+
+/**
+ * `speechPlan` over a staged scene, with the holds `beatSeconds` has always
+ * used. One expression for the room a beat reserves and for where v2's emphasis
+ * looks for the sentence it is timed to, so the two cannot disagree.
+ */
+function spokenStarts(
+  scene: Scene,
+  segments: readonly Segment[],
+): { starts: number[]; end: number } {
   const usable = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
     (a, b) => a - b,
   );
-  const ends = speechPlan(openSeconds(scene), usable, segments).end;
-  return Math.max(authored, lastHold + SETTLE_SECONDS, ends + SETTLE_SECONDS);
+  return speechPlan(openSeconds(scene), usable, segments);
 }
 
 /**
@@ -1069,6 +1301,7 @@ function emitDeckPage(
   runtimeJs: string,
   narration: string,
   video: string,
+  motion = "",
 ): string {
   return `<!doctype html>
 <html lang="${esc(storyboard.lang)}">
@@ -1088,7 +1321,7 @@ function emitDeckPage(
       width="${format.width}"
       height="${format.height}"
     ></hyperframes-player>
-${emitIsland(slides)}${narration}${video}
+${emitIsland(slides)}${narration}${video}${motion}
     <script>
 ${closeSafe(runtimeJs)}
     </script>
@@ -1098,7 +1331,7 @@ ${closeSafe(runtimeJs)}
 }
 
 /** A literal `</script>` inside the bundle would close the tag that carries it. */
-function closeSafe(code: string): string {
+export function closeSafe(code: string): string {
   return code.replace(/<\/script/gi, "<\\/script");
 }
 

@@ -19,6 +19,7 @@ import {
   gradeReserve,
   INK_FLOOR,
   inkBelow,
+  inkIn,
   type Measured,
   RESERVE_INK_TOLERANCE,
   readReserve,
@@ -539,5 +540,21 @@ describe("gradeReserve", () => {
     // The floor `gradeFidelity` uses IS one short headline. A reserve tolerance
     // anywhere near it would let a whole line of type sit in the band.
     expect(RESERVE_INK_TOLERANCE * 10).toBeLessThanOrEqual(INK_FLOOR);
+  });
+});
+
+describe("inkIn", () => {
+  it("is inkBelow when the region is everything under a line", async () => {
+    const frame = await frameOf([11, 13, 16], [232, 234, 237], [20, 50, 10, 10]);
+    expect(inkIn(frame, { top: 40, left: 0, bottom: 100 })).toBe(inkBelow(frame, 40));
+  });
+
+  it("excludes what is left of a rail and what is under a foot headline", async () => {
+    // A 10x10 block at x=20..30, y=50..60: inside a body that starts at x=0 or
+    // ends at y=100, outside one that starts at x=40 or ends at y=40.
+    const frame = await frameOf([11, 13, 16], [232, 234, 237], [20, 50, 10, 10]);
+    expect(inkIn(frame, { top: 0, left: 0, bottom: 100 })).toBeCloseTo(0.01, 6);
+    expect(inkIn(frame, { top: 0, left: 40, bottom: 100 })).toBe(0);
+    expect(inkIn(frame, { top: 0, left: 0, bottom: 40 })).toBe(0);
   });
 });

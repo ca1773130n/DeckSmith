@@ -37,6 +37,7 @@ import {
   type Pack,
   type PackFiles,
   parseMarkdown,
+  pickTheme,
   planMedia,
   type Runner,
   render,
@@ -263,7 +264,14 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
     } else {
       job.log(`narrate: ${speaking} of ${storyboard.beats.length} beats speak`);
       await mkdir(dirs.audio, { recursive: true });
-      const spoken = await narrate(storyboard, source, prefs, {
+      // Staged under the pack `buildDeck` will pick, as the CLI's `narrate` does.
+      const staged = pickTheme(storyboard, source, options.format, {
+        stated: options.stated.theme ? prefs.theme : undefined,
+        design: prefs.design ?? storyboard.design ?? "classic",
+        seed: prefs.packSeed,
+        speed: durationPlan(prefs, storyboard.beats.length).speed,
+      });
+      const spoken = await narrate({ ...storyboard, theme: staged }, source, prefs, {
         dir: dirs.audio,
         format: options.format,
       });
@@ -286,7 +294,11 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
   for (const w of paced.warnings) warnings.push(w);
   const built = await buildDeck(storyboard, source, dirs.deck, {
     format: options.format,
-    theme: options.stated.theme ? prefs.theme : storyboard.theme,
+    // Stated or not at all: `buildDeck` picks the pack under v2 as the CLI does,
+    // and passing the storyboard's own theme here would read as a forced one.
+    ...(options.stated.theme ? { theme: prefs.theme } : {}),
+    ...(prefs.design ? { design: prefs.design } : {}),
+    ...(prefs.packSeed ? { packSeed: prefs.packSeed } : {}),
     // The DURATION target owns the pace when there is one, and is `animationSpeed`
     // itself when there is not. Its warnings are the job's: a target that cannot
     // be met is something the person who asked for it must be told.

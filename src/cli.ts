@@ -29,8 +29,12 @@ import {
   vendorKatex,
   vendorScripts,
 } from "./build/files.js";
+import { repackDeckPage } from "./deck/repack.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { FIT_FILE } from "./emit/fit.js";
+import { LOOK_FILE } from "./emit/look.js";
 import { THEME_NAMES } from "./emit/theme.js";
+import { pickTheme } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
@@ -44,7 +48,7 @@ import {
   pendingIllustrations,
 } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
-import { loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
+import { designFor, loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
 import { captureFrames } from "./render/capture.js";
 import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
@@ -198,7 +202,9 @@ function lengthFlags(cmd: Command): Command {
 /** Flags that change how it *looks*. */
 function lookFlags(cmd: Command): Command {
   return cmd
-    .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
+    .option("--theme <name>", `palette or style pack: ${THEME_NAMES.join(" | ")}`)
+    .option("--design <name>", "classic (the v0.8.0 deck, default) | v2 (the redesign)")
+    .option("--pack-seed <s>", "what --design v2 hashes to pick a pack (default: the source id)")
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
@@ -247,6 +253,8 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "duration",
     "narrationDensity",
     "theme",
+    "design",
+    "packSeed",
     "speed",
     "voice",
     "rate",
@@ -459,6 +467,9 @@ imageFlags(
     ...planned,
     lang: prefs.lang,
     theme: stated(prefs, "theme") ?? planned.theme,
+    // Recorded only when someone asked, so a storyboard planned without the flag
+    // is byte-for-byte what it was before `design` existed.
+    ...(stated(prefs, "design") ? { design: prefs.design } : {}),
   };
   // A brief with no picture yet is what `--images` asked for; without the flag
   // it is a hole `build` would refuse, and better refused here.
@@ -582,7 +593,9 @@ voiceFlags(
       .option(
         "--reserve-captions",
         "stage for a deck built with --reserve-captions — the reserve changes the stop count too",
-      ),
+      )
+      .option("--design <mode>", "classic | v2 — stage in the look `build --design` will pick")
+      .option("--pack-seed <s>", "the seed `build --pack-seed` will pick the v2 pack with"),
   ),
 ).action(async (sbPath: string, o: { source: string; out: string } & Record<string, unknown>) => {
   const storyboard = await readValidated(sbPath, storyboardSchema, "storyboard");
@@ -608,7 +621,17 @@ voiceFlags(
   }
   step(`narrate: ${speaking} of ${storyboard.beats.length} beats have narration`);
 
-  const narration = await narrate(storyboard, source, prefs, { dir, format });
+  // Staged in the look `build` will pick: under `--design v2` the pack decides
+  // the chrome's scale and face, and with them how many stops each beat has.
+  // The same pick `build` makes, refusals included (`pickTheme`), so a pack
+  // build would refuse is never the one narration is staged under.
+  const theme = pickTheme(storyboard, source, format, {
+    stated: stated(prefs, "theme"),
+    design: designFor(prefs, storyboard.design),
+    seed: prefs.packSeed,
+    speed: durationPlan(prefs, storyboard.beats.length).speed,
+  });
+  const narration = await narrate({ ...storyboard, theme }, source, prefs, { dir, format });
   await writeJson(join(dir, NARRATION_FILE), narration);
 
   const segments = Object.values(narration.beats).flat();
@@ -688,8 +711,11 @@ lookFlags(
     const prefs = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
     // The storyboard records the theme it was planned under; `--theme` or a
     // config file restates it. Language is not overridable here — it describes
-    // the copy that is already written, not a wish.
-    const theme = stated(prefs, "theme") ?? storyboard.theme;
+    // the copy that is already written, not a wish. Under `--design v2` a pack
+    // is picked instead when nobody named one — resolved below, once the
+    // narration and the pace it must be staged at are in hand.
+    // The design: a flag or config, else the storyboard's, else classic.
+    const design = designFor(prefs, storyboard.design);
 
     const out = resolve(o.out);
     await mkdir(out, { recursive: true });
@@ -731,6 +757,19 @@ lookFlags(
     // depends on the pace. A beat the cut drops after this is a shortfall this
     // cannot see, and `reportCut` below is what says so.
     const paced = durationPlan(prefs, storyboard.beats.length);
+    // A pack changes the chrome's scale and the face, so it can change how many
+    // stops a beat has — narration on disk was recorded against one count — or
+    // whether a tight beat draws at all. The pick skips any pack that would do
+    // either (`costsNothing`), falling back to the storyboard's own theme.
+    // Classic: unchanged. `narrate` makes the same pick (see `pickTheme`).
+    const theme = pickTheme(storyboard, source, format, {
+      stated: stated(prefs, "theme"),
+      design,
+      seed: prefs.packSeed,
+      speed: paced.speed,
+      narration,
+    });
+    if (design === "v2") step(`build: design v2 — style pack "${theme}"`);
     // Before the budget advisories, because it is the reason they are struck at
     // the number they are.
     for (const f of scanBeatCount(storyboard, prefs)) step(`build: ${f.message}`);
@@ -738,10 +777,11 @@ lookFlags(
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
-    const fontCss = await refreshFont(storyboard, source, out, step);
+    const fontCss = await refreshFont(storyboard, source, out, step, theme);
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      design,
       ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
@@ -758,6 +798,17 @@ lookFlags(
     });
     await writeFile(join(out, "index.html"), deck.composition);
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);
+    // v2 only. Its presence is what tells `verify` to grade fill — see `FIT_FILE`.
+    if (deck.fit) await writeFile(join(out, FIT_FILE), `${JSON.stringify(deck.fit, null, 2)}\n`);
+    // `--design v2`: which look each beat got and why the others were refused.
+    // Not part of the deck — nothing loads it — so a classic build writes none.
+    if (deck.looks) {
+      await writeFile(join(out, LOOK_FILE), `${JSON.stringify(deck.looks, null, 2)}\n`);
+      const s = deck.looks.summary;
+      step(
+        `build: design v2 — ${s.distinct} layouts over ${s.beats} beats, chrome on top in ${Math.round(100 * s.modalChrome)}%, ${s.adjacentRepeats} adjacent repeat(s) → ${LOOK_FILE}`,
+      );
+    }
     await writeTiming(out, {
       storyboard,
       source,
@@ -780,7 +831,11 @@ lookFlags(
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
-    const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
+    const look = [
+      theme,
+      design === "classic" ? "" : `design ${design}`,
+      paced.speed === 1 ? "" : `${paced.speed}× speed`,
+    ]
       .filter(Boolean)
       .join(", ");
     // Count what was drawn, not what was offered: below the format's minWeight a
@@ -1015,6 +1070,11 @@ voiceFlags(
     ...chosen,
     lang: stated(chosen, "lang") ?? storyboard.lang,
     theme: stated(chosen, "theme") ?? storyboard.theme,
+    // Only when someone said: an unset design is classic, and a key that was
+    // never there must not appear in the manifest of a deck that asked for nothing.
+    ...((chosen.design ?? storyboard.design)
+      ? { design: designFor(chosen, storyboard.design) }
+      : {}),
   };
 
   const found = await findNarration(sbPath, o.narration);
@@ -1053,6 +1113,30 @@ voiceFlags(
   );
   step(`pack: ${size(bytes)} → ${out}`);
 });
+
+/**
+ * The v2 player for a deck that is already built — every one on a CDN today —
+ * without building it again. See src/deck/repack.ts. Writes BESIDE deck.html
+ * and never over it: the deck's own page stays exactly what was published, and
+ * a host switches by pointing at the new file.
+ */
+program
+  .command("repack")
+  .description(
+    "Give a built deck the current player (v2), without re-rendering: writes deck2.html.",
+  )
+  .argument("<deck>", "a built deck directory, or its deck.html")
+  .option("-o, --out <file>", "where to write it (default: deck2.html beside deck.html)")
+  .action(async (deck: string, o: { out?: string }) => {
+    const input = (await stat(deck)).isDirectory() ? join(deck, DECK_PAGE) : resolve(deck);
+    const out = o.out ? resolve(o.out) : join(dirname(input), "deck2.html");
+    if (out === input) {
+      throw new Error(`refusing to overwrite ${input}: repack writes a second page beside it`);
+    }
+    const page = await readFile(input, "utf8");
+    await writeFile(out, repackDeckPage(page, await deckRuntime()));
+    step(`repack: ${input} → ${out} (v2 player, islands kept byte for byte)`);
+  });
 
 program
   .command("unpack")

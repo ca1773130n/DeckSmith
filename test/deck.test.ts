@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PLAYER_MARKER } from "../src/deck/playback.js";
 import {
   buildStops,
   dwellMs,
@@ -14,6 +15,7 @@ import {
   parseHash,
   planTransition,
   refused,
+  SILENT_HOLD,
   type SlideSpec,
   type Stop,
   showingAt,
@@ -36,6 +38,7 @@ describe("the bundle deck.html inlines", () => {
     // (invariant 9). Scenes are addressed by the ids the island already carries.
     for (const file of [
       "runtime.ts",
+      "playback.ts",
       "subtitles.ts",
       "protocol.ts",
       "player.ts",
@@ -156,6 +159,23 @@ describe("planTransition", () => {
 
   it("makes a zero-length span a no-op", () => {
     expect(planTransition(7.5, 7.5)).toEqual(cut);
+  });
+
+  it("plays at the viewer's speed, so the reveal keeps pace with the narration", () => {
+    expect(planTransition(16.03, 16.73, { rate: 2 }).durationMs).toBeCloseTo(350);
+    expect(planTransition(16.03, 16.73, { rate: 0.75 }).durationMs).toBeCloseTo(933.333, 2);
+    expect(planTransition(16.03, 16.73, { rate: 1 }).durationMs).toBeCloseTo(700);
+  });
+
+  it("decides what to cut in composition seconds, whatever the speed", () => {
+    // 3s is a slide's hold at any speed; halving its watch time does not make it a reveal.
+    expect(planTransition(17.93, 20.93, { rate: 2 })).toEqual(cut);
+  });
+
+  it("treats a rate it cannot use as 1x rather than dividing by it", () => {
+    for (const rate of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(planTransition(16.03, 16.73, { rate }).durationMs).toBeCloseTo(700);
+    }
   });
 });
 
@@ -389,7 +409,21 @@ describe("a play() rejection says which of two failures it was", () => {
 class FakeAudio {
   preload = "";
   muted = false;
-  src = "";
+  /**
+   * The HTML load algorithm resets `playbackRate` to `defaultPlaybackRate`, and
+   * `silence()` calls `load()` on every stop. Modelled, because it is exactly
+   * the trap that sends a chosen speed back to 1x on the next slide.
+   */
+  defaultPlaybackRate = 1;
+  playbackRate = 1;
+  #src = "";
+  get src() {
+    return this.#src;
+  }
+  set src(v: string) {
+    this.#src = v;
+    this.load();
+  }
   currentTime = 0;
   ended = false;
   paused = true;
@@ -404,9 +438,14 @@ class FakeAudio {
   pause() {
     this.paused = true;
   }
-  load() {}
+  load() {
+    this.playbackRate = this.defaultPlaybackRate;
+  }
   removeAttribute() {
-    this.src = "";
+    this.#src = "";
+  }
+  getAttribute(name: string): string | null {
+    return name === "src" && this.#src !== "" ? this.#src : null;
   }
   addEventListener() {}
 }
@@ -577,6 +616,40 @@ describe("autoplay's dwell clock", () => {
 
   it("caps a long hold, which is the author pausing rather than a wait to sit out", () => {
     expect(dwellMs({ playing: true, heard: false, gapMs: 30_000 })).toBe(8000);
+  });
+
+  it("divides every wait by the viewer's speed, after clamping it", () => {
+    expect(dwellMs({ playing: true, heard: false, gapMs: 4000, rate: 2 })).toBe(2000);
+    // The floor is a reading time at 1x; a viewer at 2x reads at 2x too.
+    expect(dwellMs({ playing: true, heard: false, gapMs: 2000, rate: 2 })).toBe(1000);
+    expect(dwellMs({ playing: true, heard: false, gapMs: 4000, rate: 0.75 })).toBeCloseTo(
+      5333.33,
+      1,
+    );
+    expect(dwellMs({ playing: true, heard: true, gapMs: 4000, rate: 2 })).toBeNull();
+  });
+
+  it("lets the chosen speed shorten even the longest hold", () => {
+    // Review 2026-10-08: the cap was applied after the division, so a 15s gap
+    // held 8s at 1x AND at 2x — the speed never reached the deck's longest waits.
+    expect(dwellMs({ playing: true, heard: false, gapMs: 15_000, rate: 1 })).toBe(8000);
+    expect(dwellMs({ playing: true, heard: false, gapMs: 15_000, rate: 2 })).toBe(4000);
+  });
+
+  it("v2: holds a stop with no narration only for its reveal and a beat, not the author's gap", () => {
+    // 5-9 such stops a deck, each up to 8s of silence: 15-22% of a deck at 1x.
+    expect(
+      dwellMs({ playing: true, heard: false, gapMs: 15_000, silent: true, revealMs: 1200 }),
+    ).toBe(1200 + SILENT_HOLD);
+    expect(
+      dwellMs({ playing: true, heard: false, gapMs: 15_000, silent: true, revealMs: 600, rate: 2 }),
+    ).toBe(600 + SILENT_HOLD / 2);
+    // Never longer than the old wait would have been.
+    expect(
+      dwellMs({ playing: true, heard: false, gapMs: 1000, silent: true, revealMs: 2000 }),
+    ).toBe(1500);
+    // A stop whose segment exists but failed is not silent by design: it keeps the gap.
+    expect(dwellMs({ playing: true, heard: false, gapMs: 15_000, silent: false })).toBe(8000);
   });
 
   it("turns on the clock for a stop that claimed a segment and then could not play it", () => {
@@ -770,5 +843,168 @@ describe("the player-page video", () => {
       expect(parseClips("{ not json")).toEqual({});
       expect(parseClips(JSON.stringify({ scenes: null }))).toEqual({});
     });
+  });
+});
+
+/* ------------------------------------------------------------ narration speed */
+
+describe("the narration speed", () => {
+  beforeAll(() => {
+    globalThis.requestAnimationFrame = (() => 1) as typeof globalThis.requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof globalThis.cancelAnimationFrame;
+  });
+  afterAll(() => {
+    Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+    Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
+  });
+
+  const TWO: Narration = {
+    voice: "test",
+    dir: "audio",
+    scenes: {
+      s1: [{ stop: 0, audio: "s1-0.mp3", cues: [] }],
+      s2: [{ stop: 0, audio: "s2-0.mp3", cues: [] }],
+    },
+  };
+  const second: Stop = { t: 6, slide: 1, fragment: 0, notes: "", sceneId: "s2" };
+
+  function mount(v2 = true) {
+    const audio = new FakeAudio();
+    const doc = {
+      createElement: () => audio,
+      body: { append: () => {} },
+      documentElement: { classList: { toggle: () => {} } },
+    } as unknown as Document;
+    const ui = {
+      subs: { textContent: "", hidden: false } as unknown as HTMLElement,
+      flags: { textContent: "" } as unknown as HTMLElement,
+    };
+    return { audio, voice: mountVoice(doc, TWO, ui, { v2 }) };
+  }
+
+  it("leaves a classic deck's element exactly as v0.8.0 did: no rate, no pitch flag", () => {
+    // The classic player has no speed. Review 2026-10-08 asked that its voice
+    // be v0.8.0's call for call, so no rate is written to it at all.
+    const { audio, voice } = mount(false);
+    voice.at(STOP);
+    voice.setRate(2);
+    voice.at(second);
+    expect(audio.playbackRate).toBe(1);
+    expect(audio.defaultPlaybackRate).toBe(1);
+    expect((audio as unknown as { preservesPitch?: boolean }).preservesPitch).toBeUndefined();
+  });
+
+  it("pauses a sentence where it is and resumes it from there (v2's Enter)", () => {
+    const { audio, voice } = mount();
+    voice.at(STOP);
+    expect(audio.plays).toHaveLength(1);
+    audio.currentTime = 2.4;
+    voice.pause();
+    expect(audio.paused).toBe(true);
+    expect(audio.currentTime).toBe(2.4);
+    expect(voice.resume()).toBe(true);
+    // The same element, the same source, from the same second: not a restart.
+    expect(audio.plays).toHaveLength(2);
+    expect(audio.src).toContain("s1-0.mp3");
+    expect(audio.currentTime).toBe(2.4);
+    expect(audio.paused).toBe(false);
+  });
+
+  it("has nothing to resume after a step dropped the sentence, or after it ended", () => {
+    const { audio, voice } = mount();
+    voice.at(STOP);
+    voice.pause();
+    voice.hush();
+    expect(voice.resume()).toBe(false);
+    voice.at(STOP);
+    audio.ended = true;
+    voice.pause();
+    expect(voice.resume()).toBe(false);
+    // And nothing to resume that was never paused.
+    audio.ended = false;
+    voice.at(second);
+    expect(voice.resume()).toBe(false);
+  });
+
+  it("changes the sentence that is playing, not only the next one", () => {
+    const { audio, voice } = mount();
+    voice.at(STOP);
+    expect(audio.src).toContain("s1-0.mp3");
+    voice.setRate(1.5);
+    // Same element, same source, mid-segment: the change is live.
+    expect(audio.src).toContain("s1-0.mp3");
+    expect(audio.playbackRate).toBe(1.5);
+    expect(audio.defaultPlaybackRate).toBe(1.5);
+  });
+
+  it("survives the reload every stop does, which resets playbackRate to its default", () => {
+    const { audio, voice } = mount();
+    voice.setRate(2);
+    voice.at(STOP);
+    voice.at(second);
+    expect(audio.src).toContain("s2-0.mp3");
+    expect(audio.playbackRate).toBe(2);
+  });
+
+  it("keeps the voice's pitch", () => {
+    const { audio, voice } = mount();
+    voice.setRate(1.75);
+    expect((audio as unknown as { preservesPitch?: boolean }).preservesPitch).toBe(true);
+  });
+
+  it("falls back to 1x for a rate it cannot use", () => {
+    const { audio, voice } = mount();
+    voice.setRate(0);
+    expect(audio.playbackRate).toBe(1);
+  });
+});
+
+/* ----------------------------------------------------------------- v2 marker */
+
+describe("--design v2 on the deck page", () => {
+  const source = sourceSchema.parse({
+    id: "src-d",
+    title: "T",
+    lang: "en",
+    sections: [],
+    figures: [],
+    equations: [],
+    tables: [],
+  });
+  const board = storyboardSchema.parse({
+    sourceId: "src-d",
+    title: "T",
+    beats: [{ id: "b0", intent: "Open.", archetype: "title", params: { headline: "A title" } }],
+  });
+  const format = FORMATS["deck-16x9"] as Format;
+
+  it("marks a v2 page for the v2 player, once, in its head — and a classic page never", () => {
+    const classic = emitDeck(board, source, format, "/*runtime*/");
+    const v2 = emitDeck(board, source, format, "/*runtime*/", { design: "v2" });
+    expect(classic.page).not.toContain(PLAYER_MARKER);
+    const page = v2.page ?? "";
+    expect(page.split(PLAYER_MARKER).length - 1).toBe(1);
+    expect(page.indexOf(PLAYER_MARKER)).toBeLessThan(page.indexOf("</head>"));
+  });
+
+  // v2 is the whole redesign now (fit, packs, looks, motion), so its
+  // composition differs by design. What must hold is the other direction: an
+  // explicit `classic` is the unstated deck, byte for byte, page and all.
+  it("builds an explicit classic exactly as an unstated design", () => {
+    const unstated = emitDeck(board, source, format, "/*runtime*/");
+    const classic = emitDeck(board, source, format, "/*runtime*/", { design: "classic" });
+    expect(classic.composition).toBe(unstated.composition);
+    expect(classic.page).toBe(unstated.page);
+  });
+
+  it("is what an explicit classic produces when nothing is said", () => {
+    const unsaid = emitDeck(board, source, format, "/*runtime*/");
+    const said = emitDeck(board, source, format, "/*runtime*/", { design: "classic" });
+    expect(said.page).toBe(unsaid.page);
+  });
+
+  it("reads the storyboard's own design when the caller says nothing", () => {
+    const planned = storyboardSchema.parse({ ...board, design: "v2" });
+    expect(emitDeck(planned, source, format, "/*runtime*/").page).toContain(PLAYER_MARKER);
   });
 });

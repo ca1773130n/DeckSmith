@@ -26,9 +26,14 @@
  * also where the height it needs comes from, since portrait has height to spare
  * and width it does not.
  */
-import type { Emitter } from "../kit.js";
-import { contentW, esc, spotlighter } from "../kit.js";
+import type { BeatOf } from "../../types.js";
+import { fitOf, GROWTH, isV2, MEASURE_SLACK } from "../fit.js";
+import type { EmitContext, Emitter, Scene } from "../kit.js";
+import { esc, spotlighter } from "../kit.js";
+import { type Frame, frameOf, variantOf } from "../look.js";
 import {
+  cutsWord,
+  type Face,
   faceOf,
   group,
   id,
@@ -43,8 +48,6 @@ import {
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
@@ -124,50 +127,85 @@ const MIN_LEN = 8;
 /** Descender depth as a fraction of the type size, erring deep. */
 const DESCENT = 0.25;
 
+/** A glyph's box above its baseline, less the 0.34em a centred baseline sits below centre. */
+const GLYPH_OVER = 0.62;
+
 /** Portrait only: the label's own line, and the air under it before the rail. */
 const HEAD_GAP = 14;
 
-export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
-  const { sid, theme } = ctx;
-  const p = beat.params;
+/**
+ * How big each part of the chart may grow. `CLASSIC` is v0.8.0 to the byte;
+ * `GROWN` multiplies the three caps by `GROWTH` and lets the rows spread — the
+ * plan's QW6 for this archetype (`BAR_MAX = min(96·1.6, region-derived)`). The
+ * region still bounds all of it: `bar` is solved against `avail` first and the
+ * cap only clips the answer.
+ */
+interface Caps {
+  bar: number;
+  label: number;
+  value: number;
+  spread: boolean;
+  /**
+   * The most type a row's text may have, as a fraction of its bar. Classic's
+   * 0.86 (labels) and 0.9 (values) were chosen while a value could not pass
+   * 48px; a grown one can, and its glyph box is 1.2em with 0.96em above the
+   * baseline, so centred on the bar it clears the bar's top edge only below
+   * ~0.8 of it. At 0.9 the first row's 76px value stood 5px above the chart —
+   * `text_box_overflow` on `#sN-v0` in the 2026-10-07 eval.
+   */
+  labelFit: number;
+  valueFit: number;
+  /**
+   * The share of the gutter a label is solved against, and the slack its
+   * measured width is given back: 1 in classic, `MEASURE_SLACK` grown. The
+   * label is right-aligned to the gutter's inner edge and the gutter is sized
+   * to the width table's answer, so a label the table under-measures runs out
+   * of the chart's LEFT edge by the error — 3-8px at a grown 74px in a Japanese
+   * and a Korean deck, `text_box_overflow` on `text.bc-lab`. (The same label at
+   * classic's 46px does it on one v0.8.0 deck too; classic is left as it is.)
+   */
+  measure: number;
+}
+const CLASSIC: Caps = {
+  bar: BAR_MAX,
+  label: LABEL_MAX,
+  value: VALUE_MAX,
+  spread: false,
+  labelFit: 0.86,
+  valueFit: 0.9,
+  measure: 1,
+};
+const GROWN: Caps = {
+  bar: BAR_MAX * GROWTH,
+  label: LABEL_MAX * GROWTH,
+  value: VALUE_MAX * GROWTH,
+  spread: true,
+  labelFit: 0.78,
+  valueFit: 0.78,
+  measure: MEASURE_SLACK,
+};
+/** The most air a spread row gets between rails, as a fraction of the bar: one bar's height. */
+const GAP_SPREAD = 1;
+
+interface LayoutArgs {
+  p: BeatOf<"bar-compare">["params"];
+  beatId: string;
+  W: number;
+  avail: number;
+  unitBand: number;
+  tall: boolean;
+  face: Face;
+  caps: Caps;
+}
+
+/**
+ * Every number the painter needs, solved from the budget. Throws — with the
+ * sentence the beat's author needs — when the chart cannot be drawn at all.
+ */
+function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutArgs) {
   const count = p.bars.length;
-
-  /* ---------------------------------------------------------- the budget */
-
-  /** The scene's content box — the format's, less the shell's padding. */
-  const W = contentW(ctx.format);
-  // Every measurement below is charged against the face the deck will actually
-  // set in. A CJK bundle puts its family ahead of Inter, so a pure-ASCII label
-  // is drawn in that family too — and `textWidth` cannot see that from the run's
-  // own characters. Under-charging is the unrecoverable direction: the gutter and
-  // the value reserve both believe they fit, and the browser draws past them.
-  const face = faceOf(ctx.theme.fontStack);
-  // Portrait moves the label onto its own line above the rail. See the header.
-  const tall = isPortrait(ctx.format);
-  const unitBand = p.unit ? UNIT_BAND : 0;
-  // `bodyBudget`, not a private chrome constant. This archetype used to charge
-  // itself one eyebrow line and one headline line flat, where `chromeHeight`
-  // measures the wrapping both actually do — so a two-line headline handed the
-  // plot 64px it did not have, and an eyebrow that wrapped handed it 72 more.
-  // Nothing catches that: the bars are solved against `avail`, so they simply
-  // grow into the chrome and the slide overflows with every gate green.
-  //
-  // FLOOR 0, deliberately. `bodyBudget`'s 320px default is a last resort for a
-  // caller that cannot act on "there is almost none"; this one can, and does —
-  // the `H > avail` throw below names the beat and says what to shorten, which
-  // is a better answer than bars drawn over the headline.
-  const avail = bodyBudget(
-    ctx.format,
-    p.eyebrow,
-    p.headline,
-    p.note ? NOTE_H : 0,
-    BODY_TOP,
-    0,
-    face,
-  );
-
   // H = count*bar + (count-1)*gap, with gap a fixed fraction of bar.
-  let bar = Math.min(BAR_MAX, (avail - unitBand - FOOT) / (count + GAP_RATIO * (count - 1)));
+  let bar = Math.min(caps.bar, (avail - unitBand - FOOT) / (count + GAP_RATIO * (count - 1)));
   let pitch = bar * (1 + GAP_RATIO);
 
   /* ------------------------------- the gutter, sized by the widest label */
@@ -187,7 +225,11 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     // A stacked label is not competing with its bar for height, so it is not
     // sized against one either — `bar * 0.86` is what keeps a label inside the
     // rail it sits beside, and beside is the case that has gone.
-    Math.min(LABEL_MAX, tall ? LABEL_MAX : bar * 0.86, gutterInner / unitWidth),
+    Math.min(
+      caps.label,
+      tall ? caps.label : bar * caps.labelFit,
+      (gutterInner * caps.measure) / unitWidth,
+    ),
   );
   const lines = p.bars.map((b) => wrap(b.label, labelSize, gutterInner, LABEL_WEIGHT, 0, face));
   const maxLines = Math.max(...lines.map((l) => l.length));
@@ -199,7 +241,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     // Every row now costs its label's band as well as its bar, so the bar is
     // re-solved against what is left rather than clamped afterwards.
     bar = Math.min(
-      BAR_MAX,
+      caps.bar,
       (avail - unitBand - FOOT - count * head) / (count + GAP_RATIO * (count - 1)),
     );
     pitch = head + bar * (1 + GAP_RATIO);
@@ -213,8 +255,8 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     }
   }
 
-  const valueSize = Math.max(MIN_FONT, Math.min(VALUE_MAX, bar * 0.9));
-  const barsH = (count - 1) * pitch + head + bar;
+  const valueSize = Math.max(MIN_FONT, Math.min(caps.value, bar * caps.valueFit));
+  let barsH = (count - 1) * pitch + head + bar;
   // What hangs below the last row's centre line: a value's descender, or half a
   // wrapped label block plus its descender. Stacked, the label is above its own
   // bar and can never be what hangs below it.
@@ -228,10 +270,35 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
         bar / 2,
     ) + 4,
   );
-  const H = barsH + unitBand + foot;
+  // HEADROOM, v2 only: the mirror of `foot`, above the first row. A glyph box
+  // is 1.2em with ~0.96em over the baseline, and a value's baseline sits 0.34em
+  // under its row's centre, so text over ~0.8 of a bar — or a wrapped label,
+  // centred on its bar — stands above the chart's top edge. Classic never
+  // measured this and its bytes stand (one v0.8.0 deck in the eval fails
+  // `text_box_overflow` on exactly that label); a grown chart is pushed down by
+  // what overhangs instead.
+  const headroom = caps.spread
+    ? Math.ceil(
+        Math.max(
+          0,
+          valueSize * GLYPH_OVER - bar / 2,
+          tall ? 0 : ((maxLines - 1) * lead) / 2 + labelSize * GLYPH_OVER - bar / 2,
+        ),
+      )
+    : 0;
+  // SPREAD, v2 only: once the bars are as thick as they may grow, the rows
+  // move apart into whatever height is still spare — up to `GAP_SPREAD` of a
+  // bar between rails, the SPARSE band's "spread gaps" (src/emit/fit.ts). Never
+  // tighter than the classic pitch, and never past `avail`.
+  if (caps.spread && count > 1) {
+    const room = (avail - headroom - unitBand - foot - head - bar) / (count - 1);
+    pitch = Math.max(pitch, Math.min(head + bar * (1 + GAP_SPREAD), room));
+    barsH = (count - 1) * pitch + head + bar;
+  }
+  const H = headroom + barsH + unitBand + foot;
   if (H > avail) {
     throw new Error(
-      `bar-compare ${beat.id}: ${count} bars with labels this long need ${Math.ceil(H)}px of the ${Math.floor(avail)}px this slide has. Shorten the labels or split the beat.`,
+      `bar-compare ${beatId}: ${count} bars with labels this long need ${Math.ceil(H)}px of the ${Math.floor(avail)}px this slide has. Shorten the labels or split the beat.`,
     );
   }
   // Ceiled. The label is right-aligned to the gutter's inner edge, so a gutter
@@ -246,7 +313,9 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
         Math.ceil(
           Math.max(
             ...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT, 0, false, face)),
-          ) + GUTTER_PAD,
+          ) /
+            caps.measure +
+            GUTTER_PAD,
         ),
       );
 
@@ -273,9 +342,93 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const plotW = W - gutter - reserveL - reserveR;
   if (plotW < share(MIN_PLOT, W)) {
     throw new Error(
-      `bar-compare ${beat.id}: labels and values leave only ${Math.floor(plotW)}px to compare in. Shorten them or split the beat.`,
+      `bar-compare ${beatId}: labels and values leave only ${Math.floor(plotW)}px to compare in. Shorten them or split the beat.`,
     );
   }
+
+  return {
+    bar,
+    pitch,
+    labelSize,
+    head,
+    valueSize,
+    barsH,
+    H,
+    headroom,
+    gutter,
+    gutterInner,
+    metrics,
+    reserveL,
+    plotW,
+  };
+}
+
+export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
+  const { sid, theme } = ctx;
+  const p = beat.params;
+  const count = p.bars.length;
+
+  /* ---------------------------------------------------------- the budget */
+
+  /**
+   * The box the chart lays out in: the format's content box under a classic
+   * build, or what the chosen placement leaves (src/emit/look.ts).
+   */
+  const F = frameOf(ctx, { eyebrow: p.eyebrow, headline: p.headline, evidence: beat.evidence });
+  const W = F.w;
+  // Every measurement below is charged against the face the deck will actually
+  // set in. A CJK bundle puts its family ahead of Inter, so a pure-ASCII label
+  // is drawn in that family too — and `textWidth` cannot see that from the run's
+  // own characters. Under-charging is the unrecoverable direction: the gutter and
+  // the value reserve both believe they fit, and the browser draws past them.
+  const face = faceOf(ctx.theme.fontStack);
+  // Portrait moves the label onto its own line above the rail. See the header.
+  const tall = isPortrait(ctx.format);
+  const unitBand = p.unit ? UNIT_BAND : 0;
+  // `bodyBudget`, not a private chrome constant. This archetype used to charge
+  // itself one eyebrow line and one headline line flat, where `chromeHeight`
+  // measures the wrapping both actually do — so a two-line headline handed the
+  // plot 64px it did not have, and an eyebrow that wrapped handed it 72 more.
+  // Nothing catches that: the bars are solved against `avail`, so they simply
+  // grow into the chrome and the slide overflows with every gate green.
+  //
+  // FLOOR 0, deliberately. `bodyBudget`'s 320px default is a last resort for a
+  // caller that cannot act on "there is almost none"; this one can, and does —
+  // the `H > avail` throw below names the beat and says what to shorten, which
+  // is a better answer than bars drawn over the headline.
+  const avail = F.budget(p.note ? NOTE_H : 0, BODY_TOP, 0);
+  const variant = variantOf(ctx, "bar-compare");
+  if (variant === "columns") return columns(beat, ctx, F, face, avail);
+  if (variant === "versus") return versus(beat, ctx, F, face, avail);
+
+  // v2 tries the grown caps and, if the chart cannot be drawn that big, draws it
+  // exactly as classic would. So the beats this archetype REFUSES are the same
+  // under both designs — `narrate` and `timing` emit without a design, and a
+  // beat refused in one place and drawn in the other would desynchronise them.
+  const args = { p, beatId: beat.id, W, avail, unitBand, tall, face };
+  const v2 = isV2(ctx);
+  let L: ReturnType<typeof barLayout> | undefined;
+  if (v2) {
+    // The note's REAL height, where classic charges one line by contract. A
+    // grown chart is sized to the last pixel of what is left, so the second line
+    // of a two-line Japanese note was 58px of chart pushed out of the region.
+    const noteBand = p.note
+      ? Math.max(NOTE_H, noteHeight(p.note, F.noteW * MEASURE_SLACK, 26, face))
+      : 0;
+    // The frame's budget, not the classic chrome's: under a rail or foot look
+    // the chrome is charged where that placement puts it.
+    const grownAvail = F.budget(noteBand, BODY_TOP, 0);
+    try {
+      L = barLayout({ ...args, avail: grownAvail, caps: GROWN });
+    } catch {
+      L = undefined;
+    }
+  }
+  L ??= barLayout({ ...args, caps: CLASSIC });
+  const { bar, pitch, labelSize, head, valueSize, barsH, H, gutter, gutterInner, metrics } = L;
+  /** v2's headroom over the first row; 0 in classic, where `0 + y` is `y` to the bit. */
+  const top0 = L.headroom;
+  const { reserveL, plotW } = L;
   const plotX = gutter + reserveL;
 
   // Anchored at zero, always. A negative value puts zero inside the plot rather
@@ -287,7 +440,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
 
   const rows = metrics.map((m, i) => {
     // `head` is zero beside a gutter, so the rail starts at the row's own top.
-    const top = i * pitch + head;
+    const top = top0 + i * pitch + head;
     const mid = top + bar / 2;
     const len = m.value === 0 ? 0 : Math.max(MIN_LEN, (Math.abs(m.value) / span) * plotW);
     const x = m.value < 0 ? zeroX - len : zeroX;
@@ -297,7 +450,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
       top,
       mid,
       /** Where the label sets: on its own line above the rail, or beside it. */
-      labelY: tall ? i * pitch + (head - HEAD_GAP) / 2 : mid,
+      labelY: tall ? top0 + i * pitch + (head - HEAD_GAP) / 2 : mid,
       len,
       x,
       valueX: m.value < 0 ? x - VALUE_GAP : x + len + VALUE_GAP,
@@ -316,17 +469,23 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const valueFill = (t: "a" | "b" | "c" | "d" | undefined) =>
     t ? theme.tones[t] : toned ? theme.muted : theme.fg;
 
+  const unitW = p.unit ? textWidth(p.unit, MIN_FONT, 500, 0, false, face) : 0;
+  // v2 only: a caption too wide to start at the axis AND to end at it — a long
+  // CJK unit beside a wide label gutter in a rail's narrower chart, which cut
+  // "最良の総合" off the chart's left edge (ja 3a447697) — sets from the
+  // chart's left edge instead. Classic keeps its bytes.
+  const unitFromEdge = v2 && zeroX + unitW > W && zeroX - unitW < 0;
   const unitText = p.unit
     ? text(
         p.unit,
-        { x: zeroX, y: barsH + 44 },
+        { x: unitFromEdge ? 0 : zeroX, y: top0 + barsH + 44 },
         {
           size: MIN_FONT,
           weight: 500,
           fill: theme.dim,
           // The caption follows the axis, and the axis is only at the left edge
           // when every value is positive.
-          anchor: zeroX + textWidth(p.unit, MIN_FONT, 500, 0, false, face) > W ? "end" : "start",
+          anchor: unitFromEdge || zeroX + unitW <= W ? "start" : "end",
           id: id(sid, "unit"),
         },
       )
@@ -351,8 +510,8 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
           { id: id(sid, "zero") },
         )
       : line(
-          { x: zeroX, y: 0 },
-          { x: zeroX, y: barsH },
+          { x: zeroX, y: top0 },
+          { x: zeroX, y: top0 + barsH },
           {
             id: id(sid, "zero"),
             stroke: theme.rule,
@@ -409,10 +568,9 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   ].join("");
 
   const note = p.note ? `\n<div class="bc-note" id="${id(sid, "note")}">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
-<div class="bc-wrap">
+  const html = F.compose(`<div class="bc-wrap">
 ${svg(id(sid, "chart"), W, H, body)}
-</div>${note}`;
+</div>${note}`);
 
   /* ------------------------------------------------------------- motion */
 
@@ -423,6 +581,7 @@ ${svg(id(sid, "chart"), W, H, body)}
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
     tween(
       `#${sid} .bc-rail`,
       { opacity: 0 },
@@ -507,18 +666,564 @@ ${svg(id(sid, "chart"), W, H, body)}
   // would undo the dim before anyone had read it. 0.62 is legible by
   // construction, so the losing bars are still there to be compared against.
 
+  // v2: the region the body was given, and how much of it the chart and note
+  // will paint. With a note, the chart's `margin-bottom:auto` hands every spare
+  // pixel to the gap above the note, so the note sits on the region's floor and
+  // the body spans it; without one, the chart is all there is.
+  const region = F.budget(0, 0, 0);
+  const fit = v2 ? { fit: fitOf(p.note ? region - BODY_TOP : H, region) } : {};
+
   return {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    ...fit,
+    fill: Math.min(1, H / avail),
     css: [
       chromeCss(theme),
       `.bc-wrap{margin-top:${BODY_TOP}px}`,
+      // Scoped to the scene, so a classic scene in the same document — there is
+      // none today, but the dedup set does not know that — keeps its centring.
+      ...(v2 && p.note ? [`#${sid} .bc-wrap{margin-bottom:auto}`] : []),
       `.bc-rail{fill:${theme.panel}}`,
       noteCss("bc-note", theme, 26),
       // `filter`, because this bar's entrance owns its `width` and `x` attributes
       // and a CSS animation outranks whatever GSAP wrote there.
       ambient(sid, `-bar${focal.i}`, BREATHE),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };
+
+/* --------------------------------------------------- variant: `columns` */
+
+/** Widest a column bar is drawn, and its share of its own slot. */
+const COL_BAR_MAX = 210;
+const COL_BAR_SHARE = 0.58;
+/** Baseline to the first label line, and a label's most lines. */
+const COL_LABEL_TOP = 22;
+const COL_LABEL_LINES = 3;
+/** Between a bar's top and its value's baseline. */
+const COL_VALUE_GAP = 16;
+/** Below this a column plot cannot carry a ratio. */
+const COL_MIN_PLOT = 300;
+const COL_RADIUS = 12;
+
+/**
+ * The same comparison stood upright: columns rising from a shared baseline,
+ * the value over each, the label under it.
+ *
+ * WHY. Rows solve their bar height against the box and cap it at `BAR_MAX`, so a
+ * two- or three-bar beat — 46% of bar-compare beats — draws a thin band across
+ * the middle of a 700px body and leaves the rest empty. Columns spend the
+ * HEIGHT on the magnitudes instead, which is the axis that is free.
+ *
+ * Refuses rather than squeezes: negative values (an upright zero line in the
+ * middle of a column chart is a different chart), a label that needs more than
+ * three lines in its slot, or a plot under `COL_MIN_PLOT`. The Director then
+ * takes another look; the rows arrangement is always still there.
+ *
+ * TIME IS THE ROWS ARRANGEMENT'S, EXACTLY. Same reveal instants, same holds,
+ * same count-up — only the geometry and the axis each tween moves along change.
+ */
+function columns(
+  beat: BeatOf<"bar-compare">,
+  ctx: EmitContext,
+  F: Frame,
+  face: Face,
+  avail: number,
+): Scene {
+  const { sid, theme } = ctx;
+  const p = beat.params;
+  const count = p.bars.length;
+  const W = F.w;
+  if (p.bars.some((b) => b.value < 0)) {
+    throw new Error(`bar-compare ${beat.id}: columns draw no negative values`);
+  }
+  // Two columns across a 1700px plot leave most of it empty — zh s14 in the
+  // review (2026-10-08) was two bars and ~70% air. Two values are a `versus`.
+  if (count < 3) {
+    throw new Error(
+      `bar-compare ${beat.id}: ${count} columns leave the plot empty — that is a versus`,
+    );
+  }
+  const slot = W / count;
+  const bw = Math.min(COL_BAR_MAX, slot * COL_BAR_SHARE);
+  const labelW = slot - 24;
+  // Largest label size at which every label sets in three lines of its slot.
+  let labelSize = LABEL_MAX;
+  const linesAt = (s: number) => p.bars.map((b) => wrap(b.label, s, labelW, LABEL_WEIGHT, 0, face));
+  /** Too big: more than three lines, or a word cut letter by letter to fit its slot. */
+  const over = (s: number) =>
+    linesAt(s).some((l) => l.length > COL_LABEL_LINES) ||
+    p.bars.some((b) => cutsWord(b.label, s, labelW, LABEL_WEIGHT, face));
+  while (labelSize > MIN_FONT && over(labelSize)) labelSize--;
+  const lines = linesAt(labelSize);
+  if (over(labelSize)) {
+    // Rows set the label in a gutter as wide as the longest one, so the
+    // Director's classic arrangement draws it whole; refusing here sends it there.
+    throw new Error(
+      `bar-compare ${beat.id}: a label needs more than ${COL_LABEL_LINES} lines in a column, or a word cut in two`,
+    );
+  }
+  const lead = labelSize * 1.12;
+  const labelBand = COL_LABEL_TOP + Math.max(...lines.map((l) => l.length)) * lead;
+
+  const printed = p.bars.map((b) => String(b.value));
+  let valueSize = VALUE_MAX;
+  while (
+    valueSize > MIN_FONT &&
+    printed.some((t) => textWidth(t, valueSize, 700, 0, false, face) > slot - 8)
+  ) {
+    valueSize--;
+  }
+  if (printed.some((t) => textWidth(t, valueSize, 700, 0, false, face) > slot - 8)) {
+    throw new Error(`bar-compare ${beat.id}: a value is wider than its column`);
+  }
+  const valueBand = valueSize + COL_VALUE_GAP;
+  const unitBand = p.unit ? UNIT_BAND : 0;
+  const foot = Math.ceil(labelSize * DESCENT) + 4;
+  const plotH = Math.floor(avail - valueBand - labelBand - unitBand - foot);
+  if (plotH < COL_MIN_PLOT) {
+    throw new Error(`bar-compare ${beat.id}: ${plotH}px is too short a plot for columns`);
+  }
+  const base = valueBand + plotH;
+  const H = base + labelBand + unitBand + foot;
+  const hi = Math.max(...p.bars.map((b) => b.value)) || 1;
+
+  const rows = p.bars.map((b, i) => {
+    const decimals = printed[i]?.includes(".") ? (printed[i]?.split(".")[1]?.length ?? 0) : 0;
+    const h = b.value === 0 ? 0 : Math.max(MIN_LEN, (b.value / hi) * plotH);
+    const cx = slot * i + slot / 2;
+    return {
+      ...b,
+      i,
+      cx,
+      x: cx - bw / 2,
+      h,
+      y: base - h,
+      printed: printed[i] ?? "",
+      snap: decimals === 0 ? "1" : `0.${"0".repeat(decimals - 1)}1`,
+      countable: !(printed[i] ?? "").includes("e") && decimals <= 4,
+    };
+  });
+
+  const toned = p.bars.some((b) => b.tone);
+  const fillOf = (t: "a" | "b" | "c" | "d" | undefined) =>
+    t ? theme.tones[t] : toned ? theme.dim : theme.accent;
+  const valueFill = (t: "a" | "b" | "c" | "d" | undefined) =>
+    t ? theme.tones[t] : toned ? theme.muted : theme.fg;
+
+  const body = [
+    ...rows.map((r) =>
+      roundRect({ x: r.x, y: valueBand, w: bw, h: plotH }, COL_RADIUS, { class: "bc-rail" }),
+    ),
+    line(
+      { x: 0, y: base },
+      { x: W, y: base },
+      { id: id(sid, "zero"), stroke: theme.rule, "stroke-width": 2 },
+    ),
+    ...rows.map((r) =>
+      roundRect({ x: r.x, y: r.y, w: bw, h: r.h }, Math.min(COL_RADIUS, r.h / 2), {
+        id: id(sid, "bar", r.i),
+        class: "bc-bar",
+        fill: fillOf(r.tone),
+      }),
+    ),
+    ...rows.map((r, i) =>
+      text(
+        r.label,
+        { x: r.cx, y: base + COL_LABEL_TOP + ((lines[i]?.length ?? 1) * lead) / 2 },
+        {
+          size: labelSize,
+          weight: LABEL_WEIGHT,
+          fill: r.tone ? theme.fg : theme.muted,
+          anchor: "middle",
+          maxWidth: labelW,
+          face,
+          lineHeight: 1.12,
+          vAlign: "middle",
+          class: "bc-lab",
+        },
+      ),
+    ),
+    ...rows.map((r) =>
+      text(
+        r.printed,
+        { x: r.cx, y: r.y - COL_VALUE_GAP },
+        {
+          size: valueSize,
+          weight: 700,
+          fill: valueFill(r.tone),
+          anchor: "middle",
+          class: "bc-val",
+          id: id(sid, "v", r.i),
+        },
+      ),
+    ),
+    p.unit
+      ? text(
+          p.unit,
+          { x: 0, y: base + labelBand + 44 },
+          { size: MIN_FONT, weight: 500, fill: theme.dim, id: id(sid, "unit") },
+        )
+      : "",
+  ].join("");
+
+  const note = p.note ? `\n<div class="bc-note" id="${id(sid, "note")}">${esc(p.note)}</div>` : "";
+  const html = F.compose(`<div class="bc-wrap">
+${svg(id(sid, "chart"), W, H, body)}
+</div>${note}`);
+
+  // The rows arrangement's clock, constant for constant.
+  const railsAt = 0.6;
+  const barsAt = 0.95;
+  const step = Math.min(0.4, 2.4 / count);
+  const grow = 0.85;
+  const tl = [
+    ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
+    tween(
+      `#${sid} .bc-rail`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.45, stagger: 0.05 },
+      railsAt,
+    ),
+    tween(`#${id(sid, "zero")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, railsAt),
+    tween(
+      `#${sid} .bc-lab`,
+      { opacity: 0, y: 18 },
+      { opacity: 1, y: 0, duration: 0.4, stagger: nv(step) },
+      0.8,
+    ),
+    tween(
+      `#${sid} .bc-val`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.3, stagger: nv(step) },
+      barsAt + 0.15,
+    ),
+  ];
+  for (const r of rows) {
+    const at = barsAt + r.i * step;
+    tl.push(
+      tween(
+        `#${id(sid, "bar", r.i)}`,
+        { attr: { y: nv(base), height: 0 } },
+        { attr: { y: nv(r.y), height: nv(r.h) }, duration: grow, ease: "power3.out" },
+        at,
+      ),
+    );
+    if (r.countable) {
+      tl.push(
+        tween(
+          `#${id(sid, "v", r.i)}`,
+          { textContent: 0 },
+          {
+            textContent: r.value,
+            snap: { textContent: Number(r.snap) },
+            duration: 0.8,
+            ease: "power2.out",
+          },
+          at + 0.1,
+        ),
+      );
+    }
+  }
+  const settled = barsAt + (count - 1) * step + grow + 0.05;
+  const holds = [settled + 0.2];
+  const focal = rows.reduce((best, r) => (r.value > best.value ? r : best));
+  const spot = spotlighter(sid, ".bc-bar");
+  if (count > 1) tl.push(...spot.lit(`#${id(sid, "bar", focal.i)}`, settled));
+  const tailAt = settled + 0.3;
+  if (p.unit) {
+    tl.push(tween(`#${id(sid, "unit")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, tailAt));
+  }
+  if (p.note) {
+    tl.push(
+      tween(
+        `#${id(sid, "note")}`,
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.6 },
+        tailAt,
+      ),
+    );
+  }
+  if (p.unit || p.note) holds.push(tailAt + 0.7);
+
+  return {
+    html,
+    tl,
+    holds: holdsWithin(holds, beat.seconds),
+    fill: Math.min(1, H / avail),
+    css: [
+      chromeCss(theme),
+      `.bc-wrap{margin-top:${BODY_TOP}px}`,
+      `.bc-rail{fill:${theme.panel}}`,
+      noteCss("bc-note", theme, 26),
+      ambient(sid, `-bar${focal.i}`, BREATHE),
+      ...(F.css ? [F.css] : []),
+    ].join("\n"),
+  };
+}
+
+/* ---------------------------------------------------- variant: `versus` */
+
+/** The largest a `versus` figure is set. Numbers are exempt from the headline cap. */
+const VS_VALUE_MAX = 200;
+/** Never smaller than the grown rows' value: below this it is not a stat, it is a label. */
+const VS_VALUE_MIN = 96;
+const VS_BAR = 22;
+const VS_GAP = 30;
+/** Inside each half, either side of its content. */
+const VS_PAD = 64;
+const VS_LABEL_LINES = 2;
+
+/**
+ * Two values as two large figures, each with its label and a proportional bar
+ * under it, either side of a rule.
+ *
+ * WHY. Two bars are 46% of bar-compare beats' commonest case, and neither
+ * arrangement serves them: rows draw a thin band across the middle of the body,
+ * columns stand two posts in a 1700px plot (zh s14 in the review of 2026-10-08:
+ * ~70% of the chart empty). With two numbers the numbers are the slide, so they
+ * are set as the slide's largest type, and the bar keeps the ratio honest.
+ *
+ * TIME IS THE ROWS ARRANGEMENT'S, EXACTLY, as for `columns`: same reveal
+ * instants, same holds, same count-up.
+ */
+function versus(
+  beat: BeatOf<"bar-compare">,
+  ctx: EmitContext,
+  F: Frame,
+  face: Face,
+  avail: number,
+): Scene {
+  const { sid, theme } = ctx;
+  const p = beat.params;
+  const count = p.bars.length;
+  if (count !== 2) {
+    throw new Error(`bar-compare ${beat.id}: a versus compares exactly two values, not ${count}`);
+  }
+  if (p.bars.some((b) => b.value < 0)) {
+    throw new Error(`bar-compare ${beat.id}: a versus draws no negative values`);
+  }
+  const W = F.w;
+  const slot = W / 2;
+  const inner = slot - 2 * VS_PAD;
+  const printed = p.bars.map((b) => String(b.value));
+
+  let labelSize = Math.floor(LABEL_MAX * GROWTH);
+  const linesAt = (s: number) => p.bars.map((b) => wrap(b.label, s, inner, LABEL_WEIGHT, 0, face));
+  const over = (s: number) =>
+    linesAt(s).some((l) => l.length > VS_LABEL_LINES) ||
+    p.bars.some((b) => cutsWord(b.label, s, inner, LABEL_WEIGHT, face));
+  while (labelSize > MIN_FONT && over(labelSize)) labelSize--;
+  if (over(labelSize)) {
+    throw new Error(
+      `bar-compare ${beat.id}: a label needs more than ${VS_LABEL_LINES} lines in a half`,
+    );
+  }
+  const lines = linesAt(labelSize);
+  const lead = Math.round(labelSize * 1.15);
+  const labelBand = Math.max(...lines.map((l) => l.length)) * lead;
+  const unitBand = p.unit ? UNIT_BAND : 0;
+  const foot = Math.ceil(labelSize * DESCENT) + 4;
+  const fixed = VS_GAP + labelBand + VS_GAP + VS_BAR + unitBand + foot;
+
+  let valueSize = Math.min(VS_VALUE_MAX, Math.floor((avail - fixed) / 1.2));
+  const wide = (s: number) => printed.some((t) => textWidth(t, s, 700, 0, false, face) > inner);
+  while (valueSize > VS_VALUE_MIN && wide(valueSize)) valueSize--;
+  if (valueSize < VS_VALUE_MIN || wide(valueSize)) {
+    throw new Error(`bar-compare ${beat.id}: no room to set two values as figures`);
+  }
+  // The figure's glyph box: 1.2em, 0.96em of it above the baseline — set from
+  // the box's top, so no glyph rises out of the chart (`text_box_overflow` on
+  // #s12-v0 on an en deck when the baseline sat at 0.86em).
+  const valueBox = Math.ceil(valueSize * 1.2);
+  const H = valueBox + fixed;
+  if (H > avail) {
+    throw new Error(
+      `bar-compare ${beat.id}: ${Math.round(H)}px of versus in a ${Math.round(avail)}px box`,
+    );
+  }
+  // Centred in the box it was given, so a short stat does not sit on the headline.
+  const top = Math.max(0, Math.floor((avail - H) / 2));
+  const hi = Math.max(...p.bars.map((b) => b.value)) || 1;
+
+  const toned = p.bars.some((b) => b.tone);
+  const fillOf = (t: "a" | "b" | "c" | "d" | undefined, i: number) =>
+    t ? theme.tones[t] : toned ? theme.dim : i === 1 ? theme.accent : theme.muted;
+  const valueFill = (t: "a" | "b" | "c" | "d" | undefined) => (t ? theme.tones[t] : theme.fg);
+
+  const rows = p.bars.map((b, i) => {
+    const decimals = printed[i]?.includes(".") ? (printed[i]?.split(".")[1]?.length ?? 0) : 0;
+    const x = slot * i + VS_PAD;
+    return {
+      ...b,
+      i,
+      x,
+      cx: slot * i + slot / 2,
+      len: b.value === 0 ? 0 : Math.max(MIN_LEN, (b.value / hi) * inner),
+      printed: printed[i] ?? "",
+      snap: decimals === 0 ? "1" : `0.${"0".repeat(decimals - 1)}1`,
+      countable: !(printed[i] ?? "").includes("e") && decimals <= 4,
+    };
+  });
+  const valueY = top + Math.ceil(valueSize * 0.96);
+  const labelY = top + valueBox + VS_GAP + labelBand / 2;
+  const barY = top + valueBox + VS_GAP + labelBand + VS_GAP;
+
+  const body = [
+    line(
+      { x: slot, y: top },
+      { x: slot, y: barY + VS_BAR },
+      { id: id(sid, "zero"), stroke: theme.rule, "stroke-width": 2 },
+    ),
+    ...rows.map((r) =>
+      roundRect({ x: r.x, y: barY, w: inner, h: VS_BAR }, VS_BAR / 2, { class: "bc-rail" }),
+    ),
+    ...rows.map((r) =>
+      roundRect({ x: r.x, y: barY, w: r.len, h: VS_BAR }, VS_BAR / 2, {
+        id: id(sid, "bar", r.i),
+        class: "bc-bar",
+        fill: fillOf(r.tone, r.i),
+      }),
+    ),
+    ...rows.map((r) =>
+      text(
+        r.label,
+        { x: r.x, y: labelY },
+        {
+          size: labelSize,
+          weight: LABEL_WEIGHT,
+          fill: theme.muted,
+          maxWidth: inner,
+          face,
+          lineHeight: 1.15,
+          vAlign: "middle",
+          class: "bc-lab",
+        },
+      ),
+    ),
+    ...rows.map((r) =>
+      text(
+        r.printed,
+        { x: r.x, y: valueY },
+        {
+          size: valueSize,
+          weight: 700,
+          fill: valueFill(r.tone),
+          class: "bc-val",
+          id: id(sid, "v", r.i),
+        },
+      ),
+    ),
+    p.unit
+      ? text(
+          p.unit,
+          { x: VS_PAD, y: barY + VS_BAR + 44 },
+          {
+            size: MIN_FONT,
+            weight: 500,
+            fill: theme.dim,
+            id: id(sid, "unit"),
+          },
+        )
+      : "",
+  ].join("");
+
+  const note = p.note ? `\n<div class="bc-note" id="${id(sid, "note")}">${esc(p.note)}</div>` : "";
+  const html = F.compose(`<div class="bc-wrap">
+${svg(id(sid, "chart"), W, Math.max(H, avail), body)}
+</div>${note}`);
+
+  // The rows arrangement's clock, constant for constant — see `columns`.
+  const railsAt = 0.6;
+  const barsAt = 0.95;
+  const step = Math.min(0.4, 2.4 / count);
+  const grow = 0.85;
+  const tl = [
+    ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
+    tween(
+      `#${sid} .bc-rail`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.45, stagger: 0.05 },
+      railsAt,
+    ),
+    tween(`#${id(sid, "zero")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, railsAt),
+    tween(
+      `#${sid} .bc-lab`,
+      { opacity: 0, y: 18 },
+      { opacity: 1, y: 0, duration: 0.4, stagger: nv(step) },
+      0.8,
+    ),
+    tween(
+      `#${sid} .bc-val`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.3, stagger: nv(step) },
+      barsAt + 0.15,
+    ),
+  ];
+  for (const r of rows) {
+    const at = barsAt + r.i * step;
+    tl.push(
+      tween(
+        `#${id(sid, "bar", r.i)}`,
+        { attr: { width: 0 } },
+        { attr: { width: nv(r.len) }, duration: grow, ease: "power3.out" },
+        at,
+      ),
+    );
+    if (r.countable) {
+      tl.push(
+        tween(
+          `#${id(sid, "v", r.i)}`,
+          { textContent: 0 },
+          {
+            textContent: r.value,
+            snap: { textContent: Number(r.snap) },
+            duration: 0.8,
+            ease: "power2.out",
+          },
+          at + 0.1,
+        ),
+      );
+    }
+  }
+  const settled = barsAt + (count - 1) * step + grow + 0.05;
+  const holds = [settled + 0.2];
+  const focal = rows.reduce((best, r) => (r.value > best.value ? r : best));
+  const spot = spotlighter(sid, ".bc-bar");
+  tl.push(...spot.lit(`#${id(sid, "bar", focal.i)}`, settled));
+  const tailAt = settled + 0.3;
+  if (p.unit) {
+    tl.push(tween(`#${id(sid, "unit")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, tailAt));
+  }
+  if (p.note) {
+    tl.push(
+      tween(
+        `#${id(sid, "note")}`,
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.6 },
+        tailAt,
+      ),
+    );
+  }
+  if (p.unit || p.note) holds.push(tailAt + 0.7);
+
+  return {
+    html,
+    tl,
+    holds: holdsWithin(holds, beat.seconds),
+    fill: Math.min(1, H / avail),
+    css: [
+      chromeCss(theme),
+      `.bc-wrap{margin-top:${BODY_TOP}px}`,
+      `.bc-rail{fill:${theme.panel}}`,
+      noteCss("bc-note", theme, 26),
+      ambient(sid, `-bar${focal.i}`, BREATHE),
+      ...(F.css ? [F.css] : []),
+    ].join("\n"),
+  };
+}

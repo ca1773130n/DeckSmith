@@ -4,6 +4,7 @@ import {
   arrow,
   arrowDefs,
   circle,
+  cutsWord,
   elbow,
   faceOf,
   fitBoxes,
@@ -211,6 +212,21 @@ describe("textWidth", () => {
     // A lowercase run inside Korean is charged the wider face as well: "m" is
     // 0.926em there against Inter's 0.83.
     expect(textWidth("가 mm", 100)).toBeGreaterThan(textWidth("가 ", 100) + 2 * 83);
+  });
+});
+
+describe("cutsWord", () => {
+  it("is true when one word is wider than the line, which `wrap` would cut letter by letter", () => {
+    const w = textWidth("Rectified-flow", 80, 600);
+    expect(cutsWord("Rectified-flow 학습", 80, w - 1, 600)).toBe(true);
+    expect(cutsWord("Rectified-flow 학습", 80, w + 1, 600)).toBe(false);
+    expect(wrap("Rectified-flow", 80, w - 1, 600).length).toBeGreaterThan(1);
+  });
+
+  it("never counts a Han or kana run, which breaks between characters by its own rules", () => {
+    expect(cutsWord("直近の数フレームだけでも強い比較基準になる", 60, 200)).toBe(false);
+    // Hangul words are space-separated, so a long one does count.
+    expect(cutsWord("정렬인코더비교실험결과요약", 60, 200)).toBe(true);
   });
 });
 

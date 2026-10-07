@@ -6,7 +6,9 @@
  * and nothing else. Adding a domain means adding an emitter — the shell never
  * learns what a camera frustum or an orderbook is.
  */
-import type { Archetype, BeatOf, Format, Source } from "../types.js";
+import type { Archetype, BeatOf, Design, Format, Source } from "../types.js";
+import type { Fit } from "./fit.js";
+import type { Look } from "./look.js";
 
 /* ------------------------------------------------------- the content box */
 
@@ -179,6 +181,37 @@ export interface Theme {
   /** Highlight tones, addressed by `tone: "a" | "b" | "c" | "d"`. */
   tones: { a: string; b: string; c: string; d: string };
   fontStack: string;
+  /**
+   * The chrome's stack — eyebrow, headline, the title slide's headline — when a
+   * v2 style pack sets it in a face of its own. Absent means `fontStack`, which
+   * is every classic theme. Which spec it belongs to is read off `fontStack`
+   * (`faceOf`), so the two are declared together by the pack (`src/emit/type.ts`).
+   */
+  displayStack?: string;
+  /**
+   * A v2 style pack's component forms: how it draws the parts every deck has,
+   * so two packs differ in FORM and not only in colour (review, 2026-10-08:
+   * "one template in four colours"). Absent on every classic theme, which is
+   * what keeps a classic build's bytes v0.8.0's.
+   */
+  forms?: PackForms;
+}
+
+/** How a pack marks a list item. `tick` is the classic coloured bar. */
+export type ListForm = "tick" | "number" | "dot" | "card" | "rule";
+
+export interface PackForms {
+  list?: ListForm;
+  /**
+   * Which looks this pack leans towards, as score bonuses the Director adds
+   * (src/plan/direct.ts): by placement, and by `archetype:variant`. So the
+   * same storyboard opens differently under two packs instead of every deck's
+   * second slide being the same two-column comparison.
+   */
+  affinity?: {
+    placement?: Partial<Record<"top" | "rail" | "foot", number>>;
+    variant?: Readonly<Record<string, number>>;
+  };
 }
 
 export interface EmitContext {
@@ -232,6 +265,24 @@ export interface EmitContext {
   // about to be thrown away. A measurement pass that genuinely does not care
   // says `start: 0` and says it on purpose; the compiler now asks.
   start: number;
+  /**
+   * `prefs.design`. ABSENT MEANS CLASSIC, and that is the contract that keeps
+   * v0.8.0's bytes: every hand-built test context, `narrate`, `refs` and
+   * `timing` omit it, and an emitter reads it only through `isV2` in `./fit.ts`.
+   * Those last three only count stops, and stop counts are identical under both
+   * designs by construction (test/fit.test.ts holds it), so they do not need it.
+   */
+  design?: Design;
+  /**
+   * `--design v2` only: the arrangement the Director chose for this beat — a
+   * body variant and where the chrome sits. See src/emit/look.ts.
+   *
+   * ABSENT ON EVERY CLASSIC BUILD, and absent means the classic scene byte for
+   * byte. The measuring passes (`planCut`, `narrate`, `timing`, `refs`) never set
+   * it either, which is safe because a look may change geometry and never time:
+   * the Director rejects any look whose holds or chrome landing differ.
+   */
+  look?: Look;
 }
 
 /* ------------------------------------------------- the animation vocabulary */
@@ -452,6 +503,29 @@ export interface Scene {
   holds: number[];
   /** CSS this archetype needs. Deduplicated by the shell, emitted once. */
   css?: string;
+  /**
+   * The archetype's own prediction of how full its final hold is — v2 only.
+   * In memory, never serialised into the composition (like `parts`); the shell
+   * collects it into `fit.json` and `verify/fill.ts` holds it against the
+   * browser. See `./fit.ts` for what the number means.
+   */
+  fit?: Fit;
+  /**
+   * How much of its body box this scene's body fills along the axis it grows
+   * on, 0–1: the drawn height over the height it was given. Optional, in-memory
+   * only — never serialised, so it moves no byte. The `--design v2` Director
+   * prefers the look that fills more (src/plan/direct.ts); an emitter that does
+   * not report it is scored as neither full nor hollow.
+   */
+  fill?: number;
+  /**
+   * The area, in reference px², at which this scene paints the paper's own
+   * figure — the image, not the white plate around it. In-memory only. The
+   * Director refuses a look that shrinks it well below what the classic look
+   * gives (`FIGURE_FLOOR` in src/plan/direct.ts): a figure is often the most
+   * informative thing in the deck, and v2 was trading it for a rail headline.
+   */
+  figureArea?: number;
 }
 
 export type Emitter<A extends Archetype> = (beat: BeatOf<A>, ctx: EmitContext) => Scene;
@@ -741,10 +815,97 @@ export function settle(target: string, at: number, seconds = LIFT_SECONDS, origi
  * transform on an inline box is a no-op, and the rise would render as a plain
  * fade with every gate green.
  */
-export function words(text: string, cls = "w"): string {
+export function words(text: string, cls = "w", opts: { unspaced?: boolean } = {}): string {
+  if (opts.unspaced) {
+    return wordAtoms(text)
+      .map((a, i) => `${i > 0 && a.spaced ? " " : ""}<span class="${cls}">${esc(a.text)}</span>`)
+      .join("");
+  }
   return text
     .split(/\s+/)
     .filter(Boolean)
     .map((w) => `<span class="${cls}">${esc(w)}</span>`)
     .join(" ");
+}
+
+/**
+ * A word-by-word stagger that lands by the stop, however many atoms there are.
+ *
+ * The rise is timed against a fixed hold, so its last atom must start in the
+ * window eight words used to: a CJK claim split per character is 30-60 atoms,
+ * and at a flat 0.05s the second half of the sentence would still be invisible
+ * when the deck stopped on it. Past `full` atoms the spacing shrinks so the
+ * spread stays `base · (full − 1)`. v2 only; classic keeps its flat stagger.
+ */
+export function staggerFor(count: number, base: number, full = 8): number {
+  if (count <= full) return base;
+  return Math.round(((base * (full - 1)) / (count - 1)) * 1000) / 1000;
+}
+
+/** Han and kana: scripts that break between any two characters, and write no spaces. */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿＀-￯]/u;
+/**
+ * Characters a CJK line may not start with (JIS X 4051 / GB/T 15834 kinsoku):
+ * closing brackets and punctuation, the iteration marks and the small kana. Each
+ * rides on the atom before it, so a line never opens on "，" or "。".
+ */
+const NO_LINE_START =
+  /[、。，．：；！？）」』】〕〉》’”・ー〜…ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々ゝゞヽヾ％]/u;
+/** And the ones it may not end with: opening brackets, which ride on the atom after. */
+const NO_LINE_END = /[（「『【〔〈《‘“]/u;
+
+/**
+ * The units `words(…, { unspaced: true })` sets, each an `inline-block` that
+ * rises on its own and is never broken across a line.
+ *
+ * WHY A CJK RUN IS NOT ONE ATOM. Split on whitespace alone, "每个查询只选取最相关的"
+ * is a single inline-block: it cannot wrap inside itself, so it jumps whole to
+ * its own line, and a mixed claim came out "每个查询只选取最 / 相关的 / k 个历史帧；不同 /
+ * token / …" (review, 2026-10-08, zh s10). Han and kana break between any two
+ * characters, so here each character is its own atom, Latin inside the run
+ * ("token", "k") stays one, and kinsoku punctuation rides on its neighbour.
+ * Hangul is spaced like Latin and stays word by word.
+ *
+ * `spaced`: whether whitespace separated this atom from the one before it.
+ */
+export function wordAtoms(text: string): { text: string; spaced: boolean }[] {
+  const out: { text: string; spaced: boolean }[] = [];
+  for (const [r, run] of text.split(/\s+/).filter(Boolean).entries()) {
+    if (!UNSPACED.test(run)) {
+      out.push({ text: run, spaced: r > 0 });
+      continue;
+    }
+    const start = out.length;
+    let latin = "";
+    let carry = "";
+    const push = (t: string) => {
+      out.push({ text: carry + t, spaced: r > 0 && out.length === start });
+      carry = "";
+    };
+    const flush = () => {
+      if (latin) push(latin);
+      latin = "";
+    };
+    for (const ch of run) {
+      // ASCII stays with the Latin it is part of: "38.3", "V2-99", "(k)".
+      if ((ch.codePointAt(0) ?? 0) < 0x80) {
+        latin += ch;
+      } else if (NO_LINE_START.test(ch) && (latin || out.length > start)) {
+        flush();
+        const last = out[out.length - 1] as { text: string };
+        last.text += ch;
+      } else if (NO_LINE_END.test(ch)) {
+        flush();
+        carry += ch;
+      } else if (UNSPACED.test(ch)) {
+        flush();
+        push(ch);
+      } else {
+        latin += ch;
+      }
+    }
+    flush();
+    if (carry) push("");
+  }
+  return out;
 }

@@ -722,12 +722,37 @@ export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   "equation-morph": "formal",
 };
 
+/**
+ * Which generation of the look a deck is built in.
+ *
+ * `classic` is every deck built before 0.9 and stays byte-identical: it is what
+ * an unset design means, so an npm user and every ink golden see no change. `v2`
+ * opts into the redesign: the v2 player in deck.html (speed, CC, caption size,
+ * remembered preferences — src/deck/playback.ts), the fit engine
+ * (src/emit/fit.ts), a style pack per deck (src/emit/themes/pick.ts), varied
+ * layouts (src/plan/direct.ts) and the motion grammar (src/emit/motion.ts). One
+ * switch rather than one flag per feature, so a deck is always one coherent
+ * design and `--design classic` is a complete rollback.
+ *
+ * OPTIONAL rather than defaulted in both schemas, so a storyboard, a config or
+ * a pack that never mentions it serialises exactly as it did.
+ */
+export const designSchema = z.enum(["classic", "v2"]);
+export type Design = z.infer<typeof designSchema>;
+
 export const storyboardSchema = z
   .object({
     sourceId: z.string(),
     title: z.string(),
     lang: z.string().default("en"),
     theme: z.string().default("ink"),
+    /**
+     * The design this storyboard asks to be built in. OPTIONAL with no default,
+     * so a stored storyboard parses to exactly the object it did before this
+     * field existed and nothing hashed from it moves. `--design` on `build`
+     * overrides it; absent everywhere means `classic`.
+     */
+    design: designSchema.optional(),
     beats: z.array(beatSchema).min(1),
   })
   /**
@@ -824,6 +849,20 @@ export const prefsSchema = z.object({
 
   /* --- look --- */
   theme: z.string().default("ink"),
+  /**
+   * Which generation of the look to emit (see `designSchema`). Unset means the
+   * storyboard's own, else `classic` — v0.8.0, byte for byte, so an npm user's
+   * decks do not change under them. `v2` turns on the redesign: the player, the
+   * fit engine, a style pack per deck (`src/emit/themes/pick.ts`), layouts and
+   * motion.
+   */
+  design: designSchema.optional(),
+  /**
+   * What `--design v2` hashes to pick a pack. Absent means the storyboard's
+   * `sourceId`. A caller with one paper in several languages passes the paper's
+   * id here so every language wears the same pack.
+   */
+  packSeed: z.string().optional(),
   /**
    * Multiplies every emitted tween duration. Below 1 is faster.
    *

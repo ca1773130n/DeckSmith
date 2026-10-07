@@ -12,6 +12,7 @@
  * code. A constant cell size would be right for one grid and wrong for the other
  * twenty-three, and nobody would ever find out which.
  */
+import { isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, DIM, esc } from "../kit.js";
 import type { Box } from "../svg.js";
@@ -173,6 +174,7 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   // portrait's absence, where there is width to spare at all. Otherwise this is
   // the layout it always was.
   const full = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, FIELD_TOP, undefined, face);
+  const v2 = isV2(ctx);
   const col = p.note ? noteColumn(p.note, BODY_SIZE, face) : undefined;
   /** The height the note costs when it sits underneath rather than beside. */
   const stackedBudget = bodyBudget(
@@ -264,8 +266,15 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
     const gutter = needsGutter ? lw + 90 : 0;
     const f = needsGutter ? solve(W - gutter, budget) : bare;
 
-    /** Which labels the gutter has to carry. Fixed by `f`, so it settles here. */
-    const inGutter = p.regions.map((r, i) => crowded[i] || !fitsInside(f, r));
+    /**
+     * Which labels the gutter has to carry. Fixed by `f`, so it settles here.
+     * v2: all of them once any has to go — one label style per diagram. Mixed,
+     * a zh deck drew one leader to the far edge, two boxed labels over their
+     * cells and one region with none (review, 2026-10-08).
+     */
+    const inGutter = p.regions.map(
+      (r, i) => (v2 && needsGutter) || crowded[i] || !fitsInside(f, r),
+    );
     const lines = (r: Region) => wrap(r.label, LABEL, lw, 600, 0, face).length;
     const stackH = p.regions
       .filter((_, i) => inGutter[i])
@@ -340,7 +349,9 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
 
   const boxes = p.regions.map(boxOf);
 
-  const lx = W - gutter + 40;
+  // v2: the labels sit just beside the field, not at the far edge of the box,
+  // so a leader spans the channel rather than the empty width of the slide.
+  const lx = v2 && gutter > 0 ? Math.round(fx + f.w + 90) : W - gutter + 40;
   const outside = p.regions
     .map((r, i) => ({ r, i }))
     .filter(({ i }) => inGutter[i])

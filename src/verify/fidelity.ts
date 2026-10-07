@@ -143,11 +143,22 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DECK_PAGE } from "../emit/composition.js";
+import { FIT_FILE } from "../emit/fit.js";
 import { UNFIT_ATTR } from "../emit/tex.js";
 import { openDeck } from "../render/capture.js";
 import { TIMING_FILE } from "../render/timing.js";
 import type { Finding } from "../types.js";
 import { type ApparentStop, collectApparent, gradeApparent, midpoints } from "./apparent.js";
+import {
+  collectFillRegion,
+  type FillRow,
+  fillInk,
+  finalStops,
+  gradeFill,
+  hideScenes,
+  measureFill,
+  readFitManifest,
+} from "./fill.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
 import { TYPE_FLOOR_PX } from "./typefloor.js";
 
@@ -260,6 +271,11 @@ export function readReserve(timingText: string | null): number {
 
 export interface FidelityReport {
   stops: Measured[];
+  /**
+   * Main-axis fill at each scene's last hold — measured on every deck, graded
+   * only on a v2 one (`fit.json` present). See `./fill.ts`.
+   */
+  fills: FillRow[];
   /**
    * Both gates' findings — this one's `blank_at_stop` and `overprint`'s
    * `svg_text_overprint`.
@@ -415,18 +431,63 @@ function background(frame: Frame): [number, number, number] {
  * of those have been wrong in this project inside the last week.
  */
 export function inkBelow(frame: Frame, bandTopPx: number): number {
+  return inkIn(frame, { top: bandTopPx, left: 0, bottom: frame.height });
+}
+
+/**
+ * Where a scene's BODY is, in device px: the part of the frame that is not its
+ * chrome. Classic chrome is a block across the top, so the body is everything
+ * below its bottom edge — exactly what `inkBelow` measured, and still is. The
+ * `--design v2` placements (src/emit/look.ts) move the chrome, and "below the
+ * headline" stops meaning "the body": under a `foot` headline there is nothing
+ * at all by design, and beside a `rail` the body is the column to its right.
+ * Measured where the body is, rather than below a headline that is no longer
+ * on top, the same floor means the same thing.
+ */
+export interface BodyRegion {
+  top: number;
+  left: number;
+  bottom: number;
+}
+
+/**
+ * Non-background pixels inside `region`, over the WHOLE frame's pixels.
+ *
+ * `plate` is the deck's bare background (every scene hidden), when the build
+ * captured one — a v2 deck does, for the fill gate. Against it each pixel is
+ * compared with the same pixel of the empty ground. Against the frame's modal
+ * colour alone a style pack's painted ground — signal's glow, blueprint's grid
+ * — read as ink: with every scene hidden, 4.42% of a signal frame and 2.40% of
+ * a blueprint one measured "inked", 29x and 16x `INK_FLOOR`, so a stop with
+ * nothing drawn on it passed this gate by a wide margin (review, 2026-10-08).
+ * A plate of another size is ignored.
+ */
+export function inkIn(frame: Frame, region: BodyRegion, plate?: Frame | null): number {
   const [br, bg, bb] = background(frame);
   const { width, height, channels, pixels } = frame;
+  const ground = plate && plate.width === width && plate.height === height ? plate : null;
+  const x0 = Math.max(0, Math.round(region.left));
+  const y1 = Math.min(height, Math.round(region.bottom));
   let ink = 0;
-  for (let y = Math.max(0, Math.round(bandTopPx)); y < height; y++) {
+  for (let y = Math.max(0, Math.round(region.top)); y < y1; y++) {
     const row = y * width * channels;
-    for (let x = 0; x < width; x++) {
+    for (let x = x0; x < width; x++) {
       const i = row + x * channels;
-      const d = Math.max(
-        Math.abs((pixels[i] as number) - br),
-        Math.abs((pixels[i + 1] as number) - bg),
-        Math.abs((pixels[i + 2] as number) - bb),
-      );
+      let d: number;
+      if (ground) {
+        const j = (y * width + x) * ground.channels;
+        d = Math.max(
+          Math.abs((pixels[i] as number) - (ground.pixels[j] as number)),
+          Math.abs((pixels[i + 1] as number) - (ground.pixels[j + 1] as number)),
+          Math.abs((pixels[i + 2] as number) - (ground.pixels[j + 2] as number)),
+        );
+      } else {
+        d = Math.max(
+          Math.abs((pixels[i] as number) - br),
+          Math.abs((pixels[i + 1] as number) - bg),
+          Math.abs((pixels[i + 2] as number) - bb),
+        );
+      }
       if (d > INK_DELTA) ink++;
     }
   }
@@ -568,15 +629,25 @@ export function gradeReserve(
   });
 }
 
-/** Serialised into the page: the bottom of this scene's caption, in device px. */
-function captionBottom(sid: string, selector: string, fallbackPx: number): number {
+/**
+ * Serialised into the page: this scene's body region, in device px — see
+ * `BodyRegion`. A classic scene answers with the bottom of its caption, as this
+ * function always has; a rail or foot scene with the box its chrome does not
+ * occupy.
+ */
+function bodyRegion(sid: string, selector: string, fallbackPx: number): BodyRegion {
   const scene = document.querySelector(`[data-composition-id="${CSS.escape(sid)}"]`);
+  const height = window.innerHeight;
+  const rail = scene?.querySelector(".lk-rail > .lk-head");
+  if (rail) return { top: 0, left: rail.getBoundingClientRect().right, bottom: height };
+  const foot = scene?.querySelector(".lk-foot");
+  if (foot) return { top: 0, left: 0, bottom: foot.getBoundingClientRect().top };
   let bottom = 0;
   for (const el of Array.from(scene?.querySelectorAll(selector) ?? [])) {
     const box = el.getBoundingClientRect();
     if (box.height > 0) bottom = Math.max(bottom, box.bottom);
   }
-  return bottom > 0 ? bottom : fallbackPx;
+  return { top: bottom > 0 ? bottom : fallbackPx, left: 0, bottom: height };
 }
 
 /** An equation the deck's own fit gave up on: the scene, and the formula. */
@@ -626,6 +697,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
   const floor = opts.floor ?? INK_FLOOR;
   const notMeasured = (why: string): FidelityReport => ({
     stops: [],
+    fills: [],
     findings: [
       {
         severity: "warning",
@@ -646,6 +718,8 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
   // directory, and the only trustworthy statement about what that deck reserved
   // is the one the build wrote into its own manifest.
   const reserve = opts.captionReserve ?? readReserve(timingText);
+  const manifest = readFitManifest(await readFile(join(dir, FIT_FILE), "utf8").catch(() => null));
+  const finals = new Set(finalStops(stops));
 
   let deck: Awaited<ReturnType<typeof openDeck>> | null = null;
   try {
@@ -663,14 +737,19 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
     const apparent: ApparentStop[] = [];
+    const fills: FillRow[] = [];
+    // v2 only — a classic deck is not graded for fill, so it pays no extra
+    // capture: the bare background, once, for the fill gate's ink test.
+    let plate: Awaited<ReturnType<typeof decodePng>> | null = null;
+    if (manifest) {
+      await deck.seek(stops[0]?.t ?? 0);
+      await page.evaluate(hideScenes, true);
+      plate = await decodePng(await deck.shoot());
+      await page.evaluate(hideScenes, false);
+    }
     for (const stop of stops) {
       await deck.seek(stop.t);
-      const bandTopPx = await page.evaluate(
-        captionBottom,
-        stop.sid,
-        CAPTION,
-        FALLBACK_BAND_TOP * height,
-      );
+      const region = await page.evaluate(bodyRegion, stop.sid, CAPTION, FALLBACK_BAND_TOP * height);
       // The frame is already seeked and already settled, so the collision rule
       // is one more DOM read on the same page. The pairwise arithmetic stays in
       // Node, where it can be tested without a browser.
@@ -687,10 +766,19 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...(await page.evaluate(collectApparent, stop.sid)),
       });
       const frame = await decodePng(await deck.shoot());
+      // THE SAME FRAME again, at a scene's last hold only: how much of its
+      // region the body painted. One DOM read for the region, one more pass
+      // over pixels already decoded.
+      if (finals.has(stop)) {
+        const region = await page.evaluate(collectFillRegion, stop.sid);
+        fills.push(
+          measureFill(frame, fillInk(region, background(frame), INK_DELTA, plate), region, stop),
+        );
+      }
       measured.push({
         ...stop,
-        ink: inkBelow(frame, bandTopPx),
-        bandTop: Math.round((1000 * bandTopPx) / height) / 1000,
+        ink: inkIn(frame, region, plate),
+        bandTop: Math.round((1000 * region.top) / height) / 1000,
         // THE SAME FRAME, a second strip. Free: it is one more pass over pixels
         // that are already decoded, so the gate that stops the caption
         // collision regressing costs no extra capture, no extra seek and no
@@ -709,12 +797,14 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
 
     return {
       stops: measured,
+      fills,
       findings: [
         ...gradeFidelity(measured, floor),
         ...gradeReserve(measured),
         ...gradeOverprint(collided),
         ...gradeApparent(apparent),
         ...gradeUnfit(unfit),
+        ...gradeFill(fills, manifest),
       ],
       elapsedMs: Date.now() - started,
     };
