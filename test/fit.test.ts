@@ -467,3 +467,14 @@ describe("annotated-figure under v2", () => {
     expect(h(annotatedFigure(b, ctx("v2", src)))).toBe(400);
   });
 });
+
+describe("archetypes that already fill their budget", () => {
+  it("report it under v2, so the gate can check the claim, and say nothing in classic", async () => {
+    const { storyboard, source } = await demo();
+    for (const kind of ["split-compare", "line-chart"] as const) {
+      const b = storyboard.beats.find((x) => x.archetype === kind) as Beat;
+      expect(emitScene(b, ctx(undefined, source)).fit, kind).toBeUndefined();
+      expect(fillBand(emitScene(b, ctx("v2", source)).fit?.fill ?? 0), kind).toBe("full");
+    }
+  });
+});

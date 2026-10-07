@@ -22,6 +22,7 @@
  * device, same order, same claim that these are one question answered twice.
  */
 import type { Figure } from "../../types.js";
+import { fitOf, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, spotlighter } from "../kit.js";
 import type { Box } from "../svg.js";
@@ -473,6 +474,15 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    // Already laid out into the whole body budget — the panels and the divider
+    // run its full height, and the note takes the rest — so v2 only REPORTS:
+    // everything under `.sc-body`'s 34px margin is painted extent.
+    ...(isV2(ctx)
+      ? (() => {
+          const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
+          return { fit: fitOf(region - 34, region) };
+        })()
+      : {}),
     css: [
       chromeCss(theme),
       ".sc-body{margin-top:34px;display:flex;justify-content:center}",
