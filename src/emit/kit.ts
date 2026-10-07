@@ -494,6 +494,14 @@ export interface Scene {
    * not report it is scored as neither full nor hollow.
    */
   fill?: number;
+  /**
+   * The area, in reference px², at which this scene paints the paper's own
+   * figure — the image, not the white plate around it. In-memory only. The
+   * Director refuses a look that shrinks it well below what the classic look
+   * gives (`FIGURE_FLOOR` in src/plan/direct.ts): a figure is often the most
+   * informative thing in the deck, and v2 was trading it for a rail headline.
+   */
+  figureArea?: number;
 }
 
 export type Emitter<A extends Archetype> = (beat: BeatOf<A>, ctx: EmitContext) => Scene;

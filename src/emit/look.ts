@@ -181,6 +181,13 @@ const FOOT_PAD = 28;
 export const FOOT_SEP = FOOT_TOP + FOOT_RULE + FOOT_PAD;
 /** An aside shorter than this is a thumbnail of evidence, not evidence. */
 const ASIDE_MIN = 200;
+/**
+ * Nor may it be drawn at less than this share of its own pixel size. Paper
+ * figures are extracted at about the scale they print, so their text is near
+ * the smallest readable size already; a 1098px results table squeezed into the
+ * 578px rail set its numbers at 7-8px (ko s9, review 2026-10-08).
+ */
+const ASIDE_MIN_SCALE = 0.7;
 const ASIDE_GAP = 40;
 const ASIDE_PAD = 12;
 
@@ -378,6 +385,9 @@ function asideFor(
     );
     const h = Math.min(cap, Math.round((inner * fig.height) / fig.width));
     if (h < ASIDE_MIN) continue;
+    // The plate is width-bound at `inner` or height-bound at `h`; either way
+    // this is the scale the figure is painted at.
+    if (Math.min(inner / fig.width, h / fig.height) < ASIDE_MIN_SCALE) continue;
     return { fig, h };
   }
   return undefined;

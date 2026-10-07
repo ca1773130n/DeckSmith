@@ -198,10 +198,12 @@ function columns(notes: readonly FigureNote[], stageW: number, face: Face): numb
  */
 const MAX_UPSCALE = 1.5;
 /**
- * v2's ceiling, the same as `claim-figure`'s: past 2x a raster figure goes
- * visibly soft. Taken only when the plan it produces still fits (`ok`).
+ * v2's ceiling: no more than classic's own. It was 2, and the review
+ * (2026-10-08) found figures upscaled past 1.8x visibly soft; claim-figure is
+ * held to 1.25x now, and this archetype may not exceed what it already drew.
+ * Taken only when the plan it produces still fits (`ok`).
  */
-const GROWN_UPSCALE = 2;
+const GROWN_UPSCALE = MAX_UPSCALE;
 
 const DOT_R = 9;
 const HALO_R = 18;
@@ -884,6 +886,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
     tl,
     holds: holdsWithin(holds, beat.seconds),
     ...(v2 ? { fit: fitOf(stageH + CAP_GAP + capLines * LAB * CAP_LH, region) } : {}),
+    figureArea: Math.round(plan.img.w * plan.img.h),
     css: [
       chromeCss(theme),
       ".af-stage{position:relative;flex:none}",

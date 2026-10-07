@@ -84,21 +84,29 @@ const CLAIM_MAX = 72;
 /**
  * v2: a figure is drawn up to this many times its natural pixel size. The plate
  * used to be `width:auto;height:auto`, so a 632px figure stayed 632px in a
- * 1000px column; past 2x a raster figure is visibly soft, which is a worse
- * slide than a smaller sharp one.
+ * 1000px column. It was 2, and the review (2026-10-08) found two figures
+ * upscaled 1.8x and 2.07x and visibly blurry (en s11, s13); past about 1.25x a
+ * raster figure is soft, which is a worse slide than a smaller sharp one.
  */
-const UPSCALE_MAX = 2;
+const UPSCALE_MAX = 1.25;
 /** `.figwrap`'s padding and border, both sides: what the plate adds around the image. */
 const PLATE_PAD = 34;
 /** Below this aspect a figure is too tall to set full-width above its claim. */
 const UNDER_MIN_ASPECT = 1.5;
 /** Another arrangement must beat the classic one by this much fill to replace it. */
 const SWITCH_MARGIN = 0.08;
+/**
+ * …and must not draw the figure smaller than this share of the classic one's
+ * area. Fill is a vertical extent, so a full-width plate holding a
+ * height-bound image read as FULL while the image shrank: en s13's 491x282
+ * photo in a 1760px plate (review, 2026-10-08).
+ */
+const SWITCH_AREA = 0.9;
 
 type Mode = "tall" | "wide" | "beside";
 
 /** One way to draw the beat, predicted. */
-interface Arrangement {
+export interface Arrangement {
   mode: Mode;
   claimSize: number;
   plate: { w: number; h: number };
@@ -191,10 +199,13 @@ function arrangements(
 }
 
 /** The arrangement to draw: the classic mode unless another fills clearly more. */
-function choose(options: readonly Arrangement[]): Arrangement {
+export function choose(options: readonly Arrangement[]): Arrangement {
   const score = (a: Arrangement) => Math.min(1, a.fit.fill);
+  const area = (a: Arrangement) => a.plate.w * a.plate.h;
   let best = options[0] as Arrangement;
-  for (const a of options.slice(1)) if (score(a) > score(best) + SWITCH_MARGIN) best = a;
+  for (const a of options.slice(1)) {
+    if (score(a) > score(best) + SWITCH_MARGIN && area(a) >= SWITCH_AREA * area(best)) best = a;
+  }
   return best;
 }
 
@@ -522,11 +533,20 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     ),
   ];
 
+  // The area the image is painted at: the solved plate under v2, and what
+  // `max-width:100%` and `figMax` leave of its natural size otherwise.
+  const column = mode === "beside" ? box - BESIDE_COL - 56 - PLATE_PAD : box - PLATE_PAD;
+  const natural = Math.min(1, column / fig.width, figMax / fig.height);
+  const figureArea = chosen
+    ? chosen.plate.w * chosen.plate.h
+    : Math.round(fig.width * natural * fig.height * natural);
+
   return {
     html: F.compose(body),
     tl,
     holds: holdsWithin([1.4, 2.4], beat.seconds),
     ...(chosen ? { fit: chosen.fit } : {}),
+    figureArea,
     css: [
       chromeCss(theme),
       // 560, not 640: the claim was set in a column narrow enough to break a
@@ -583,6 +603,10 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       ...(chosen
         ? [
             `#${sid} .figwrap ${held.el}{width:${chosen.plate.w}px;height:${chosen.plate.h}px;max-height:none;object-fit:contain}`,
+            // The plate HUGS its image. It was a block as wide as its column, so a
+            // height-bound figure sat small in a wide white slab — on a dark deck,
+            // an empty white box (en s13: 25% of a 1760x318 plate was picture).
+            `#${sid} .figwrap{width:fit-content;max-width:100%;margin-left:auto;margin-right:auto}`,
             ...(chosen.claimSize === CLAIM_SIZE
               ? []
               : [`#${sid} .claim{font-size:${chosen.claimSize}px}`]),

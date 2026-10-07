@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { annotatedFigure } from "../src/emit/archetypes/annotated-figure.js";
 import { barCompare } from "../src/emit/archetypes/bar-compare.js";
 import { callout } from "../src/emit/archetypes/callout.js";
-import { claimFigure } from "../src/emit/archetypes/claim-figure.js";
+import { type Arrangement, choose, claimFigure } from "../src/emit/archetypes/claim-figure.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { pipeLayout, pipeline } from "../src/emit/archetypes/pipeline.js";
 import { stack } from "../src/emit/archetypes/stack.js";
@@ -420,8 +420,33 @@ describe("claim-figure under v2", () => {
     expect(c.css).toContain("width:auto;height:auto");
     const m = /#s1 \.figwrap img\{width:(\d+)px;height:(\d+)px/.exec(v.css ?? "");
     expect(Number(m?.[1])).toBeGreaterThan(400);
-    // Never more than twice its own pixels.
-    expect(Number(m?.[1])).toBeLessThanOrEqual(800);
+    // Never more than 1.25x its own pixels: past that a raster goes soft
+    // (review 2026-10-08: 1.8x and 2.07x, both visibly blurry).
+    expect(Number(m?.[1])).toBeLessThanOrEqual(500);
+    // And the white plate hugs the picture rather than spanning its column.
+    expect(v.css).toContain("#s1 .figwrap{width:fit-content;max-width:100%");
+    expect(c.css).not.toContain("fit-content");
+  });
+
+  it("never trades the figure's area for a fuller-looking arrangement", () => {
+    // en s13 (review 2026-10-08): a 1.74:1 photo set full-width above its claim
+    // was height-bound inside a 1760px plate, because fill counts the plate's
+    // HEIGHT. An arrangement that fills more but draws the picture smaller loses.
+    const arr = (mode: "beside" | "wide", w: number, h: number, fill: number): Arrangement => ({
+      mode,
+      claimSize: 50,
+      plate: { w, h },
+      fit: { fill, region: 760, ink: fill * 760 },
+    });
+    const beside = arr("beside", 1000, 560, 0.8);
+    expect(choose([beside, arr("wide", 820, 470, 0.97)])).toBe(beside);
+    // A fuller arrangement that keeps the picture's size still wins.
+    const wide = arr("wide", 1100, 560, 0.97);
+    expect(choose([beside, wide])).toBe(wide);
+    // And the scene reports the area the image is painted at.
+    const v = claimFigure(claim, ctx("v2", withFigure(900, 517)));
+    const m = /#s1 \.figwrap img\{width:(\d+)px;height:(\d+)px/.exec(v.css ?? "");
+    expect(v.figureArea).toBe(Number(m?.[1]) * Number(m?.[2]));
   });
 
   it("grows the claim without adding a line to it", () => {
@@ -467,7 +492,7 @@ describe("stack under v2", () => {
 });
 
 describe("annotated-figure under v2", () => {
-  it("draws a small figure up to twice its pixels where classic stops at 1.5x", () => {
+  it("draws a small figure no larger than classic's 1.5x: past that a raster goes soft", () => {
     const src = {
       ...bare,
       figures: [{ id: "f1", src: "f1.png", caption: "Figure 1.", width: 300, height: 200 }],
@@ -480,7 +505,7 @@ describe("annotated-figure under v2", () => {
     // The stage's overlay is the figure's height plus nothing: 200px drawn at 1.5x and 2x.
     const h = (s: Scene) => Number(/id="s1-ov" width="[\d.]+" height="([\d.]+)"/.exec(s.html)?.[1]);
     expect(h(annotatedFigure(b, ctx(undefined, src)))).toBe(300);
-    expect(h(annotatedFigure(b, ctx("v2", src)))).toBe(400);
+    expect(h(annotatedFigure(b, ctx("v2", src)))).toBe(300);
   });
 });
 

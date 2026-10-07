@@ -45,6 +45,7 @@ const source: Source = {
     ...demoSource.figures,
     { id: "aside", kind: "image", src: "aside.png", caption: "An aside", width: 1200, height: 900 },
     { id: "strip", kind: "image", src: "strip.png", caption: "A strip", width: 2400, height: 600 },
+    { id: "small", kind: "image", src: "small.png", caption: "Small", width: 400, height: 300 },
   ],
 };
 const ctx = (look?: Look, f: Format = format): EmitContext => ({
@@ -181,9 +182,9 @@ describe("rail", () => {
     const cited = frameOf(ctx(look), {
       eyebrow: "R",
       headline: "Short",
-      evidence: [{ kind: "figure", id: "aside" }],
+      evidence: [{ kind: "figure", id: "small" }],
     });
-    expect(cited.compose("")).toContain('src="assets/aside.png"');
+    expect(cited.compose("")).toContain('src="assets/small.png"');
     expect(cited.tl.map((t) => t.target)).toContain("#s1-ax");
     const drawn = frameOf(ctx(look), {
       eyebrow: "R",
@@ -194,6 +195,17 @@ describe("rail", () => {
     expect(drawn.compose("")).not.toContain("lk-aside");
     const uncited = frameOf(ctx(look), { eyebrow: "R", headline: "Short" });
     expect(uncited.compose("")).not.toContain("lk-aside");
+  });
+
+  it("never squeezes a big figure into the rail as an aside, where its text would be unreadable", () => {
+    // ko s9 (review 2026-10-08): a 1098px results table drawn ~576px wide in the
+    // rail, its numbers at 7-8px. A 1200px figure there would be drawn at 46%.
+    const big = frameOf(ctx(look), {
+      eyebrow: "R",
+      headline: "Short",
+      evidence: [{ kind: "figure", id: "aside" }],
+    });
+    expect(big.compose("")).not.toContain("lk-aside");
   });
 
   it("is only offered on a canvas wide enough for it", () => {

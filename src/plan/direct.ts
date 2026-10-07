@@ -139,6 +139,14 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
           refused.push({ signature: sig, reason: "moves a hold or the chrome's landing" });
           continue;
         }
+        const shrunk = figureShare(scene, classicScene);
+        if (shrunk !== undefined && shrunk < FIGURE_FLOOR) {
+          refused.push({
+            signature: sig,
+            reason: `draws the figure at ${Math.round(shrunk * 100)}% of the classic look's area`,
+          });
+          continue;
+        }
         viable.push({ look, fill: scene.fill });
       } catch (err) {
         refused.push({ signature: sig, reason: err instanceof Error ? err.message : String(err) });
@@ -221,6 +229,23 @@ function scoreOf(
     0.15 * modal +
     0.2 * taste
   );
+}
+
+/**
+ * The least share of the classic look's figure area another look may draw the
+ * figure at. The review (2026-10-08) measured v2's rail and foot looks shrinking
+ * the paper's own figure to 43-61% of its classic area (ja s4, ko s6, en s5) to
+ * make room for a headline: fill went up because white plate and bigger text
+ * count as ink, and the most informative thing on the slide got smaller. A
+ * look that keeps 80% or more is still a different slide; one below it is not
+ * worth the variety.
+ */
+export const FIGURE_FLOOR = 0.8;
+
+/** A look's figure area over the classic look's, when both report one. */
+function figureShare(scene: Scene, classic: Scene): number | undefined {
+  if (!scene.figureArea || !classic.figureArea) return undefined;
+  return scene.figureArea / classic.figureArea;
 }
 
 /** The parts of a scene a look must not change: its holds, and when its chrome lands. */

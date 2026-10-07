@@ -91,6 +91,37 @@ describe("direct", () => {
     }
   });
 
+  it("refuses a look that draws the paper's figure under 80% of the classic look's area", () => {
+    // Review 2026-10-08: rail and foot looks shrank figures to 43-61% of their
+    // classic area (ja s4, ko s6) to make room for a headline. The demo's
+    // architecture figure does the same: the rail would draw it at 43%.
+    const b09 = demo.beats.find((b) => b.id === "b09") as Beat;
+    const real = direct([b09], { ...opts, design: "v2" });
+    const shrunk = (real.beats[0]?.refused ?? [])
+      .map((r) => /(\d+)% of the classic look's area/.exec(r.reason)?.[1])
+      .filter((x): x is string => x !== undefined)
+      .map(Number);
+    expect(shrunk.length).toBeGreaterThan(0);
+    for (const pct of shrunk) expect(pct).toBeLessThan(80);
+    expect(real.beats[0]?.placement).toBe("top");
+    // The same looks, drawing the figure as large as classic does, are not refused for it.
+    const classicArea = emitScene(b09, {
+      source,
+      format,
+      theme: ink,
+      sid: "s1",
+      start: 0,
+      design: "v2",
+    }).figureArea as number;
+    expect(classicArea).toBeGreaterThan(100_000);
+    const full = (beat: Beat, ctx: Parameters<typeof emitScene>[1]): Scene => ({
+      ...emitScene(beat, ctx),
+      figureArea: classicArea,
+    });
+    const kept = direct([b09], { ...opts, design: "v2", emit: full });
+    expect(kept.beats[0]?.refused.some((r) => /classic look's area/.test(r.reason))).toBe(false);
+  });
+
   it("keeps the classic look on a beat the next beat's camera dives into", () => {
     const [a, b] = sixSplits as [Beat, Beat];
     const inside = { ...b, inside: { beat: a.id, element: "side0" } } as Beat;
@@ -177,8 +208,11 @@ describe("design: the switch", () => {
     // looks, motion together), after reading the demo's final-hold frames. And
     // again in the review fix round: the only change is two claims' stagger
     // (s9 0.05 → 0.032, s15 → 0.018), so their last word lands by the stop.
+    // Then the figure floor: s9 leaves the foot look, which drew its figure at
+    // 70% of the top look's area, for the top look at 1542x428 (was 1286x357),
+    // and both plates hug their images.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "cd315aa86caf3a151586c5b9f6ba326221375bfc6a1df1fe15ddefc93c10ff8b",
+      "ef23a5b977b9ec8ec254379f2d0d49fe328a59e8b24f746134dcaeecbd94860b",
     );
   });
 
