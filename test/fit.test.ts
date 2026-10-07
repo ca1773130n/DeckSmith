@@ -24,9 +24,19 @@ import { emitScene } from "../src/emit/archetypes/index.js";
 import { pipeLayout, pipeline } from "../src/emit/archetypes/pipeline.js";
 import { stack } from "../src/emit/archetypes/stack.js";
 import { emitDeck } from "../src/emit/composition.js";
-import { EMPTY_BELOW, FULL_AT, fillBand, fitOf, GROWTH, growToFit, isV2 } from "../src/emit/fit.js";
+import {
+  EMPTY_BELOW,
+  FULL_AT,
+  fillBand,
+  fitOf,
+  GROWTH,
+  growToFit,
+  isV2,
+  MEASURE_SLACK,
+} from "../src/emit/fit.js";
 import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
 import { contentW } from "../src/emit/kit.js";
+import { faceOf, textWidth } from "../src/emit/svg.js";
 import {
   type Beat,
   type BeatOf,
@@ -232,6 +242,65 @@ describe("bar-compare under v2", () => {
     const v = barCompare(two, ctx("v2"));
     expect(v.css).toContain("#s1 .bc-wrap{margin-bottom:auto}");
     expect(fillBand(v.fit?.fill ?? 0)).toBe("full");
+  });
+
+  it("keeps every grown value's glyph box inside the chart, which 0.9 of a bar did not", () => {
+    // From HypePaper deck 3b7225ad: at 0.9 of an 84px bar the first 76px value
+    // stood 5px above the chart, and `hyperframes check` failed the deck.
+    const four = beat("bar-compare", {
+      eyebrow: "Full fine-tuning · Distributional quality",
+      headline: "D-OPSD achieves the lowest FID on both base models.",
+      unit: "FID ↓",
+      note: "FID improvements over the runner-up: 8.1920 and 6.9403.",
+      bars: [
+        { label: "Z-Image-Turbo · Base", value: 48.6858, tone: "b" },
+        { label: "Z-Image-Turbo · D-OPSD", value: 40.4938, tone: "a" },
+        { label: "FLUX.2-klein · Base", value: 45.2335, tone: "b" },
+        { label: "FLUX.2-klein · D-OPSD", value: 38.2932, tone: "a" },
+      ],
+    });
+    const v = barCompare(four, ctx("v2"));
+    const values = [
+      ...v.html.matchAll(/<text x="[\d.]+" y="([\d.]+)" class="bc-val"[^>]*font-size="([\d.]+)"/g),
+    ];
+    expect(values).toHaveLength(4);
+    for (const [, y, size] of values)
+      expect(Number(y) - 0.96 * Number(size)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("leaves a grown label its measurement slack inside the gutter, so it cannot run off the left", () => {
+    // HypePaper ko deck 450790a0: "InfiniDepth" at a grown 74px, right-aligned
+    // to a gutter sized to the width table's answer, drew 8px left of the chart.
+    const korean: Theme = { ...theme, fontStack: '"Noto Sans KR", "Inter", system-ui, sans-serif' };
+    const b = beat("bar-compare", {
+      eyebrow: "Boundary F1",
+      headline: "경계 일치도는 개선되지만 최고 성능에는 못 미친다.",
+      unit: "점",
+      note: "높을수록 좋음 · 경계 매칭 반경 1",
+      bars: [
+        { label: "MoGe-2", value: 15.6, tone: "a" },
+        { label: "MoGe-3", value: 16, tone: "b" },
+        { label: "InfiniDepth", value: 19.3, tone: "c" },
+      ],
+    });
+    const v = barCompare(b, { ...ctx("v2"), theme: korean });
+    const labels = [
+      ...v.html.matchAll(
+        /<text x="([\d.]+)"[^>]*class="bc-lab" font-size="([\d.]+)"[^>]*>(?:<tspan[^>]*>)?([^<]+)/g,
+      ),
+    ];
+    expect(labels).toHaveLength(3);
+    for (const [, x, size, text] of labels) {
+      const width = textWidth(
+        text as string,
+        Number(size),
+        600,
+        0,
+        false,
+        faceOf(korean.fontStack),
+      );
+      expect(width).toBeLessThanOrEqual(Number(x) * MEASURE_SLACK + 0.5);
+    }
   });
 
   it("draws the classic chart when the grown one cannot fit, instead of refusing", () => {

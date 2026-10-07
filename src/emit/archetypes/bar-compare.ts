@@ -128,6 +128,9 @@ const MIN_LEN = 8;
 /** Descender depth as a fraction of the type size, erring deep. */
 const DESCENT = 0.25;
 
+/** A glyph's box above its baseline, less the 0.34em a centred baseline sits below centre. */
+const GLYPH_OVER = 0.62;
+
 /** Portrait only: the label's own line, and the air under it before the rail. */
 const HEAD_GAP = 14;
 
@@ -143,13 +146,44 @@ interface Caps {
   label: number;
   value: number;
   spread: boolean;
+  /**
+   * The most type a row's text may have, as a fraction of its bar. Classic's
+   * 0.86 (labels) and 0.9 (values) were chosen while a value could not pass
+   * 48px; a grown one can, and its glyph box is 1.2em with 0.96em above the
+   * baseline, so centred on the bar it clears the bar's top edge only below
+   * ~0.8 of it. At 0.9 the first row's 76px value stood 5px above the chart —
+   * `text_box_overflow` on `#sN-v0` in the 2026-10-07 eval.
+   */
+  labelFit: number;
+  valueFit: number;
+  /**
+   * The share of the gutter a label is solved against, and the slack its
+   * measured width is given back: 1 in classic, `MEASURE_SLACK` grown. The
+   * label is right-aligned to the gutter's inner edge and the gutter is sized
+   * to the width table's answer, so a label the table under-measures runs out
+   * of the chart's LEFT edge by the error — 3-8px at a grown 74px in a Japanese
+   * and a Korean deck, `text_box_overflow` on `text.bc-lab`. (The same label at
+   * classic's 46px does it on one v0.8.0 deck too; classic is left as it is.)
+   */
+  measure: number;
 }
-const CLASSIC: Caps = { bar: BAR_MAX, label: LABEL_MAX, value: VALUE_MAX, spread: false };
+const CLASSIC: Caps = {
+  bar: BAR_MAX,
+  label: LABEL_MAX,
+  value: VALUE_MAX,
+  spread: false,
+  labelFit: 0.86,
+  valueFit: 0.9,
+  measure: 1,
+};
 const GROWN: Caps = {
   bar: BAR_MAX * GROWTH,
   label: LABEL_MAX * GROWTH,
   value: VALUE_MAX * GROWTH,
   spread: true,
+  labelFit: 0.78,
+  valueFit: 0.78,
+  measure: MEASURE_SLACK,
 };
 /** The most air a spread row gets between rails, as a fraction of the bar: one bar's height. */
 const GAP_SPREAD = 1;
@@ -192,7 +226,11 @@ function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutAr
     // A stacked label is not competing with its bar for height, so it is not
     // sized against one either — `bar * 0.86` is what keeps a label inside the
     // rail it sits beside, and beside is the case that has gone.
-    Math.min(caps.label, tall ? caps.label : bar * 0.86, gutterInner / unitWidth),
+    Math.min(
+      caps.label,
+      tall ? caps.label : bar * caps.labelFit,
+      (gutterInner * caps.measure) / unitWidth,
+    ),
   );
   const lines = p.bars.map((b) => wrap(b.label, labelSize, gutterInner, LABEL_WEIGHT, 0, face));
   const maxLines = Math.max(...lines.map((l) => l.length));
@@ -218,7 +256,7 @@ function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutAr
     }
   }
 
-  const valueSize = Math.max(MIN_FONT, Math.min(caps.value, bar * 0.9));
+  const valueSize = Math.max(MIN_FONT, Math.min(caps.value, bar * caps.valueFit));
   let barsH = (count - 1) * pitch + head + bar;
   // What hangs below the last row's centre line: a value's descender, or half a
   // wrapped label block plus its descender. Stacked, the label is above its own
@@ -233,16 +271,32 @@ function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutAr
         bar / 2,
     ) + 4,
   );
+  // HEADROOM, v2 only: the mirror of `foot`, above the first row. A glyph box
+  // is 1.2em with ~0.96em over the baseline, and a value's baseline sits 0.34em
+  // under its row's centre, so text over ~0.8 of a bar — or a wrapped label,
+  // centred on its bar — stands above the chart's top edge. Classic never
+  // measured this and its bytes stand (one v0.8.0 deck in the eval fails
+  // `text_box_overflow` on exactly that label); a grown chart is pushed down by
+  // what overhangs instead.
+  const headroom = caps.spread
+    ? Math.ceil(
+        Math.max(
+          0,
+          valueSize * GLYPH_OVER - bar / 2,
+          tall ? 0 : ((maxLines - 1) * lead) / 2 + labelSize * GLYPH_OVER - bar / 2,
+        ),
+      )
+    : 0;
   // SPREAD, v2 only: once the bars are as thick as they may grow, the rows
   // move apart into whatever height is still spare — up to `GAP_SPREAD` of a
   // bar between rails, the SPARSE band's "spread gaps" (src/emit/fit.ts). Never
   // tighter than the classic pitch, and never past `avail`.
   if (caps.spread && count > 1) {
-    const room = (avail - unitBand - foot - head - bar) / (count - 1);
+    const room = (avail - headroom - unitBand - foot - head - bar) / (count - 1);
     pitch = Math.max(pitch, Math.min(head + bar * (1 + GAP_SPREAD), room));
     barsH = (count - 1) * pitch + head + bar;
   }
-  const H = barsH + unitBand + foot;
+  const H = headroom + barsH + unitBand + foot;
   if (H > avail) {
     throw new Error(
       `bar-compare ${beatId}: ${count} bars with labels this long need ${Math.ceil(H)}px of the ${Math.floor(avail)}px this slide has. Shorten the labels or split the beat.`,
@@ -260,7 +314,9 @@ function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutAr
         Math.ceil(
           Math.max(
             ...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT, 0, false, face)),
-          ) + GUTTER_PAD,
+          ) /
+            caps.measure +
+            GUTTER_PAD,
         ),
       );
 
@@ -299,6 +355,7 @@ function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutAr
     valueSize,
     barsH,
     H,
+    headroom,
     gutter,
     gutterInner,
     metrics,
@@ -369,6 +426,8 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   }
   L ??= barLayout({ ...args, caps: CLASSIC });
   const { bar, pitch, labelSize, head, valueSize, barsH, H, gutter, gutterInner, metrics } = L;
+  /** v2's headroom over the first row; 0 in classic, where `0 + y` is `y` to the bit. */
+  const top0 = L.headroom;
   const { reserveL, plotW } = L;
   const plotX = gutter + reserveL;
 
@@ -381,7 +440,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
 
   const rows = metrics.map((m, i) => {
     // `head` is zero beside a gutter, so the rail starts at the row's own top.
-    const top = i * pitch + head;
+    const top = top0 + i * pitch + head;
     const mid = top + bar / 2;
     const len = m.value === 0 ? 0 : Math.max(MIN_LEN, (Math.abs(m.value) / span) * plotW);
     const x = m.value < 0 ? zeroX - len : zeroX;
@@ -391,7 +450,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
       top,
       mid,
       /** Where the label sets: on its own line above the rail, or beside it. */
-      labelY: tall ? i * pitch + (head - HEAD_GAP) / 2 : mid,
+      labelY: tall ? top0 + i * pitch + (head - HEAD_GAP) / 2 : mid,
       len,
       x,
       valueX: m.value < 0 ? x - VALUE_GAP : x + len + VALUE_GAP,
@@ -413,7 +472,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const unitText = p.unit
     ? text(
         p.unit,
-        { x: zeroX, y: barsH + 44 },
+        { x: zeroX, y: top0 + barsH + 44 },
         {
           size: MIN_FONT,
           weight: 500,
@@ -445,8 +504,8 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
           { id: id(sid, "zero") },
         )
       : line(
-          { x: zeroX, y: 0 },
-          { x: zeroX, y: barsH },
+          { x: zeroX, y: top0 },
+          { x: zeroX, y: top0 + barsH },
           {
             id: id(sid, "zero"),
             stroke: theme.rule,
