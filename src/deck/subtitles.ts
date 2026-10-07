@@ -142,7 +142,146 @@ export function splitCue(cue: Cue, max = CUE_MAX_CHARS): Cue[] {
   });
 }
 
-function toSegment(v: unknown): Segment | null {
+/* ------------------------------------------------- the v2 player's split */
+
+/** Han, Kana and fullwidth forms: scripts written without spaces, so a line may break between any two. */
+const UNSPACED =
+  /[\u2E80-\u2FFF\u3000-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/u;
+const HANGUL = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/u;
+/** Never the first character of a caption line (JIS X 4051's line-start prohibitions, the common ones). */
+const NO_START =
+  /^[、。，．,.!?！？：；:;）)」』】〕〉》・ーぁぃぅぇぉっゃゅょァィゥェォッャュョ]/u;
+
+/**
+ * Advance of one character in caption ems, at the caption's 600 weight.
+ * Han/Kana are full-width by design; Hangul sets slightly narrower; Latin prose
+ * averages a little over half an em. Conservative on purpose: a caption that
+ * comes out a few percent short of its band costs nothing, one a few percent
+ * over costs a third line.
+ */
+function advance(ch: string): number {
+  if (UNSPACED.test(ch)) return 1;
+  if (HANGUL.test(ch)) return 0.92;
+  return 0.56;
+}
+const SPACE_EM = 0.28;
+
+/**
+ * Two caption lines' worth of text, in ems, at the narrowest stage the v2
+ * player is laid out for: a 358px-wide phone, where the caption is at its 13px
+ * floor and the strip's side padding leaves ~329px — 25.3em a line. 44 keeps
+ * ~13% for the slack a word-wrapping browser leaves at each line end. Every
+ * larger stage has MORE ems a line (the font scales with the slide, the width
+ * with the window), so a cue that fits here fits everywhere. Latin text at 0.56
+ * em a character comes to ~78 characters, a little under `CUE_MAX_CHARS`.
+ */
+export const SCREEN_CUE_EM = 44;
+
+interface Atom {
+  text: string;
+  /** Whether a space separated it from the atom before. */
+  spaced: boolean;
+  em: number;
+}
+
+/** Words for spaced scripts, single characters for unspaced ones. */
+function atomize(text: string): Atom[] {
+  const atoms: Atom[] = [];
+  let word = "";
+  let spaced = false;
+  const flush = () => {
+    if (word === "") return;
+    atoms.push({ text: word, spaced, em: [...word].reduce((n, c) => n + advance(c), 0) });
+    word = "";
+    spaced = false;
+  };
+  for (const ch of text) {
+    if (/\s/.test(ch)) {
+      flush();
+      spaced = atoms.length > 0;
+    } else if (UNSPACED.test(ch)) {
+      flush();
+      atoms.push({ text: ch, spaced, em: 1 });
+      spaced = false;
+    } else {
+      // Spaced only if a space really came before it: `spaced` is consumed by
+      // the first atom that follows the space.
+      word += ch;
+    }
+  }
+  flush();
+  return atoms;
+}
+
+/** A caption's width in ems, by the same measure `splitForScreen` packs with. */
+export function cueEm(text: string): number {
+  return lineEm(atomize(text));
+}
+
+function lineEm(line: readonly Atom[]): number {
+  return line.reduce((n, a, i) => n + a.em + (i > 0 && a.spaced ? SPACE_EM : 0), 0);
+}
+
+function joinAtoms(line: readonly Atom[]): string {
+  return line.map((a, i) => (i > 0 && a.spaced ? ` ${a.text}` : a.text)).join("");
+}
+
+/** Greedy, but a line-start-prohibited atom always rides on the line before it. */
+function packAtoms(atoms: readonly Atom[], width: number): Atom[][] {
+  const lines: Atom[][] = [];
+  let line: Atom[] = [];
+  for (const atom of atoms) {
+    const fits = lineEm([...line, atom]) <= width;
+    if (line.length === 0 || fits || NO_START.test(atom.text)) line.push(atom);
+    else {
+      lines.push(line);
+      line = [atom];
+    }
+  }
+  if (line.length > 0) lines.push(line);
+  return lines;
+}
+
+/**
+ * `splitCue` for the v2 player's screen: the budget is two caption LINES in
+ * ems, not 84 characters. The difference is every CJK deck. 84 Japanese
+ * characters are 84em — four lines on a phone — and `splitCue` cannot split
+ * them at all, because it breaks only at spaces and Japanese and Chinese have
+ * none. Same even-split rule as `splitCue` (decide the piece count, then pack to
+ * the narrowest width that keeps it), so no piece is an orphaned word.
+ *
+ * Used only by a v2 deck page. The render path and the v0.8.0 player keep
+ * `splitCue`, so neither a burned caption nor an old deck moves.
+ */
+export function splitForScreen(cue: Cue, budgetEm = SCREEN_CUE_EM): Cue[] {
+  const atoms = atomize(cue.text);
+  const total = lineEm(atoms);
+  if (total <= budgetEm || atoms.length < 2) return [cue];
+
+  const count = packAtoms(atoms, budgetEm).length;
+  let width = budgetEm;
+  for (let w = Math.ceil((total / count) * 2) / 2; w < budgetEm; w += 0.5) {
+    if (packAtoms(atoms, w).length <= count) {
+      width = w;
+      break;
+    }
+  }
+  const chunks = packAtoms(atoms, width);
+  if (chunks.length < 2) return [cue];
+
+  const widths = chunks.map(lineEm);
+  const sum = widths.reduce((n, w) => n + w, 0);
+  const span = cue.end - cue.start;
+  let at = cue.start;
+  return chunks.map((line, i) => {
+    const end = i === chunks.length - 1 ? cue.end : at + (span * (widths[i] as number)) / sum;
+    const piece = { start: at, end, text: joinAtoms(line) };
+    at = end;
+    return piece;
+  });
+}
+
+function toSegment(v: unknown, split: (cue: Cue) => Cue[] = (c) => splitCue(c)): Segment | null {
   const raw = v as Partial<Segment> | null;
   const stop = num(raw?.stop);
   if (stop === undefined || stop < 0 || !raw?.audio || typeof raw.audio !== "string") return null;
@@ -152,14 +291,18 @@ function toSegment(v: unknown): Segment | null {
   // Sorted, because `activeCue` returns the first match and edge-tts has been
   // seen to emit a trailing cue that overlaps the one before it by a frame.
   cues.sort((a, b) => a.start - b.start);
-  return { stop, audio: raw.audio, cues: cues.flatMap((c) => splitCue(c)) };
+  return { stop, audio: raw.audio, cues: cues.flatMap(split) };
 }
 
 /**
  * Parse the island's text. Anything malformed reads as "no narration", which is
  * the deck we shipped yesterday and is always a safe answer.
  */
-export function parseNarration(text: string | null | undefined): Narration | null {
+export function parseNarration(
+  text: string | null | undefined,
+  /** How a long cue is cut. `splitCue` unless a v2 deck page says `splitForScreen`. */
+  opts: { split?: (cue: Cue) => Cue[] } = {},
+): Narration | null {
   if (!text) return null;
   let parsed: unknown;
   try {
@@ -174,7 +317,9 @@ export function parseNarration(text: string | null | undefined): Narration | nul
   const scenes: Record<string, Segment[]> = {};
   for (const [sceneId, list] of Object.entries(scenesRaw as Record<string, unknown>)) {
     if (!Array.isArray(list)) continue;
-    const segments = list.map(toSegment).filter((s): s is Segment => s !== null);
+    const segments = list
+      .map((v) => toSegment(v, opts.split))
+      .filter((s): s is Segment => s !== null);
     if (segments.length > 0) scenes[sceneId] = segments;
   }
   if (Object.keys(scenes).length === 0) return null;

@@ -1,13 +1,17 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   activeCue,
   audioSrc,
   CUE_MAX_CHARS,
   type Cue,
+  cueEm,
   type Narration,
   parseNarration,
+  SCREEN_CUE_EM,
   segmentFor,
   splitCue,
+  splitForScreen,
 } from "../src/deck/subtitles.js";
 
 /** The shape edge-tts actually produced: one cue per sentence, back to back. */
@@ -216,5 +220,91 @@ describe("splitCue", () => {
     const got = parsed?.scenes.s1?.[0]?.cues ?? [];
     expect(got.length).toBeGreaterThan(1);
     expect(got.every((c) => c.text.length <= CUE_MAX_CHARS)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------- the v2 player's split */
+
+describe("splitForScreen", () => {
+  const real = JSON.parse(
+    readFileSync(new URL("./fixtures/real-cues.json", import.meta.url), "utf8"),
+  ) as { cues: Record<string, string[]> };
+
+  it("cuts every real cue, in every language, to two caption lines", () => {
+    for (const [lang, texts] of Object.entries(real.cues)) {
+      for (const text of texts) {
+        for (const piece of splitForScreen({ start: 0, end: 6, text })) {
+          expect(cueEm(piece.text), `${lang}: ${piece.text}`).toBeLessThanOrEqual(SCREEN_CUE_EM);
+        }
+      }
+    }
+  });
+
+  /** A long Japanese cue with no space anywhere in it: the case `splitCue` cannot cut. */
+  const unspaced = () =>
+    (real.cues.ja ?? []).find((t) => !/\s/.test(t) && cueEm(t) > SCREEN_CUE_EM) as string;
+
+  it("splits Japanese and Chinese, which have no spaces for splitCue to break at", () => {
+    const ja = unspaced();
+    expect(ja).toBeTruthy();
+    expect(splitCue({ start: 0, end: 6, text: ja }).length).toBe(1);
+    expect(splitForScreen({ start: 0, end: 6, text: ja }).length).toBeGreaterThan(1);
+  });
+
+  it("loses no text and inserts no space inside an unspaced script", () => {
+    for (const text of [...(real.cues.ja ?? []), ...(real.cues["zh-Hans"] ?? [])]) {
+      const pieces = splitForScreen({ start: 0, end: 6, text });
+      expect(
+        pieces
+          .map((p) => p.text)
+          .join("")
+          .replace(/\s/g, ""),
+      ).toBe(text.replace(/\s/g, ""));
+    }
+  });
+
+  it("keeps words whole in a spaced script", () => {
+    const text = real.cues.en?.[0] as string;
+    const words = text.split(/\s+/);
+    const back = splitForScreen({ start: 0, end: 6, text }).flatMap((p) => p.text.split(/\s+/));
+    expect(back).toEqual(words);
+  });
+
+  it("never starts a line with closing punctuation", () => {
+    for (const text of real.cues.ja ?? []) {
+      for (const piece of splitForScreen({ start: 0, end: 6, text }).slice(1)) {
+        expect(piece.text).not.toMatch(/^[、。，．！？」』）]/u);
+      }
+    }
+  });
+
+  it("splits evenly, with timing in proportion and no gap", () => {
+    const text = real.cues.ko?.[0] as string;
+    const pieces = splitForScreen({ start: 1, end: 9, text });
+    expect(pieces[0]?.start).toBe(1);
+    expect(pieces.at(-1)?.end).toBe(9);
+    for (let i = 1; i < pieces.length; i++) {
+      expect(pieces[i]?.start).toBe(pieces[i - 1]?.end);
+    }
+    const ems = pieces.map((p) => cueEm(p.text));
+    expect(Math.min(...ems) / Math.max(...ems)).toBeGreaterThan(0.6);
+  });
+
+  it("leaves a cue that already fits alone", () => {
+    const cue = { start: 0, end: 2, text: "Attention is all you need." };
+    expect(splitForScreen(cue)).toEqual([cue]);
+  });
+
+  it("is what parseNarration uses only when asked", () => {
+    const ja = unspaced();
+    const island = JSON.stringify({
+      voice: "v",
+      dir: "",
+      scenes: { s1: [{ stop: 0, audio: "a.mp3", cues: [{ start: 0, end: 6, text: ja }] }] },
+    });
+    expect(parseNarration(island)?.scenes.s1?.[0]?.cues).toHaveLength(1);
+    expect(
+      parseNarration(island, { split: (c) => splitForScreen(c) })?.scenes.s1?.[0]?.cues.length,
+    ).toBeGreaterThan(1);
   });
 });
