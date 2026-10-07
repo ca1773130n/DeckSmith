@@ -523,3 +523,33 @@ describe("grid alignment", () => {
     expect(html).not.toContain('class="glead"');
   });
 });
+
+describe("grid labels under v2", () => {
+  // zh s9 (review 2026-10-08): one leader across the empty width to the far
+  // edge, two labels boxed over their cells, one region with none.
+  const mixed = beat({
+    headline: "Each frame reads the frames before it",
+    cols: 4,
+    rows: 4,
+    regions: [
+      { x: 0, y: 1, w: 1, h: 1, label: "Frame 2 reads frame 1", tone: "a" },
+      { x: 0, y: 2, w: 2, h: 1, label: "Frame 3 reads 2", tone: "b" },
+      { x: 0, y: 3, w: 3, h: 1, label: "Frame 4 reads 3", tone: "c" },
+    ],
+  });
+  const leaders = (html: string) => (html.match(/<line [^>]*id="s1-lead\d+"/g) ?? []).length;
+
+  it("sets every label the same way once one needs the gutter, and sets the gutter beside the field", () => {
+    const classic = grid(mixed, ctx("s1")).html;
+    const v2 = grid(mixed, { ...ctx("s1"), design: "v2" }).html;
+    // Classic mixes the styles; v2 leads all three out.
+    expect(leaders(classic)).toBeLessThan(3);
+    expect(leaders(v2)).toBe(3);
+    // And the gutter labels start near the field, not at the far edge of the box.
+    const labelX = (html: string) =>
+      Math.max(
+        ...[...html.matchAll(/<text x="([\d.]+)"[^>]*class="grlab/g)].map((m) => Number(m[1])),
+      );
+    expect(labelX(v2)).toBeLessThan(labelX(classic));
+  });
+});
