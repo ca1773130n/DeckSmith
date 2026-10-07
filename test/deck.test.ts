@@ -37,6 +37,7 @@ describe("the bundle deck.html inlines", () => {
     // (invariant 9). Scenes are addressed by the ids the island already carries.
     for (const file of [
       "runtime.ts",
+      "playback.ts",
       "subtitles.ts",
       "protocol.ts",
       "player.ts",
