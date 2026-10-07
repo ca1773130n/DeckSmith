@@ -29,6 +29,7 @@ import {
   vendorKatex,
   vendorScripts,
 } from "./build/files.js";
+import { repackDeckPage } from "./deck/repack.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { illustrate } from "./images/illustrate.js";
@@ -1062,6 +1063,30 @@ voiceFlags(
   );
   step(`pack: ${size(bytes)} → ${out}`);
 });
+
+/**
+ * The v2 player for a deck that is already built — every one on a CDN today —
+ * without building it again. See src/deck/repack.ts. Writes BESIDE deck.html
+ * and never over it: the deck's own page stays exactly what was published, and
+ * a host switches by pointing at the new file.
+ */
+program
+  .command("repack")
+  .description(
+    "Give a built deck the current player (v2), without re-rendering: writes deck2.html.",
+  )
+  .argument("<deck>", "a built deck directory, or its deck.html")
+  .option("-o, --out <file>", "where to write it (default: deck2.html beside deck.html)")
+  .action(async (deck: string, o: { out?: string }) => {
+    const input = (await stat(deck)).isDirectory() ? join(deck, DECK_PAGE) : resolve(deck);
+    const out = o.out ? resolve(o.out) : join(dirname(input), "deck2.html");
+    if (out === input) {
+      throw new Error(`refusing to overwrite ${input}: repack writes a second page beside it`);
+    }
+    const page = await readFile(input, "utf8");
+    await writeFile(out, repackDeckPage(page, await deckRuntime()));
+    step(`repack: ${input} → ${out} (v2 player, islands kept byte for byte)`);
+  });
 
 program
   .command("unpack")
