@@ -71,14 +71,14 @@ describe("measureFill", () => {
   const stop = { sid: "s1", t: 2 };
 
   it("divides the body's painted extent by the region's HEIGHT, not by what is under the headline", () => {
-    // Content box 100 tall, chrome 20 of it: the body was given 80. The body
-    // paints rows 40..80 — 40 of 80, half — whatever the centring did with the
-    // other 40.
-    const f = frame(100, 120, [{ x: 10, y: 40, w: 50, h: 40 }]);
+    // Content box 10..110, chrome 20 tall — but centring pushed the chrome
+    // down to 30..50, so only 60 rows lie under it. The body was GIVEN 80, and
+    // paints rows 60..100: 40 of 80, half, not 40 of 60.
+    const f = frame(100, 120, [{ x: 10, y: 60, w: 50, h: 40 }]);
     const row = measureFill(
       f,
       test,
-      { left: 0, right: 100, top: 30, bottom: 110, height: 80, bg: BG },
+      { left: 0, right: 100, top: 50, bottom: 110, height: 80, bg: BG },
       stop,
     );
     expect(row.fill).toBe(0.5);
