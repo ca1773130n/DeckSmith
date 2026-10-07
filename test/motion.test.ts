@@ -13,7 +13,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { gsap } from "gsap";
 import { describe, expect, it } from "vitest";
-import type { SlideSpec } from "../src/deck/runtime.js";
+import { holdTime, parseMotion, seamLead, spanFor } from "../src/deck/motion.js";
+import { buildStops, type SlideSpec } from "../src/deck/runtime.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { type DeckNarration, emitDeck, openSeconds } from "../src/emit/composition.js";
 import type { Scene, Tween } from "../src/emit/kit.js";
@@ -542,17 +543,73 @@ describe("emphasis during the narration hold", () => {
     const island = /<script type="application\/decksmith-motion\+json">([\s\S]*?)<\/script>/.exec(
       v2.page as string,
     )?.[1];
-    const motion = JSON.parse(island ?? "{}") as {
-      seams: boolean;
-      holds: Record<string, { at: number; to: number }[]>;
-    };
-    expect(motion.seams).toBe(true);
-    const spans = Object.values(motion.holds).flat();
+    const motion = parseMotion(island);
+    expect(motion?.seams).toBe(true);
+    const stops = buildStops(holdsOf(v2.page as string).slides);
+    const spans = stops.map((s) => (motion ? spanFor(motion, s) : undefined)).filter(Boolean);
     expect(spans.length).toBeGreaterThanOrEqual(demo.beats.length / 2);
-    for (const span of spans) expect(span.to - span.at).toBeGreaterThanOrEqual(0.5);
+    for (const span of spans) {
+      expect((span?.to ?? 0) - (span?.at ?? 0)).toBeGreaterThanOrEqual(0.5);
+      expect((span?.to ?? 0) - (span?.from ?? 0)).toBeGreaterThanOrEqual(0.5);
+    }
   });
 
   it("is EMPH_TOTAL long and needs a stretch that long", () => {
     expect(EMPH_TOTAL).toBeCloseTo(1.5, 6);
+  });
+});
+
+/* ------------------------------------------------------------- the player */
+
+describe("the deck player's half (src/deck/motion.ts)", () => {
+  const span = { stop: 1, at: 10, from: 8, to: 20 };
+
+  it("follows the audio clock through the stop's stretch and no further", () => {
+    expect(holdTime(span, 0)).toBe(10); // the sentence began before the hold: clamp
+    expect(holdTime(span, 3)).toBe(11);
+    expect(holdTime(span, 30)).toBe(20);
+  });
+
+  it("finds a stop's stretch by its time, not its index", () => {
+    const motion = { seams: true, holds: { s2: [span] } };
+    const stop = { t: 10.0004, slide: 1, fragment: 1, notes: "", sceneId: "s2" };
+    expect(spanFor(motion, stop)).toBe(span);
+    expect(spanFor(motion, { ...stop, t: 10.5 })).toBeUndefined();
+    expect(spanFor(motion, { ...stop, sceneId: "s3" })).toBeUndefined();
+  });
+
+  it("refuses a malformed island instead of breaking the deck", () => {
+    expect(parseMotion("not json")).toBeNull();
+    expect(parseMotion(undefined)).toBeNull();
+    expect(
+      parseMotion('{"seams":true,"holds":{"s1":[{"at":1,"from":0,"to":0.5}]}}')?.holds,
+    ).toEqual({});
+  });
+
+  it("glides into the next slide from its start when the old policy would cut", () => {
+    const slides: SlideSpec[] = [
+      { sceneId: "s1", startTime: 0, endTime: 20, fragments: [1.5, 3] },
+      { sceneId: "s2", startTime: 20, endTime: 40, fragments: [21.6, 24] },
+    ];
+    const stops = buildStops(slides);
+    const last = stops[1];
+    const next = stops[2];
+    if (!last || !next) throw new Error("stops");
+    expect(seamLead(3, last, next, slides, 2.5)).toBe(20);
+    // A short step already glides through the seam: nothing to change.
+    expect(seamLead(19.5, last, next, slides, 2.5)).toBeNull();
+    // Backwards, or a fragment inside the slide: not a seam.
+    expect(seamLead(24, stops[3], stops[2] as never, slides, 2.5)).toBeNull();
+    expect(seamLead(21.6, next, stops[3] as never, slides, 2.5)).toBeNull();
+  });
+
+  it("is wired into the runtime: the island is read, steps lead, holds follow the audio", () => {
+    const runtime = readFileSync(repo("src/deck/runtime.ts"), "utf8");
+    expect(runtime).toContain("parseMotion(doc.querySelector(MOTION_ISLAND)");
+    expect(runtime).toMatch(/seamLead\(shown, was, stop, slides, MAX_SPAN\)/);
+    expect(runtime).toMatch(/progress\(audio\.currentTime\)/);
+    expect(runtime).toMatch(/voice\.onProgress\(/);
+    // Reduced motion is asked at both call sites.
+    expect(runtime.match(/prefers-reduced-motion: reduce/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });

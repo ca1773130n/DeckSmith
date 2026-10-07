@@ -767,6 +767,10 @@ export function emphasize(
     const k = Math.min(seg.stop, holds.length - 1);
     const w = stretch[k] as { lo: number; hi: number };
     if (w.hi - w.lo < MIN_WINDOW) continue;
+    // A sentence that starts after its stop's stretch has closed would only
+    // jump the deck to the stretch's end on arrival — nothing to watch, so the
+    // stop holds still as it always did.
+    if ((opts.starts[j] ?? 0) >= w.hi - MIN_WINDOW) continue;
     if (windows.some((x) => x.stop === k)) continue;
     windows.push({ stop: k, at: r3(w.lo), from: r3(opts.starts[j] ?? 0), to: r3(w.hi) });
   }
