@@ -22,6 +22,7 @@ import {
   HEADLINE_SIZE,
   HEADLINE_TRACKING,
 } from "../src/emit/archetypes/title.js";
+import { emitComposition } from "../src/emit/composition.js";
 import { FACE_METRICS, type MeasuredFace } from "../src/emit/faces.js";
 import {
   displayFace,
@@ -634,5 +635,82 @@ describe("a pack may cost a deck nothing", () => {
         chooseLook({ storyboard: board, design: "v2", seed, accepts }),
       );
     }
+  });
+});
+
+/* ----------------------------------------------------------------- goldens */
+
+/**
+ * v2's own goldens: the composition each pack emits for one small deck, pinned
+ * to its bytes. A change that moves one is a change to what a pack draws or how
+ * it measures — re-take the digest on purpose and say so in the commit. The
+ * classic golden lives in test/wiring.test.ts and is untouched by packs.
+ */
+describe("v2 pack goldens", () => {
+  const source = {
+    id: "src-g",
+    title: "A source",
+    lang: "en",
+    sections: [{ id: "sec-1", depth: 1, heading: "One", text: "..." }],
+    figures: [],
+    equations: [],
+    tables: [],
+  };
+  const deck = storyboardSchema.parse({
+    sourceId: "src-g",
+    title: "A deck",
+    beats: [
+      {
+        id: "b1",
+        intent: "Open.",
+        archetype: "title",
+        seconds: 6,
+        params: {
+          eyebrow: "Image generation",
+          headline: "Search before you draw",
+          sub: "Evidence first.",
+        },
+      },
+      {
+        id: "b2",
+        intent: "Method.",
+        archetype: "pipeline",
+        seconds: 10,
+        params: {
+          eyebrow: "Method",
+          headline: "Accumulated evidence decides the next search",
+          stages: [{ label: "choose an action" }, { label: "use a tool" }, { label: "interpret" }],
+        },
+      },
+      {
+        id: "b3",
+        intent: "Result.",
+        archetype: "bar-compare",
+        seconds: 10,
+        params: {
+          eyebrow: "KnowGen",
+          headline: "Search lifts every generator",
+          unit: "K-Score",
+          bars: [
+            { label: "Qwen-Image", value: 14.98, tone: "a" },
+            { label: "Qwen-Image + Gen-Searcher", value: 31.52, tone: "b" },
+          ],
+        },
+      },
+    ],
+  });
+  const GOLDEN: Record<string, string> = {
+    atlas: "76688df33b9dd5455679b8e0cb895e65c4841f8ad84d5ac5b089e30b31eff668",
+    blueprint: "9b2ee0826f4899e9022119c104c5c17ee60165090e21b38cb1d5dacea72abab4",
+    chalk: "2074ba9844686d6c9b43e25e123e05aa314f5376f1fdb13cc07209f05ffdee27",
+    folio: "8493c4355d86716c5297b39fc6412aef8136f3a16e34346b27bbb8a5c0364eaf",
+    journal: "1229b6fb7e6d764117b12a4ad599b30a4ca73a8f4e51517dedec992abdb1ee20",
+    signal: "9268062119bd12736ddae0b1c09ff9daa5be67ed934a2b05a9a0401a8532662e",
+  };
+
+  it.each(Object.keys(PACKS))("%s emits the composition it emitted when pinned", (name) => {
+    const html = emitComposition(deck, source, FORMATS["deck-16x9"] as Format, { theme: name });
+    const digest = createHash("sha256").update(html).digest("hex");
+    expect(digest).toBe(GOLDEN[name]);
   });
 });
