@@ -173,8 +173,10 @@ describe("design: the switch", () => {
 
   it("v2's golden: the demo composition, pinned", () => {
     // Re-pin deliberately, after LOOKING at the frames, when a v2 look changes.
+    // Re-pinned 2026-10-08 on the merged preview/design-v2 branch (fit growth,
+    // looks, motion together), after reading the demo's final-hold frames.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "a28cf86b90ad3d9ca5bd73743ab411b3385b9437cecdae5041352f540e18fbe6",
+      "050ad974852d641d8445bcab7549b1483ebd29a8887891486c05b86aaa3d32ab",
     );
   });
 
