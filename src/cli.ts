@@ -32,6 +32,7 @@ import {
 import { repackDeckPage } from "./deck/repack.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { FIT_FILE } from "./emit/fit.js";
+import { LOOK_FILE } from "./emit/look.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { chooseLook, costsNothing } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
@@ -794,6 +795,15 @@ lookFlags(
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);
     // v2 only. Its presence is what tells `verify` to grade fill — see `FIT_FILE`.
     if (deck.fit) await writeFile(join(out, FIT_FILE), `${JSON.stringify(deck.fit, null, 2)}\n`);
+    // `--design v2`: which look each beat got and why the others were refused.
+    // Not part of the deck — nothing loads it — so a classic build writes none.
+    if (deck.looks) {
+      await writeFile(join(out, LOOK_FILE), `${JSON.stringify(deck.looks, null, 2)}\n`);
+      const s = deck.looks.summary;
+      step(
+        `build: design v2 — ${s.distinct} layouts over ${s.beats} beats, chrome on top in ${Math.round(100 * s.modalChrome)}%, ${s.adjacentRepeats} adjacent repeat(s) → ${LOOK_FILE}`,
+      );
+    }
     await writeTiming(out, {
       storyboard,
       source,

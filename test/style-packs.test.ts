@@ -562,9 +562,9 @@ describe("picking a pack per deck", () => {
 });
 
 describe("the design preference", () => {
-  it("defaults to classic, so an npm user's decks do not move", async () => {
+  it("is unset — classic — unless asked, so an npm user's decks do not move", async () => {
     const prefs = await loadPrefs({}, await mkdtemp(join(tmpdir(), "ds-p-")));
-    expect(prefs.design).toBe("classic");
+    expect(prefs.design).toBeUndefined();
     expect(prefs.packSeed).toBeUndefined();
   });
 

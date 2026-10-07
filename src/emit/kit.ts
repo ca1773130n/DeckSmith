@@ -8,6 +8,7 @@
  */
 import type { Archetype, BeatOf, Design, Format, Source } from "../types.js";
 import type { Fit } from "./fit.js";
+import type { Look } from "./look.js";
 
 /* ------------------------------------------------------- the content box */
 
@@ -248,6 +249,16 @@ export interface EmitContext {
    * designs by construction (test/fit.test.ts holds it), so they do not need it.
    */
   design?: Design;
+  /**
+   * `--design v2` only: the arrangement the Director chose for this beat — a
+   * body variant and where the chrome sits. See src/emit/look.ts.
+   *
+   * ABSENT ON EVERY CLASSIC BUILD, and absent means the classic scene byte for
+   * byte. The measuring passes (`planCut`, `narrate`, `timing`, `refs`) never set
+   * it either, which is safe because a look may change geometry and never time:
+   * the Director rejects any look whose holds or chrome landing differ.
+   */
+  look?: Look;
 }
 
 /* ------------------------------------------------- the animation vocabulary */
@@ -475,6 +486,14 @@ export interface Scene {
    * browser. See `./fit.ts` for what the number means.
    */
   fit?: Fit;
+  /**
+   * How much of its body box this scene's body fills along the axis it grows
+   * on, 0–1: the drawn height over the height it was given. Optional, in-memory
+   * only — never serialised, so it moves no byte. The `--design v2` Director
+   * prefers the look that fills more (src/plan/direct.ts); an emitter that does
+   * not report it is scored as neither full nor hollow.
+   */
+  fill?: number;
 }
 
 export type Emitter<A extends Archetype> = (beat: BeatOf<A>, ctx: EmitContext) => Scene;

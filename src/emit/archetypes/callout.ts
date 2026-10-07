@@ -5,21 +5,19 @@
  */
 import { fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc, lift, settle, spotlighter } from "../kit.js";
+import { esc, lift, settle, spotlighter } from "../kit.js";
+import { frameOf } from "../look.js";
 import { faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_LH,
   BODY_SIZE,
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
   isPortrait,
   noteCss,
   noteHeight,
-  noteWidth,
   tween,
 } from "./title.js";
 
@@ -78,7 +76,9 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // gets the whole measure, which is what stops the wrapping.
   // LANDSCAPE: side by side, which is what 1700px is for.
   const cols = isPortrait(ctx.format) ? 1 : p.panels.length;
-  const box = contentW(ctx.format);
+  // The content box, or what the chosen placement leaves (src/emit/look.ts).
+  const F = frameOf(ctx, { eyebrow: p.eyebrow, headline: p.headline, evidence: beat.evidence });
+  const box = F.w;
   const column = (box - PANEL_GAP * (cols - 1)) / cols;
   const inner = column - 2 * PANEL_PAD_X;
   /** The two type sizes at scale `k`, floored so the CSS and this arithmetic agree to the px. */
@@ -115,15 +115,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // `flex:1;min-height:0`, so the BOX is clamped to the budget whatever the cap
   // says — the TEXT is what overflows, out through the panel's own border, over
   // the note, and off the bottom, where `.scene` clips it away silently.
-  const budget = bodyBudget(
-    ctx.format,
-    p.eyebrow,
-    p.headline,
-    noteHeight(p.note, noteWidth(ctx.format), undefined, face),
-    undefined,
-    undefined,
-    face,
-  );
+  const budget = F.budget(noteHeight(p.note, F.noteW, undefined, face));
   // Refused rather than clipped, and refused rather than shrunk: the body is
   // 44px against a 40px audience floor, which is 9% of a height that can be over
   // by 50%. A callout is the archetype for a caveat or a contradiction — a panel
@@ -149,14 +141,14 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const cap = Math.min(budget, Math.round(need * air));
 
   const note = p.note ? `\n<div class="conote" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, box, face)}
-<div class="panels" style="grid-template-columns:repeat(${cols}, 1fr);max-height:${cap}px">
+  const html =
+    F.compose(`<div class="panels" style="grid-template-columns:repeat(${cols}, 1fr);max-height:${cap}px">
   ${panels}
-</div>${note}`;
+</div>${note}`);
 
   const first = 0.8;
   const step = Math.min(0.9, Math.max(0.4, (beat.seconds - first - 1.6) / p.panels.length));
-  const tl = [...chromeIn(sid, p.eyebrow !== undefined)];
+  const tl = [...chromeIn(sid, p.eyebrow !== undefined), ...F.tl];
   const holds: number[] = [];
 
   // Panels are read one at a time, so the one being read is the one at full
@@ -194,8 +186,8 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   if (p.panels.length > 1) tl.push(...spot.restore(first + p.panels.length * step));
 
   const grown = sizes(k);
-  const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
-  const noteH = noteHeight(p.note, noteWidth(ctx.format), undefined, face);
+  const region = F.budget(0, 0, 0);
+  const noteH = noteHeight(p.note, F.noteW, undefined, face);
 
   return {
     html,
@@ -234,6 +226,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       // spoken to at the final hold. Its label carries the panel's accent colour,
       // and no tween touches it: the entrance moves the panel around it.
       ...(p.panels.length === 0 ? [] : [ambient(sid, `-p${p.panels.length - 1} .plabel`, BREATHE)]),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };

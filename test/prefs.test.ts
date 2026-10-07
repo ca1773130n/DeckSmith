@@ -161,10 +161,12 @@ describe("prefsFromFlags", () => {
     expect(() => prefsFromFlags({ imageMax: "some" })).toThrow(/--image-max expects a number/);
   });
 
-  it("carries --design, and the schema defaults it to classic and refuses anything else", async () => {
+  it("carries --design, leaves it unset (classic) when nobody says, and refuses anything else", async () => {
     expect(prefsFromFlags({ design: "v2" })).toEqual({ design: "v2" });
     const root = await project();
-    expect((await loadPrefs({}, root)).design).toBe("classic");
+    // Unset rather than defaulted: a `.deck` carries the resolved prefs, and a
+    // defaulted key would move the bytes of every pack built since. Unset is classic.
+    expect((await loadPrefs({}, root)).design).toBeUndefined();
     expect((await loadPrefs(prefsFromFlags({ design: "v2" }), root)).design).toBe("v2");
     await expect(loadPrefs(prefsFromFlags({ design: "v3" }), root)).rejects.toThrow(/design/);
   });

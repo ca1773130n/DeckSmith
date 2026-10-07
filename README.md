@@ -879,6 +879,14 @@ loses to anything you type. `plan` stamps `lang` and `theme` into the storyboard
 writes; `build` then uses the storyboard's unless `--theme` or a config file restates one.
 Language is never overridden at build time — it describes copy that is already written.
 
+`--design v2` (or `"design": "v2"` in the config file) lets the build vary each beat's
+layout: bars as rows or columns, a pipeline as a row, a stair or a column, a claim beside,
+mirrored against or above its figure, a comparison as columns or rows, and the headline on
+top, in a left rail or under the body. The choice is made by code, deterministically, per
+paper — never by the planner — and it never moves a stop, so narration stays aligned.
+`build` writes the choices to `out/look.json`. Without the flag the deck is the classic one,
+byte for byte. See `.planning/2026-10-07-v2-layout-director.md`.
+
 ## Themes
 
 Three, each a position rather than a hue.

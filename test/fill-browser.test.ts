@@ -50,7 +50,7 @@ describe.skipIf(chrome === null)("v2 fill, predicted and measured on the demo", 
       (r) => r.stderr,
       (err: { stderr?: string }) => err.stderr ?? "",
     );
-    expect(said).toMatch(/in ink, v2 design/);
+    expect(said).toMatch(/design v2/);
     manifest = JSON.parse(await readFile(join(out, FIT_FILE), "utf8")) as FitManifest;
     report = await fidelity(out);
   }, 300_000);

@@ -430,12 +430,35 @@ function background(frame: Frame): [number, number, number] {
  * of those have been wrong in this project inside the last week.
  */
 export function inkBelow(frame: Frame, bandTopPx: number): number {
+  return inkIn(frame, { top: bandTopPx, left: 0, bottom: frame.height });
+}
+
+/**
+ * Where a scene's BODY is, in device px: the part of the frame that is not its
+ * chrome. Classic chrome is a block across the top, so the body is everything
+ * below its bottom edge — exactly what `inkBelow` measured, and still is. The
+ * `--design v2` placements (src/emit/look.ts) move the chrome, and "below the
+ * headline" stops meaning "the body": under a `foot` headline there is nothing
+ * at all by design, and beside a `rail` the body is the column to its right.
+ * Measured where the body is, rather than below a headline that is no longer
+ * on top, the same floor means the same thing.
+ */
+export interface BodyRegion {
+  top: number;
+  left: number;
+  bottom: number;
+}
+
+/** Non-background pixels inside `region`, over the WHOLE frame's pixels. */
+export function inkIn(frame: Frame, region: BodyRegion): number {
   const [br, bg, bb] = background(frame);
   const { width, height, channels, pixels } = frame;
+  const x0 = Math.max(0, Math.round(region.left));
+  const y1 = Math.min(height, Math.round(region.bottom));
   let ink = 0;
-  for (let y = Math.max(0, Math.round(bandTopPx)); y < height; y++) {
+  for (let y = Math.max(0, Math.round(region.top)); y < y1; y++) {
     const row = y * width * channels;
-    for (let x = 0; x < width; x++) {
+    for (let x = x0; x < width; x++) {
       const i = row + x * channels;
       const d = Math.max(
         Math.abs((pixels[i] as number) - br),
@@ -583,15 +606,25 @@ export function gradeReserve(
   });
 }
 
-/** Serialised into the page: the bottom of this scene's caption, in device px. */
-function captionBottom(sid: string, selector: string, fallbackPx: number): number {
+/**
+ * Serialised into the page: this scene's body region, in device px — see
+ * `BodyRegion`. A classic scene answers with the bottom of its caption, as this
+ * function always has; a rail or foot scene with the box its chrome does not
+ * occupy.
+ */
+function bodyRegion(sid: string, selector: string, fallbackPx: number): BodyRegion {
   const scene = document.querySelector(`[data-composition-id="${CSS.escape(sid)}"]`);
+  const height = window.innerHeight;
+  const rail = scene?.querySelector(".lk-rail > .lk-head");
+  if (rail) return { top: 0, left: rail.getBoundingClientRect().right, bottom: height };
+  const foot = scene?.querySelector(".lk-foot");
+  if (foot) return { top: 0, left: 0, bottom: foot.getBoundingClientRect().top };
   let bottom = 0;
   for (const el of Array.from(scene?.querySelectorAll(selector) ?? [])) {
     const box = el.getBoundingClientRect();
     if (box.height > 0) bottom = Math.max(bottom, box.bottom);
   }
-  return bottom > 0 ? bottom : fallbackPx;
+  return { top: bottom > 0 ? bottom : fallbackPx, left: 0, bottom: height };
 }
 
 /** An equation the deck's own fit gave up on: the scene, and the formula. */
@@ -684,12 +717,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const fills: FillRow[] = [];
     for (const stop of stops) {
       await deck.seek(stop.t);
-      const bandTopPx = await page.evaluate(
-        captionBottom,
-        stop.sid,
-        CAPTION,
-        FALLBACK_BAND_TOP * height,
-      );
+      const region = await page.evaluate(bodyRegion, stop.sid, CAPTION, FALLBACK_BAND_TOP * height);
       // The frame is already seeked and already settled, so the collision rule
       // is one more DOM read on the same page. The pairwise arithmetic stays in
       // Node, where it can be tested without a browser.
@@ -715,8 +743,8 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       }
       measured.push({
         ...stop,
-        ink: inkBelow(frame, bandTopPx),
-        bandTop: Math.round((1000 * bandTopPx) / height) / 1000,
+        ink: inkIn(frame, region),
+        bandTop: Math.round((1000 * region.top) / height) / 1000,
         // THE SAME FRAME, a second strip. Free: it is one more pass over pixels
         // that are already decoded, so the gate that stops the caption
         // collision regressing costs no extra capture, no extra seek and no

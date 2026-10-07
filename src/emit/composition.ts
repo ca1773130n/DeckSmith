@@ -14,6 +14,7 @@ import type { z } from "zod";
 import { markV2 } from "../deck/playback.js";
 import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
 import { embedUrl } from "../pack/media.js";
+import { type Direction, direct } from "../plan/direct.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import type {
   Beat,
@@ -129,6 +130,12 @@ export interface Deck {
    * classic build, which writes no manifest and so is not graded for fill.
    */
   fit?: FitManifest;
+  /**
+   * `--design v2` only: the look the Director chose for each kept beat, and the
+   * deck's sameness numbers. `build` writes it to `out/look.json`. Absent on a
+   * classic build.
+   */
+  looks?: Direction;
 }
 
 type Segment = z.infer<typeof segmentSchema>;
@@ -165,7 +172,9 @@ export interface DeckOptions {
   /**
    * Overrides `storyboard.design`. Absent or `classic` emits v0.8.0's bytes.
    * `v2` marks deck.html for the v2 player (`markV2`), lets the archetypes grow
-   * into their regions and fills `Deck.fit` (see `../emit/fit.ts`).
+   * into their regions and fills `Deck.fit` (see `../emit/fit.ts`), and runs
+   * the Director (src/plan/direct.ts) over the kept beats so each is drawn in
+   * the look it chose (src/emit/look.ts).
    */
   design?: Design;
   /** Multiplies every duration, hold, and beat length. 1 leaves bytes untouched. */
@@ -249,11 +258,13 @@ export function emitDeck(
   const composition = renderComposition(storyboard, format, laid);
   const { cut } = laid;
   const fit = laid.fit ? { fit: laid.fit } : {};
-  if (!format.navigable) return { composition, cut, ...fit };
+  const looks = laid.looks ? { looks: laid.looks } : {};
+  if (!format.navigable) return { composition, cut, ...fit, ...looks };
   return {
     composition,
     cut,
     ...fit,
+    ...looks,
     page: withDesign(
       emitDeckPage(
         storyboard,
@@ -406,6 +417,14 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
   const { family, theme } = deckLook(storyboard, opts.theme);
   const speed = opts.speed ?? 1;
+  // AFTER the cut, over the beats that are actually in the deck: "no two
+  // adjacent beats look alike" is a statement about what the audience sees, and
+  // a beat the budget dropped is not between anything. Safe to decide after
+  // `planCut` measured the classic scenes because a look never moves time.
+  const looks =
+    opts.design === "v2"
+      ? direct(beats, { source, format, theme, seed: storyboard.sourceId, design: "v2" })
+      : undefined;
 
   const archetypeCss = new Set<string>();
   const scenes: string[] = [];
@@ -441,7 +460,16 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // Rounded to invariant 10's three places, so the number an archetype writes
     // and the number `sceneHtml` publishes as this scene's `data-start` are ONE
     // number rather than two roundings of one.
-    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at), ...design(opts) };
+    const look = looks?.looks[i];
+    const ctx: EmitContext = {
+      source,
+      format,
+      theme,
+      sid,
+      start: rnd(at),
+      ...design(opts),
+      ...(look ? { look } : {}),
+    };
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
@@ -587,6 +615,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
             })),
           } satisfies FitManifest)
         : undefined,
+    looks,
   };
 }
 

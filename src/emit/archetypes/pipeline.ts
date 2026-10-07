@@ -34,7 +34,8 @@
 import type { BeatOf } from "../../types.js";
 import { fitOf, GROWTH, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc, spotlighter } from "../kit.js";
+import { esc, spotlighter } from "../kit.js";
+import { frameOf, variantOf } from "../look.js";
 import {
   arrow,
   arrowDefs,
@@ -58,15 +59,12 @@ import {
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
   isPortrait,
   noteCss,
   noteHeight,
-  noteWidth,
   tween,
 } from "./title.js";
 
@@ -626,33 +624,38 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     if (p.loop.to < 0 || p.loop.to > last || p.loop.to > from) return undefined;
     return { from, to: p.loop.to, label: p.loop.label, self: p.loop.to === from };
   })();
-  /** The stage's box: the content width the shell's padding leaves. */
-  const W = contentW(ctx.format);
+  /**
+   * The stage's box: the content width the shell's padding leaves, or what the
+   * chosen placement leaves beside or under the chrome (src/emit/look.ts).
+   */
+  const F = frameOf(ctx, { eyebrow: p.eyebrow, headline: p.headline, evidence: beat.evidence });
+  const W = F.w;
   /** Every measurement below is charged at the face the deck will actually draw. */
   const face = faceOf(theme.fontStack);
+  const variant = variantOf(ctx, "pipeline");
   // Portrait is a different arrangement, not the same one squeezed: at 1080 wide
   // a four-stage row gives each box ~170px, which is narrower than the words in
-  // it. See `columnLayout`.
-  const tall = isPortrait(ctx.format);
+  // it. See `columnLayout`. The `column` variant asks for the same arrangement on
+  // a wide canvas, where the rail has left the body a column to run down.
+  const tall = isPortrait(ctx.format) || variant === "column";
   const v2 = isV2(ctx);
-  /** The body region: the content box less the chrome. What v2 grows into and reports against. */
-  const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
-  const budget = bodyBudget(
-    ctx.format,
-    p.eyebrow,
-    p.headline,
-    noteHeight(p.note, noteWidth(ctx.format), 36, face),
-    38,
-    undefined,
-    face,
-  );
-  const grow = v2 ? { budget, region } : undefined;
+  /** The body region: the frame's box less the chrome. What v2 grows into and reports against. */
+  const region = F.budget(0, 0, 0);
+  const budget = F.budget(noteHeight(p.note, F.noteW, 36, face), 38);
+  // A stair spends the spare height on its steps, so its boxes keep their
+  // classic size: grown boxes would leave it no rise and refuse every stair.
+  const grow = v2 && variant !== "stair" ? { budget, region } : undefined;
   const L = tall
     ? columnLayout(W, budget, p.stages, face, loop, grow)
     : pipeLayout(W, p.stages, loop, face, grow);
+  /** `stair`: how far each stage steps down from the one before. Zero for a row. */
+  const rise = variant === "stair" ? stairRise(beat.id, L, p.stages.length, budget, !!loop) : 0;
+  if (variant !== "row") assertVariantFits(beat.id, variant, L, budget);
 
   /** Cross-axis centre of the row/column — the spine every connector sits on. */
   const spine = L.vertical ? L.boxX + L.boxW / 2 : M + L.boxH / 2;
+  /** A stair's spine steps down with its stages; a row's and a column's do not. */
+  const spineAt = (i: number) => spine + i * rise;
   /** Centre of stage `i` along the flow axis. */
   const cx = (i: number) => {
     const b = L.boxes[i];
@@ -663,7 +666,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     const b = L.boxes[i] ?? { x: M, w: 0 };
     return L.vertical
       ? { x: L.boxX, y: b.x, w: L.boxW, h: b.w }
-      : { x: b.x, y: M, w: b.w, h: L.boxH };
+      : { x: b.x, y: M + i * rise, w: b.w, h: L.boxH };
   };
 
   // What a camera aimed at `stageN` would land on. Written in the same loop that
@@ -733,8 +736,8 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     if (!a || !b) return [];
     // `inset` pulls the shaft back so the head stops short of the next box
     // instead of sitting on its stroke.
-    const from = L.vertical ? { x: spine, y: a.x + a.w } : { x: a.x + a.w, y: spine };
-    const to = L.vertical ? { x: spine, y: b.x } : { x: b.x, y: spine };
+    const from = L.vertical ? { x: spine, y: a.x + a.w } : { x: a.x + a.w, y: spineAt(i) };
+    const to = L.vertical ? { x: spine, y: b.x } : { x: b.x, y: spineAt(i + 1) };
     return [{ i, from, to }];
   });
 
@@ -870,8 +873,10 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   ].join("");
 
   const note = p.note ? `\n<div class="pipenote" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
-<div class="pipewrap">${svg(id(sid, "pipe"), W, L.svgH, body)}</div>${note}`;
+  const svgH = L.svgH + (p.stages.length - 1) * rise;
+  const html = F.compose(
+    `<div class="pipewrap">${svg(id(sid, "pipe"), W, svgH, body)}</div>${note}`,
+  );
 
   /* ------------------------------------------------------------- the reveal */
 
@@ -879,7 +884,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   // Fill the beat rather than always racing: a two-stage pipeline gets room to
   // breathe, a six-stage one stays inside its own seconds.
   const step = Math.min(1.4, Math.max(0.55, (beat.seconds - 2.8) / p.stages.length));
-  const tl = [...chromeIn(sid, p.eyebrow !== undefined)];
+  const tl = [...chromeIn(sid, p.eyebrow !== undefined), ...F.tl];
   const holds: number[] = [];
 
   // The light follows the flow: as each stage lands, the one behind it steps
@@ -1004,13 +1009,66 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     holds: holdsWithin(holds, beat.seconds),
     // With a note, v2 hands the spare height to the gap above it (below), so the
     // body spans the region; without one the diagram is all there is.
-    ...(v2 ? { fit: fitOf(p.note ? region - 38 : L.svgH, region) } : {}),
+    ...(v2 ? { fit: fitOf(p.note ? region - 38 : svgH, region) } : {}),
+    fill: Math.min(1, svgH / budget),
     css: [
       chromeCss(theme),
       ".pipewrap{margin-top:38px;display:flex;justify-content:center}",
       ...(v2 && p.note ? [`#${sid} .pipewrap{margin-bottom:auto}`] : []),
       noteCss("pipenote", theme, 36),
       ambient(sid, `-stage${focus}`, BREATHE),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };
+
+/* ------------------------------------------------------------ variants */
+
+/**
+ * `stair`: the row, with each stage stepping down from the one before.
+ *
+ * The row draws a ~340px band across a 700-900px body, so most of a pipeline
+ * slide is the space above and below one strip of boxes. A stair spends that
+ * height on the reading order itself: the eye goes down and right, stage by
+ * stage, which is what the reveal already does in time.
+ *
+ * Refused for a loop — the return path runs under a level row and has no
+ * honest route back up a staircase — and for fewer than three stages, which is
+ * a slope, not a stair. The step is at least 30% of a box, or the diagonal reads
+ * as a row someone knocked.
+ */
+function stairRise(
+  beatId: string,
+  L: PipeLayout,
+  count: number,
+  budget: number,
+  loop: boolean,
+): number {
+  if (loop) throw new Error(`pipeline ${beatId}: a stair has no route for the return path`);
+  if (count < 3) throw new Error(`pipeline ${beatId}: ${count} stages are a slope, not a stair`);
+  const rise = Math.min(L.boxH * 0.75, (budget - L.svgH) / (count - 1));
+  if (rise < L.boxH * 0.3) {
+    throw new Error(`pipeline ${beatId}: no height for a stair (${Math.floor(rise)}px a step)`);
+  }
+  return Math.floor(rise);
+}
+
+/**
+ * A variant that does not fit is refused, not drawn: the row is always there.
+ *
+ * The row and the portrait column already decide their own overflow behaviour
+ * (they wrap harder, and a too-tall column is "still better than" a box shorter
+ * than its text). A VARIANT has no such excuse — it was chosen for looks, so a
+ * label broken onto a fourth line or a column taller than its body is a reason
+ * for the Director to pick something else.
+ */
+function assertVariantFits(beatId: string, variant: string, L: PipeLayout, budget: number): void {
+  if (L.labelLines.some((l) => l.length > 3)) {
+    throw new Error(`pipeline ${beatId}: ${variant} breaks a label onto more than three lines`);
+  }
+  if (variant === "column" && L.svgH > budget) {
+    throw new Error(
+      `pipeline ${beatId}: a column of ${L.boxes.length} stages needs ${Math.ceil(L.svgH)}px of ${Math.floor(budget)}px`,
+    );
+  }
+}
