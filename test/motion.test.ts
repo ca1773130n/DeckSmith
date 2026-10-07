@@ -486,6 +486,13 @@ describe("emphasis during the narration hold", () => {
       )?.[1] ?? "{}",
     ) as { slides: SlideSpec[] };
 
+  it("is counted by motionStats: none in classic, most scenes in v2", () => {
+    expect(motionStats(classic.composition).emphasisScenes).toBe(0);
+    expect(motionStats(v2.composition).emphasisScenes).toBeGreaterThanOrEqual(
+      demo.beats.length / 2,
+    );
+  });
+
   it("adds motion after the build, in most narrated scenes of a real-shaped deck", () => {
     const emphasised = [...sceneTweens(v2.composition).values()].filter((list) =>
       list.some(

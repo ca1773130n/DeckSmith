@@ -238,6 +238,12 @@ export type { CheckOptions } from "./verify/check.js";
  * verdict. `verify` runs it; nothing else has to.
  */
 export { gradeOverprint, MIN_OVERLAP, overprints } from "./verify/overprint.js";
+/**
+ * Motion variety measured off a built composition: modal-entrance share, seam
+ * kinds, ease shares. The M4 exit metrics; see experiments/019-motion.
+ */
+export { motionStats, topTwoEaseShare } from "./verify/motion.js";
+export type { MotionStats } from "./verify/motion.js";
 export type { Overprint, Overprinted, TextRun } from "./verify/overprint.js";
 
 /**

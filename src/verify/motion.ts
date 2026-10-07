@@ -21,6 +21,8 @@ export interface MotionStats {
   scenes: number;
   /** Scenes whose headline (`#sN-h`, or the title's `#sN-t`) enters as opacity + y only. */
   modalScenes: number;
+  /** Scenes with at least one emphasis (glow, underline, or a sine-eased pulse) after the build. */
+  emphasisScenes: number;
   /** Seam kind per handoff, in scene order. */
   seams: string[];
   /** Tween count per ease name; a tween naming none is `"default"`. */
@@ -87,6 +89,7 @@ export function motionStats(composition: string): MotionStats {
   let scenes = 0;
   let modalScenes = 0;
   let tweens = 0;
+  let emphasisScenes = 0;
   for (let i = 1; i < parts.length; i += 2) {
     const sid = parts[i] as string;
     const tl = statements(parts[i + 1] ?? "");
@@ -96,6 +99,14 @@ export function motionStats(composition: string): MotionStats {
       const ease = /\bease: ("[^"]*"|[\w.]+)/.exec(s.to)?.[1]?.replace(/"/g, "") ?? "default";
       eases[ease] = (eases[ease] ?? 0) + 1;
     }
+    if (
+      tl.some(
+        (s) =>
+          /drop-shadow|textDecorationColor/.test(s.from) ||
+          (/\bscale: 1\b/.test(s.from) && /ease: "sine\.out"/.test(s.to)),
+      )
+    )
+      emphasisScenes++;
     const head = tl.find((s) => s.target === `#${sid}-h` || s.target.startsWith(`#${sid}-t`));
     if (head) {
       const k = keys(head.from).sort().join(",");
@@ -109,7 +120,7 @@ export function motionStats(composition: string): MotionStats {
     // A camera's dip is `.ds-zoom`/`.ds-pan` and a fade on the plate; it is one kind.
     else if (tl.some((s) => s.target.includes(".ds-zoom"))) seams.push("dive");
   }
-  return { scenes, modalScenes, seams, eases, tweens };
+  return { scenes, modalScenes, emphasisScenes, seams, eases, tweens };
 }
 
 /** The share of tweens carried by the two most common eases. */
