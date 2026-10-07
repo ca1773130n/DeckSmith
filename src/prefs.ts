@@ -101,6 +101,7 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (flags.duration !== undefined) patch.duration = number("--duration", flags.duration);
   if (flags.theme !== undefined) patch.theme = flags.theme;
   if (flags.design !== undefined) patch.design = flags.design as Prefs["design"];
+  if (flags.packSeed !== undefined) patch.packSeed = flags.packSeed;
   if (flags.speed !== undefined) patch.animationSpeed = number("--speed", flags.speed);
 
   const narration: Partial<Prefs["narration"]> = {};
@@ -138,8 +139,10 @@ export interface PrefFlags {
   genre?: string;
   duration?: string | number;
   theme?: string;
-  /** `--design classic|v2`. */
+  /** `--design classic | v2`. */
   design?: string;
+  /** `--pack-seed`: what v2 hashes to pick a pack. */
+  packSeed?: string;
   speed?: string | number;
   narrate?: boolean;
   voice?: string;

@@ -9,8 +9,9 @@
 import type { Format } from "../../types.js";
 import type { Emitter, Theme, Tween, Vars } from "../kit.js";
 import { contentH, contentW, esc, fromTo, words } from "../kit.js";
-import { type Face, faceOf, textWidth, wrap } from "../svg.js";
+import { displayFace, type Face, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { em, lineBox } from "../type.js";
 
 /**
  * Whether this format's content box is taller than it is wide.
@@ -203,7 +204,18 @@ export function chromeHeight(
   width: number,
   face: Face = "latin",
 ): number {
-  const lines = wrap(headline, HEADLINE_SIZE, width, 700, HEADLINE_TRACKING, face).length;
+  // The pack's chrome, measured in the pack's display face. A classic face gives
+  // back exactly the constants above, so a classic deck is charged what it was.
+  const t = typeOf(face);
+  const d = displayFace(face);
+  const lines = wrap(
+    headline,
+    t.headline.size,
+    width,
+    t.headline.weight,
+    t.headline.tracking,
+    d,
+  ).length;
   // COUNTS THE EYEBROW'S LINES. It used to charge one `EYEBROW_H` however many
   // an eyebrow wrapped to, and measured it as untracked lowercase besides — so a
   // long one was charged a single 72px line while the browser drew two 50px ones
@@ -212,12 +224,14 @@ export function chromeHeight(
   //
   // `toUpperCase` rather than a flag: `text-transform` changes which glyphs are
   // measured, and the width table already knows what a capital costs.
+  const e = t.eyebrow;
   const brow = eyebrow
-    ? wrap(eyebrow.toUpperCase(), EYEBROW_SIZE, width, 500, EYEBROW_TRACKING, face).length *
-        EYEBROW_LINE +
-      EYEBROW_GAP
+    ? wrap(e.upper ? eyebrow.toUpperCase() : eyebrow, e.size, width, e.weight, e.tracking, d)
+        .length *
+        lineBox(e.size, e.lh) +
+      e.gap
     : 0;
-  return brow + lines * HEADLINE_H;
+  return brow + lines * lineBox(t.headline.size, t.headline.lh);
 }
 
 /**
@@ -347,7 +361,8 @@ export function chrome(
   width: number,
   face: Face = "latin",
 ): string {
-  const set = unwidow(headline, width, HEADLINE_SIZE, 700, face);
+  const t = typeOf(face);
+  const set = unwidow(headline, width, t.headline.size, t.headline.weight, displayFace(face));
   const brow = eyebrow ? `<div class="eyebrow" id="${sid}-e">${esc(eyebrow)}</div>\n` : "";
   return `${brow}<h2 class="headline" id="${sid}-h">${esc(set)}</h2>`;
 }
@@ -363,9 +378,16 @@ export function chromeIn(sid: string, eyebrow: boolean): Tween[] {
 }
 
 export function chromeCss(t: Theme): string {
+  // The spec comes from the stack, the same way `chromeHeight`'s does, so what
+  // is drawn here and what was charged there are one decision. Classic writes
+  // the bytes it always wrote: no family, and the numbers formatted as before.
+  const face = faceOf(t.fontStack);
+  const s = typeOf(face);
+  const e = s.eyebrow;
+  const family = typeof face === "string" ? "" : `font-family:${t.displayStack ?? t.fontStack};`;
   return [
-    `.eyebrow{font-size:${EYEBROW_SIZE}px;line-height:${EYEBROW_LH};letter-spacing:.14em;text-transform:uppercase;color:${t.muted};font-weight:500;margin-bottom:22px}`,
-    `.headline{font-size:${HEADLINE_SIZE}px;line-height:${HEADLINE_LH};font-weight:700;letter-spacing:-.015em;color:${t.fg}}`,
+    `.eyebrow{${family}font-size:${e.size}px;line-height:${e.lh};letter-spacing:${em(e.tracking)};text-transform:${e.upper ? "uppercase" : "none"};color:${e.color === "accent" ? t.accent : t.muted};font-weight:${e.weight};margin-bottom:${e.gap}px}`,
+    `.headline{${family}font-size:${s.headline.size}px;line-height:${s.headline.lh};font-weight:${s.headline.weight};letter-spacing:${em(s.headline.tracking)};color:${t.fg}}`,
   ].join("\n");
 }
 
@@ -419,12 +441,22 @@ export const title: Emitter<"title"> = (beat, ctx) => {
   // wants four is a title, not a headline.
   const width = contentW(ctx.format);
   const face = faceOf(ctx.theme.fontStack);
-  const size = fitText(p.headline, width, 3, 88, 156, 700, face);
+  const type = typeOf(face);
+  const display = displayFace(face);
+  const size = fitText(
+    p.headline,
+    width,
+    3,
+    type.title.lo,
+    type.title.hi,
+    type.title.weight,
+    display,
+  );
   // The title is the one headline set at its own size, so it is un-widowed
   // against that size rather than against `HEADLINE_SIZE`. Left alone, the demo
   // broke as "Compact thought / collides with dense / output" at 16:9 and stranded
   // a single word under a full measure on the first slide anyone sees.
-  const head = unwidow(p.headline, width, size, 700, face);
+  const head = unwidow(p.headline, width, size, type.title.weight, display);
   const brow = p.eyebrow ? `<div class="eyebrow" id="${sid}-e">${esc(p.eyebrow)}</div>\n  ` : "";
   const sub = p.sub ? `\n  <div class="sub" id="${sid}-s">${esc(p.sub)}</div>` : "";
   // The headline is set word by word so it can RISE word by word. `words()`
@@ -467,7 +499,7 @@ export const title: Emitter<"title"> = (beat, ctx) => {
       // composition. `.titleslide` is the whole content box, so nothing moves off
       // the canvas — the block cannot grow past the box it is already filling.
       ".titleslide{display:flex;flex-direction:column;justify-content:space-between;height:100%}",
-      `.bighead{line-height:1.06;font-weight:700;letter-spacing:-.025em;color:${theme.fg}}`,
+      `.bighead{${typeof face === "string" ? "" : `font-family:${theme.displayStack ?? theme.fontStack};`}line-height:1.06;font-weight:${type.title.weight};letter-spacing:${em(type.title.tracking)};color:${theme.fg}}`,
       // `inline-block`, or the per-word rise is a no-op: a transform on an
       // inline box does nothing, and the headline would fade in place with
       // every gate green.

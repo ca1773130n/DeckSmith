@@ -72,13 +72,23 @@ function contrast(a: string, b: string): number {
 /* ------------------------------------------------------------------ Registry */
 
 describe("theme registry", () => {
-  it("holds the three themes, sorted", () => {
-    expect(THEME_NAMES).toEqual(["ink", "mono", "paper"]);
+  it("holds the three classic themes and the six v2 packs, sorted", () => {
+    expect(THEME_NAMES).toEqual([
+      "atlas",
+      "blueprint",
+      "chalk",
+      "folio",
+      "ink",
+      "journal",
+      "mono",
+      "paper",
+      "signal",
+    ]);
   });
 
   it("resolves by name and names the alternatives when it cannot", () => {
     expect(resolveTheme("paper")).toBe(THEMES.paper);
-    expect(() => resolveTheme("Ink")).toThrow(/unknown theme "Ink" — known: ink, mono, paper/);
+    expect(() => resolveTheme("Ink")).toThrow(/unknown theme "Ink" — known: atlas, .*ink, .*paper/);
   });
 
   // An unset field reads as `undefined` in a template literal and paints the

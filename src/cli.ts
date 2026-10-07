@@ -32,6 +32,7 @@ import {
 import { repackDeckPage } from "./deck/repack.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { THEME_NAMES } from "./emit/theme.js";
+import { chooseLook, costsNothing } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
@@ -199,8 +200,9 @@ function lengthFlags(cmd: Command): Command {
 /** Flags that change how it *looks*. */
 function lookFlags(cmd: Command): Command {
   return cmd
-    .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
+    .option("--theme <name>", `palette or style pack: ${THEME_NAMES.join(" | ")}`)
     .option("--design <name>", "classic (the v0.8.0 deck, default) | v2 (the redesign)")
+    .option("--pack-seed <s>", "what --design v2 hashes to pick a pack (default: the source id)")
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
@@ -250,6 +252,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "narrationDensity",
     "theme",
     "design",
+    "packSeed",
     "speed",
     "voice",
     "rate",
@@ -585,7 +588,9 @@ voiceFlags(
       .option(
         "--reserve-captions",
         "stage for a deck built with --reserve-captions — the reserve changes the stop count too",
-      ),
+      )
+      .option("--design <mode>", "classic | v2 — stage in the look `build --design` will pick")
+      .option("--pack-seed <s>", "the seed `build --pack-seed` will pick the v2 pack with"),
   ),
 ).action(async (sbPath: string, o: { source: string; out: string } & Record<string, unknown>) => {
   const storyboard = await readValidated(sbPath, storyboardSchema, "storyboard");
@@ -611,7 +616,15 @@ voiceFlags(
   }
   step(`narrate: ${speaking} of ${storyboard.beats.length} beats have narration`);
 
-  const narration = await narrate(storyboard, source, prefs, { dir, format });
+  // Staged in the look `build` will pick: under `--design v2` the pack decides
+  // the chrome's scale and face, and with them how many stops each beat has.
+  const theme = chooseLook({
+    stated: stated(prefs, "theme"),
+    storyboard,
+    design: prefs.design ?? storyboard.design ?? "classic",
+    seed: prefs.packSeed,
+  });
+  const narration = await narrate({ ...storyboard, theme }, source, prefs, { dir, format });
   await writeJson(join(dir, NARRATION_FILE), narration);
 
   const segments = Object.values(narration.beats).flat();
@@ -691,9 +704,10 @@ lookFlags(
     const prefs = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
     // The storyboard records the theme it was planned under; `--theme` or a
     // config file restates it. Language is not overridable here — it describes
-    // the copy that is already written, not a wish.
-    const theme = stated(prefs, "theme") ?? storyboard.theme;
-    // The same precedence: a flag or config over the storyboard over classic.
+    // the copy that is already written, not a wish. Under `--design v2` a pack
+    // is picked instead when nobody named one — resolved below, once the
+    // narration and the pace it must be staged at are in hand.
+    // The design: a flag or config over the storyboard over classic.
     const design = prefs.design ?? storyboard.design ?? "classic";
 
     const out = resolve(o.out);
@@ -736,6 +750,19 @@ lookFlags(
     // depends on the pace. A beat the cut drops after this is a shortfall this
     // cannot see, and `reportCut` below is what says so.
     const paced = durationPlan(prefs, storyboard.beats.length);
+    // A pack changes the chrome's scale and the face, so it can change how many
+    // stops a beat has — narration on disk was recorded against one count — or
+    // whether a tight beat draws at all. The pick skips any pack that would do
+    // either (`costsNothing`), falling back to the storyboard's own theme, which
+    // is what that narration was staged with. Classic: unchanged.
+    const theme = chooseLook({
+      stated: stated(prefs, "theme"),
+      storyboard,
+      design,
+      seed: prefs.packSeed,
+      accepts: costsNothing(storyboard, source, format, { speed: paced.speed, narration }),
+    });
+    if (design === "v2") step(`build: design v2 — style pack "${theme}"`);
     // Before the budget advisories, because it is the reason they are struck at
     // the number they are.
     for (const f of scanBeatCount(storyboard, prefs)) step(`build: ${f.message}`);
@@ -743,7 +770,7 @@ lookFlags(
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
-    const fontCss = await refreshFont(storyboard, source, out, step);
+    const fontCss = await refreshFont(storyboard, source, out, step, theme);
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,

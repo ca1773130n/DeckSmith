@@ -13,6 +13,7 @@
 import type { Theme } from "../kit.js";
 import { ink } from "./ink.js";
 import { mono } from "./mono.js";
+import { PACKS } from "./packs.js";
 import { paper } from "./paper.js";
 
 /**
@@ -26,9 +27,26 @@ import { paper } from "./paper.js";
 export interface DeckTheme extends Theme {
   /** `body`'s font-weight. Omitted means 400, which is what `ink` and `paper` want. */
   bodyWeight?: number;
+  /**
+   * A v2 style pack's ground, so a picker can keep light and dark both in use.
+   * Absent on the classic themes, which are never picked — only named.
+   */
+  ground?: "dark" | "light";
+  /**
+   * A v2 pack's finish: CSS appended after the base stylesheet. It may change
+   * only what no measurement reads — colour, radius, shadow, decoration, the
+   * body's `background-image`, absolutely positioned pseudo-elements. See
+   * `./packs.ts`; the rule is enforced in `test/style-packs.test.ts`.
+   */
+  skin?: string;
 }
 
-export const THEMES: Readonly<Record<string, DeckTheme>> = { ink, mono, paper };
+/**
+ * The classic three, then the v2 packs. Every one is reachable by `--theme`,
+ * which is also how a storyboard or a caller forces a pack; `--design v2` picks
+ * among `PACKS` when nobody named one (`./pick.ts`).
+ */
+export const THEMES: Readonly<Record<string, DeckTheme>> = { ink, mono, paper, ...PACKS };
 
 /** Sorted, so an error message and a `--help` listing agree without coordinating. */
 export const THEME_NAMES: readonly string[] = Object.keys(THEMES).sort();
@@ -46,4 +64,4 @@ export function resolveTheme(name: string): DeckTheme {
   return theme;
 }
 
-export { ink, mono, paper };
+export { ink, mono, PACKS, paper };

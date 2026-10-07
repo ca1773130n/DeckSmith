@@ -836,8 +836,20 @@ export const prefsSchema = z.object({
 
   /* --- look --- */
   theme: z.string().default("ink"),
-  /** See `designSchema`. Unset means the storyboard's own, else `classic`. */
+  /**
+   * Which generation of the look to emit (see `designSchema`). Unset means the
+   * storyboard's own, else `classic` — v0.8.0, byte for byte, so an npm user's
+   * decks do not change under them. `v2` turns on the redesign: the player, the
+   * fit engine, a style pack per deck (`src/emit/themes/pick.ts`), layouts and
+   * motion.
+   */
   design: designSchema.optional(),
+  /**
+   * What `--design v2` hashes to pick a pack. Absent means the storyboard's
+   * `sourceId`. A caller with one paper in several languages passes the paper's
+   * id here so every language wears the same pack.
+   */
+  packSeed: z.string().optional(),
   /**
    * Multiplies every emitted tween duration. Below 1 is faster.
    *

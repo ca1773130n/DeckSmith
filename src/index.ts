@@ -195,6 +195,9 @@ export type { Cut, Dangling, Dropped, DropRule, SelectionBudget } from "./plan/s
 /** Themes are a named, closed set; a consumer needs to enumerate and validate. */
 export { resolveTheme, THEME_NAMES, THEMES } from "./emit/themes/index.js";
 export type { DeckTheme } from "./emit/themes/index.js";
+export { PACKS } from "./emit/themes/packs.js";
+export { chooseLook, type Design, type LookChoice, rankPacks } from "./emit/themes/pick.js";
+export { TYPES, type TypeSpec } from "./emit/type.js";
 
 /* ------------------------------------------------------------------ verify */
 
@@ -399,7 +402,7 @@ export async function buildDeck(
   // linking it and therefore needs the CSS in hand. It also writes the woff2
   // into `out`, which is why `out` must exist by here — it does; `buildDeck`
   // made it above.
-  const fontCss = await refreshFont(storyboard, source, out, step);
+  const fontCss = await refreshFont(storyboard, source, out, step, opts.theme);
 
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
