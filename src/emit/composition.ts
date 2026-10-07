@@ -11,11 +11,13 @@
  * timeline, wraps whatever the emitter returns, and closes the document.
  */
 import type { z } from "zod";
+import { markV2 } from "../deck/playback.js";
 import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
 import { embedUrl } from "../pack/media.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import type {
   Beat,
+  Design,
   Format,
   Inside,
   NarrationCanvas,
@@ -154,6 +156,12 @@ export interface DeckNarration {
 export interface DeckOptions {
   /** Overrides `storyboard.theme`. Any name in the registry. */
   theme?: string;
+  /**
+   * Overrides `storyboard.design`. `v2` today changes deck.html only — it marks
+   * the page for the v2 player (`markV2`) — so the composition, and every
+   * golden over it, is the same either way.
+   */
+  design?: Design;
   /** Multiplies every duration, hold, and beat length. 1 leaves bytes untouched. */
   speed?: number;
   narration?: DeckNarration;
@@ -234,15 +242,23 @@ export function emitDeck(
   return {
     composition,
     cut,
-    page: emitDeckPage(
-      storyboard,
-      format,
-      laid.slides,
-      runtimeJs,
-      narrationIsland(opts.narration, laid.spoken),
-      videoIsland(laid.embeds),
+    page: withDesign(
+      emitDeckPage(
+        storyboard,
+        format,
+        laid.slides,
+        runtimeJs,
+        narrationIsland(opts.narration, laid.spoken),
+        videoIsland(laid.embeds),
+      ),
+      opts.design ?? storyboard.design ?? "classic",
     ),
   };
+}
+
+/** The deck page for `design`: classic is untouched, v2 carries the player marker. */
+function withDesign(page: string, design: Design): string {
+  return design === "v2" ? markV2(page) : page;
 }
 
 /**
@@ -1098,7 +1114,7 @@ ${closeSafe(runtimeJs)}
 }
 
 /** A literal `</script>` inside the bundle would close the tag that carries it. */
-function closeSafe(code: string): string {
+export function closeSafe(code: string): string {
   return code.replace(/<\/script/gi, "<\\/script");
 }
 

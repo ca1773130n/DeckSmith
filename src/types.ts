@@ -722,12 +722,24 @@ export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   "equation-morph": "formal",
 };
 
+/**
+ * `classic` is v0.8.0's output, byte for byte, and the default. `v2` opts into
+ * the redesign: today the v2 player in deck.html (speed, CC, caption size,
+ * auto-hiding controls, remembered preferences — see src/deck/playback.ts).
+ * OPTIONAL rather than defaulted in both schemas, so a storyboard, a config or
+ * a pack that never mentions it serialises exactly as it did.
+ */
+export const designSchema = z.enum(["classic", "v2"]);
+export type Design = z.infer<typeof designSchema>;
+
 export const storyboardSchema = z
   .object({
     sourceId: z.string(),
     title: z.string(),
     lang: z.string().default("en"),
     theme: z.string().default("ink"),
+    /** The look generation this deck was planned for. Absent is `classic`, the v0.8.0 output. */
+    design: designSchema.optional(),
     beats: z.array(beatSchema).min(1),
   })
   /**
@@ -824,6 +836,8 @@ export const prefsSchema = z.object({
 
   /* --- look --- */
   theme: z.string().default("ink"),
+  /** See `designSchema`. Unset means the storyboard's own, else `classic`. */
+  design: designSchema.optional(),
   /**
    * Multiplies every emitted tween duration. Below 1 is faster.
    *

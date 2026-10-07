@@ -17,6 +17,26 @@
  * deck. Zero dependencies, and every DOM lookup is defensive — this ships inside
  * artifacts that will outlive our control.
  */
+import {
+  CAPTION_LINE_HEIGHT,
+  CAPTION_SIZES,
+  type CaptionSize,
+  cleanPrefs,
+  keyAction,
+  PLAYER_META,
+  type PlayerPrefs,
+  PREFS_KEY,
+  PREFS_MESSAGE,
+  type PrefsMessage,
+  prefsFromQuery,
+  prefsFromStored,
+  RATES,
+  rateLabel,
+  resolvePrefs,
+  stageGeometry,
+  stepRate,
+  stepSize,
+} from "./playback.js";
 import { CHANNEL, type FromDeck, isOurs } from "./protocol.js";
 import {
   activeCue,
@@ -26,6 +46,7 @@ import {
   type Narration,
   parseNarration,
   segmentFor,
+  splitForScreen,
 } from "./subtitles.js";
 
 /* --------------------------------------------------------------- Stop list */
@@ -135,16 +156,24 @@ export interface TransitionPlan {
 export function planTransition(
   fromT: number,
   toT: number,
-  opts: { reducedMotion?: boolean } = {},
+  opts: { reducedMotion?: boolean; rate?: number } = {},
 ): TransitionPlan {
   const span = toT - fromT;
   // Backward: entrance tweens run in reverse read as elements un-drawing
   // themselves. Zero: there is nothing to show. Reduced motion: asked not to.
+  // MAX_SPAN stays in composition seconds whatever the rate: it is about what
+  // the span CONTAINS (a slide's hold), not how long it takes to watch.
   if (opts.reducedMotion === true || span <= 0 || span > MAX_SPAN) {
     return { animate: false, durationMs: 0 };
   }
-  // 1x. The reveal was authored at this speed, so it plays at this speed.
-  return { animate: true, durationMs: span * 1000 };
+  // The reveal was authored at 1x. At the viewer's narration speed it plays at
+  // that speed too, so the sentence that starts with it stays on the reveal.
+  return { animate: true, durationMs: (span * 1000) / rateOf(opts.rate) };
+}
+
+/** A usable playback rate: anything else is 1, so a bad value can never divide by zero. */
+function rateOf(rate: number | undefined): number {
+  return typeof rate === "number" && Number.isFinite(rate) && rate > 0 ? rate : 1;
 }
 
 /** Long enough to read a line of anything. */
@@ -173,9 +202,15 @@ const MAX_DWELL = 8000;
  * linear render used, clamped so neither a back-to-back pair nor a long hold
  * turns into a bad wait.
  */
-export function dwellMs(opts: { playing: boolean; heard: boolean; gapMs: number }): number | null {
+export function dwellMs(opts: {
+  playing: boolean;
+  heard: boolean;
+  gapMs: number;
+  /** The viewer's speed. The gap shrinks with it; the floor does not — a line still has to be read. */
+  rate?: number;
+}): number | null {
   if (!opts.playing || opts.heard) return null;
-  return Math.min(MAX_DWELL, Math.max(MIN_DWELL, opts.gapMs));
+  return Math.min(MAX_DWELL, Math.max(MIN_DWELL, opts.gapMs / rateOf(opts.rate)));
 }
 
 /* --------------------------------------------------------------------- Hash */
@@ -460,6 +495,168 @@ const CSS = `
 .ds-subs[hidden]{visibility:hidden}
 `;
 
+/**
+ * The v2 player's chrome: one control bar, YouTube-style, that hides itself.
+ *
+ * THE STAGE IS LAID OUT BY `stageGeometry` (./playback.ts), not by CSS
+ * arithmetic, and handed in as four custom properties: the slide's box
+ * (--ds-sx/-sy/-sw/-sh) and the caption strip's font and height. The strip sits
+ * directly under the slide, both centred as one block, so on a portrait phone it
+ * lands in the letterbox and the slide gives up nothing for it.
+ *
+ * NOTHING HERE MAY COVER A CAPTION. The bar lives inside the SLIDE's box, on
+ * its bottom edge, over a scrim; the strip is below that box. So however the
+ * window is shaped, controls and cue text are in disjoint rectangles —
+ * test/deck-page.test.ts measures it at six viewports. The cost is that the bar
+ * covers the bottom of the slide while it is up, which is why it is not up for
+ * long: 2.5s after the last pointer move, unless the pointer is on it, focus is
+ * in it, or a menu is open.
+ *
+ * Every target is at least 40px. (No backticks in this block: it is inside a
+ * template literal.)
+ */
+const CSS_V2 = `
+html.ds-v2 hyperframes-player{position:fixed;left:var(--ds-sx,0);top:var(--ds-sy,0);
+  width:var(--ds-sw,100vw);height:var(--ds-sh,100vh)}
+.ds-chrome{position:fixed;inset:0;z-index:2147483000;pointer-events:none;
+  font:500 14px/1.4 ui-sans-serif,system-ui,sans-serif;color:#fff}
+.ds-bar{position:fixed;left:var(--ds-sx);width:var(--ds-sw);height:3px;
+  top:calc(var(--ds-sy) + var(--ds-sh) - 3px);background:rgba(255,255,255,.16)}
+.ds-bar>i{display:block;height:100%;background:currentColor;transform-origin:0 50%;
+  transform:scaleX(0);transition:transform .18s ease-out}
+.ds-chrome{--ds-btn:clamp(40px,calc(var(--ds-sh,0px) * .05),56px)}
+.ds-controls{position:fixed;left:var(--ds-sx);width:var(--ds-sw);
+  height:calc(var(--ds-btn) + 8px);top:calc(var(--ds-sy) + var(--ds-sh) - var(--ds-btn) - 8px);
+  box-sizing:border-box;padding:4px 6px;display:flex;align-items:center;gap:2px;
+  font-size:clamp(13px,calc(var(--ds-sh,0px) * .02),20px);pointer-events:auto;
+  background:linear-gradient(to top,rgba(0,0,0,.72),rgba(0,0,0,0));
+  transition:opacity .2s ease-out}
+.ds-controls[data-shown="0"]{opacity:0;pointer-events:none}
+.ds-controls button{min-width:var(--ds-btn);height:var(--ds-btn);padding:0 8px;border:0;border-radius:8px;
+  background:transparent;color:#fff;font:inherit;line-height:1;cursor:pointer;
+  display:inline-grid;place-items:center;white-space:nowrap}
+.ds-controls button:hover{background:rgba(255,255,255,.16)}
+.ds-controls button:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+.ds-controls button[hidden]{display:none}
+.ds-play::before{content:"";display:block;width:0;height:0;margin-left:3px;
+  border-left:12px solid currentColor;border-top:8px solid transparent;border-bottom:8px solid transparent}
+.ds-play[data-on="1"]::before{margin-left:0;width:12px;height:14px;border:0;
+  background:linear-gradient(to right,currentColor 0 4px,transparent 4px 8px,currentColor 8px 12px)}
+.ds-count{padding:0 6px;opacity:.8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ds-gap{flex:1}
+.ds-cc{font-weight:700;letter-spacing:.04em}
+.ds-cc[aria-pressed="true"]{box-shadow:inset 0 -3px 0 #fff}
+.ds-cc[aria-pressed="false"]{opacity:.6}
+.ds-fs::before{content:"";width:14px;height:14px;box-sizing:border-box;
+  border:2px solid currentColor;border-radius:2px}
+/* Menus hang off the BAR, not their button: a phone-width slide is narrower
+   than six rates laid out from the speed button leftwards. Right-aligned
+   inside the slide and wrapping, so a menu never leaves the slide's box — and
+   so never reaches the caption strip below it. */
+.ds-wrap{display:inline-flex}
+.ds-menu{position:absolute;right:6px;bottom:calc(100% + 2px);display:flex;flex-wrap:wrap;
+  justify-content:flex-end;gap:2px;max-width:calc(var(--ds-sw) - 12px);box-sizing:border-box;
+  padding:4px;border-radius:10px;background:rgba(20,20,20,.94);box-shadow:0 4px 18px rgba(0,0,0,.5)}
+.ds-menu[hidden]{display:none}
+.ds-menu button[aria-checked="true"]{background:#fff;color:#000}
+.ds-flags{position:fixed;left:calc(var(--ds-sx) + 10px);top:calc(var(--ds-sy) + 8px);
+  max-width:calc(var(--ds-sw) - 20px);padding:2px 8px;border-radius:6px;
+  background:rgba(0,0,0,.6);font-size:13px}
+.ds-flags:empty{display:none}
+.ds-video[hidden]{display:none}
+.ds-film{position:fixed;inset:0;display:grid;place-items:center;
+  background:rgba(0,0,0,.88);pointer-events:auto}
+.ds-film iframe{width:min(92vw,158vh);aspect-ratio:16/9;border:0;background:#000}
+.ds-shut{position:absolute;top:16px;right:16px;width:40px;height:40px;padding:0;border:0;
+  border-radius:50%;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;
+  font:inherit;line-height:40px}
+.ds-notes{position:fixed;left:0;right:0;bottom:0;max-height:38vh;overflow:auto;
+  padding:20px 24px;background:rgba(10,10,10,.92);font-size:19px;line-height:1.6;
+  white-space:pre-wrap;pointer-events:auto}
+.ds-notes[hidden]{display:none}
+.ds-subs{position:fixed;left:0;right:0;top:calc(var(--ds-sy) + var(--ds-sh));
+  height:var(--ds-cap-h,0px);box-sizing:border-box;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;padding:0 max(12px,4vw);
+  text-align:center;color:#fff;font-weight:600;font-size:var(--ds-cap-font,13px);
+  line-height:${CAPTION_LINE_HEIGHT};text-wrap:pretty}
+.ds-subs[hidden]{visibility:hidden}
+.ds-say{position:fixed;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+`;
+
+export interface ChromeV2 extends ReturnType<typeof mountChrome> {
+  controls: HTMLElement;
+  speed: HTMLButtonElement;
+  speedMenu: HTMLElement;
+  cc: HTMLButtonElement;
+  size: HTMLButtonElement;
+  sizeMenu: HTMLElement;
+  fs: HTMLButtonElement;
+  /** A polite live region: setting changes are announced, cue text never is. */
+  say: HTMLElement;
+}
+
+function mountChromeV2(doc: Document): ChromeV2 {
+  const style = doc.createElement("style");
+  style.textContent = CSS_V2;
+  doc.head.append(style);
+  doc.documentElement.classList.add("ds-v2");
+
+  const item = (cls: string, value: string, label: string) =>
+    `<button class="${cls}" type="button" role="menuitemradio" data-value="${value}" ` +
+    `aria-checked="false">${label}</button>`;
+  const chrome = doc.createElement("div");
+  chrome.className = "ds-chrome";
+  chrome.innerHTML =
+    '<div class="ds-subs" hidden></div><div class="ds-bar"><i></i></div>' +
+    '<div class="ds-flags"></div>' +
+    '<div class="ds-controls" role="toolbar" aria-label="Deck controls" data-shown="1">' +
+    '<button class="ds-play" type="button" aria-label="Play the deck" aria-keyshortcuts="Enter"></button>' +
+    '<span class="ds-count"></span><span class="ds-gap"></span>' +
+    '<button class="ds-video" type="button" hidden>Video</button>' +
+    '<span class="ds-wrap"><button class="ds-speed" type="button" aria-haspopup="menu" ' +
+    'aria-expanded="false" aria-label="Narration speed" aria-keyshortcuts="Shift+. Shift+,">1×</button>' +
+    `<span class="ds-menu" role="menu" aria-label="Narration speed" hidden>${RATES.map((r) =>
+      item("ds-rate", String(r), rateLabel(r)),
+    ).join("")}</span></span>` +
+    '<button class="ds-cc" type="button" aria-pressed="true" aria-label="Captions" ' +
+    'aria-keyshortcuts="C">CC</button>' +
+    '<span class="ds-wrap"><button class="ds-size" type="button" aria-haspopup="menu" ' +
+    'aria-expanded="false" aria-label="Caption size">Aa</button>' +
+    `<span class="ds-menu" role="menu" aria-label="Caption size" hidden>${CAPTION_SIZES.map((z) =>
+      item("ds-sz", z, z.toUpperCase()),
+    ).join("")}</span></span>` +
+    '<button class="ds-fs" type="button" aria-label="Full screen" aria-keyshortcuts="F"></button>' +
+    "</div>" +
+    '<div class="ds-notes" hidden></div><div class="ds-say" aria-live="polite"></div>';
+  doc.body.append(chrome);
+
+  const q = <T extends HTMLElement>(sel: string) => chrome.querySelector(sel) as T;
+  const menus = chrome.querySelectorAll<HTMLElement>(".ds-menu");
+  return {
+    chrome,
+    fill: q(".ds-bar>i"),
+    play: q<HTMLButtonElement>(".ds-play"),
+    video: q<HTMLButtonElement>(".ds-video"),
+    count: q(".ds-count"),
+    notes: q(".ds-notes"),
+    flags: q(".ds-flags"),
+    subs: q(".ds-subs"),
+    controls: q(".ds-controls"),
+    speed: q<HTMLButtonElement>(".ds-speed"),
+    speedMenu: menus[0] as HTMLElement,
+    cc: q<HTMLButtonElement>(".ds-cc"),
+    size: q<HTMLButtonElement>(".ds-size"),
+    sizeMenu: menus[1] as HTMLElement,
+    fs: q<HTMLButtonElement>(".ds-fs"),
+    say: q(".ds-say"),
+  };
+}
+
+/** Whether this deck page asked for the v2 player. See `PLAYER_META`. */
+export function wantsV2(doc: Pick<Document, "querySelector">): boolean {
+  return doc.querySelector(`meta[name="${PLAYER_META}"]`)?.getAttribute("content") === "2";
+}
+
 function mountChrome(doc: Document) {
   const style = doc.createElement("style");
   style.textContent = CSS;
@@ -505,6 +702,16 @@ export interface Voice {
   hush: () => void;
   toggleMute: () => void;
   toggleSubtitles: () => void;
+  /** Captions on or off, absolutely. The v2 player's preferences call this; the v0.8.0 key toggles. */
+  setSubtitles: (on: boolean) => void;
+  /**
+   * The narration speed, applied to the element that is speaking NOW as well as
+   * to every later one. Both halves matter and each was a separate bug in the
+   * plan: setting it only on the next `src` leaves the current sentence at the
+   * old speed, and setting only `playbackRate` is undone by the `load()` every
+   * stop runs, which resets it to `defaultPlaybackRate`.
+   */
+  setRate: (rate: number) => void;
   /** Called when the segment for the CURRENT stop finishes of its own accord. */
   onEnded: (fn: () => void) => void;
   /**
@@ -532,6 +739,8 @@ const SILENT: Voice = {
   hush: () => {},
   toggleMute: () => {},
   toggleSubtitles: () => {},
+  setSubtitles: () => {},
+  setRate: () => {},
   onEnded: () => {},
   onSettled: () => {},
   unlock: () => {},
@@ -605,10 +814,28 @@ export function mountVoice(
   doc: Document,
   narration: Narration,
   ui: { subs: HTMLElement; flags: HTMLElement },
+  opts: {
+    /**
+     * Whether the flag strip says "subtitles off". The v0.8.0 player has no other
+     * way to show it; the v2 player's CC button does, and saying it twice is a
+     * nag on top of the slide.
+     */
+    flagSubtitles?: boolean;
+  } = {},
 ): Voice {
   const audio = doc.createElement("audio");
   audio.preload = "auto";
   doc.body.append(audio);
+
+  let rate = 1;
+  const applyRate = () => {
+    audio.defaultPlaybackRate = rate;
+    audio.playbackRate = rate;
+    // Speed, not pitch: a voice at 1.5x should sound like the same person
+    // talking faster. True is the default in every current engine; said anyway.
+    (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+  };
+  applyRate();
 
   let muted = false;
   let subtitles = true;
@@ -649,7 +876,7 @@ export function mountVoice(
     // being told the narration is missing beats being told it is turned down.
     else if (unplayable) bits.push("narration unavailable");
     else if (muted) bits.push("muted");
-    if (!subtitles) bits.push("subtitles off");
+    if (!subtitles && opts.flagSubtitles !== false) bits.push("subtitles off");
     ui.flags.textContent = bits.join("   ·   ");
   };
 
@@ -728,6 +955,10 @@ export function mountVoice(
     // exempt from the autoplay policy, so mute is also the escape hatch.
     audio.muted = muted;
     audio.src = audioSrc(narration, segment);
+    // After `src`: assigning it runs the load algorithm, and that is what resets
+    // `playbackRate` to `defaultPlaybackRate`. Both are set, so either order
+    // holds — this line is what makes it not depend on that.
+    applyRate();
     void Promise.resolve(audio.play()).then(
       () => {
         if (mine !== epoch) return;
@@ -782,6 +1013,17 @@ export function mountVoice(
       reserve();
       paint();
       flags();
+    },
+    setSubtitles: (on) => {
+      if (on === subtitles) return;
+      subtitles = on;
+      reserve();
+      paint();
+      flags();
+    },
+    setRate: (r) => {
+      rate = r > 0 && Number.isFinite(r) ? r : 1;
+      applyRate();
     },
     // Both recoverable failures, retried only when a person asks for it.
     // `unplayable` is here because the rejection that means "this file is not
@@ -982,10 +1224,23 @@ async function start(doc: Document): Promise<void> {
   const stops = buildStops(slides);
   if (stops.length === 0) return;
 
-  const ui = mountChrome(doc);
+  // The page decides, once: a v2 deck page carries `PLAYER_META`, and every
+  // other deck — including every one built before it existed — gets the v0.8.0
+  // player unchanged. Each `v2` branch below is a difference; nothing else is.
+  const v2 = wantsV2(doc);
+  const ui = v2 ? mountChromeV2(doc) : mountChrome(doc);
   // Absent island = the silent deck we shipped before narration existed.
-  const narration = parseNarration(doc.querySelector(NARRATION_ISLAND)?.textContent);
-  const voice = narration ? mountVoice(doc, narration, ui) : SILENT;
+  const narration = parseNarration(
+    doc.querySelector(NARRATION_ISLAND)?.textContent,
+    v2 ? { split: (cue) => splitForScreen(cue) } : {},
+  );
+  const voice = narration ? mountVoice(doc, narration, ui, { flagSubtitles: !v2 }) : SILENT;
+  /**
+   * The viewer's preferences. Only a v2 page reads or changes them, so on every
+   * other page `rate()` is 1 and the deck plays exactly as it did.
+   */
+  let prefs: PlayerPrefs = resolvePrefs({}, {});
+  const rate = () => (v2 ? prefs.speed : 1);
   // Absent island = a deck with no player-page clip in it, which is almost every
   // deck. `NO_CLIPS` keeps the button hidden and costs `go` one call per step.
   const found = parseClips(doc.querySelector(VIDEO_ISLAND)?.textContent);
@@ -1029,6 +1284,8 @@ async function start(doc: Document): Promise<void> {
   let raf = 0;
   /** Last stop handed to the voice. -1 so the opening stop always speaks. */
   let spoken = -1;
+  /** Where the glide in flight is going, so a speed change can re-time it. Null when none is. */
+  let glideTo: number | null = null;
 
   /** Land on `t` and hand the player's clock the same answer. */
   const cutTo = (t: number) => {
@@ -1039,6 +1296,7 @@ async function start(doc: Document): Promise<void> {
 
   const glide = (f: Frame, toT: number, durationMs: number) => {
     const fromT = shown;
+    glideTo = toT;
     // The frame's own timestamp, not `performance.now()`: same clock, and it
     // keeps every wall-clock call out of deck.html, which the determinism scan
     // reads along with the composition.
@@ -1055,6 +1313,7 @@ async function start(doc: Document): Promise<void> {
         return;
       }
       raf = 0;
+      glideTo = null;
       cutTo(toT); // exact landing, and the player's clock catches up here
     };
     raf = requestAnimationFrame(tick);
@@ -1097,11 +1356,19 @@ async function start(doc: Document): Promise<void> {
    * shipped before this. Both routes go through `dwellMs` so the policy is in
    * one testable place and neither caller can drift from the other.
    */
+  /** The last answer `settleDwell` was given, so a speed change can re-arm the same wait. */
+  let heardNow = false;
   const settleDwell = (heard: boolean) => {
     clearDwell();
+    heardNow = heard;
     const stop = stops[at] as Stop;
     const next = stops[at + 1];
-    const ms = dwellMs({ playing, heard, gapMs: next ? (next.t - stop.t) * 1000 : 0 });
+    const ms = dwellMs({
+      playing,
+      heard,
+      gapMs: next ? (next.t - stop.t) * 1000 : 0,
+      rate: rate(),
+    });
     if (ms !== null) dwell = setTimeout(advance, ms);
   };
   const setPlaying = (on: boolean) => {
@@ -1134,6 +1401,17 @@ async function start(doc: Document): Promise<void> {
   };
 
   addEventListener("message", (e: MessageEvent) => {
+    // A host restoring a viewer's saved preferences. Its own message rather than
+    // the channel's, and accepted without a handshake: see `PREFS_MESSAGE`.
+    if (
+      v2 &&
+      e.source === parent &&
+      parent !== window &&
+      (e.data as { type?: unknown } | null)?.type === PREFS_MESSAGE
+    ) {
+      apply(cleanPrefs(e.data), "host");
+      return;
+    }
     // Only our parent, only our channel. A deck shares its window with nothing
     // else, but it may be framed by a page that talks to other frames.
     if (e.source !== parent || parent === window || !isOurs(e.data)) return;
@@ -1170,12 +1448,13 @@ async function start(doc: Document): Promise<void> {
     // orphaned loop would keep painting and could settle on the old stop.
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
+    glideTo = null;
 
     // Read the media query per step — a presenter may flip the OS setting
     // mid-deck, and startup is the wrong time to have decided.
     const reducedMotion =
       typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const plan = planTransition(shown, stop.t, { reducedMotion });
+    const plan = planTransition(shown, stop.t, { reducedMotion, rate: rate() });
     // No frame means nothing to paint, so there is nothing to animate either.
     if (plan.animate && !instant && frame) glide(frame, stop.t, plan.durationMs);
     else cutTo(stop.t);
@@ -1241,60 +1520,328 @@ async function start(doc: Document): Promise<void> {
     if (i >= 0 && i !== at) go(i, true);
   });
 
-  doc.addEventListener("keydown", (e) => {
+  const fullscreen = () => {
+    const fs = doc.fullscreenElement
+      ? doc.exitFullscreen()
+      : doc.documentElement.requestFullscreen();
+    void fs.catch(() => {});
+  };
+
+  /* --------------------------------------------------------- the v2 player */
+
+  const v2ui = v2 ? (ui as ChromeV2) : null;
+  const narrated = narration !== null;
+  const aspect =
+    (Number(player.getAttribute("width")) || 16) / (Number(player.getAttribute("height")) || 9);
+
+  /** Put the slide and its caption strip where `stageGeometry` says. */
+  const layout = () => {
+    if (!v2) return;
+    const g = stageGeometry(innerWidth, innerHeight, aspect, {
+      on: prefs.cc && narrated,
+      size: prefs.ccsize,
+    });
+    const st = doc.documentElement.style;
+    st.setProperty("--ds-sx", `${g.slideX}px`);
+    st.setProperty("--ds-sy", `${g.slideY}px`);
+    st.setProperty("--ds-sw", `${g.slideW}px`);
+    st.setProperty("--ds-sh", `${g.slideH}px`);
+    st.setProperty("--ds-cap-font", `${g.capFont}px`);
+    st.setProperty("--ds-cap-h", `${g.capH}px`);
+  };
+
+  // STORAGE CAN THROW, not merely be empty: a sandboxed frame without
+  // allow-same-origin, Safari private mode, blocked site data. Every touch is
+  // wrapped and a failure means "nothing remembered", never a broken deck.
+  const save = () => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      /* unremembered, still applied */
+    }
+  };
+  const remembered = (): Partial<PlayerPrefs> => {
+    try {
+      return prefsFromStored(localStorage.getItem(PREFS_KEY));
+    } catch {
+      return {};
+    }
+  };
+
+  /**
+   * Tell the embedding page, so it can keep the choice per USER rather than per
+   * browser. A cross-site iframe's localStorage is partitioned by the top-level
+   * site, so the deck's own copy is not one a host can read or a second device
+   * can see. To "*" because it is three playback settings and nothing else.
+   */
+  const announcePrefs = () => {
+    if (parent === window) return;
+    const msg: PrefsMessage = { type: PREFS_MESSAGE, ...prefs };
+    parent.postMessage(msg, "*");
+  };
+
+  const paintControls = () => {
+    if (!v2ui) return;
+    v2ui.speed.textContent = rateLabel(prefs.speed);
+    for (const b of v2ui.speedMenu.querySelectorAll("button")) {
+      b.setAttribute("aria-checked", String(Number(b.dataset.value) === prefs.speed));
+    }
+    v2ui.cc.setAttribute("aria-pressed", String(prefs.cc));
+    v2ui.cc.hidden = !narrated;
+    v2ui.size.hidden = !narrated;
+    for (const b of v2ui.sizeMenu.querySelectorAll("button")) {
+      b.setAttribute("aria-checked", String(b.dataset.value === prefs.ccsize));
+    }
+  };
+
+  /**
+   * A speed change while something is moving. The narration is re-rated by
+   * `voice.setRate` on the element that is speaking; this does the deck's own
+   * two clocks. A glide in flight restarts from where it is over what is left at
+   * the new speed, and a silent stop's dwell is re-armed — from now, at the new
+   * speed, which can only make a wait shorter than the full gap or equal to it.
+   */
+  const retime = () => {
+    if (raf && frame && glideTo !== null) {
+      const to = glideTo;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      glide(frame, to, Math.max(1, ((to - shown) * 1000) / rate()));
+    }
+    if (dwell) settleDwell(heardNow);
+  };
+
+  /**
+   * Every preference change goes through here, whoever made it. `boot` applies
+   * without saving (a URL override is for this visit), `host` saves without
+   * echoing back to the host that sent it, and `user` does both.
+   */
+  const apply = (patch: Partial<PlayerPrefs>, from: "boot" | "user" | "host") => {
+    if (!v2) return;
+    const before = prefs;
+    prefs = { ...prefs, ...patch };
+    voice.setRate(prefs.speed);
+    voice.setSubtitles(prefs.cc);
+    layout();
+    paintControls();
+    if (prefs.speed !== before.speed) retime();
+    if (from !== "boot") save();
+    if (from === "user") announcePrefs();
+    if (v2ui && from !== "boot") {
+      v2ui.say.textContent = `Speed ${rateLabel(prefs.speed)}, captions ${prefs.cc ? "on" : "off"}, size ${prefs.ccsize.toUpperCase()}`;
+    }
+  };
+
+  /** The bar hides 2.5s after the last sign of a viewer, unless they are using it. */
+  const HIDE_MS = 2500;
+  let idle: ReturnType<typeof setTimeout> | 0 = 0;
+  const menuOpen = () => !!v2ui && (!v2ui.speedMenu.hidden || !v2ui.sizeMenu.hidden);
+  const held = () =>
+    !!v2ui &&
+    (menuOpen() || v2ui.controls.matches(":hover") || v2ui.controls.contains(doc.activeElement));
+  const hideLater = () => {
+    if (idle) clearTimeout(idle);
+    idle = setTimeout(() => {
+      idle = 0;
+      if (!v2ui) return;
+      if (held()) hideLater();
+      else v2ui.controls.dataset.shown = "0";
+    }, HIDE_MS);
+  };
+  const reveal = () => {
+    if (!v2ui) return;
+    v2ui.controls.dataset.shown = "1";
+    hideLater();
+  };
+  const closeMenus = () => {
+    if (!v2ui) return;
+    for (const [b, m] of [
+      [v2ui.speed, v2ui.speedMenu],
+      [v2ui.size, v2ui.sizeMenu],
+    ] as const) {
+      m.hidden = true;
+      b.setAttribute("aria-expanded", "false");
+    }
+  };
+  const toggleMenu = (b: HTMLButtonElement, m: HTMLElement, byKeyboard: boolean) => {
+    const opening = m.hidden;
+    closeMenus();
+    if (opening) {
+      m.hidden = false;
+      b.setAttribute("aria-expanded", "true");
+      if (byKeyboard) m.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+    }
+    reveal();
+  };
+
+  if (v2ui) {
+    apply(resolvePrefs(remembered(), prefsFromQuery(location.search)), "boot");
+    addEventListener("resize", layout);
+    // A mouse click leaves focus on the button it clicked, and Space would then
+    // press that button again instead of stepping the deck. Keyboard activation
+    // (detail 0) keeps focus where the keyboard user put it.
+    ui.chrome.addEventListener(
+      "click",
+      (e) => {
+        if (e.detail > 0) (e.target as Element | null)?.closest?.("button")?.blur();
+      },
+      true,
+    );
+    const click = (el: HTMLElement, fn: (e: MouseEvent) => void) =>
+      el.addEventListener("click", (e) => {
+        e.stopPropagation(); // the deck steps on a click; a control must not
+        fn(e);
+        reveal();
+      });
+    click(v2ui.speed, (e) => toggleMenu(v2ui.speed, v2ui.speedMenu, e.detail === 0));
+    click(v2ui.size, (e) => toggleMenu(v2ui.size, v2ui.sizeMenu, e.detail === 0));
+    click(v2ui.speedMenu, (e) => {
+      const v = (e.target as Element | null)?.closest?.<HTMLElement>("button")?.dataset.value;
+      if (v === undefined) return;
+      apply({ speed: Number(v) }, "user");
+      closeMenus();
+    });
+    click(v2ui.sizeMenu, (e) => {
+      const v = (e.target as Element | null)?.closest?.<HTMLElement>("button")?.dataset.value;
+      if (v === undefined) return;
+      apply({ ccsize: v as CaptionSize }, "user");
+      closeMenus();
+    });
+    click(v2ui.cc, () => apply({ cc: !prefs.cc }, "user"));
+    click(v2ui.fs, fullscreen);
+    v2ui.controls.addEventListener("focusin", reveal);
+    doc.addEventListener("pointermove", reveal, { passive: true });
+    doc.addEventListener("pointerdown", reveal, { passive: true });
+    reveal();
+  }
+
+  /** The v2 keymap, from `keyAction`. The v0.8.0 one is below it, untouched. */
+  const onKeyV2 = (e: KeyboardEvent) => {
     if (e.defaultPrevented || typing(e.target)) return;
-    switch (e.key) {
-      case "ArrowRight":
-      case "PageDown":
-      case " ":
+    const act = keyAction(e);
+    if (!act) return;
+    const target = e.target as Element | null;
+    // Space and Enter on a focused control are that control's own activation.
+    if ((e.key === " " || e.key === "Enter") && target?.closest?.("button")) return;
+    // Inside an open menu the arrows walk its items instead of the deck.
+    const menu = target?.closest?.(".ds-menu");
+    if (menu && (act === "next" || act === "prev")) {
+      const items = [...menu.querySelectorAll<HTMLElement>("button")];
+      const i = items.indexOf(target as HTMLElement);
+      items[Math.max(0, Math.min(items.length - 1, i + (act === "next" ? 1 : -1)))]?.focus();
+      e.preventDefault();
+      return;
+    }
+    switch (act) {
+      case "next":
         go(at + 1);
         break;
-      case "ArrowLeft":
-      case "PageUp":
+      case "prev":
         go(at - 1);
         break;
-      case "Home":
+      case "first":
         go(0, true);
         break;
-      case "End":
+      case "last":
         go(stops.length - 1, true);
         break;
-      case "n":
-        ui.notes.hidden = !ui.notes.hidden;
+      case "play":
+        setPlaying(!playing);
+        reveal();
         break;
-      case "m":
+      case "captions":
+        apply({ cc: !prefs.cc }, "user");
+        reveal();
+        break;
+      case "faster":
+      case "slower":
+        apply({ speed: stepRate(prefs.speed, act === "faster" ? 1 : -1) }, "user");
+        reveal();
+        break;
+      case "bigger":
+      case "smaller":
+        apply({ ccsize: stepSize(prefs.ccsize, act === "bigger" ? 1 : -1) }, "user");
+        reveal();
+        break;
+      case "mute":
         voice.toggleMute();
         break;
-      case "s":
-        voice.toggleSubtitles();
+      case "notes":
+        ui.notes.hidden = !ui.notes.hidden;
         break;
-      case "p":
-        setPlaying(!playing);
-        break;
-      case "v":
+      case "video":
         clips.toggle();
         break;
-      case "Escape":
-        // Ours only while a player is open. Otherwise fall through untouched —
-        // Escape is also how a browser leaves fullscreen, and swallowing it
-        // would trap a presenter there.
-        if (!clips.close()) return;
+      case "escape":
+        // A menu first, then a video; otherwise Escape is the browser's, which
+        // is how a viewer leaves fullscreen.
+        if (menuOpen()) closeMenus();
+        else if (!clips.close()) return;
         break;
-      case "f": {
-        const fs = doc.fullscreenElement
-          ? doc.exitFullscreen()
-          : doc.documentElement.requestFullscreen();
-        void fs.catch(() => {});
+      case "fullscreen":
+        fullscreen();
         break;
-      }
-      default:
-        return;
     }
     e.preventDefault();
-  });
+  };
+
+  if (v2) doc.addEventListener("keydown", onKeyV2);
+  else
+    doc.addEventListener("keydown", (e) => {
+      if (e.defaultPrevented || typing(e.target)) return;
+      switch (e.key) {
+        case "ArrowRight":
+        case "PageDown":
+        case " ":
+          go(at + 1);
+          break;
+        case "ArrowLeft":
+        case "PageUp":
+          go(at - 1);
+          break;
+        case "Home":
+          go(0, true);
+          break;
+        case "End":
+          go(stops.length - 1, true);
+          break;
+        case "n":
+          ui.notes.hidden = !ui.notes.hidden;
+          break;
+        case "m":
+          voice.toggleMute();
+          break;
+        case "s":
+          voice.toggleSubtitles();
+          break;
+        case "p":
+          setPlaying(!playing);
+          break;
+        case "v":
+          clips.toggle();
+          break;
+        case "Escape":
+          // Ours only while a player is open. Otherwise fall through untouched —
+          // Escape is also how a browser leaves fullscreen, and swallowing it
+          // would trap a presenter there.
+          if (!clips.close()) return;
+          break;
+        case "f":
+          fullscreen();
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+    });
 
   doc.addEventListener("click", (e) => {
     if (ui.chrome.contains(e.target as Node)) return;
+    // A click outside an open menu closes it and does nothing else.
+    if (menuOpen()) {
+      closeMenus();
+      return;
+    }
     const third = (doc.documentElement.clientWidth || 1) / 3;
     if (e.clientX > third * 2) go(at + 1);
     else if (e.clientX < third) go(at - 1);

@@ -199,6 +199,7 @@ function lengthFlags(cmd: Command): Command {
 function lookFlags(cmd: Command): Command {
   return cmd
     .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
+    .option("--design <name>", "classic (the v0.8.0 deck, default) | v2 (the redesign)")
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
@@ -247,6 +248,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "duration",
     "narrationDensity",
     "theme",
+    "design",
     "speed",
     "voice",
     "rate",
@@ -690,6 +692,8 @@ lookFlags(
     // config file restates it. Language is not overridable here — it describes
     // the copy that is already written, not a wish.
     const theme = stated(prefs, "theme") ?? storyboard.theme;
+    // The same precedence: a flag or config over the storyboard over classic.
+    const design = prefs.design ?? storyboard.design ?? "classic";
 
     const out = resolve(o.out);
     await mkdir(out, { recursive: true });
@@ -742,6 +746,7 @@ lookFlags(
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      design,
       ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
@@ -780,7 +785,11 @@ lookFlags(
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
-    const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
+    const look = [
+      theme,
+      design === "classic" ? "" : `design ${design}`,
+      paced.speed === 1 ? "" : `${paced.speed}× speed`,
+    ]
       .filter(Boolean)
       .join(", ");
     // Count what was drawn, not what was offered: below the format's minWeight a
