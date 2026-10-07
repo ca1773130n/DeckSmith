@@ -213,8 +213,10 @@ describe("design: the switch", () => {
     // 70% of the top look's area, for the top look at 1542x428 (was 1286x357),
     // and both plates hug their images. Then callout titles capped at 0.9 of the
     // headline (s2 60 → 57px) and s14 set as the rows of a table at the foot.
+    // Then the last part of s2, s3, s4, s8, s13, s14 restores the slide to full
+    // instead of dimming its neighbour (only the spotlight tweens move).
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "b336d73c0e8b5fa66a32508854561604cae43a9295c10655ec815aa9465f1a4f",
+      "7309abd4aa8db242971aa7b5d930b70ed97da7783be8993c073927f7aba3d7e6",
     );
   });
 
