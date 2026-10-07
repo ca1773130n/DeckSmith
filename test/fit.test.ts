@@ -16,10 +16,13 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { barCompare } from "../src/emit/archetypes/bar-compare.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
+import { pipeLayout, pipeline } from "../src/emit/archetypes/pipeline.js";
 import { emitDeck } from "../src/emit/composition.js";
 import { EMPTY_BELOW, FULL_AT, fillBand, fitOf, GROWTH, growToFit, isV2 } from "../src/emit/fit.js";
 import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
+import { contentW } from "../src/emit/kit.js";
 import {
   type Beat,
   type BeatOf,
@@ -181,4 +184,100 @@ describe("v2 keeps every stop where classic put it", () => {
       }
     });
   }
+
+  it("and the composition differs, so v2 is not a no-op", async () => {
+    const { storyboard, source } = await demo();
+    const classic = emitDeck(storyboard, source, deck, "/*rt*/");
+    const v2 = emitDeck(storyboard, source, deck, "/*rt*/", { design: "v2" });
+    expect(v2.composition).not.toBe(classic.composition);
+    expect(v2.fit?.design).toBe("v2");
+    expect(v2.fit?.scenes.map((s) => s.beat)).toEqual(classic.cut.kept.map((b) => b.id));
+  });
+});
+
+/* ---------------------------------------------------- 3: the growth is real */
+
+/** The bar thickness a scene drew: the first rail's height attribute. */
+const railH = (s: Scene) =>
+  Number(
+    /class="bc-rail"[^>]*height="([\d.]+)"|height="([\d.]+)"[^>]*class="bc-rail"/
+      .exec(s.html)
+      ?.slice(1)
+      .find(Boolean),
+  );
+
+describe("bar-compare under v2", () => {
+  const two = beat("bar-compare", {
+    headline: "Two numbers",
+    note: "the difference is the whole paper",
+    bars: [
+      { label: "Before", value: 28.91 },
+      { label: "After", value: 30.47 },
+    ],
+  });
+
+  it("lifts BAR_MAX past 96 for two bars, where classic stops at it", () => {
+    const c = barCompare(two, ctx());
+    const v = barCompare(two, ctx("v2"));
+    expect(railH(c)).toBe(96);
+    expect(railH(v)).toBeGreaterThan(96);
+    expect(railH(v)).toBeLessThanOrEqual(96 * GROWTH);
+  });
+
+  it("pins the note to the region's floor and predicts a FULL body", () => {
+    const v = barCompare(two, ctx("v2"));
+    expect(v.css).toContain("#s1 .bc-wrap{margin-bottom:auto}");
+    expect(fillBand(v.fit?.fill ?? 0)).toBe("full");
+  });
+
+  it("draws the classic chart when the grown one cannot fit, instead of refusing", () => {
+    // Eight two-line labels: classic fits them at its own caps; v2 must too.
+    const many = beat("bar-compare", {
+      headline: "Every knob, measured, across a long and wrapping headline that takes two lines",
+      bars: Array.from({ length: 8 }, (_, i) => ({
+        label: `Ablation variant number ${i}`,
+        value: i + 1,
+      })),
+    });
+    expect(() => barCompare(many, ctx())).not.toThrow();
+    expect(() => barCompare(many, ctx("v2"))).not.toThrow();
+  });
+});
+
+describe("pipeline under v2", () => {
+  const stages = [
+    { label: "Assess missing information", note: "Original prompt + accumulated feedback" },
+    { label: "Gather evidence", note: "search · image_search · browse" },
+    { label: "Return grounded inputs", note: "Final prompt + selected images" },
+  ];
+  const W = contentW(deck);
+
+  it("sets the labels bigger than classic's 52px and grows the boxes with them", () => {
+    const c = pipeLayout(W, stages);
+    const v = pipeLayout(W, stages, undefined, "latin", { budget: 700, region: 838 });
+    expect(c.size).toBeLessThanOrEqual(52);
+    expect(v.size).toBeGreaterThan(c.size);
+    expect(v.note).toBeGreaterThan(c.note);
+    expect(v.boxH).toBeGreaterThan(c.boxH);
+  });
+
+  it("never grows a box past 0.8 of the region, nor the diagram past its budget", () => {
+    const v = pipeLayout(W, stages, undefined, "latin", { budget: 700, region: 838 });
+    expect(v.boxH).toBeLessThanOrEqual(0.8 * 838);
+    expect(v.svgH).toBeLessThanOrEqual(700);
+  });
+
+  it("keeps a classic row byte for byte when nothing grown fits the budget", () => {
+    const c = pipeLayout(W, stages);
+    const v = pipeLayout(W, stages, undefined, "latin", { budget: 10, region: 10 });
+    expect(v).toEqual(c);
+  });
+
+  it("predicts a filled region for a three-stage row with a note", () => {
+    const v = pipeline(
+      beat("pipeline", { headline: "How it runs", note: "Three steps.", stages }),
+      ctx("v2"),
+    );
+    expect(v.fit?.fill).toBeGreaterThanOrEqual(FULL_AT);
+  });
 });
