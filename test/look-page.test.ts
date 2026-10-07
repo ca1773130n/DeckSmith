@@ -9,7 +9,7 @@
  * frame shows that.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,4 +69,37 @@ describe.skipIf(chrome === null)("a --design v2 deck, measured in the browser", 
     expect(report.findings.filter((f) => f.rule === "blank_at_stop")).toEqual([]);
     expect(report.findings.filter((f) => f.rule === "not_measured")).toEqual([]);
   }, 180_000);
+
+  it.each(["signal", "blueprint"])(
+    "still catches a stop with nothing on it over %s's painted ground",
+    async (pack) => {
+      // Review 2026-10-08: against the frame's modal colour, signal's glow and
+      // blueprint's grid read as 4.42% and 2.40% ink with every scene hidden —
+      // 29x and 16x the floor — so a stop whose content never arrived passed.
+      const deck = join(dir, `blank-${pack}`);
+      await run(process.execPath, [
+        repo("dist/cli.js"),
+        "build",
+        repo("demo/storyboard.json"),
+        "--source",
+        repo("demo/source.json"),
+        "-o",
+        deck,
+        "--design",
+        "v2",
+        "--theme",
+        pack,
+        "--no-fidelity",
+      ]);
+      // Every part of one scene's body goes; its chrome stays.
+      const index = join(deck, "index.html");
+      const keep = ".eyebrow,.headline,.lk-head,.lk-foot,.lk-rail,.lk-main,.lk-body";
+      const hide = `<style>#s3 *:not(${keep}){opacity:0!important}</style>`;
+      await writeFile(index, (await readFile(index, "utf8")).replace("</head>", `${hide}</head>`));
+      const report = await fidelity(deck);
+      const blank = report.findings.filter((f) => f.rule === "blank_at_stop");
+      expect(blank.map((f) => f.message.slice(0, 4))).toEqual(["#s3 "]);
+    },
+    240_000,
+  );
 });

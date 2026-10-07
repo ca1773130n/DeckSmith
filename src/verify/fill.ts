@@ -33,6 +33,15 @@
  * (chrome included) over the frame's area — the "bbox" share the 2026-10-07
  * density audit quoted for bar-compare and pipeline (51%).
  *
+ * AND TWO AREA MEASURES, because `fill` is an EXTENT and cannot see area: two
+ * thin bars spanning a 1700px axis, a white figure plate, or cards with empty
+ * bottom halves all read full (review, 2026-10-08). `occupancy` cuts the whole
+ * frame (less a 3% border) into 40px cells, at 1080p scale, and reports the
+ * share holding ink (`cells`) and the share whose pixels VARY (`detail`): a
+ * flat run of colour — a plate's empty white, a panel's wash, a bar's inside —
+ * is ink but not detail. Both are placement-independent: they do not move when
+ * a look redefines where its body region is.
+ *
  * GRADED ONLY ON A V2 DECK, i.e. one whose build wrote `fit.json`. A classic deck
  * is measured (so the eval can compare the two designs on the same storyboard)
  * but never gets a finding: v0.8.0's verdicts do not move. Both findings are
@@ -283,6 +292,74 @@ export interface FillRow {
   canvas: number;
   /** Region height in device px — 0 when the scene had no region to measure. */
   region: number;
+  /** Share of the frame's cells holding ink, and of cells whose pixels vary. See `occupancy`. */
+  cells: number;
+  detail: number;
+}
+
+/** Cell edge at a 1080p frame, and the border left out of the count. */
+const CELL_1080 = 40;
+const CELL_INSET = 0.03;
+/** A cell holds ink from this share of its pixels: a stray fringe is not content. */
+const CELL_MIN_INK = 0.005;
+
+/**
+ * How much of the frame carries content, by area. Pure.
+ *
+ * `cells`: share of cells with at least `CELL_MIN_INK` of their pixels off the
+ * ground (the ink test `fidelity` uses — the bare-background plate when there is
+ * one). `detail`: share of cells that hold ink AND whose pixels span more than
+ * the ink threshold in luma — an edge, a glyph, a picture — so a flat slab of
+ * one colour counts as ink and not as detail.
+ */
+export function occupancy(frame: FrameLike, test: InkTest): { cells: number; detail: number } {
+  const { width, height, channels, pixels } = frame;
+  const cell = Math.max(4, Math.round((CELL_1080 * height) / 1080));
+  const plate =
+    test.plate && test.plate.width === width && test.plate.height === height ? test.plate : null;
+  const [br, bg, bb] = test.bg;
+  const x0 = Math.ceil(width * CELL_INSET);
+  const y0 = Math.ceil(height * CELL_INSET);
+  const cols = Math.floor((width - 2 * x0) / cell);
+  const rows = Math.floor((height - 2 * y0) / cell);
+  if (cols <= 0 || rows <= 0) return { cells: 0, detail: 0 };
+  let inked = 0;
+  let detailed = 0;
+  const need = Math.max(1, Math.round(cell * cell * CELL_MIN_INK));
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      let ink = 0;
+      let lo = 255;
+      let hi = 0;
+      for (let y = y0 + cy * cell; y < y0 + (cy + 1) * cell; y++) {
+        for (let x = x0 + cx * cell; x < x0 + (cx + 1) * cell; x++) {
+          const i = (y * width + x) * channels;
+          const r = pixels[i] as number;
+          const g = pixels[i + 1] as number;
+          const b = pixels[i + 2] as number;
+          let d: number;
+          if (plate) {
+            const j = (y * width + x) * plate.channels;
+            d = Math.max(
+              Math.abs(r - (plate.pixels[j] as number)),
+              Math.abs(g - (plate.pixels[j + 1] as number)),
+              Math.abs(b - (plate.pixels[j + 2] as number)),
+            );
+          } else {
+            d = Math.max(Math.abs(r - br), Math.abs(g - bg), Math.abs(b - bb));
+          }
+          if (d > test.delta) ink++;
+          const l = (r * 299 + g * 587 + b * 114) / 1000;
+          if (l < lo) lo = l;
+          if (l > hi) hi = l;
+        }
+      }
+      if (ink < need) continue;
+      inked++;
+      if (hi - lo > test.delta) detailed++;
+    }
+  }
+  return { cells: r3(inked / (cols * rows)), detail: r3(detailed / (cols * rows)) };
 }
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -307,8 +384,9 @@ export function measureFill(
   const canvas = whole
     ? r3(((whole.right - whole.left) * (whole.bottom - whole.top)) / (frame.width * frame.height))
     : 0;
+  const area = occupancy(frame, test);
   if (!region || region.height <= 0) {
-    return { ...stop, fill: 0, cross: 0, canvas, region: 0 };
+    return { ...stop, fill: 0, cross: 0, canvas, region: 0, ...area };
   }
   // Down to the frame's edge, not the region's: spill is measured, not clipped
   // — except under a foot headline, whose chrome is what lies below.
@@ -321,6 +399,7 @@ export function measureFill(
     cross: body ? r3((body.right - body.left) / w) : 0,
     canvas,
     region: Math.round(h),
+    ...area,
   };
 }
 

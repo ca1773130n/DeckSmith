@@ -450,10 +450,22 @@ export interface BodyRegion {
   bottom: number;
 }
 
-/** Non-background pixels inside `region`, over the WHOLE frame's pixels. */
-export function inkIn(frame: Frame, region: BodyRegion): number {
+/**
+ * Non-background pixels inside `region`, over the WHOLE frame's pixels.
+ *
+ * `plate` is the deck's bare background (every scene hidden), when the build
+ * captured one — a v2 deck does, for the fill gate. Against it each pixel is
+ * compared with the same pixel of the empty ground. Against the frame's modal
+ * colour alone a style pack's painted ground — signal's glow, blueprint's grid
+ * — read as ink: with every scene hidden, 4.42% of a signal frame and 2.40% of
+ * a blueprint one measured "inked", 29x and 16x `INK_FLOOR`, so a stop with
+ * nothing drawn on it passed this gate by a wide margin (review, 2026-10-08).
+ * A plate of another size is ignored.
+ */
+export function inkIn(frame: Frame, region: BodyRegion, plate?: Frame | null): number {
   const [br, bg, bb] = background(frame);
   const { width, height, channels, pixels } = frame;
+  const ground = plate && plate.width === width && plate.height === height ? plate : null;
   const x0 = Math.max(0, Math.round(region.left));
   const y1 = Math.min(height, Math.round(region.bottom));
   let ink = 0;
@@ -461,11 +473,21 @@ export function inkIn(frame: Frame, region: BodyRegion): number {
     const row = y * width * channels;
     for (let x = x0; x < width; x++) {
       const i = row + x * channels;
-      const d = Math.max(
-        Math.abs((pixels[i] as number) - br),
-        Math.abs((pixels[i + 1] as number) - bg),
-        Math.abs((pixels[i + 2] as number) - bb),
-      );
+      let d: number;
+      if (ground) {
+        const j = (y * width + x) * ground.channels;
+        d = Math.max(
+          Math.abs((pixels[i] as number) - (ground.pixels[j] as number)),
+          Math.abs((pixels[i + 1] as number) - (ground.pixels[j + 1] as number)),
+          Math.abs((pixels[i + 2] as number) - (ground.pixels[j + 2] as number)),
+        );
+      } else {
+        d = Math.max(
+          Math.abs((pixels[i] as number) - br),
+          Math.abs((pixels[i + 1] as number) - bg),
+          Math.abs((pixels[i + 2] as number) - bb),
+        );
+      }
       if (d > INK_DELTA) ink++;
     }
   }
@@ -755,7 +777,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       }
       measured.push({
         ...stop,
-        ink: inkIn(frame, region),
+        ink: inkIn(frame, region, plate),
         bandTop: Math.round((1000 * region.top) / height) / 1000,
         // THE SAME FRAME, a second strip. Free: it is one more pass over pixels
         // that are already decoded, so the gate that stops the caption

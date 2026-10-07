@@ -16,6 +16,7 @@ import {
   gradeFill,
   inkExtent,
   measureFill,
+  occupancy,
   readFitManifest,
 } from "../src/verify/fill.js";
 
@@ -64,6 +65,29 @@ describe("inkExtent", () => {
     const f = frame(10, 10, []);
     for (let x = 0; x < 10; x++) f.pixels.set([20, 22, 25], (5 * 10 + x) * 3);
     expect(inkExtent(f, test, { left: 0, right: 10, top: 0, bottom: 10 })).toBeNull();
+  });
+});
+
+describe("occupancy", () => {
+  // Review 2026-10-08: extent read a 1700px plate with a small picture in it, or
+  // two thin bars across a wide axis, as full. Area does not.
+  it("counts cells with ink, and cells whose pixels vary, over the whole frame", () => {
+    const empty = occupancy(frame(1080, 1080, []), test);
+    expect(empty).toEqual({ cells: 0, detail: 0 });
+    // A flat white slab over the middle half: ink everywhere in it, detail only on its edges.
+    const slab = occupancy(frame(1080, 1080, [{ x: 270, y: 270, w: 540, h: 540 }]), test);
+    expect(slab.cells).toBeGreaterThan(0.2);
+    expect(slab.detail).toBeLessThan(slab.cells / 3);
+    // The same area of stripes — text-like — is detail throughout.
+    const lines = Array.from({ length: 54 }, (_, i) => ({ x: 270, y: 270 + i * 10, w: 540, h: 4 }));
+    const striped = occupancy(frame(1080, 1080, lines), test);
+    expect(striped.detail).toBeCloseTo(striped.cells, 2);
+  });
+
+  it("is the same wherever the content sits: it measures the frame, not a region", () => {
+    const top = occupancy(frame(1080, 1080, [{ x: 100, y: 100, w: 400, h: 200 }]), test);
+    const foot = occupancy(frame(1080, 1080, [{ x: 100, y: 700, w: 400, h: 200 }]), test);
+    expect(foot).toEqual(top);
   });
 });
 
@@ -201,6 +225,8 @@ describe("gradeFill", () => {
     cross: 1,
     canvas: 0.5,
     region: 760,
+    cells: 0.5,
+    detail: 0.4,
   });
   const manifest = (fill?: number): FitManifest => ({
     design: "v2",
