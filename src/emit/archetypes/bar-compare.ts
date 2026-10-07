@@ -32,6 +32,7 @@ import type { EmitContext, Emitter, Scene } from "../kit.js";
 import { esc, spotlighter } from "../kit.js";
 import { type Frame, frameOf, variantOf } from "../look.js";
 import {
+  cutsWord,
   type Face,
   faceOf,
   group,
@@ -737,13 +738,17 @@ function columns(
   // Largest label size at which every label sets in three lines of its slot.
   let labelSize = LABEL_MAX;
   const linesAt = (s: number) => p.bars.map((b) => wrap(b.label, s, labelW, LABEL_WEIGHT, 0, face));
-  while (labelSize > MIN_FONT && linesAt(labelSize).some((l) => l.length > COL_LABEL_LINES)) {
-    labelSize--;
-  }
+  /** Too big: more than three lines, or a word cut letter by letter to fit its slot. */
+  const over = (s: number) =>
+    linesAt(s).some((l) => l.length > COL_LABEL_LINES) ||
+    p.bars.some((b) => cutsWord(b.label, s, labelW, LABEL_WEIGHT, face));
+  while (labelSize > MIN_FONT && over(labelSize)) labelSize--;
   const lines = linesAt(labelSize);
-  if (lines.some((l) => l.length > COL_LABEL_LINES)) {
+  if (over(labelSize)) {
+    // Rows set the label in a gutter as wide as the longest one, so the
+    // Director's classic arrangement draws it whole; refusing here sends it there.
     throw new Error(
-      `bar-compare ${beat.id}: a label needs more than ${COL_LABEL_LINES} lines in a column`,
+      `bar-compare ${beat.id}: a label needs more than ${COL_LABEL_LINES} lines in a column, or a word cut in two`,
     );
   }
   const lead = labelSize * 1.12;

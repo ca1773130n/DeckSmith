@@ -36,7 +36,7 @@ import {
 } from "../src/emit/fit.js";
 import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
 import { contentW } from "../src/emit/kit.js";
-import { faceOf, textWidth } from "../src/emit/svg.js";
+import { cutsWord, faceOf, textWidth } from "../src/emit/svg.js";
 import {
   type Beat,
   type BeatOf,
@@ -344,6 +344,22 @@ describe("pipeline under v2", () => {
     const c = pipeLayout(W, stages);
     const v = pipeLayout(W, stages, undefined, "latin", { budget: 10, region: 10 });
     expect(v).toEqual(c);
+  });
+
+  it("grows a label only while every word still sets whole", () => {
+    // The 2026-10-07 ko deck (9cd69d55): grown to the largest two-line size,
+    // "Rectified-flow 학습" was cut to "Rectified-flo" / "w 학습".
+    const ko = [
+      { label: "T5·Wan-VAE 인코딩", note: "텍스트·참조 이미지·대상 비디오" },
+      { label: "DiT 예측", note: "잡음 잠재변수·조건·시점 입력" },
+      { label: "Rectified-flow 학습", note: "표준 RF 목적 함수" },
+    ];
+    const face = faceOf('"Noto Sans KR", "IBM Plex Sans", "Inter", system-ui, sans-serif');
+    const v = pipeLayout(W, ko, undefined, face, { budget: 600, region: 760 });
+    const c = pipeLayout(W, ko, undefined, face);
+    expect(v.size).toBeGreaterThan(c.size);
+    for (const s of ko) expect(cutsWord(s.label, v.size, v.innerW, 600, face)).toBe(false);
+    expect(v.labelLines.flat().some((l) => /Rectified-flo$/.test(l))).toBe(false);
   });
 
   it("predicts a filled region for a three-stage row with a note", () => {

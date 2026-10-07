@@ -40,6 +40,7 @@ import {
   arrow,
   arrowDefs,
   circle,
+  cutsWord,
   elbow,
   type Face,
   faceOf,
@@ -572,6 +573,9 @@ function grownRow(
       if (!fit.ok) continue;
       const row = measureRow(fit, stages, loop, face, stageW, width, grow);
       if (!notesFit(stages, row.note, row.innerW, face)) continue;
+      // Bigger only while every word still sets whole: a label grown until
+      // "Rectified-flow" is cut to "Rectified-flo / w" is a broken label.
+      if (stages.some((s) => cutsWord(s.label, row.size, row.innerW, 600, face))) continue;
       if (M + row.need + row.below > grow.budget) continue;
       if (!best || row.size > best.size) best = row;
     }

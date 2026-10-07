@@ -774,6 +774,35 @@ export function wrap(
   return lines.length > 0 ? lines : [text];
 }
 
+/** Scripts a line may break between any two characters of: Han and kana. */
+const BREAKS_ANYWHERE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+
+/**
+ * Whether `wrap` would have to cut a word letter by letter to set `text` at
+ * this size and width — "Rectified-flo" / "w". `wrap` does that as a last
+ * resort, which is right for a box that cannot be any wider; a layout that is
+ * CHOOSING a size (v2's growth, a layout variant) asks this first and takes a
+ * size at which no word is cut. A run with Han or kana in it breaks between
+ * characters by the script's own rules, so it never counts; Hangul words are
+ * space-separated and do.
+ */
+export function cutsWord(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  weight = 400,
+  face: Face = "latin",
+): boolean {
+  return text
+    .split(/\s+/)
+    .some(
+      (w) =>
+        w !== "" &&
+        !BREAKS_ANYWHERE.test(w) &&
+        textWidth(w, fontSize, weight, 0, false, face) > maxWidth,
+    );
+}
+
 /* -------------------------------------------------------------- primitives */
 
 function attrs(a: Attrs): string {

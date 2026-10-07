@@ -266,6 +266,16 @@ describe("bar-compare: columns", () => {
   it("refuses negative values rather than drawing a zero line mid-column", () => {
     expect(() => emitScene(bars(3, [5, -2, 3]), ctx(look))).toThrow(/negative/);
   });
+
+  it("refuses a label it could only set by cutting a word, so the rows draw it whole", () => {
+    // Five model names in five ~330px slots: "Qwen2.5-VL-32B-Instruct" is one
+    // word wider than its slot at any legible size. The 2026-10-07 ja deck
+    // (3a447697) drew "Qwen2." / "5-VL-7" / "B" here before this refusal.
+    const long = bars(5);
+    for (const b of long.params.bars) b.label = "Qwen2.5-VL-32B-Instruct-Preview";
+    expect(() => emitScene(long, ctx(look))).toThrow(/word cut/);
+    expect(() => emitScene(long, ctx())).not.toThrow();
+  });
 });
 
 describe("pipeline: stair and column", () => {
