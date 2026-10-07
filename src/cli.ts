@@ -29,6 +29,7 @@ import {
   vendorKatex,
   vendorScripts,
 } from "./build/files.js";
+import { repackDeckPage } from "./deck/repack.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { illustrate } from "./images/illustrate.js";
@@ -199,6 +200,7 @@ function lengthFlags(cmd: Command): Command {
 function lookFlags(cmd: Command): Command {
   return cmd
     .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
+    .option("--design <name>", "classic (the v0.8.0 deck, default) | v2 (the redesign)")
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
@@ -247,6 +249,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "duration",
     "narrationDensity",
     "theme",
+    "design",
     "speed",
     "voice",
     "rate",
@@ -690,6 +693,8 @@ lookFlags(
     // config file restates it. Language is not overridable here — it describes
     // the copy that is already written, not a wish.
     const theme = stated(prefs, "theme") ?? storyboard.theme;
+    // The same precedence: a flag or config over the storyboard over classic.
+    const design = prefs.design ?? storyboard.design ?? "classic";
 
     const out = resolve(o.out);
     await mkdir(out, { recursive: true });
@@ -742,6 +747,7 @@ lookFlags(
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      design,
       ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
@@ -780,7 +786,11 @@ lookFlags(
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
-    const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
+    const look = [
+      theme,
+      design === "classic" ? "" : `design ${design}`,
+      paced.speed === 1 ? "" : `${paced.speed}× speed`,
+    ]
       .filter(Boolean)
       .join(", ");
     // Count what was drawn, not what was offered: below the format's minWeight a
@@ -1053,6 +1063,30 @@ voiceFlags(
   );
   step(`pack: ${size(bytes)} → ${out}`);
 });
+
+/**
+ * The v2 player for a deck that is already built — every one on a CDN today —
+ * without building it again. See src/deck/repack.ts. Writes BESIDE deck.html
+ * and never over it: the deck's own page stays exactly what was published, and
+ * a host switches by pointing at the new file.
+ */
+program
+  .command("repack")
+  .description(
+    "Give a built deck the current player (v2), without re-rendering: writes deck2.html.",
+  )
+  .argument("<deck>", "a built deck directory, or its deck.html")
+  .option("-o, --out <file>", "where to write it (default: deck2.html beside deck.html)")
+  .action(async (deck: string, o: { out?: string }) => {
+    const input = (await stat(deck)).isDirectory() ? join(deck, DECK_PAGE) : resolve(deck);
+    const out = o.out ? resolve(o.out) : join(dirname(input), "deck2.html");
+    if (out === input) {
+      throw new Error(`refusing to overwrite ${input}: repack writes a second page beside it`);
+    }
+    const page = await readFile(input, "utf8");
+    await writeFile(out, repackDeckPage(page, await deckRuntime()));
+    step(`repack: ${input} → ${out} (v2 player, islands kept byte for byte)`);
+  });
 
 program
   .command("unpack")

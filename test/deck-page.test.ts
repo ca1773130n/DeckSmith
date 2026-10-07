@@ -135,6 +135,7 @@ const TYPES: Readonly<Record<string, string>> = {
   ".css": "text/css; charset=utf-8",
   ".woff2": "font/woff2",
   ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".svg": "image/svg+xml",
@@ -614,4 +615,507 @@ describe.skipIf(chrome === null)("deck.html, opened in the renderer's own browse
     const page = await readFile(join(dir, "deck", DECK_PAGE), "utf8");
     expect(page).not.toContain("data-composition-id");
   });
+});
+
+/* ------------------------------------------------------------- the v2 player */
+
+/**
+ * A WAV of silence, built here rather than committed: the speed assertions need
+ * a narration the browser will ACTUALLY play, so its clock moves and its rate
+ * can be measured against the wall clock. Silence plays like anything else.
+ */
+function silentWav(seconds: number, rate = 8000): Buffer {
+  const samples = Math.round(seconds * rate);
+  const b = Buffer.alloc(44 + samples * 2);
+  b.write("RIFF", 0);
+  b.writeUInt32LE(36 + samples * 2, 4);
+  b.write("WAVE", 8);
+  b.write("fmt ", 12);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20); // PCM
+  b.writeUInt16LE(1, 22); // mono
+  b.writeUInt32LE(rate, 24);
+  b.writeUInt32LE(rate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(samples * 2, 40);
+  return b;
+}
+
+/**
+ * A narration that plays: twelve seconds a stop, one long real cue each. The
+ * FIRST stop speaks a Japanese cue with no space in it — the one `splitCue`
+ * cannot cut — so what the runtime shows there says which split it used.
+ */
+async function playableNarration(dir: string, storyboardPath: string): Promise<string> {
+  const storyboard = storyboardSchema.parse(JSON.parse(await readFile(storyboardPath, "utf8")));
+  const real = JSON.parse(await readFile(repo("test/fixtures/real-cues.json"), "utf8")) as {
+    cues: Record<string, string[]>;
+  };
+  const beats: Record<string, unknown[]> = {};
+  const unspaced = (real.cues.ja ?? []).find((t) => !/\s/.test(t) && t.length > 60);
+  for (const [i, beat] of storyboard.beats.entries()) {
+    const audio = `${beat.id}-0.wav`;
+    const text = (i === 0 ? unspaced : real.cues.en?.[i]) ?? `The line for ${beat.id}.`;
+    beats[beat.id] = [{ stop: 0, text, audio, seconds: 12, cues: [{ start: 0, end: 12, text }] }];
+    await writeFile(join(dir, audio), silentWav(12));
+  }
+  const path = join(dir, "narration-v2.json");
+  await writeFile(path, `${JSON.stringify({ voice: "test", beats }, null, 2)}\n`);
+  return path;
+}
+
+describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser", () => {
+  let dir = "";
+  let base = "";
+  let server: Server;
+  let browser: Browser;
+  let stops: Stop[] = [];
+  /** Every caption piece the fixture's real cues split into, in all four languages. */
+  let pieces: string[] = [];
+
+  const VIEWPORTS: [number, number][] = [
+    [1920, 1080],
+    [1280, 720],
+    [960, 540],
+    [800, 450],
+    [390, 844],
+    [358, 201],
+  ];
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "decksmith-deck-v2-"));
+    const storyboard = repo("demo/fixtures/plain.storyboard.json");
+    const cli = repo("dist/cli.js");
+    const narration = await playableNarration(dir, storyboard);
+    const build = (out: string, extra: string[]) =>
+      run(process.execPath, [
+        cli,
+        "build",
+        storyboard,
+        "--source",
+        repo("demo/fixtures/plain.source.json"),
+        "--narration",
+        narration,
+        "-o",
+        out,
+        "--no-fidelity",
+        ...extra,
+      ]);
+    // One build with the flag; and the SAME deck built classic and then
+    // repacked, which is how every deck already on a CDN gets the v2 player.
+    await build(join(dir, "v2"), ["--design", "v2"]);
+    await build(join(dir, "classic"), []);
+    await run(process.execPath, [cli, "repack", join(dir, "classic")]);
+
+    stops = buildStops(islandOf(await readFile(join(dir, "v2", DECK_PAGE), "utf8")));
+    const { splitForScreen } = await import("../src/deck/subtitles.js");
+    const real = JSON.parse(await readFile(repo("test/fixtures/real-cues.json"), "utf8")) as {
+      cues: Record<string, string[]>;
+    };
+    pieces = Object.values(real.cues)
+      .flat()
+      .flatMap((text) => splitForScreen({ start: 0, end: 1, text }).map((c) => c.text));
+
+    server = serve(dir);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const { default: puppeteer } = await import("puppeteer-core");
+    browser = await puppeteer.launch({
+      executablePath: chrome as string,
+      headless: true,
+      // The speed test needs the narration to start without a gesture.
+      args: [
+        "--force-device-scale-factor=1",
+        "--hide-scrollbars",
+        "--autoplay-policy=no-user-gesture-required",
+      ],
+    });
+  }, 300_000);
+
+  afterAll(async () => {
+    await browser?.close().catch(() => {});
+    await new Promise<void>((r) => server?.close(() => r()));
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * One page of the v2 deck. Storage is cleared first unless `keep`: every page
+   * shares the fixture origin, so one test's saved preference would otherwise
+   * become the next test's starting state.
+   */
+  async function open(path: string, w = 1280, h = 720, keep = false): Promise<Open2> {
+    const page = await browser.newPage();
+    if (!keep) await page.evaluateOnNewDocument(() => localStorage.clear());
+    const loud: string[] = [];
+    const offsite: string[] = [];
+    page.on("pageerror", (e: unknown) => loud.push(`uncaught: ${String(e)}`));
+    page.on("console", (m) => {
+      if (m.type() === "error") loud.push(`console.error: ${m.text()}`);
+    });
+    page.on("request", (r) => {
+      if (!r.url().startsWith(base) && !r.url().startsWith("data:")) offsite.push(r.url());
+    });
+    await page.setViewport({ width: w, height: h });
+    await page.goto(`${base}/${path}`, { waitUntil: "load", timeout: 60_000 });
+    await page.waitForFunction("document.querySelector('.ds-count')?.textContent", {
+      timeout: 60_000,
+    });
+    return { page, loud, offsite, close: () => page.close() };
+  }
+  interface Open2 {
+    page: Page;
+    loud: string[];
+    offsite: string[];
+    close: () => Promise<void>;
+  }
+
+  const at = (open: Open2, i: number) =>
+    open.page.waitForFunction(
+      (h: string) => location.hash === h,
+      { timeout: 30_000 },
+      formatHash(stops[i] as Stop),
+    );
+
+  /** Rectangles of everything the layout promises about, in one round trip. */
+  const rects = (open: Open2) =>
+    open.page.evaluate(() => {
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      };
+      const visible = [
+        ...document.querySelectorAll<HTMLElement>(".ds-controls > button, .ds-wrap > button"),
+      ]
+        .filter((b) => !b.hidden)
+        .map((b) => b.getBoundingClientRect())
+        .map((r) => Math.min(r.width, r.height));
+      return {
+        vw: innerWidth,
+        vh: innerHeight,
+        slide: box("hyperframes-player"),
+        subs: box(".ds-subs"),
+        controls: box(".ds-controls"),
+        menu: box(".ds-menu:not([hidden])"),
+        smallest: Math.min(...visible),
+      };
+    });
+
+  type Rect = { x: number; y: number; w: number; h: number } | null;
+  const disjoint = (a: Rect, b: Rect) =>
+    !a ||
+    !b ||
+    a.y + a.h <= b.y + 0.5 ||
+    b.y + b.h <= a.y + 0.5 ||
+    a.x + a.w <= b.x ||
+    b.x + b.w <= a.x;
+  const inside = (a: Rect, b: Rect) =>
+    !!a &&
+    !!b &&
+    a.x >= b.x - 0.5 &&
+    a.y >= b.y - 0.5 &&
+    a.x + a.w <= b.x + b.w + 0.5 &&
+    a.y + a.h <= b.y + b.h + 0.5;
+  /** Slide area over the largest 16:9 box the viewport holds — 1 is "the captions cost nothing". */
+  const share = (r: Awaited<ReturnType<typeof rects>>) => {
+    const full = Math.min(r.vw, (r.vh * 16) / 9) * Math.min(r.vh, (r.vw * 9) / 16);
+    return ((r.slide?.w ?? 0) * (r.slide?.h ?? 0)) / full;
+  };
+
+  it("marks the page it was built with --design v2, and the repacked one, and not the classic one", async () => {
+    const { PLAYER_MARKER } = await import("../src/deck/playback.js");
+    expect(await readFile(join(dir, "v2", DECK_PAGE), "utf8")).toContain(PLAYER_MARKER);
+    expect(await readFile(join(dir, "classic", "deck2.html"), "utf8")).toContain(PLAYER_MARKER);
+    expect(await readFile(join(dir, "classic", DECK_PAGE), "utf8")).not.toContain(PLAYER_MARKER);
+  });
+
+  it("gives the slide its space back and never puts a control over a caption, at six viewports", async () => {
+    // Targets from the plan (QW3 + critic 7, 8): ≥83% with CC on at 1080p and in
+    // the 800x450 embed (v0.8.0: 76.9% and 68.7%); 100% with CC off.
+    const floor: Record<string, number> = {
+      "1920x1080": 0.83,
+      "1280x720": 0.83,
+      "960x540": 0.83,
+      "800x450": 0.83,
+      "390x844": 0.999,
+      "358x201": 0.64,
+    };
+    for (const [w, h] of VIEWPORTS) {
+      const o = await open(`v2/${DECK_PAGE}`, w, h);
+      try {
+        await at(o, 0);
+        await o.page.evaluate(() => {
+          // The longest caption the strip is ever asked to hold, shown now.
+          const s = document.querySelector<HTMLElement>(".ds-subs") as HTMLElement;
+          s.hidden = false;
+        });
+        const on = await rects(o);
+        const label = `${w}x${h}`;
+        expect(share(on), label).toBeGreaterThanOrEqual(floor[label] as number);
+        expect(disjoint(on.controls, on.subs), `${label}: controls over captions`).toBe(true);
+        expect(inside(on.controls, on.slide), `${label}: controls outside the slide`).toBe(true);
+        expect(on.smallest, `${label}: a target under 40px`).toBeGreaterThanOrEqual(40);
+
+        // Every menu stays inside the slide, so it cannot reach the strip either.
+        for (const button of [".ds-speed", ".ds-size"]) {
+          await o.page.click(button);
+          const m = await rects(o);
+          expect(inside(m.menu, m.slide), `${label}: ${button} menu leaves the slide`).toBe(true);
+          expect(disjoint(m.menu, m.subs), `${label}: ${button} menu over captions`).toBe(true);
+          await o.page.keyboard.press("Escape");
+        }
+
+        await o.page.keyboard.press("c");
+        const off = await rects(o);
+        expect(share(off), `${label} with CC off`).toBeGreaterThan(0.999);
+        expect(o.loud).toEqual([]);
+      } finally {
+        await o.close();
+      }
+    }
+  }, 300_000);
+
+  it("fits every real caption, en/ko/ja/zh, on two lines at every viewport and size", async () => {
+    for (const [w, h] of VIEWPORTS) {
+      for (const size of ["s", "m", "l", "xl"]) {
+        const o = await open(`v2/${DECK_PAGE}?ccsize=${size}`, w, h);
+        try {
+          const over = await o.page.evaluate((texts: string[]) => {
+            const s = document.querySelector<HTMLElement>(".ds-subs") as HTMLElement;
+            s.hidden = false;
+            return texts.filter((t) => {
+              s.textContent = t;
+              return s.scrollHeight > s.clientHeight + 1;
+            });
+          }, pieces);
+          expect(over, `${w}x${h} ${size}`).toEqual([]);
+        } finally {
+          await o.close();
+        }
+      }
+    }
+  }, 300_000);
+
+  it("shows the caption the screen split made, not the 84-character one", async () => {
+    const { cueEm, SCREEN_CUE_EM } = await import("../src/deck/subtitles.js");
+    const o = await open(`v2/${DECK_PAGE}`, 358, 201);
+    try {
+      await at(o, 0);
+      await o.page.waitForFunction("document.querySelector('.ds-subs')?.textContent", {
+        timeout: 30_000,
+      });
+      const shown = await o.page.$eval(".ds-subs", (s) => ({
+        text: s.textContent ?? "",
+        over: s.scrollHeight > s.clientHeight + 1,
+      }));
+      expect(cueEm(shown.text)).toBeLessThanOrEqual(SCREEN_CUE_EM);
+      expect(shown.over).toBe(false);
+    } finally {
+      await o.close();
+    }
+  }, 120_000);
+
+  it("steps on Space, plays on Enter, toggles captions on c, and leaves Cmd+F to the browser", async () => {
+    const o = await open(`v2/${DECK_PAGE}`);
+    try {
+      await at(o, 0);
+      await o.page.keyboard.press("Space");
+      await at(o, 1);
+      expect(await o.page.$eval(".ds-play", (b) => (b as HTMLElement).dataset.on)).not.toBe("1");
+      await o.page.keyboard.press("Enter");
+      await o.page.waitForFunction("document.querySelector('.ds-play').dataset.on === '1'");
+      await o.page.keyboard.press("Enter");
+      await o.page.waitForFunction("document.querySelector('.ds-play').dataset.on === '0'");
+
+      const cc = () => o.page.$eval(".ds-cc", (b) => b.getAttribute("aria-pressed"));
+      expect(await cc()).toBe("true");
+      await o.page.keyboard.press("c");
+      expect(await cc()).toBe("false");
+      // The button, by pointer, is the same switch.
+      await o.page.click(".ds-cc");
+      expect(await cc()).toBe("true");
+
+      // Cmd+F is find. v0.8.0 took it for fullscreen and swallowed the event.
+      await o.page.evaluate(() => {
+        (window as unknown as { swallowed: boolean }).swallowed = false;
+        addEventListener("keydown", (e) => {
+          if (e.key === "f" && e.metaKey)
+            (window as unknown as { swallowed: boolean }).swallowed = e.defaultPrevented;
+        });
+      });
+      await o.page.keyboard.down("Meta");
+      await o.page.keyboard.press("f");
+      await o.page.keyboard.up("Meta");
+      expect(
+        await o.page.evaluate(() => (window as unknown as { swallowed: boolean }).swallowed),
+      ).toBe(false);
+      expect(await o.page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+      expect(o.loud).toEqual([]);
+    } finally {
+      await o.close();
+    }
+  }, 120_000);
+
+  it("plays the narration at the chosen speed — the sentence already playing, and every one after", async () => {
+    const o = await open(`v2/${DECK_PAGE}`);
+    try {
+      await at(o, 0);
+      const audio = () =>
+        o.page.evaluate(() => {
+          const a = document.querySelector("audio") as HTMLAudioElement;
+          return {
+            src: a.src,
+            t: a.currentTime,
+            rate: a.playbackRate,
+            def: a.defaultPlaybackRate,
+            paused: a.paused,
+          };
+        });
+      await o.page.waitForFunction("document.querySelector('audio')?.currentTime > 0.2", {
+        timeout: 30_000,
+      });
+      const before = await audio();
+      expect(before.rate).toBe(1);
+
+      // Mid-sentence: no reload, same source, new rate — and the clock agrees.
+      await o.page.keyboard.press(">");
+      await o.page.keyboard.press(">");
+      const a0 = await audio();
+      expect(a0.src).toBe(before.src);
+      expect(a0.rate).toBe(1.5);
+      expect(a0.def).toBe(1.5);
+      const wall0 = Date.now();
+      await new Promise((r) => setTimeout(r, 1500));
+      const a1 = await audio();
+      const ratio = (a1.t - a0.t) / ((Date.now() - wall0) / 1000);
+      expect(ratio).toBeGreaterThan(1.3);
+      expect(ratio).toBeLessThan(1.7);
+
+      // The next stop reloads the element, which resets playbackRate to its default.
+      await o.page.keyboard.press("ArrowRight");
+      await at(o, 1);
+      await o.page.waitForFunction(
+        (src: string) => document.querySelector("audio")?.src !== src,
+        {},
+        before.src,
+      );
+      const next = await audio();
+      expect(next.rate).toBe(1.5);
+      expect(await o.page.$eval(".ds-speed", (b) => b.textContent)).toBe("1.5×");
+      expect(o.loud).toEqual([]);
+    } finally {
+      await o.close();
+    }
+  }, 120_000);
+
+  it("remembers the viewer's choices, lets the URL override them, and tells the host page", async () => {
+    // A host page framing the deck, recording what the deck tells it.
+    await writeFile(
+      join(dir, "host.html"),
+      `<!doctype html><body><iframe id="f" src="v2/${DECK_PAGE}?speed=1.25" style="width:800px;height:450px;border:0"></iframe>` +
+        `<script>window.got=[];addEventListener("message",e=>{if(e.data&&e.data.type==="decksmith:prefs")got.push(e.data)})</script>`,
+    );
+    const page = await browser.newPage();
+    // Every frame, the deck's included: this test is about what gets saved.
+    await page.evaluateOnNewDocument(() => localStorage.clear());
+    try {
+      await page.setViewport({ width: 900, height: 500 });
+      await page.goto(`${base}/host.html`, { waitUntil: "load" });
+      const frame = await (await page.$("#f"))?.contentFrame();
+      if (!frame) throw new Error("no frame");
+      await frame.waitForFunction("document.querySelector('.ds-count')?.textContent", {
+        timeout: 60_000,
+      });
+      // The URL's speed, applied and NOT saved: it is for this visit.
+      expect(await frame.$eval(".ds-speed", (b) => b.textContent)).toBe("1.25×");
+      expect(await frame.evaluate(() => localStorage.getItem("decksmith.prefs.v1"))).toBeNull();
+
+      // A viewer's change: saved, and posted up so the host can keep it per user.
+      await frame.click(".ds-size");
+      await frame.click('.ds-sz[data-value="l"]');
+      // postMessage is delivered as a task, not during the click.
+      await page.waitForFunction("window.got.length > 0", { timeout: 5_000 });
+      const got = (await page.evaluate(
+        () => (window as unknown as { got: unknown[] }).got,
+      )) as unknown[];
+      expect(got).toEqual([{ type: "decksmith:prefs", speed: 1.25, cc: true, ccsize: "l" }]);
+      expect(
+        JSON.parse(
+          (await frame.evaluate(() => localStorage.getItem("decksmith.prefs.v1"))) ?? "{}",
+        ),
+      ).toEqual({
+        speed: 1.25,
+        cc: true,
+        ccsize: "l",
+      });
+
+      // The host restoring a user's saved choice: applied, saved, never echoed.
+      await page.evaluate(() =>
+        (document.getElementById("f") as HTMLIFrameElement).contentWindow?.postMessage(
+          { type: "decksmith:prefs", speed: 2, cc: false },
+          "*",
+        ),
+      );
+      await frame.waitForFunction("document.querySelector('.ds-speed').textContent === '2×'");
+      expect(await frame.$eval(".ds-cc", (b) => b.getAttribute("aria-pressed"))).toBe("false");
+      expect(
+        await frame.evaluate(
+          () => (document.querySelector("audio") as HTMLAudioElement).defaultPlaybackRate,
+        ),
+      ).toBe(2);
+      expect(await page.evaluate(() => (window as unknown as { got: unknown[] }).got.length)).toBe(
+        1,
+      );
+    } finally {
+      await page.close();
+    }
+
+    // A later visit, same origin, no URL: what was saved.
+    const o = await open(`v2/${DECK_PAGE}`, 1280, 720, true);
+    try {
+      expect(await o.page.$eval(".ds-speed", (b) => b.textContent)).toBe("2×");
+      expect(await o.page.$eval(".ds-cc", (b) => b.getAttribute("aria-pressed"))).toBe("false");
+      await o.page.evaluate(() => localStorage.clear());
+    } finally {
+      await o.close();
+    }
+  }, 120_000);
+
+  it("runs a repacked classic deck on that deck's own vendored player, offline and quietly", async () => {
+    const o = await open("classic/deck2.html");
+    try {
+      await at(o, 0);
+      expect(await o.page.$(".ds-controls")).not.toBeNull();
+      await o.page.keyboard.press("Space");
+      await at(o, 1);
+      // The composition was reached and painted, not merely the counter moved.
+      expect(
+        await o.page.evaluate(() => {
+          const f = document
+            .querySelector("hyperframes-player")
+            ?.shadowRoot?.querySelector("iframe");
+          return f?.contentDocument?.documentElement.classList.contains("ds-live") ?? false;
+        }),
+      ).toBe(true);
+      expect(o.loud).toEqual([]);
+      expect(o.offsite).toEqual([]);
+    } finally {
+      await o.close();
+    }
+  }, 120_000);
+
+  it("leaves a classic deck on the v0.8.0 player", async () => {
+    const o = await open(`classic/${DECK_PAGE}`);
+    try {
+      expect(await o.page.$(".ds-controls")).toBeNull();
+      expect(
+        await o.page.evaluate(() => document.documentElement.classList.contains("ds-v2")),
+      ).toBe(false);
+    } finally {
+      await o.close();
+    }
+  }, 120_000);
 });

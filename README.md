@@ -220,6 +220,39 @@ Arrow keys, Space and PageUp/PageDown step; clicking the left or right third doe
 notes; `f` is fullscreen; `m` mutes the voice and `s` hides the subtitles. Every step is
 deep-linkable (`#3` is slide 3, `#3.2` its second reveal).
 
+### The v2 player (`--design v2`)
+
+`build --design v2` (or `"design": "v2"` in the storyboard or config) gives `deck.html` the
+v2 player; everything else about the build is unchanged. A deck that is already built
+gets it without rebuilding:
+
+```bash
+decksmith repack out/            # writes out/deck2.html beside deck.html, never over it
+```
+
+`repack` swaps the inlined runtime, marks the page and checks that every JSON island is
+byte-identical — no Chrome, no TTS, no re-render.
+
+- **One control bar**, YouTube-style, on the bottom edge of the slide: play/pause, the
+  counter, narration speed (0.75–2×), `CC`, caption size (S/M/L/XL) and fullscreen. It
+  hides 2.5s after the last pointer move unless it is hovered, focused or a menu is open.
+  The caption strip sits below the slide, so no control or menu ever covers a caption.
+- **Speed** sets the narration's `playbackRate` live, on the sentence already playing, and
+  divides the reveal glides and silent waits by the same factor so they keep pace.
+- **Captions** are sized from the slide (3% of its height, 13px floor) and the slide gives
+  up only one two-line strip for them: 84% of the frame at 1080p, 83% in an 800×450 embed
+  (v0.8.0: 77% and 69%), 100% with `CC` off and in a portrait letterbox. Long cues are cut
+  to two lines by width, which also splits Japanese and Chinese.
+- **Keys:** Space steps forward (Space is the presenter's key, not play); `Enter` plays and
+  pauses; `c` (or `s`) captions; `<`/`>` speed; `+`/`-` caption size. Anything held with
+  Cmd, Ctrl or Alt is left to the browser.
+- **Preferences** — speed, captions on/off, size — come from `?speed=1.25&cc=0&ccsize=l`
+  (this visit only), else from `localStorage` (`decksmith.prefs.v1`), else the defaults.
+  When the viewer changes one, the deck posts
+  `{ type: "decksmith:prefs", speed, cc, ccsize }` to its parent so an embedding site can
+  keep it per user (a cross-site iframe's storage is partitioned), and it applies the same
+  message when the parent sends it. Check `event.origin` on your side.
+
 Stepping forward *plays* the reveal rather than cutting to it — the step layer sweeps the
 composition's timelines across frames instead of seeking once. Backward steps, `Home`/`End`
 and deep links cut, because entrance tweens run in reverse look like elements un-drawing
@@ -785,6 +818,7 @@ invalidates a storyboard you have already edited.
 | `tone` | `plain` | plan | `plain` · `academic` · `conversational` · `punchy` |
 | `density` | `normal` | plan | `sparse` · `normal` · `dense` — how much text a slide may carry |
 | `theme` | `ink` | emit | `ink` · `paper` · `mono` |
+| `design` | `classic` | emit | `classic` · `v2` — see "The v2 player" |
 | `animationSpeed` | `1` | emit | multiplies every duration, hold and beat length. Below 1 is faster |
 | `narration.voice` | picked for `lang`+`tone` | narrate | an explicit edge-tts voice id |
 | `narration.rate` | `+0%` | narrate | edge-tts prosody |
@@ -832,7 +866,7 @@ why `slideCount` did nothing.
 decksmith.config.json: unknown preference "narration.speed". Valid: enabled, voice, rate, pitch, subtitles.
 ```
 
-On the command line: `--slides --lang --tone --density` on `plan`, `--theme --speed` on
+On the command line: `--slides --lang --tone --density` on `plan`, `--theme --design --speed` on
 `build`, `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
 --image-model --image-style --image-max` on `plan` and `illustrate`, and all but the image
 flags on `pack`, which records the preferences the deck was made under — whether it was
