@@ -776,6 +776,10 @@ export const storyboardSchema = z
  * reads the ones that change how it looks. Neither reaches for a field it does
  * not own, which is why a preferences change never invalidates a storyboard.
  */
+/** See `Prefs.design`. A plain enum so `--design` and the config file share one message. */
+export const designSchema = z.enum(["classic", "v2"]);
+export type Design = z.infer<typeof designSchema>;
+
 export const prefsSchema = z.object({
   /* --- planning --- */
   /** Target beat count. The planner treats it as a target, not a quota. */
@@ -824,6 +828,18 @@ export const prefsSchema = z.object({
 
   /* --- look --- */
   theme: z.string().default("ink"),
+  /**
+   * Which generation of the layout vocabulary draws the deck.
+   *
+   * `classic` is v0.8.0, byte for byte: every golden and every byte-identity
+   * test is pinned to it, and it stays the default so an npm user's output does
+   * not move under them. `v2` is the redesign (2026-10-07 plan): archetypes grow
+   * into their region instead of only shrinking, and the build writes `fit.json`
+   * so `verify` can hold the predicted fill against the browser's. Stop counts
+   * are identical between the two — that is what lets an existing storyboard and
+   * its narration be rebuilt as v2 with no re-plan and no TTS.
+   */
+  design: designSchema.default("classic"),
   /**
    * Multiplies every emitted tween duration. Below 1 is faster.
    *

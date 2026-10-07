@@ -16,6 +16,7 @@ import { embedUrl } from "../pack/media.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import type {
   Beat,
+  Design,
   Format,
   Inside,
   NarrationCanvas,
@@ -41,6 +42,7 @@ import {
   rigHtml,
   transitWindow,
 } from "./camera.js";
+import type { FitManifest } from "./fit.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, tweenText } from "./kit.js";
 import { baseCss, deckLook, FONT_BUNDLE_DIR, FONT_BUNDLE_HREF, pace } from "./theme.js";
@@ -121,6 +123,11 @@ export interface Deck {
    * PASS. `build` prints every casualty's reason; see src/cli.ts.
    */
   cut: Cut;
+  /**
+   * v2 only: each drawn scene's predicted fill, for `fit.json`. Absent on a
+   * classic build, which writes no manifest and so is not graded for fill.
+   */
+  fit?: FitManifest;
 }
 
 type Segment = z.infer<typeof segmentSchema>;
@@ -156,6 +163,11 @@ export interface DeckOptions {
   theme?: string;
   /** Multiplies every duration, hold, and beat length. 1 leaves bytes untouched. */
   speed?: number;
+  /**
+   * `prefs.design`. Absent or `classic` emits v0.8.0's bytes; `v2` lets the
+   * archetypes grow into their regions and fills `Deck.fit`. See `../emit/fit.ts`.
+   */
+  design?: Design;
   narration?: DeckNarration;
   /**
    * What to do when one beat cannot be drawn.
@@ -230,10 +242,12 @@ export function emitDeck(
   const laid = layout(storyboard, source, format, opts);
   const composition = renderComposition(storyboard, format, laid);
   const { cut } = laid;
-  if (!format.navigable) return { composition, cut };
+  const fit = laid.fit ? { fit: laid.fit } : {};
+  if (!format.navigable) return { composition, cut, ...fit };
   return {
     composition,
     cut,
+    ...fit,
     page: emitDeckPage(
       storyboard,
       format,
@@ -307,7 +321,7 @@ export function planCut(
       // dropped from the deck, so a refusal over a number nobody reads would
       // delete the beat from the build it was measuring.
       ({ scene } = stageScene(
-        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0 }),
+        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0, ...design(opts) }),
         speed,
       ));
     } catch (err) {
@@ -413,7 +427,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // Rounded to invariant 10's three places, so the number an archetype writes
     // and the number `sceneHtml` publishes as this scene's `data-start` are ONE
     // number rather than two roundings of one.
-    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at) };
+    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at), ...design(opts) };
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
@@ -545,7 +559,26 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     cut,
     builds,
     plugins,
+    // Read off the EMITTER's scene, as warnings are: the camera wrapper is a
+    // layer that was never asked how full the body is.
+    fit:
+      opts.design === "v2"
+        ? ({
+            design: "v2",
+            scenes: cuts.map((c) => ({
+              id: c.sid,
+              beat: c.beat.id,
+              archetype: c.beat.archetype,
+              ...(c.scene.fit ? { fit: c.scene.fit } : {}),
+            })),
+          } satisfies FitManifest)
+        : undefined,
   };
+}
+
+/** `design` for an emit context, only when stated — so a classic context is the object it always was. */
+function design(opts: DeckOptions): { design?: Design } {
+  return opts.design ? { design: opts.design } : {};
 }
 
 type Layout = ReturnType<typeof layout>;

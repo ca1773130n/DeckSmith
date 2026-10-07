@@ -28,9 +28,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { FIT_FILE } from "./emit/fit.js";
 import type { Cut } from "./plan/select.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
-import { type Format, FORMATS, type Source, type Storyboard } from "./types.js";
+import { type Design, type Format, FORMATS, type Source, type Storyboard } from "./types.js";
 
 /* ------------------------------------------------------------------ ingest */
 
@@ -340,6 +341,8 @@ export interface BuildDeckOptions {
   onBeatWarning?: (beatId: string, warning: string) => void;
   /** Any name in `THEME_NAMES`. Overrides `storyboard.theme`. */
   theme?: string;
+  /** `classic` (the default, v0.8.0's layouts) or `v2`. See `Prefs.design`. */
+  design?: Design;
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
   speed?: number;
   /** Default `FORMATS["deck-16x9"]`. */
@@ -402,6 +405,7 @@ export async function buildDeck(
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
     ...(opts.theme ? { theme: opts.theme } : {}),
+    ...(opts.design ? { design: opts.design } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
     ...(opts.onBeatWarning ? { onBeatWarning: opts.onBeatWarning } : {}),
@@ -416,6 +420,7 @@ export async function buildDeck(
 
   await write("index.html", deck.composition);
   await write("hyperframes.json", HYPERFRAMES_JSON);
+  if (deck.fit) await write(FIT_FILE, `${JSON.stringify(deck.fit, null, 2)}\n`);
 
   // `render` reads this and refuses without it, so a library caller who skipped
   // it got "timing.json is missing, rebuild the deck" — advice that could never

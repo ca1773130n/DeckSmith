@@ -30,6 +30,7 @@ import {
   vendorScripts,
 } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { FIT_FILE } from "./emit/fit.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { illustrate } from "./images/illustrate.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
@@ -199,6 +200,10 @@ function lengthFlags(cmd: Command): Command {
 function lookFlags(cmd: Command): Command {
   return cmd
     .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
+    .option(
+      "--design <gen>",
+      "classic (v0.8.0 layouts) | v2 (archetypes grow to fill their region)",
+    )
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
@@ -247,6 +252,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "duration",
     "narrationDensity",
     "theme",
+    "design",
     "speed",
     "voice",
     "rate",
@@ -742,6 +748,7 @@ lookFlags(
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      design: prefs.design,
       ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
@@ -758,6 +765,8 @@ lookFlags(
     });
     await writeFile(join(out, "index.html"), deck.composition);
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);
+    // v2 only. Its presence is what tells `verify` to grade fill — see `FIT_FILE`.
+    if (deck.fit) await writeFile(join(out, FIT_FILE), `${JSON.stringify(deck.fit, null, 2)}\n`);
     await writeTiming(out, {
       storyboard,
       source,
@@ -780,7 +789,11 @@ lookFlags(
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
-    const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
+    const look = [
+      theme,
+      prefs.design === "classic" ? "" : `${prefs.design} design`,
+      paced.speed === 1 ? "" : `${paced.speed}× speed`,
+    ]
       .filter(Boolean)
       .join(", ");
     // Count what was drawn, not what was offered: below the format's minWeight a
