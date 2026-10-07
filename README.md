@@ -832,8 +832,8 @@ why `slideCount` did nothing.
 decksmith.config.json: unknown preference "narration.speed". Valid: enabled, voice, rate, pitch, subtitles.
 ```
 
-On the command line: `--slides --lang --tone --density` on `plan`, `--theme --speed` on
-`build`, `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
+On the command line: `--slides --lang --tone --density` on `plan`, `--theme --speed
+--design` on `build`, `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
 --image-model --image-style --image-max` on `plan` and `illustrate`, and all but the image
 flags on `pack`, which records the preferences the deck was made under — whether it was
 illustrated is read off the storyboard itself, the way `narration.enabled` is read off the
@@ -843,6 +843,14 @@ A preference sitting at its default says nothing, so a stored artifact wins over
 loses to anything you type. `plan` stamps `lang` and `theme` into the storyboard it
 writes; `build` then uses the storyboard's unless `--theme` or a config file restates one.
 Language is never overridden at build time — it describes copy that is already written.
+
+`--design v2` (or `"design": "v2"` in the config file) lets the build vary each beat's
+layout: bars as rows or columns, a pipeline as a row, a stair or a column, a claim beside,
+mirrored against or above its figure, a comparison as columns or rows, and the headline on
+top, in a left rail or under the body. The choice is made by code, deterministically, per
+paper — never by the planner — and it never moves a stop, so narration stays aligned.
+`build` writes the choices to `out/look.json`. Without the flag the deck is the classic one,
+byte for byte. See `.planning/2026-10-07-v2-layout-director.md`.
 
 ## Themes
 
