@@ -16,11 +16,13 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { annotatedFigure } from "../src/emit/archetypes/annotated-figure.js";
 import { barCompare } from "../src/emit/archetypes/bar-compare.js";
 import { callout } from "../src/emit/archetypes/callout.js";
 import { claimFigure } from "../src/emit/archetypes/claim-figure.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { pipeLayout, pipeline } from "../src/emit/archetypes/pipeline.js";
+import { stack } from "../src/emit/archetypes/stack.js";
 import { emitDeck } from "../src/emit/composition.js";
 import { EMPTY_BELOW, FULL_AT, fillBand, fitOf, GROWTH, growToFit, isV2 } from "../src/emit/fit.js";
 import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
@@ -348,5 +350,51 @@ describe("claim-figure under v2", () => {
     const v = claimFigure(claim, ctx("v2", src));
     expect(v.html).toContain("cf-under");
     expect(fillBand(v.fit?.fill ?? 0)).toBe("full");
+  });
+});
+
+describe("equation-walk under v2", () => {
+  it("asks for a bigger display and a bigger legend, scoped to the scene", async () => {
+    const { storyboard, source } = await demo();
+    const walk = storyboard.beats.find((b) => b.archetype === "equation-walk") as Beat;
+    const c = emitScene(walk, ctx(undefined, source));
+    const v = emitScene(walk, ctx("v2", source));
+    const size = (s: Scene) => Number(/id="s1-eq" style="font-size:(\d+)px/.exec(s.html)?.[1]);
+    expect(size(v)).toBeGreaterThan(size(c));
+    expect(c.css).not.toContain("#s1 .leg{");
+    expect(v.css).toContain("#s1 .leg{font-size:60px}");
+    expect(v.fit?.fill).toBeGreaterThan(0);
+  });
+});
+
+describe("stack under v2", () => {
+  const few = beat("stack", {
+    headline: "Three layers",
+    layers: [{ label: "Bottom" }, { label: "Middle" }, { label: "Top" }],
+  });
+  const height = (s: Scene) => Number(/viewBox="0 0 [\d.]+ ([\d.]+)"/.exec(s.html)?.[1]);
+
+  it("lets the rise grow past classic's 180px a layer when the region has room", () => {
+    const v = stack(few, ctx("v2"));
+    expect(height(v)).toBeGreaterThan(height(stack(few, ctx())));
+    expect(v.fit?.fill).toBeGreaterThanOrEqual(FULL_AT * 0.95);
+  });
+});
+
+describe("annotated-figure under v2", () => {
+  it("draws a small figure up to twice its pixels where classic stops at 1.5x", () => {
+    const src = {
+      ...bare,
+      figures: [{ id: "f1", src: "f1.png", caption: "Figure 1.", width: 300, height: 200 }],
+    } as Source;
+    const b = beat("annotated-figure", {
+      headline: "Look here",
+      figureId: "f1",
+      notes: [{ x: 0.2, y: 0.5, text: "this part", tone: "a" }],
+    });
+    // The stage's overlay is the figure's height plus nothing: 200px drawn at 1.5x and 2x.
+    const h = (s: Scene) => Number(/id="s1-ov" width="[\d.]+" height="([\d.]+)"/.exec(s.html)?.[1]);
+    expect(h(annotatedFigure(b, ctx(undefined, src)))).toBe(300);
+    expect(h(annotatedFigure(b, ctx("v2", src)))).toBe(400);
   });
 });

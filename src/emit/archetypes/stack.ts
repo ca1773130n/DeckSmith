@@ -23,6 +23,7 @@
  */
 import type { BeatOf, Format } from "../../types.js";
 import { DEFAULT_POSE, depthCss, tiltedFloor } from "../depth.js";
+import { fitOf, GROWTH, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentH, contentW, esc, lift, settle, spotlighter } from "../kit.js";
 import {
@@ -194,10 +195,32 @@ export interface StackLayout {
  * composition changes rather than the type: the note moves beside its label, on
  * the same line, right-aligned against the spine.
  */
-export function stackLayout(p: Params, format: Format, face: Face = "latin"): StackLayout {
-  const stacked = solve(p, format, false, face);
+export function stackLayout(
+  p: Params,
+  format: Format,
+  face: Face = "latin",
+  grow = false,
+): StackLayout {
+  // v2: the same two compositions with the RISE allowed `GROWTH` times as far —
+  // a pile solved against the height it is given rather than stopping at 180px
+  // a layer in a 760px region. Only the rise: the plane's thickness and depth
+  // are what `room` reserves for, so growing them too SHRANK the demo's pile
+  // (746 -> 669px) by reserving a bigger plane than it drew. Taken only when it
+  // fits and is taller; otherwise the classic answer, so v2 refuses exactly
+  // what classic refuses.
+  if (grow) {
+    const classic = stackLayout(p, format, face, false);
+    if (!classic.fits) return classic;
+    const big = solveEither(p, format, face, GROWTH);
+    return big.fits && big.height > classic.height ? big : classic;
+  }
+  return solveEither(p, format, face, 1);
+}
+
+function solveEither(p: Params, format: Format, face: Face, growth: number): StackLayout {
+  const stacked = solve(p, format, false, face, growth);
   if (stacked.fits || !p.layers.some((l) => l.note)) return stacked;
-  const inline = solve(p, format, true, face);
+  const inline = solve(p, format, true, face, growth);
   if (inline.fits) return inline;
   // Neither composition fits. Prefer the shorter one — but only if its width is
   // honest: an inline layout is often shorter precisely BECAUSE its note is a
@@ -236,13 +259,14 @@ function floorFor(p: Params, format: Format): number {
   return tiltedFloor({ ...DEFAULT_POSE, rotateX: p.tilt }, contentH(format), MIN_FONT);
 }
 
-function solve(p: Params, format: Format, inline: boolean, face: Face): StackLayout {
+function solve(p: Params, format: Format, inline: boolean, face: Face, growth = 1): StackLayout {
   const width = contentW(format);
   const boxH = contentH(format);
   const floor = floorFor(p, format);
   const count = p.layers.length;
   const k = isPortrait(format) ? "tall" : "wide";
-  const riseMax = RISE_MAX[k];
+  // `growth` is exactly 1 in classic, and `x * 1` is `x`: the bytes stand.
+  const riseMax = RISE_MAX[k] * growth;
   const syMax = SY_MAX[k];
   const tMax = T_MAX[k];
 
@@ -379,7 +403,8 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
   const face = faceOf(ctx.theme.fontStack);
-  const L = stackLayout(p, ctx.format, face);
+  const v2 = isV2(ctx);
+  const L = stackLayout(p, ctx.format, face, v2);
   const count = p.layers.length;
   const last = count - 1;
 
@@ -605,6 +630,8 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
     parts,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    // The pile and the note under it, over the box less the chrome.
+    ...(v2 ? { fit: fitOf(L.height + L.noteH, contentH(ctx.format) - L.chromeH) } : {}),
     css: [
       chromeCss(theme),
       // Every size the diagram picks is per-beat, so it rides on the elements as
