@@ -1,0 +1,235 @@
+{
+  "_comment": "Real equation-walk beats from HypePaper deck runs that failed `decksmith build`/`verify` between 2026-10-03 and 2026-10-07 (DeckSmith 0.7.0). Copied verbatim from each run's storyboard.json and source.json; `failed` is the first matching error line of that run's build.stdout.log.",
+  "cases": [
+    {
+      "kind": "right_swallowed",
+      "deck": "f2a0f316-6417-49ac-abc6-710b5b11775c.en",
+      "run": "20261003-191958",
+      "beat": "b05-world",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Expected 'EOF', got '\\right' at position 120: …ViT}}(o_{t+H}) \\̲r̲i̲g̲h̲t̲}\\|^2_2 [[data-composition-id]]",
+      "equation": {
+        "id": "eq10",
+        "tex": "\\mathcal{L}_{\\text{world}} = \\left\\| x_t - \\text{Enc}_{\\text{ViT}}(o_{t+H}) \\right\\|^2_2",
+        "display": true
+      },
+      "headline": "Future-feature supervision grounds the intent representation.",
+      "terms": [
+        {
+          "tex": "x_t",
+          "label": "Predicted latent intent",
+          "tone": "b"
+        },
+        {
+          "tex": "\\text{Enc}_{\\text{ViT}}(o_{t+H})",
+          "label": "Encoded future observation",
+          "tone": "c"
+        }
+      ]
+    },
+    {
+      "kind": "right_swallowed",
+      "deck": "11e1c015-d79d-4265-8afa-57eb70755ff3.zh-Hans",
+      "run": "20261006-044057",
+      "beat": "b05-causality",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Expected 'EOF', got '\\right' at position 151: … t-b}{a_{\\le t}\\̲r̲i̲g̲h̲t̲})",
+      "equation": {
+        "id": "eq4",
+        "tex": "\\begin{equation}\n\n    p_\\theta(x_{1:T} \\mid a_{1:T}) = \\prod_{t} p_\\theta\\!\\left(x_t \\mid x_{<t}, a_{\\le t}\\right)\n\\end{equation}",
+        "display": true
+      },
+      "headline": "当前画面只能依赖已经可用的信息",
+      "terms": [
+        {
+          "tex": "x_{<t}",
+          "label": "此前的视觉状态",
+          "tone": "a"
+        },
+        {
+          "tex": "a_{\\le t}",
+          "label": "当前与历史动作",
+          "tone": "b"
+        }
+      ]
+    },
+    {
+      "kind": "right_swallowed",
+      "deck": "3b7225ad-ead2-47fb-aecd-03f50b1e96a5.ja",
+      "run": "20261006-172435",
+      "beat": "b06-loss",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Expected 'EOF', got '\\right' at position 138: …m{sg}(u_k^{t})",
+      "equation": {
+        "id": "eq11",
+        "tex": "\\mathbb{E}_{(x_0,y)}\n\\left[\n\\frac{1}{K}\n\\sum_{k=1}^{K}\n\\left\\|\nu_k^{s} - \\mathrm{sg}(u_k^{t})\n\\right\\|_2^2\n\\right].",
+        "display": true
+      },
+      "headline": "同じ状態での速度予測の差を小さくする",
+      "terms": [
+        {
+          "tex": "u_k^{s}",
+          "label": "Student の速度予測",
+          "tone": "a"
+        },
+        {
+          "tex": "\\mathrm{sg}(u_k^{t})",
+          "label": "勾配を止めた教師予測",
+          "tone": "b"
+        }
+      ]
+    },
+    {
+      "kind": "left_outside",
+      "deck": "dcb6d8c4-913d-4236-9e7e-6b21aa4f48c9.ja",
+      "run": "20261006-020446",
+      "beat": "b06-loss",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Got function '\\htmlClass' with no arguments as argument to '\\left' at position 72: …{valid}}}}\\left\\̲h̲t̲m̲l̲C̲l̲a̲s̲s̲{term t-b}{|\\ha… [[data-composition-id]]",
+      "equation": {
+        "id": "eq4",
+        "tex": "\\mathcal{L}=\\sum_{p\\in\\Omega_{\\text{valid}}}\\left|\\hat{D}_p-D^{\\text{gt}}_p\\right|",
+        "display": false
+      },
+      "headline": "有効画素で深度の絶対誤差を最小化する",
+      "terms": [
+        {
+          "tex": "\\Omega_{\\text{valid}}",
+          "label": "損失を計算する有効画素",
+          "tone": "a"
+        },
+        {
+          "tex": "\\left|\\hat{D}_p-D^{\\text{gt}}_p\\right|",
+          "label": "予測深度と正解深度の絶対差",
+          "tone": "b"
+        }
+      ]
+    },
+    {
+      "kind": "left_outside",
+      "deck": "5e49907b-e612-4b83-ba03-3267a3663d71.ja",
+      "run": "20261006-172435",
+      "beat": "b05-temporal-coordinates",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Got function '\\htmlClass' with no arguments as argument to '\\left' at position 24: …) = \\left(\\left\\̲h̲t̲m̲l̲C̲l̲a̲s̲s̲{term t-a}{[ t\\… [[data-composition-id]]",
+      "equation": {
+        "id": "eq4",
+        "tex": "R_a(t, m) = \\left(\\left[ t\\cdot\\frac{T_v}{T_a} \\right], t + H, m + W\\right)",
+        "display": true
+      },
+      "headline": "TA-RoPEは位置IDで音声と動画の時間を合わせる",
+      "terms": [
+        {
+          "tex": "\\left[ t\\cdot\\frac{T_v}{T_a} \\right]",
+          "label": "動画に対応する時間座標",
+          "tone": "a"
+        },
+        {
+          "tex": "t + H, m + W",
+          "label": "動画と重ならない位置座標",
+          "tone": "b"
+        }
+      ]
+    },
+    {
+      "kind": "bare_superscript",
+      "deck": "b3364d96-06a1-4e9a-8381-5b439c4ae803.en",
+      "run": "20261006-194009",
+      "beat": "b05-reward",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Got function '\\htmlClass' with no arguments as superscript at position 96: …igr)}\\!\\bigr\\}^\\̲h̲t̲m̲l̲C̲l̲a̲s̲s̲{term t-c}{\\alp… [[data-composition-id]]",
+      "equation": {
+        "id": "eq6",
+        "tex": "F(s)=\\bigl\\{\\!\\mathop{\\text{clip}}\\nolimits\\bigl(H(s),0,1\\bigr)\\!\\bigr\\}^\\alpha,\\; H(s)=\\frac{s-L}{U-L}\\; (\\text{max})",
+        "display": false
+      },
+      "headline": "Reward shaping rescales narrow objective ranges.",
+      "terms": [
+        {
+          "tex": "\\frac{s-L}{U-L}",
+          "label": "Normalize between chosen bounds",
+          "tone": "a"
+        },
+        {
+          "tex": "\\mathop{\\text{clip}}\\nolimits\\bigl(H(s),0,1\\bigr)",
+          "label": "Keep values between zero and one",
+          "tone": "b"
+        },
+        {
+          "tex": "\\alpha",
+          "label": "Control shaping strength",
+          "tone": "c"
+        }
+      ]
+    },
+    {
+      "kind": "undefined_macro",
+      "deck": "b316326c-1b5e-4426-a46e-1aa509ccf5ac.ja",
+      "run": "20261006-020446",
+      "beat": "b04-ray-direction",
+      "failed": "error runtime page_error ParseError: KaTeX parse error: Undefined control sequence: \\raydir at position 22: …lass{term t-b}{\\̲r̲a̲y̲d̲i̲r̲ ̲}= \\htmlClass{t… [[data-composition-id]]",
+      "equation": {
+        "id": "eq4",
+        "tex": "\\raydir = \\camerarot \\cameraint^{-1} \\pixelcoord.",
+        "display": false
+      },
+      "headline": "ray directionの大きさに、投影スケールを残す",
+      "terms": [
+        {
+          "tex": "\\camerarot \\cameraint^{-1} \\pixelcoord",
+          "label": "画素座標を世界座標の方向へ変換",
+          "tone": "a"
+        },
+        {
+          "tex": "\\raydir",
+          "label": "正規化せずにスケールを保持",
+          "tone": "b"
+        }
+      ]
+    },
+    {
+      "kind": "too_wide",
+      "deck": "31b41b88-541e-4282-8785-f0e18a61c036.en",
+      "run": "20261006-112528",
+      "beat": "b09-k-score",
+      "failed": "error layout text_box_overflow Text extends outside its nearest visual/container box. [span.mord t=166.636s]",
+      "equation": {
+        "id": "eq4",
+        "tex": "\\text{K-Score} = 0.1 \\cdot \\text{Faithfulness} + 0.4 \\cdot \\text{Visual Correctness} + 0.4 \\cdot \\text{Text Accuracy} + 0.1 \\cdot \\text{Aesthetics}.",
+        "display": true
+      },
+      "headline": "Visual correctness and text accuracy carry 80% of K-Score",
+      "terms": [
+        {
+          "tex": "\\text{Visual Correctness}",
+          "label": "40% of the final score",
+          "tone": "a"
+        },
+        {
+          "tex": "\\text{Text Accuracy}",
+          "label": "40% of the final score",
+          "tone": "b"
+        }
+      ]
+    },
+    {
+      "kind": "chip_overflow",
+      "deck": "0ef77cae-2386-407b-a255-9556719bc4b5.ja",
+      "run": "20261007-025627",
+      "beat": "b08-regression",
+      "failed": "error layout text_box_overflow Text extends outside its nearest visual/container box. [span.mord.mtight t=134.808s]",
+      "equation": {
+        "id": "eq7",
+        "tex": "\\theta^*=\\arg\\min_\\theta \\mathbb{E}_{x_{<i}^{\\text{gt}},t}\\Big[\\big\\|G_\\theta(x_t^i,x_{<i}^{\\text{gt}},t)-x_0^i\\big\\|_2^2\\Big]",
+        "display": false
+      },
+      "headline": "因果ODE蒸留は一意に対応する目標を回帰する",
+      "terms": [
+        {
+          "tex": "G_\\theta(x_t^i,x_{<i}^{\\text{gt}},t)",
+          "label": "過去を条件とする学生の予測",
+          "tone": "a"
+        },
+        {
+          "tex": "x_0^i",
+          "label": "因果教師が与えるクリーンな目標",
+          "tone": "b"
+        }
+      ]
+    }
+  ]
+}

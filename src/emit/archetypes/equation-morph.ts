@@ -18,14 +18,16 @@
  * reaches the timeline as ONE typed `fromTo` on the host driving a GSAP plugin.
  * See `src/emit/morph-runtime.ts` for why that, and not a callback.
  */
-import type { Term } from "../../types.js";
+import type { BeatOf, Source, Term } from "../../types.js";
 import type { Emitter } from "../kit.js";
 import { contentW, js } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
+import { repairTex } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
+  chipFit,
+  chipSetup,
   equationSize,
-  INLINE_OPTS,
   legendCss,
   legendRows,
   locate,
@@ -38,33 +40,104 @@ import { chrome, chromeCss, chromeIn, holdsWithin, tween } from "./title.js";
 /** How long the morph itself takes. The rest of the beat is the two holds. */
 const MORPH_SECONDS = 1.6;
 
-export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
-  const { sid, theme } = ctx;
+/**
+ * Both lines and their keys, decided in Node — the morph's half of what
+ * `prepareWalk` is to the walk, so `plan` can report what `build` will do.
+ * Throws where the emitter would: a line KaTeX refuses even repaired, or no key.
+ */
+export function prepareMorph(
+  beat: BeatOf<"equation-morph">,
+  source: Source,
+): {
+  a: { id: string; tex: string };
+  b: { id: string; tex: string };
+  wa: string;
+  wb: string;
+  both: Term[];
+  notes: string[];
+} {
   const p = beat.params;
-
   const find = (id: string) => {
-    const eq = ctx.source.equations.find((e) => e.id === id);
+    const eq = source.equations.find((e) => e.id === id);
     if (!eq)
-      throw new Error(`equation-morph ${beat.id}: no equation "${id}" in source ${ctx.source.id}`);
+      throw new Error(`equation-morph ${beat.id}: no equation "${id}" in source ${source.id}`);
     return eq;
   };
-  const a = find(p.fromId);
-  const b = find(p.toId);
+  // Parsed before anything is emitted, and repaired where a repair cannot change
+  // what the line says — see `src/emit/tex.ts`. A morph has no plain-text form:
+  // its whole content is KaTeX's glyph geometry, so a line KaTeX still refuses
+  // costs the beat, loudly, naming the line, rather than reaching the deck as a
+  // `katex.render` that throws.
+  const notes: string[] = [];
+  const drawable = (eq: { id: string; tex: string }) => {
+    const fixed = repairTex(eq.tex, true);
+    if (fixed.error !== null) {
+      throw new Error(
+        `equation-morph ${beat.id}: ${eq.id} does not parse even after repair (${fixed.error}), and a morph cannot be drawn from plain text. Formula: ${JSON.stringify(eq.tex)}`,
+      );
+    }
+    notes.push(...fixed.repairs.map((r) => `${eq.id} repaired before drawing: ${r}`));
+    return { id: eq.id, tex: fixed.tex };
+  };
+  const a = drawable(find(p.fromId));
+  const b = drawable(find(p.toId));
+  // Found by their repaired TeX, so a term spelled with an undefined macro still
+  // finds the equation that macro was repaired in; drawn under their own labels.
+  const repaired = p.terms.map((t) => ({ ...t, tex: repairTex(t.tex, false).tex }));
+  const original = (t: Term) => p.terms[repaired.indexOf(t)] as Term;
 
   // A key pairs a body in A with a body in B, so a term the runtime could find
   // on one side only would be a key with nothing to pair — faded out as an
   // unmatched body, under a legend row claiming it travelled.
-  const both = p.terms.filter((t) => locate(a.tex, t.tex) && locate(b.tex, t.tex));
-  if (both.length === 0) {
+  let keyed = repaired.filter((t) => locate(a.tex, t.tex) && locate(b.tex, t.tex));
+  if (keyed.length === 0) {
     throw new Error(
       `equation-morph ${beat.id}: none of its ${p.terms.length} term(s) occur in both equations. ` +
         `Terms: ${p.terms.map((t) => JSON.stringify(t.tex)).join(", ")}. ` +
         `From: ${JSON.stringify(a.tex)}. To: ${JSON.stringify(b.tex)}`,
     );
   }
+  notes.push(
+    ...repaired
+      .filter((t) => !keyed.includes(t))
+      .map(
+        (t) =>
+          `term ${JSON.stringify(original(t).tex)} does not occur in both ${a.id} and ${b.id}, so it does not travel and its legend row ("${t.label}") is left out`,
+      ),
+  );
   const cls = (t: Term) => `term t-${t.tone} ds-k-${t.tone}`;
-  const wa = wrapTerms(a.tex, both, beat.id, cls).tex;
-  const wb = wrapTerms(b.tex, both, beat.id, cls).tex;
+  // A term that occurs on both sides but cannot be wrapped on one of them is a
+  // key with nothing to pair all the same, so it goes, and both lines are
+  // wrapped again without it.
+  let wa = wrapTerms(a.tex, keyed, beat.id, cls);
+  let wb = wrapTerms(b.tex, keyed, beat.id, cls);
+  const paired = keyed.filter((t) => wa.used.includes(t) && wb.used.includes(t));
+  if (paired.length < keyed.length) {
+    const unpaired = keyed.filter((t) => !paired.includes(t));
+    notes.push(
+      ...unpaired.map(
+        (t) =>
+          `term ${JSON.stringify(original(t).tex)} cannot be marked on both lines without breaking one, so it does not travel and its legend row ("${t.label}") is left out`,
+      ),
+    );
+    if (paired.length === 0) {
+      throw new Error(
+        `equation-morph ${beat.id}: no term can be marked on both lines without breaking one. ` +
+          `Terms: ${p.terms.map((t) => JSON.stringify(t.tex)).join(", ")}`,
+      );
+    }
+    keyed = paired;
+    wa = wrapTerms(a.tex, keyed, beat.id, cls);
+    wb = wrapTerms(b.tex, keyed, beat.id, cls);
+  }
+  const both = keyed.map(original);
+  return { a, b, wa: wa.tex, wb: wb.tex, both, notes };
+}
+
+export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
+  const { sid, theme } = ctx;
+  const p = beat.params;
+  const { a, b, wa, wb, both, notes } = prepareMorph(beat, ctx.source);
 
   // Both lines at ONE size — the morph scales bodies, not lines — sized as the
   // walk sizes a single statement, against the wider of the two.
@@ -91,10 +164,7 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
     `var OPTS = ${OPTS};`,
     `katex.render('${js(wa)}', document.getElementById("${sid}-eqa"), OPTS);`,
     `katex.render('${js(wb)}', document.getElementById("${sid}-eqb"), OPTS);`,
-    ...both.map(
-      (t) =>
-        `katex.render('${js(t.tex)}', document.getElementById("${sid}-chip-${t.tone}"), ${INLINE_OPTS});`,
-    ),
+    ...both.map((t) => chipSetup(sid, t)),
   ];
 
   // The first line has to be READ before it moves, and the second after: the
@@ -134,8 +204,11 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
     setup,
     // SEAM B: the plan is browser geometry after fonts, so it is built inside
     // the ready gate, and the plugin tween above finds it on the host.
-    measure: [`DSMorph.build(document.getElementById("${sid}-morph"));`],
+    // The chips are fitted before the plan is built: growing one moves the
+    // legend, and nothing the morph measures may move after it has measured.
+    measure: [...chipFit(sid, both), `DSMorph.build(document.getElementById("${sid}-morph"));`],
     plugins: ["dsMorph"],
+    ...(notes.length ? { warnings: notes } : {}),
     holds: holdsWithin([first, at + MORPH_SECONDS + 0.4], beat.seconds),
     css: [
       chromeCss(theme),

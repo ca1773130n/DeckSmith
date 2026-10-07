@@ -124,10 +124,25 @@ describe("emitComposition", () => {
     // still registered as the document parses. If this fails, deferral has
     // leaked into the default path and every shipped deck's bytes have moved —
     // which voids the drift gate, the strongest regression test we have.
-    expect(html).not.toContain("__dsBuilders");
-    expect(html).toMatch(
+    //
+    // The title alone, because `equation-walk` now opts in: it measures its own
+    // rendered display after fonts, since a glyph count put a 40px equation 173px
+    // off the canvas (see `mathFit`). Opting in is that archetype's decision; a
+    // deck without one must still not pay for it.
+    const unmeasured = emitComposition(
+      { ...storyboard, beats: storyboard.beats.filter((b) => b.archetype === "title") },
+      source,
+      format("deck-16x9"),
+    );
+    expect(unmeasured).not.toContain("__dsBuilders");
+    expect(unmeasured).toMatch(
       /\),\n {8}\)\.then\(function \(\) \{\n {10}window\.__hfTimelinesBuilding = false;/,
     );
+  });
+
+  it("defers the equation-walk scene, which measures its display's fit", () => {
+    expect(html.match(/window\.__dsBuilders\.push/g)).toHaveLength(1);
+    expect(html).toContain("var dsEqFit");
   });
 
   it("never uses from()", () => {

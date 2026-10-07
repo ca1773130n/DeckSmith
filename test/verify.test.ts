@@ -20,6 +20,7 @@ import {
   scanDeterminism,
   scanDiagrammatic,
   scanHeadlines,
+  scanMath,
   scanNarrationLead,
   scanRepeatedObject,
   scanUnusedFigures,
@@ -757,6 +758,73 @@ describe("scanDiagrammatic", () => {
  * the other direction until this one, and the shipped demo went out citing two
  * of its four figures with every gate green.
  */
+describe("scanMath", () => {
+  // HypePaper deck b316326c's source, which died at verify on `\raydir` after the
+  // whole deck had been built and narrated around it.
+  const source = sourceSchema.parse({
+    id: "s1",
+    title: "A paper",
+    sections: [{ id: "sec1", depth: 1, heading: "Method", text: "It works." }],
+    figures: [],
+    equations: [
+      { id: "eq4", tex: "\\raydir = \\camerarot \\cameraint^{-1} \\pixelcoord.", display: false },
+      { id: "eq5", tex: "y = x^a^b", display: true },
+      { id: "eq6", tex: "a = b", display: true },
+    ],
+    tables: [],
+  });
+  const deck = (...beats: object[]): Storyboard =>
+    storyboardSchema.parse({
+      sourceId: "s1",
+      title: "A deck",
+      beats: beats.map((b) => ({ intent: "The viewer reads the formula.", ...b })),
+    });
+  const walk = (id: string, equationId: string, tex: string) => ({
+    id,
+    archetype: "equation-walk",
+    params: { headline: "H", equationId, terms: [{ tex, label: "the term", tone: "a" }] },
+  });
+
+  it("says nothing about formulas that parse as they are", () => {
+    expect(scanMath(deck(walk("b1", "eq6", "b")), source)).toEqual([]);
+  });
+
+  it("reports at plan the repair build will make, naming the beat", () => {
+    expect(scanMath(deck(walk("b4", "eq4", "\\raydir")), source)).toEqual([
+      {
+        severity: "warning",
+        gate: "storyboard",
+        rule: "tex_repaired",
+        message:
+          "b4: eq4 repaired before drawing: \\raydir, \\camerarot, \\cameraint, \\pixelcoord are never defined in the source — drawn as their names in upright type",
+      },
+    ]);
+  });
+
+  it("reports a formula that will be shown as plain source, with KaTeX's reason", () => {
+    const [f] = scanMath(deck(walk("b5", "eq5", "y")), source);
+    expect(f?.message).toMatch(/^b5: eq5 does not parse even after repair \(.*Double superscript/);
+  });
+
+  it("reports a morph that build will leave out, rather than finding out there", () => {
+    const [f] = scanMath(
+      deck({
+        id: "b7",
+        archetype: "equation-morph",
+        params: {
+          headline: "H",
+          fromId: "eq5",
+          toId: "eq6",
+          terms: [{ tex: "a", label: "a", tone: "a" }],
+        },
+      }),
+      source,
+    );
+    expect(f?.rule).toBe("tex_unrenderable");
+    expect(f?.message).toMatch(/^b7: .*eq5 does not parse.*build will leave this beat out$/);
+  });
+});
+
 describe("scanUnusedFigures", () => {
   const source = (...figures: Array<[string, string]>) =>
     sourceSchema.parse({

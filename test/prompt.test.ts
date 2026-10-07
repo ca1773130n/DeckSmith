@@ -342,6 +342,41 @@ describe("the figure inventory", () => {
 });
 
 /**
+ * The planner writes terms as substrings of the TeX it is shown, so it has to be
+ * shown the TeX the deck will draw. HypePaper deck b316326c's source carried a
+ * paper's undefined macros, drawn now as `\operatorname{...}`.
+ */
+describe("the equation inventory", () => {
+  const paper = (tex: string): Source => ({
+    id: "s",
+    title: "t",
+    lang: "en",
+    sections: [],
+    figures: [],
+    equations: [{ id: "eq4", tex, display: true }],
+    tables: [],
+  });
+
+  it("lists an equation that parses exactly as the document wrote it", () => {
+    expect(renderSource(paper("y = \\alpha x"))).toContain(
+      "[equation eq4] display — y = \\alpha x",
+    );
+  });
+
+  it("lists the repaired TeX, the one terms will be found in", () => {
+    expect(renderSource(paper("\\raydir = \\camerarot d"))).toContain(
+      "[equation eq4] display — \\operatorname{raydir} = \\operatorname{camerarot} d",
+    );
+  });
+
+  it("says when KaTeX cannot draw one at all", () => {
+    expect(renderSource(paper("y = x^a^b"))).toContain(
+      "[equation eq4] display — y = x^a^b (KaTeX cannot draw this one: a walk shows it as plain source, a morph cannot use it)",
+    );
+  });
+});
+
+/**
  * The block is an exception to RULE 2 and to the inventory's "(none — no
  * claim-figure beat is possible)". An exception that is sent when it does not
  * apply is a prompt with two answers, so presence is gated and pinned here.
