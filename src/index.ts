@@ -28,6 +28,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { LOOK_FILE } from "./emit/look.js";
 import type { Cut } from "./plan/select.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
 import { type Format, FORMATS, type Source, type Storyboard } from "./types.js";
@@ -190,6 +191,15 @@ export type { Deck, DeckNarration, DeckOptions } from "./emit/composition.js";
  * itself, exported so it can be run against a budget no `Format` states.
  */
 export { selectBeats } from "./plan/select.js";
+/**
+ * `--design v2`: the Director that picks each beat's look, the look vocabulary
+ * it picks from, and the sameness numbers it reports. Exported so an eval can
+ * measure a corpus of storyboards without building each one.
+ */
+export { direct, summarize } from "./plan/direct.js";
+export type { BeatLook, Direction, LookSummary } from "./plan/direct.js";
+export { candidates, classicLook, LOOK_FILE, signature, VARIANTS } from "./emit/look.js";
+export type { Look, Placement } from "./emit/look.js";
 export type { Cut, Dangling, Dropped, DropRule, SelectionBudget } from "./plan/select.js";
 
 /** Themes are a named, closed set; a consumer needs to enumerate and validate. */
@@ -340,6 +350,8 @@ export interface BuildDeckOptions {
   onBeatWarning?: (beatId: string, warning: string) => void;
   /** Any name in `THEME_NAMES`. Overrides `storyboard.theme`. */
   theme?: string;
+  /** `v2` varies layouts per beat (src/plan/direct.ts). Absent is classic. */
+  design?: "classic" | "v2";
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
   speed?: number;
   /** Default `FORMATS["deck-16x9"]`. */
@@ -402,6 +414,7 @@ export async function buildDeck(
   const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
     speed,
     ...(opts.theme ? { theme: opts.theme } : {}),
+    ...(opts.design ? { design: opts.design } : {}),
     ...(opts.narration ? { narration: opts.narration } : {}),
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
     ...(opts.onBeatWarning ? { onBeatWarning: opts.onBeatWarning } : {}),
@@ -416,6 +429,7 @@ export async function buildDeck(
 
   await write("index.html", deck.composition);
   await write("hyperframes.json", HYPERFRAMES_JSON);
+  if (deck.looks) await write(LOOK_FILE, `${JSON.stringify(deck.looks, null, 2)}\n`);
 
   // `render` reads this and refuses without it, so a library caller who skipped
   // it got "timing.json is missing, rebuild the deck" — advice that could never

@@ -825,6 +825,17 @@ export const prefsSchema = z.object({
   /* --- look --- */
   theme: z.string().default("ink"),
   /**
+   * Which slide vocabulary to draw in. `classic` is v0.8.0's, byte for byte;
+   * `v2` lets the Director (src/plan/direct.ts) vary each beat's layout and
+   * where its headline sits (src/emit/look.ts).
+   *
+   * OPTIONAL WITH NO DEFAULT, deliberately. A `.deck` manifest carries the whole
+   * resolved prefs object, so a defaulted field would appear in every pack built
+   * after this line and move bytes in decks that asked for nothing new. Absent
+   * means classic.
+   */
+  design: z.enum(["classic", "v2"]).optional(),
+  /**
    * Multiplies every emitted tween duration. Below 1 is faster.
    *
    * IGNORED when `duration` is set: the target owns the pace, and the two cannot

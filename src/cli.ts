@@ -30,6 +30,7 @@ import {
   vendorScripts,
 } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { LOOK_FILE } from "./emit/look.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { illustrate } from "./images/illustrate.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
@@ -199,6 +200,7 @@ function lengthFlags(cmd: Command): Command {
 function lookFlags(cmd: Command): Command {
   return cmd
     .option("--theme <name>", `palette: ${THEME_NAMES.join(" | ")}`)
+    .option("--design <name>", "slide vocabulary: classic (default) | v2 (varied layouts)")
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
@@ -247,6 +249,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "duration",
     "narrationDensity",
     "theme",
+    "design",
     "speed",
     "voice",
     "rate",
@@ -742,6 +745,7 @@ lookFlags(
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
       theme,
+      ...(prefs.design ? { design: prefs.design } : {}),
       ...(fontCss ? { fontCss } : {}),
       speed: paced.speed,
       ...(narration ? { narration } : {}),
@@ -758,6 +762,15 @@ lookFlags(
     });
     await writeFile(join(out, "index.html"), deck.composition);
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);
+    // `--design v2`: which look each beat got and why the others were refused.
+    // Not part of the deck — nothing loads it — so a classic build writes none.
+    if (deck.looks) {
+      await writeFile(join(out, LOOK_FILE), `${JSON.stringify(deck.looks, null, 2)}\n`);
+      const s = deck.looks.summary;
+      step(
+        `build: design v2 — ${s.distinct} layouts over ${s.beats} beats, chrome on top in ${Math.round(100 * s.modalChrome)}%, ${s.adjacentRepeats} adjacent repeat(s) → ${LOOK_FILE}`,
+      );
+    }
     await writeTiming(out, {
       storyboard,
       source,
@@ -780,7 +793,11 @@ lookFlags(
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
-    const look = [theme, paced.speed === 1 ? "" : `${paced.speed}× speed`]
+    const look = [
+      theme,
+      paced.speed === 1 ? "" : `${paced.speed}× speed`,
+      prefs.design === "v2" ? "design v2" : "",
+    ]
       .filter(Boolean)
       .join(", ");
     // Count what was drawn, not what was offered: below the format's minWeight a

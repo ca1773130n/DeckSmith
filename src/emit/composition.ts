@@ -13,6 +13,7 @@
 import type { z } from "zod";
 import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
 import { embedUrl } from "../pack/media.js";
+import { type Direction, direct } from "../plan/direct.js";
 import { type Cut, selectBeats } from "../plan/select.js";
 import type {
   Beat,
@@ -121,6 +122,12 @@ export interface Deck {
    * PASS. `build` prints every casualty's reason; see src/cli.ts.
    */
   cut: Cut;
+  /**
+   * `--design v2` only: the look the Director chose for each kept beat, and the
+   * deck's sameness numbers. `build` writes it to `out/look.json`. Absent on a
+   * classic build.
+   */
+  looks?: Direction;
 }
 
 type Segment = z.infer<typeof segmentSchema>;
@@ -204,6 +211,12 @@ export interface DeckOptions {
    * (`vendorInter` in src/build/files.ts), for the same reason.
    */
   fontCss?: string;
+  /**
+   * `classic` — absent means classic — is v0.8.0's slide, byte for byte. `v2`
+   * runs the Director (src/plan/direct.ts) over the kept beats and draws each in
+   * the look it chose. See src/emit/look.ts.
+   */
+  design?: "classic" | "v2";
 }
 
 /**
@@ -230,10 +243,12 @@ export function emitDeck(
   const laid = layout(storyboard, source, format, opts);
   const composition = renderComposition(storyboard, format, laid);
   const { cut } = laid;
-  if (!format.navigable) return { composition, cut };
+  const looks = laid.looks ? { looks: laid.looks } : {};
+  if (!format.navigable) return { composition, cut, ...looks };
   return {
     composition,
     cut,
+    ...looks,
     page: emitDeckPage(
       storyboard,
       format,
@@ -378,6 +393,14 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
 
   const { family, theme } = deckLook(storyboard, opts.theme);
   const speed = opts.speed ?? 1;
+  // AFTER the cut, over the beats that are actually in the deck: "no two
+  // adjacent beats look alike" is a statement about what the audience sees, and
+  // a beat the budget dropped is not between anything. Safe to decide after
+  // `planCut` measured the classic scenes because a look never moves time.
+  const looks =
+    opts.design === "v2"
+      ? direct(beats, { source, format, theme, seed: storyboard.sourceId })
+      : undefined;
 
   const archetypeCss = new Set<string>();
   const scenes: string[] = [];
@@ -413,7 +436,15 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // Rounded to invariant 10's three places, so the number an archetype writes
     // and the number `sceneHtml` publishes as this scene's `data-start` are ONE
     // number rather than two roundings of one.
-    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at) };
+    const look = looks?.looks[i];
+    const ctx: EmitContext = {
+      source,
+      format,
+      theme,
+      sid,
+      start: rnd(at),
+      ...(look ? { look } : {}),
+    };
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
@@ -545,6 +576,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     cut,
     builds,
     plugins,
+    looks,
   };
 }
 

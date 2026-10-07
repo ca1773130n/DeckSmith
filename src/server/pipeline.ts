@@ -287,6 +287,7 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
   const built = await buildDeck(storyboard, source, dirs.deck, {
     format: options.format,
     theme: options.stated.theme ? prefs.theme : storyboard.theme,
+    ...(prefs.design ? { design: prefs.design } : {}),
     // The DURATION target owns the pace when there is one, and is `animationSpeed`
     // itself when there is not. Its warnings are the job's: a target that cannot
     // be met is something the person who asked for it must be told.
