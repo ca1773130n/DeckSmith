@@ -906,18 +906,23 @@ describe("--design v2 on the deck page", () => {
   });
   const format = FORMATS["deck-16x9"] as Format;
 
-  it("marks the page for the v2 player and changes nothing else in it", () => {
+  it("marks a v2 page for the v2 player, once, in its head — and a classic page never", () => {
     const classic = emitDeck(board, source, format, "/*runtime*/");
     const v2 = emitDeck(board, source, format, "/*runtime*/", { design: "v2" });
     expect(classic.page).not.toContain(PLAYER_MARKER);
-    expect(v2.page).toContain(PLAYER_MARKER);
-    expect(v2.page?.replace(`\n    ${PLAYER_MARKER}`, "")).toBe(classic.page);
+    const page = v2.page ?? "";
+    expect(page.split(PLAYER_MARKER).length - 1).toBe(1);
+    expect(page.indexOf(PLAYER_MARKER)).toBeLessThan(page.indexOf("</head>"));
   });
 
-  it("leaves the composition — and so every golden over it — alone", () => {
-    const classic = emitDeck(board, source, format, "/*runtime*/");
-    const v2 = emitDeck(board, source, format, "/*runtime*/", { design: "v2" });
-    expect(v2.composition).toBe(classic.composition);
+  // v2 is the whole redesign now (fit, packs, looks, motion), so its
+  // composition differs by design. What must hold is the other direction: an
+  // explicit `classic` is the unstated deck, byte for byte, page and all.
+  it("builds an explicit classic exactly as an unstated design", () => {
+    const unstated = emitDeck(board, source, format, "/*runtime*/");
+    const classic = emitDeck(board, source, format, "/*runtime*/", { design: "classic" });
+    expect(classic.composition).toBe(unstated.composition);
+    expect(classic.page).toBe(unstated.page);
   });
 
   it("is what an explicit classic produces when nothing is said", () => {

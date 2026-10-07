@@ -40,6 +40,12 @@ describe.skipIf(chrome === null)("a --design v2 deck, measured in the browser", 
       out,
       "--design",
       "v2",
+      // Pinned: under v2 an unnamed theme picks a style pack (and `ink`, the
+      // default, reads as unnamed), and the pack's chrome scale moves which looks
+      // the Director prefers — under blueprint the demo has no rail slide. This
+      // test is about rail and foot slides in the browser, not which pack won.
+      "--theme",
+      "signal",
       "--no-fidelity",
     ]).catch((err: { stderr?: string }) => {
       throw new Error(`build failed: ${err.stderr ?? err}`);
