@@ -39,7 +39,7 @@ import {
 } from "../src/emit/motion.js";
 import { resolveTheme } from "../src/emit/theme.js";
 import { stopCount } from "../src/narrate/narrate.js";
-import { loadPrefs, prefsFromFlags } from "../src/prefs.js";
+import { designFor, loadPrefs, prefsFromFlags } from "../src/prefs.js";
 import {
   type Archetype,
   FORMATS,
@@ -122,6 +122,16 @@ describe("design: classic is the default and v2 is opt-in", () => {
     expect((await loadPrefs({}, "/")).design).toBe("classic");
     expect((await loadPrefs(prefsFromFlags({ design: "v2" }), "/")).design).toBe("v2");
     await expect(loadPrefs(prefsFromFlags({ design: "v3" }), "/")).rejects.toThrow(/design/);
+  });
+
+  it("lets `--design classic` roll a v2 storyboard back, though classic is the default", async () => {
+    const said = await loadPrefs(prefsFromFlags({ design: "classic" }), "/");
+    const unsaid = await loadPrefs({}, "/");
+    expect(designFor(said, true, "v2")).toBe("classic");
+    expect(designFor(unsaid, false, "v2")).toBe("v2");
+    expect(designFor(unsaid, false, undefined)).toBe("classic");
+    const v2prefs = await loadPrefs(prefsFromFlags({ design: "v2" }), "/");
+    expect(designFor(v2prefs, false, undefined)).toBe("v2");
   });
 
   it("keeps a stored storyboard parsing to the same object (no default is injected)", () => {

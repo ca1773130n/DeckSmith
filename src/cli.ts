@@ -44,7 +44,7 @@ import {
   pendingIllustrations,
 } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
-import { loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
+import { designFor, loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
 import { captureFrames } from "./render/capture.js";
 import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
@@ -697,7 +697,7 @@ lookFlags(
     const theme = stated(prefs, "theme") ?? storyboard.theme;
     // Same precedence as the theme: a flag or config file, else what the
     // storyboard was planned under, else the v0.8 look.
-    const design = stated(prefs, "design") ?? storyboard.design ?? "classic";
+    const design = designFor(prefs, o.design !== undefined, storyboard.design);
 
     const out = resolve(o.out);
     await mkdir(out, { recursive: true });
@@ -1028,7 +1028,7 @@ voiceFlags(
     ...chosen,
     lang: stated(chosen, "lang") ?? storyboard.lang,
     theme: stated(chosen, "theme") ?? storyboard.theme,
-    design: stated(chosen, "design") ?? storyboard.design ?? "classic",
+    design: designFor(chosen, o.design !== undefined, storyboard.design),
   };
 
   const found = await findNarration(sbPath, o.narration);

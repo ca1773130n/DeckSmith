@@ -129,6 +129,25 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   return patch;
 }
 
+/**
+ * The design a build uses: an explicit `--design` flag, else a config file that
+ * asked for something other than the default, else what the storyboard was
+ * planned under, else `classic`.
+ *
+ * NOT `stated()`, which treats a value at its default as unsaid. That is right
+ * for `--theme` and wrong here, because `--design classic` IS the rollback: it has
+ * to win over a storyboard planned under v2, and `stated` would read it as silence
+ * and build v2 anyway.
+ */
+export function designFor(
+  prefs: Prefs,
+  flagGiven: boolean,
+  recorded?: Prefs["design"],
+): Prefs["design"] {
+  if (flagGiven || prefs.design !== "classic") return prefs.design;
+  return recorded ?? "classic";
+}
+
 /** The flag surface the CLI exposes. Every one optional: absent means unstated. */
 export interface PrefFlags {
   slides?: string | number;
