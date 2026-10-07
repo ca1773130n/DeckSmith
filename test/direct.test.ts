@@ -122,6 +122,21 @@ describe("direct", () => {
     expect(kept.beats[0]?.refused.some((r) => /classic look's area/.test(r.reason))).toBe(false);
   });
 
+  it("holds a look's figure to what v0.8.0 drew when that was bigger than v2's classic look", () => {
+    // ja s4 (fix-round Tier A, 2026-10-08): v2's classic look already drew the
+    // figure smaller than v0.8.0 (its plate is capped at 1.25x), and a rail look
+    // at 80% of THAT was 64% of what the founder had seen.
+    const b09 = demo.beats.find((b) => b.id === "b09") as Beat;
+    const areas = (beat: Beat, ctx: Parameters<typeof emitScene>[1]): Scene => ({
+      ...emitScene(beat, ctx),
+      figureArea: ctx.design !== "v2" ? 1000 : ctx.look ? 650 : 700,
+    });
+    const d = direct([b09], { ...opts, design: "v2", emit: areas });
+    const reasons = d.beats[0]?.refused.map((r) => r.reason) ?? [];
+    expect(reasons.some((r) => /65% of the classic look's area/.test(r))).toBe(true);
+    expect(d.beats[0]?.signature).toBe(signature("claim-figure"));
+  });
+
   it("keeps the classic look on a beat the next beat's camera dives into", () => {
     const [a, b] = sixSplits as [Beat, Beat];
     const inside = { ...b, inside: { beat: a.id, element: "side0" } } as Beat;

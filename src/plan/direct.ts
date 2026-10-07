@@ -125,6 +125,12 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
     // `planCut` has already dropped the beat — this cannot be reached for it.
     const classicScene = emit(beat, ctx);
     const base = timingKey(classicScene);
+    // The figure floor's reference: the larger of what the classic look draws
+    // under v2 and what v0.8.0 drew. v2's own classic look can already be
+    // smaller than v0.8.0 (its plate is capped at 1.25x), and measured against
+    // it alone a rail look shrank ja s4's figure to 64% of what the founder had
+    // seen (fix-round Tier A, 2026-10-08).
+    const figureRef = referenceFigure(beat, ctx, classicScene, emit);
     const refused: BeatLook["refused"] = [];
     const viable: { look: Look; fill: number | undefined }[] = [];
     for (const look of offered) {
@@ -139,7 +145,7 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
           refused.push({ signature: sig, reason: "moves a hold or the chrome's landing" });
           continue;
         }
-        const shrunk = figureShare(scene, classicScene);
+        const shrunk = figureShare(scene, figureRef);
         if (shrunk !== undefined && shrunk < FIGURE_FLOOR) {
           refused.push({
             signature: sig,
@@ -244,10 +250,27 @@ function scoreOf(
  */
 export const FIGURE_FLOOR = 0.8;
 
-/** A look's figure area over the classic look's, when both report one. */
-function figureShare(scene: Scene, classic: Scene): number | undefined {
-  if (!scene.figureArea || !classic.figureArea) return undefined;
-  return scene.figureArea / classic.figureArea;
+/** A look's figure area over the reference area, when there is one. */
+function figureShare(scene: Scene, reference: number | undefined): number | undefined {
+  if (!scene.figureArea || !reference) return undefined;
+  return scene.figureArea / reference;
+}
+
+/** The area a look's figure is held to: the classic look's under v2, or v0.8.0's if larger. */
+function referenceFigure(
+  beat: Beat,
+  ctx: EmitContext,
+  classic: Scene,
+  emit: (beat: Beat, ctx: EmitContext) => Scene,
+): number | undefined {
+  if (!classic.figureArea) return undefined;
+  if (ctx.design !== "v2") return classic.figureArea;
+  const { design: _v2, ...plain } = ctx;
+  try {
+    return Math.max(classic.figureArea, emit(beat, plain).figureArea ?? 0);
+  } catch {
+    return classic.figureArea;
+  }
 }
 
 /**
