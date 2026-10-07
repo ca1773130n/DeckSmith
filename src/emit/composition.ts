@@ -43,6 +43,7 @@ import {
   rigHtml,
   transitWindow,
 } from "./camera.js";
+import type { FitManifest } from "./fit.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, tweenText } from "./kit.js";
 import { baseCss, deckLook, FONT_BUNDLE_DIR, FONT_BUNDLE_HREF, pace } from "./theme.js";
@@ -123,6 +124,11 @@ export interface Deck {
    * PASS. `build` prints every casualty's reason; see src/cli.ts.
    */
   cut: Cut;
+  /**
+   * v2 only: each drawn scene's predicted fill, for `fit.json`. Absent on a
+   * classic build, which writes no manifest and so is not graded for fill.
+   */
+  fit?: FitManifest;
 }
 
 type Segment = z.infer<typeof segmentSchema>;
@@ -157,9 +163,9 @@ export interface DeckOptions {
   /** Overrides `storyboard.theme`. Any name in the registry. */
   theme?: string;
   /**
-   * Overrides `storyboard.design`. `v2` today changes deck.html only — it marks
-   * the page for the v2 player (`markV2`) — so the composition, and every
-   * golden over it, is the same either way.
+   * Overrides `storyboard.design`. Absent or `classic` emits v0.8.0's bytes.
+   * `v2` marks deck.html for the v2 player (`markV2`), lets the archetypes grow
+   * into their regions and fills `Deck.fit` (see `../emit/fit.ts`).
    */
   design?: Design;
   /** Multiplies every duration, hold, and beat length. 1 leaves bytes untouched. */
@@ -229,19 +235,25 @@ export function emitDeck(
   source: Source,
   format: Format,
   runtimeJs: string,
-  opts: DeckOptions = {},
+  options: DeckOptions = {},
 ): Deck {
   // ONE layout pass for both artifacts. It used to run twice — once inside
   // `emitComposition` and once here for the slides — which was merely wasteful
   // while the pass was pure string-building, and stops being merely wasteful now
   // that it also emits every beat a second time to measure it.
+  // The storyboard's own design when the caller states none, so a storyboard
+  // planned under v2 is built as v2 by every entry point, not only the CLI.
+  const stated = options.design ?? storyboard.design;
+  const opts: DeckOptions = stated ? { ...options, design: stated } : options;
   const laid = layout(storyboard, source, format, opts);
   const composition = renderComposition(storyboard, format, laid);
   const { cut } = laid;
-  if (!format.navigable) return { composition, cut };
+  const fit = laid.fit ? { fit: laid.fit } : {};
+  if (!format.navigable) return { composition, cut, ...fit };
   return {
     composition,
     cut,
+    ...fit,
     page: withDesign(
       emitDeckPage(
         storyboard,
@@ -251,7 +263,7 @@ export function emitDeck(
         narrationIsland(opts.narration, laid.spoken),
         videoIsland(laid.embeds),
       ),
-      opts.design ?? storyboard.design ?? "classic",
+      opts.design ?? "classic",
     ),
   };
 }
@@ -323,7 +335,7 @@ export function planCut(
       // dropped from the deck, so a refusal over a number nobody reads would
       // delete the beat from the build it was measuring.
       ({ scene } = stageScene(
-        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0 }),
+        emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0, ...design(opts) }),
         speed,
       ));
     } catch (err) {
@@ -429,7 +441,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     // Rounded to invariant 10's three places, so the number an archetype writes
     // and the number `sceneHtml` publishes as this scene's `data-start` are ONE
     // number rather than two roundings of one.
-    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at) };
+    const ctx: EmitContext = { source, format, theme, sid, start: rnd(at), ...design(opts) };
     // `pace` scales the scene's own times; the beat's length is the shell's
     // arithmetic and has to be scaled by the same factor here, or a slowed deck
     // pushes its last reveal past the end of its own slide window.
@@ -561,7 +573,26 @@ function layout(storyboard: Storyboard, source: Source, format: Format, opts: De
     cut,
     builds,
     plugins,
+    // Read off the EMITTER's scene, as warnings are: the camera wrapper is a
+    // layer that was never asked how full the body is.
+    fit:
+      opts.design === "v2"
+        ? ({
+            design: "v2",
+            scenes: cuts.map((c) => ({
+              id: c.sid,
+              beat: c.beat.id,
+              archetype: c.beat.archetype,
+              ...(c.scene.fit ? { fit: c.scene.fit } : {}),
+            })),
+          } satisfies FitManifest)
+        : undefined,
   };
+}
+
+/** `design` for an emit context, only when stated — so a classic context is the object it always was. */
+function design(opts: DeckOptions): { design?: Design } {
+  return opts.design ? { design: opts.design } : {};
 }
 
 type Layout = ReturnType<typeof layout>;

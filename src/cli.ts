@@ -31,6 +31,7 @@ import {
 } from "./build/files.js";
 import { repackDeckPage } from "./deck/repack.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { FIT_FILE } from "./emit/fit.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { chooseLook, costsNothing } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
@@ -791,6 +792,8 @@ lookFlags(
     });
     await writeFile(join(out, "index.html"), deck.composition);
     await writeFile(join(out, "hyperframes.json"), HYPERFRAMES_JSON);
+    // v2 only. Its presence is what tells `verify` to grade fill — see `FIT_FILE`.
+    if (deck.fit) await writeFile(join(out, FIT_FILE), `${JSON.stringify(deck.fit, null, 2)}\n`);
     await writeTiming(out, {
       storyboard,
       source,

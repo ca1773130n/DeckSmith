@@ -28,6 +28,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
+import { FIT_FILE } from "./emit/fit.js";
 import type { Cut } from "./plan/select.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
 import { type Design, type Format, FORMATS, type Source, type Storyboard } from "./types.js";
@@ -244,6 +245,19 @@ export { gradeOverprint, MIN_OVERLAP, overprints } from "./verify/overprint.js";
 export type { Overprint, Overprinted, TextRun } from "./verify/overprint.js";
 
 /**
+ * The frame gate on its own, and the fill measure it carries: one browser over
+ * a built deck, every stop seeked and captured. `verify` runs it beside `check`;
+ * exported so an eval can read `fills` — main-axis fill at each scene's last
+ * hold, on a classic deck as on a v2 one — without running the slower half.
+ * `fillBand` and `FIT_FILE` are the definition and the manifest both sides use.
+ */
+export { fidelity } from "./verify/fidelity.js";
+export type { FidelityReport } from "./verify/fidelity.js";
+export { fillBand, FIT_FILE } from "./emit/fit.js";
+export type { Fit, FillBand, FitManifest } from "./emit/fit.js";
+export type { FillRow } from "./verify/fill.js";
+
+/**
  * The determinism gate: render the deck twice and compare. Separate from
  * `verify` because it costs two full renders — minutes, not milliseconds — so
  * it is a thing you schedule, not a thing you run on a request path. `identical`
@@ -422,6 +436,7 @@ export async function buildDeck(
 
   await write("index.html", deck.composition);
   await write("hyperframes.json", HYPERFRAMES_JSON);
+  if (deck.fit) await write(FIT_FILE, `${JSON.stringify(deck.fit, null, 2)}\n`);
 
   // `render` reads this and refuses without it, so a library caller who skipped
   // it got "timing.json is missing, rebuild the deck" — advice that could never

@@ -3,6 +3,7 @@
  * put in a figure: a contradiction between two tables, a caveat, a limit on what
  * was actually tested. Panels appear one at a time so each can be spoken to.
  */
+import { fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, lift, settle, spotlighter } from "../kit.js";
 import { faceOf, wrap } from "../svg.js";
@@ -31,6 +32,15 @@ const PANEL_PAD_Y = 36;
 const LABEL_SIZE = 50;
 const LABEL_GAP = 24;
 const LINE_TOP = 10;
+/**
+ * v2: how far a callout's TYPE may grow to meet its box. 1.4, under the fit
+ * engine's 1.6, because this is running prose: 56px body copy is already a
+ * headline's weight, and past it a panel stops reading as a panel.
+ */
+const TYPE_GROWTH = 1.4;
+/** The panel's air over its content, from the cap below — the same 1.22 / 1.1. */
+const AIR_ACROSS = 1.22;
+const AIR_DOWN = 1.1;
 
 export const callout: Emitter<"callout"> = (beat, ctx) => {
   const { sid, theme } = ctx;
@@ -71,22 +81,33 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const box = contentW(ctx.format);
   const column = (box - PANEL_GAP * (cols - 1)) / cols;
   const inner = column - 2 * PANEL_PAD_X;
-  const heights = p.panels.map((panel) => {
-    const label = wrap(panel.label, LABEL_SIZE, inner, 600, 0, face).length * LABEL_SIZE * 1.2;
-    const body = panel.lines.reduce(
-      (h, l) => h + wrap(l, BODY_SIZE, inner, 400, 0, face).length * BODY_SIZE * BODY_LH + LINE_TOP,
-      0,
-    );
-    return 2 * PANEL_PAD_Y + label + LABEL_GAP + body;
+  /** The two type sizes at scale `k`, floored so the CSS and this arithmetic agree to the px. */
+  const sizes = (k: number) => ({
+    label: Math.floor(LABEL_SIZE * k),
+    body: Math.floor(BODY_SIZE * k),
   });
-  // The cap is on `.panels`, which holds one row of n panels across or n rows of
-  // one down. Across, the tallest panel is the row; down, the rows sum. Capping a
-  // stack at the height of its tallest member clips every panel but that one, and
-  // the note then lays out underneath the overflow rather than below it.
-  const stackedH = heights.reduce((a, b) => a + b, 0) + PANEL_GAP * (heights.length - 1);
-  // Across, the row is the tallest panel; down, the rows sum. This is the height
-  // the panels ARE, before any slack.
-  const need = cols === 1 ? stackedH : Math.max(...heights);
+  /** `measure` under 1 is v2's conservative count — see `MEASURE_SLACK`. */
+  const needAt = (k: number, measure = 1) => {
+    const { label: ls, body: bs } = sizes(k);
+    const w = inner * measure;
+    const heights = p.panels.map((panel) => {
+      const label = wrap(panel.label, ls, w, 600, 0, face).length * ls * 1.2;
+      const body = panel.lines.reduce(
+        (h, l) => h + wrap(l, bs, w, 400, 0, face).length * bs * BODY_LH + LINE_TOP,
+        0,
+      );
+      return 2 * PANEL_PAD_Y + label + LABEL_GAP + body;
+    });
+    // The cap is on `.panels`, which holds one row of n panels across or n rows of
+    // one down. Across, the tallest panel is the row; down, the rows sum. Capping a
+    // stack at the height of its tallest member clips every panel but that one, and
+    // the note then lays out underneath the overflow rather than below it.
+    const stackedH = heights.reduce((a, b) => a + b, 0) + PANEL_GAP * (heights.length - 1);
+    // Across, the row is the tallest panel; down, the rows sum. This is the height
+    // the panels ARE, before any slack.
+    return cols === 1 ? stackedH : Math.max(...heights);
+  };
+  const v2 = isV2(ctx);
   // …and this is the height the slide has for them, which every other archetype
   // here asks for and this one did not. The cap below is derived from the content
   // alone, so it grows with the text and walks straight past the box: at 16:9,
@@ -108,16 +129,24 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // by 50%. A callout is the archetype for a caveat or a contradiction — a panel
   // needing eight lines is a beat that wanted to be two, and `onBeatError` is
   // what tells the caller so. Same contract as split-compare's own fit gate.
-  if (need > budget) {
+  const need1 = needAt(1);
+  if (need1 > budget) {
     throw new Error(
-      `callout ${beat.id}: ${Math.round(need)}px of panel in a ${Math.round(budget)}px box — shorten the lines or split the beat`,
+      `callout ${beat.id}: ${Math.round(need1)}px of panel in a ${Math.round(budget)}px box — shorten the lines or split the beat`,
     );
   }
   // 1.22 of the TALLEST panel is ~120px of slack. 1.22 of a SUM is that times the
   // panel count, and two panels each carrying 130px of empty floor is the hole
   // inside a border this fraction was chosen to avoid. Same intent, applied to
   // the thing that is actually growing.
-  const cap = Math.min(budget, Math.round(need * (cols === 1 ? 1.1 : 1.22)));
+  const air = cols === 1 ? AIR_DOWN : AIR_ACROSS;
+  // v2: the TYPE grows until the panels, with their air, meet the box — the
+  // panel stays proportional to its content (the reason for the cap above) and
+  // the content is what gets bigger. Checked only after classic's own refusal,
+  // so v2 refuses exactly the beats classic does.
+  const k = v2 ? growToFit((x) => needAt(x, MEASURE_SLACK) * air, budget, 1, TYPE_GROWTH) : 1;
+  const need = k === 1 ? need1 : needAt(k, MEASURE_SLACK);
+  const cap = Math.min(budget, Math.round(need * air));
 
   const note = p.note ? `\n<div class="conote" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html = `${chrome(sid, p.eyebrow, p.headline, box, face)}
@@ -164,10 +193,17 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   }
   if (p.panels.length > 1) tl.push(...spot.restore(first + p.panels.length * step));
 
+  const grown = sizes(k);
+  const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
+  const noteH = noteHeight(p.note, noteWidth(ctx.format), undefined, face);
+
   return {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    // `.panels` is `flex:1` under a `max-height` of `cap`, so it is exactly `cap`
+    // tall whenever the box has that much; the note sits under it.
+    ...(v2 ? { fit: fitOf(cap + noteH, region) } : {}),
     css: [
       chromeCss(theme),
       // Column count is set inline, so this block is identical for every callout
@@ -186,6 +222,14 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       `.plabel{font-size:${LABEL_SIZE}px;line-height:1.2;font-weight:600;margin-bottom:${LABEL_GAP}px}`,
       `.pline{color:${theme.muted};margin-top:${LINE_TOP}px}`,
       noteCss("conote", theme),
+      // Scene-scoped: two callouts in one deck grow by different amounts, and the
+      // shell emits each archetype's shared block once.
+      ...(v2 && k > 1
+        ? [
+            `#${sid} .panel{font-size:${grown.body}px}`,
+            `#${sid} .plabel{font-size:${grown.label}px}`,
+          ]
+        : []),
       // The last panel's label — the panel that lands last is the one still being
       // spoken to at the final hold. Its label carries the panel's accent colour,
       // and no tween touches it: the entrance moves the panel around it.

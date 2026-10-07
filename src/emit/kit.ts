@@ -6,7 +6,8 @@
  * and nothing else. Adding a domain means adding an emitter — the shell never
  * learns what a camera frustum or an orderbook is.
  */
-import type { Archetype, BeatOf, Format, Source } from "../types.js";
+import type { Archetype, BeatOf, Design, Format, Source } from "../types.js";
+import type { Fit } from "./fit.js";
 
 /* ------------------------------------------------------- the content box */
 
@@ -239,6 +240,14 @@ export interface EmitContext {
   // about to be thrown away. A measurement pass that genuinely does not care
   // says `start: 0` and says it on purpose; the compiler now asks.
   start: number;
+  /**
+   * `prefs.design`. ABSENT MEANS CLASSIC, and that is the contract that keeps
+   * v0.8.0's bytes: every hand-built test context, `narrate`, `refs` and
+   * `timing` omit it, and an emitter reads it only through `isV2` in `./fit.ts`.
+   * Those last three only count stops, and stop counts are identical under both
+   * designs by construction (test/fit.test.ts holds it), so they do not need it.
+   */
+  design?: Design;
 }
 
 /* ------------------------------------------------- the animation vocabulary */
@@ -459,6 +468,13 @@ export interface Scene {
   holds: number[];
   /** CSS this archetype needs. Deduplicated by the shell, emitted once. */
   css?: string;
+  /**
+   * The archetype's own prediction of how full its final hold is — v2 only.
+   * In memory, never serialised into the composition (like `parts`); the shell
+   * collects it into `fit.json` and `verify/fill.ts` holds it against the
+   * browser. See `./fit.ts` for what the number means.
+   */
+  fit?: Fit;
 }
 
 export type Emitter<A extends Archetype> = (beat: BeatOf<A>, ctx: EmitContext) => Scene;

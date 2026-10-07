@@ -22,6 +22,7 @@
  * the label sitting on it. Only which way "out" points has moved.
  */
 import type { BeatOf, Format } from "../../types.js";
+import { fitOf, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentH, contentW, esc, spotlighter } from "../kit.js";
 import type { Box, Pt } from "../svg.js";
@@ -196,6 +197,11 @@ function columns(notes: readonly FigureNote[], stageW: number, face: Face): numb
  * sits smaller in a wider pair of label columns.
  */
 const MAX_UPSCALE = 1.5;
+/**
+ * v2's ceiling, the same as `claim-figure`'s: past 2x a raster figure goes
+ * visibly soft. Taken only when the plan it produces still fits (`ok`).
+ */
+const GROWN_UPSCALE = 2;
 
 const DOT_R = 9;
 const HALO_R = 18;
@@ -344,6 +350,7 @@ function attempt(
   tall: boolean,
   face: Face,
   sides: Sides = { l: true, r: true },
+  upscale = MAX_UPSCALE,
 ): FigureLayout {
   // A row of columns when they are wide enough to read in, two stacked columns
   // otherwise. See `MIN_COL`.
@@ -373,7 +380,7 @@ function attempt(
   const scale = Math.min(
     (plateMax - 2 * PLATE) / fig.width,
     (stageH - bandMin - 2 * PLATE) / fig.height,
-    MAX_UPSCALE,
+    upscale,
   );
   const img: Box = {
     w: fig.width * scale,
@@ -566,10 +573,11 @@ export function planFigure(
   stageH: number,
   tall = false,
   face: Face = "latin",
+  upscale = MAX_UPSCALE,
 ): FigureLayout {
   // Portrait's column is fixed at half the stage, so there is nothing to widen
   // and the search has one entry.
-  if (tall) return attempt(stageW, notes, fig, stageH, 0, true, face);
+  if (tall) return attempt(stageW, notes, fig, stageH, 0, true, face, undefined, upscale);
 
   // TWO AXES, TIGHT FIRST. The margins a figure's own notes actually face, then
   // both — and each arrangement walks the column widths as before.
@@ -586,7 +594,7 @@ export function planFigure(
   let plan: FigureLayout | undefined;
   for (const sides of tries) {
     for (const col of cols) {
-      plan = attempt(stageW, notes, fig, stageH, col, false, face, sides);
+      plan = attempt(stageW, notes, fig, stageH, col, false, face, sides, upscale);
       if (plan.ok) return plan;
     }
   }
@@ -716,7 +724,16 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         `under the ${MIN_STAGE}px floor — shorten the headline or split the beat`,
     );
   }
-  const plan = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face);
+  const classic = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face);
+  const v2 = isV2(ctx);
+  const grown = v2
+    ? planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face, GROWN_UPSCALE)
+    : undefined;
+  // Only a grown plan that FITS replaces the classic one: the labels it leaves
+  // room for are what `ok` reports, and a bigger picture is not worth a label
+  // pushed off its stack. And only one that places every note classic placed:
+  // a hold per note, so a different count would move the narration's stops.
+  const plan = grown?.ok && grown.boxes.length === classic.boxes.length ? grown : classic;
   const stageH = plan.height;
   const plate: Box = {
     x: plan.img.x - PLATE,
@@ -857,10 +874,16 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
   // when navigation stops is a half-built frame.
   tl.push(tween(`#${sid}-cap`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1.0));
 
+  // The stage `planFigure` used, then the caption under it — over the box less
+  // the chrome. `stageBudget` charges the same three terms.
+  const capLines = Math.min(CAP_LINES, wrap(fig.caption, LAB, STAGE_W, 400, 0, face).length);
+  const region = contentH(ctx.format) - chromeHeight(p.eyebrow, p.headline, STAGE_W, face);
+
   return {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    ...(v2 ? { fit: fitOf(stageH + CAP_GAP + capLines * LAB * CAP_LH, region) } : {}),
     css: [
       chromeCss(theme),
       ".af-stage{position:relative;flex:none}",

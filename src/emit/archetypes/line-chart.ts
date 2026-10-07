@@ -6,6 +6,7 @@
  * from the data — the scale especially. A hardcoded axis is how a chart ends up
  * asserting something the numbers do not.
  */
+import { fitOf, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, sec } from "../kit.js";
 import { DRAW_FROM, DRAW_TO, faceOf, nv, reshape, textWidth, travel, wrap } from "../svg.js";
@@ -833,6 +834,14 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   return {
     html,
     tl,
+    // Already sized to the whole budget (portrait caps it at an aspect), so v2
+    // only REPORTS: the chart and, stacked, the readout under it.
+    ...(isV2(ctx)
+      ? (() => {
+          const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
+          return { fit: fitOf(H + below, region) };
+        })()
+      : {}),
     // Named only when a beat actually reshapes, which is what keeps MorphSVG's
     // 21,195 bytes off every deck that does not. See `PLUGINS` in composition.ts.
     ...(cmp ? { plugins: ["morphSVG"] } : {}),

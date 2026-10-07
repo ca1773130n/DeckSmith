@@ -32,6 +32,7 @@
  * furniture, and nothing else.
  */
 import type { BeatOf } from "../../types.js";
+import { fitOf, GROWTH, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, spotlighter } from "../kit.js";
 import {
@@ -133,6 +134,8 @@ const LOOP_BOTTOM = 10;
 export interface PipeLayout {
   /** Label type size. Never below `MIN_FONT`, whatever the labels cost. */
   size: number;
+  /** A stage note's type size: `NOTE` in classic, grown with the label in v2. */
+  note: number;
   /**
    * Position and extent along the flow axis: `x`/`w` read as x/width across a
    * row, and as y/height down a column. One field rather than two so the emitter
@@ -175,6 +178,38 @@ const V_LOOP_SIDE = 56;
 const V_LOOP_PAD = 18;
 
 /**
+ * v2: how far the diagram may grow, and into what. Absent is v0.8.0 exactly.
+ *
+ * `budget` is the height the SVG may take (the region less the wrapper's margin
+ * and the note); `region` is the whole body region, which bounds a box's height
+ * at `GROWN_BOX_H` of it — the plan's `MAX_BOX_H = 0.8·region.h`. The label's
+ * preferred size grows by `GROWTH` and `fitBoxes` still shrinks it to the width.
+ */
+export interface PipeGrow {
+  budget: number;
+  region: number;
+}
+/** A box may take this much of the region's height, and no more. */
+const GROWN_BOX_H = 0.8;
+/** …nor be taller than this many times its own width: past it a stage is a column, not a box. */
+const GROWN_BOX_ASPECT = 1.2;
+/** The width cap, grown. 430 left a three-stage row 170px short of its 1700px measure. */
+const GROWN_BOX_W = 560;
+/** A grown box is at most this many times as tall as the text inside it. */
+const GROWN_AIR = 1.6;
+/** Notes grow with the label, but by at most this much: they are the quieter line. */
+const NOTE_GROWTH = 1.3;
+
+/** The note size that goes with a label set at `size`. Classic: always the floor. */
+function noteFor(size: number, grow?: PipeGrow): number {
+  if (!grow) return NOTE;
+  return Math.min(
+    Math.round(NOTE * NOTE_GROWTH),
+    Math.max(NOTE, Math.floor((NOTE * size) / LABEL)),
+  );
+}
+
+/**
  * The flow turned ninety degrees, for a canvas that is twice as tall as it is
  * wide.
  *
@@ -191,6 +226,7 @@ function columnLayout(
   stages: readonly Stage[],
   face: Face,
   loop?: Loop,
+  grow?: PipeGrow,
 ): PipeLayout {
   const count = stages.length;
   // The return path gets a channel of its own down the right, wide enough for
@@ -203,26 +239,31 @@ function columnLayout(
   // `textWidth` is linear in size, so the size at which the widest label exactly
   // fills the box is a division. It is almost never binding at this width.
   const unit = Math.max(1, ...stages.map((s) => textWidth(s.label, 1, 600, 0, false, face)));
-  const size = Math.max(MIN_FONT, Math.min(LABEL, Math.floor(boxW / (unit + 2 * PAD_X_EM))));
+  const preferred = grow ? LABEL * GROWTH : LABEL;
+  const size = Math.max(MIN_FONT, Math.min(preferred, Math.floor(boxW / (unit + 2 * PAD_X_EM))));
   const innerW = Math.max(size, boxW - 2 * PAD_X_EM * size);
+  const noteSize = noteFor(size, grow);
 
   const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600, 0, face));
-  const noteLines = stages.map((s) => (s.note ? wrap(s.note, NOTE, innerW, 400, 0, face) : []));
+  const noteLines = stages.map((s) => (s.note ? wrap(s.note, noteSize, innerW, 400, 0, face) : []));
   const need = Math.max(
     MIN_BOX_H,
     ...stages.map((_, i) => {
       const label = (labelLines[i]?.length ?? 1) * size * LABEL_LH;
       const note = noteLines[i]?.length ?? 0;
-      return Math.ceil(2 * PAD_Y + label + (note > 0 ? NOTE_TOP + note * NOTE * NOTE_LH : 0));
+      return Math.ceil(2 * PAD_Y + label + (note > 0 ? NOTE_TOP + note * noteSize * NOTE_LH : 0));
     }),
   );
   const room = (stageH - 2 * M - (count - 1) * V_GAP) / count;
   // `need` outranks the budget: a box shorter than its own text is the one
-  // failure a taller-than-the-canvas column is still better than.
-  const boxH = Math.max(need, Math.min(room, V_BOX_H));
+  // failure a taller-than-the-canvas column is still better than. v2 lifts the
+  // flat cap to the same proportion of the region the row uses.
+  const cap = grow ? Math.max(V_BOX_H, (GROWN_BOX_H * grow.region) / count) : V_BOX_H;
+  const boxH = Math.max(need, Math.min(room, cap));
 
   return {
     size,
+    note: noteSize,
     boxes: Array.from({ length: count }, (_, i) => ({ x: M + i * (boxH + V_GAP), w: boxH })),
     boxH,
     boxX,
@@ -274,6 +315,66 @@ function balance(label: string, k: number, face: Face): string[] {
   return lines;
 }
 
+/**
+ * Whether every note's longest unbreakable run fits the box's text width at
+ * `size`. Han, kana and Hangul break between any two characters, as the browser
+ * breaks them, so only the runs BETWEEN them — "XML·USD·URDF" — can be too wide;
+ * a Latin word too wide for its box is drawn broken mid-word ("Windo/w").
+ */
+const BREAKS_ANYWHERE = /[\s\u3000-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]+/;
+function notesFit(stages: readonly Stage[], size: number, innerW: number, face: Face): boolean {
+  return stages.every((s) =>
+    (s.note ?? "")
+      .split(BREAKS_ANYWHERE)
+      .filter(Boolean)
+      .every((w) => textWidth(w, size, 400, 0, false, face) <= innerW),
+  );
+}
+
+/**
+ * The split of `label` into at most `k` lines whose WIDEST line is narrowest.
+ *
+ * `balance` breaks once a line has taken its share, which never breaks a
+ * two-word label whose first word is the shorter: "Split attributes" stays one
+ * line at k = 2, so asking for two lines bought nothing and the grown row held
+ * every label at the one-line size (46px, in 545px boxes). Labels are a handful
+ * of words, so every placement of the `k - 1` breaks is simply tried.
+ */
+function splitEven(label: string, k: number, face: Face): string[] {
+  const words = label.split(/\s+/).filter(Boolean);
+  if (k <= 1 || words.length <= 1) return [label];
+  const width = (from: number, to: number) =>
+    textWidth(words.slice(from, to).join(" "), 1, 600, 0, false, face);
+  let best: number[] = [];
+  let bestW = Number.POSITIVE_INFINITY;
+  const breaks = Math.min(k, words.length) - 1;
+  const walk = (start: number, left: number, cuts: number[]) => {
+    if (left === 0) {
+      const ends = [...cuts, words.length];
+      let from = 0;
+      let w = 0;
+      for (const end of ends) {
+        w = Math.max(w, width(from, end));
+        from = end;
+      }
+      if (w < bestW) {
+        bestW = w;
+        best = cuts;
+      }
+      return;
+    }
+    for (let at = start + 1; at <= words.length - left; at++) walk(at, left - 1, [...cuts, at]);
+  };
+  walk(0, breaks, []);
+  const lines: string[] = [];
+  let from = 0;
+  for (const end of [...best, words.length]) {
+    lines.push(words.slice(from, end).join(" "));
+    from = end;
+  }
+  return lines;
+}
+
 /** Centre of a stage's box. */
 function centre(boxes: readonly Track[], i: number): number {
   const b = boxes[i];
@@ -305,13 +406,25 @@ function widest(lines: string[], face: Face): string {
  * fitting only the label leaves it a box it cannot fit in. Measuring the note at
  * the label's weight overstates it by 4%, which is the direction to be wrong in.
  */
-function fitAt(stages: readonly Stage[], k: number, width: number, stageW: number, face: Face) {
+function fitAt(
+  stages: readonly Stage[],
+  k: number,
+  width: number,
+  stageW: number,
+  face: Face,
+  size = LABEL,
+  noteK = k,
+  split: (label: string, k: number, face: Face) => string[] = balance,
+) {
   return fitBoxes({
     labels: stages.map((s) =>
-      widest([...balance(s.label, k, face), ...balance(s.note ?? "", k, face)], face),
+      widest(
+        [...split(s.label, k, face), ...(noteK > 0 ? balance(s.note ?? "", noteK, face) : [])],
+        face,
+      ),
     ),
     width,
-    size: LABEL,
+    size,
     gap: GAP,
     minGap: MIN_GAP,
     padEm: PAD_X_EM,
@@ -321,9 +434,9 @@ function fitAt(stages: readonly Stage[], k: number, width: number, stageW: numbe
 }
 
 /** More lines before smaller type: legibility is the constraint, height is not. */
-function solve(stages: readonly Stage[], width: number, stageW: number, face: Face) {
-  let fit = fitAt(stages, 1, width, stageW, face);
-  for (let k = 2; !fit.ok && k <= 3; k++) fit = fitAt(stages, k, width, stageW, face);
+function solve(stages: readonly Stage[], width: number, stageW: number, face: Face, size = LABEL) {
+  let fit = fitAt(stages, 1, width, stageW, face, size);
+  for (let k = 2; !fit.ok && k <= 3; k++) fit = fitAt(stages, k, width, stageW, face, size);
   return fit;
 }
 
@@ -339,13 +452,32 @@ export function pipeLayout(
   stages: readonly Stage[],
   loop?: Loop,
   face: Face = "latin",
+  grow?: PipeGrow,
 ): PipeLayout {
   const width = stageW - 2 * M;
+  if (grow) return grownRow(stageW, stages, loop, face, grow);
   const capped = Math.min(width, stages.length * MAX_BOX_W + (stages.length - 1) * GAP);
   // Try the capped row first, and only spend the full canvas when the labels
   // actually need it — the cap is a preference, not a constraint.
   let fit = solve(stages, capped, stageW, face);
   if (!fit.ok && capped < width) fit = solve(stages, width, stageW, face);
+  const row = measureRow(fit, stages, loop, face, stageW, width);
+  return { ...row, boxH: row.need, svgH: M + row.need + row.below };
+}
+
+/**
+ * Everything about a solved row except how tall its boxes are: type, wrapping,
+ * the height the text needs, and the loop's furniture underneath.
+ */
+function measureRow(
+  fit: ReturnType<typeof fitBoxes>,
+  stages: readonly Stage[],
+  loop: Loop | undefined,
+  face: Face,
+  stageW: number,
+  width: number,
+  grow?: PipeGrow,
+) {
   // Floor rather than round, so the box is never asked to hold type a fraction
   // wider than it was solved for. `fit.size` is already at or above the floor
   // whenever `fit.ok`; the clamp only matters for labels that cannot fit at all,
@@ -353,9 +485,10 @@ export function pipeLayout(
   const size = Math.max(MIN_FONT, Math.floor(fit.size));
   const boxes = fit.boxes;
   const innerW = Math.max(size, (boxes[0]?.w ?? width) - 2 * PAD_X_EM * size);
+  const noteSize = noteFor(size, grow);
 
   const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600, 0, face));
-  const noteLines = stages.map((s) => (s.note ? wrap(s.note, NOTE, innerW, 400, 0, face) : []));
+  const noteLines = stages.map((s) => (s.note ? wrap(s.note, noteSize, innerW, 400, 0, face) : []));
   // The floor is a proportion of the box's own width, not a constant.
   //
   // A row of boxes tall enough for their own text is *correct*, and it is tiny:
@@ -364,15 +497,15 @@ export function pipeLayout(
   // the diagram. Tying the floor to the width keeps the boxes in proportion at
   // any stage count, where a flat 340 would make six narrow stages into columns.
   const boxW = boxes[0]?.w ?? width;
-  const need = Math.max(
-    MIN_BOX_H,
-    Math.min(MAX_BOX_H, boxW * BOX_ASPECT),
+  /** What the text inside the tallest box needs, padding included. */
+  const text = Math.max(
     ...stages.map((_, i) => {
       const label = (labelLines[i]?.length ?? 1) * size * LABEL_LH;
       const note = noteLines[i]?.length ?? 0;
-      return Math.ceil(2 * PAD_Y + label + (note > 0 ? NOTE_TOP + note * NOTE * NOTE_LH : 0));
+      return Math.ceil(2 * PAD_Y + label + (note > 0 ? NOTE_TOP + note * noteSize * NOTE_LH : 0));
     }),
   );
+  const need = Math.max(MIN_BOX_H, Math.min(MAX_BOX_H, boxW * BOX_ASPECT), text);
 
   // The loop's own furniture has to come out of the budget before the boxes can
   // have the rest, and its label width depends on the boxes — but only on their
@@ -384,15 +517,13 @@ export function pipeLayout(
     ? LOOP_TOP + LOOP_LABEL_TOP + loopLines.length * NOTE * NOTE_LH + LOOP_BOTTOM
     : M;
 
-  const boxH = need;
-
   return {
     size,
+    note: noteSize,
     boxes,
-    boxH,
     boxX: M,
-    boxW: boxes[0]?.w ?? width,
-    vertical: false,
+    boxW,
+    vertical: false as const,
     innerW,
     labelLines,
     noteLines,
@@ -400,8 +531,69 @@ export function pipeLayout(
     loopLines,
     loopX: 0,
     loopW: 0,
-    svgH: M + boxH + below,
+    text,
+    need,
+    below,
   };
+}
+
+/**
+ * The v2 row: the label set as BIG as the row allows, then boxes grown to carry it.
+ *
+ * Classic asks one question — the fewest lines at which the labels fit at 52px —
+ * and stops at one line, which is why the demo's stages sat at 52px in boxes
+ * with 600px of width each. Here every line count from one to three is solved
+ * at a preferred `LABEL × GROWTH`, and the one that sets the label LARGEST wins,
+ * as long as the box it needs still fits the budget; ties go to fewer lines.
+ *
+ * The box is then grown, but only so far: to `GROWN_AIR` times what its text
+ * needs, and inside the plan's `0.8·region.h`. Growing a box past its text is
+ * what `callout` measured as "emptier to look at than the short panels it
+ * replaced" — a tall card with two words in the middle — and the first cut of
+ * this did exactly that. The type is what fills the region; the box only frames it.
+ */
+function grownRow(
+  stageW: number,
+  stages: readonly Stage[],
+  loop: Loop | undefined,
+  face: Face,
+  grow: PipeGrow,
+): PipeLayout {
+  const width = stageW - 2 * M;
+  const capped = Math.min(width, stages.length * GROWN_BOX_W + (stages.length - 1) * GAP);
+  const preferred = LABEL * GROWTH;
+  let best: ReturnType<typeof measureRow> | undefined;
+  for (const span of capped < width ? [capped, width] : [width]) {
+    for (let k = 1; k <= 3; k++) {
+      // Solved on the LABELS alone. Classic sizes the box for each note at the
+      // label's size and weight, which is right when both sit near 52px; grown,
+      // the note sets at ~60% of the label, and one unbreakable note token —
+      // "XML·USD·URDF" — held a Korean three-stage row at 61px whose labels set
+      // at 79. The note still has to fit, and that is checked below instead.
+      const fit = fitAt(stages, k, span, stageW, face, preferred, 0, splitEven);
+      if (!fit.ok) continue;
+      const row = measureRow(fit, stages, loop, face, stageW, width, grow);
+      if (!notesFit(stages, row.note, row.innerW, face)) continue;
+      if (M + row.need + row.below > grow.budget) continue;
+      if (!best || row.size > best.size) best = row;
+    }
+    if (best) break;
+  }
+  // Nothing grown fits: draw exactly the classic row.
+  if (!best) return pipeLayout(stageW, stages, loop, face);
+  const room = grow.budget - M - best.below;
+  const boxH = Math.max(
+    best.need,
+    Math.floor(
+      Math.min(
+        best.text * GROWN_AIR,
+        GROWN_BOX_H * grow.region,
+        best.boxW * GROWN_BOX_ASPECT,
+        room,
+      ),
+    ),
+  );
+  return { ...best, boxH, svgH: M + boxH + best.below };
 }
 
 export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
@@ -442,23 +634,22 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   // a four-stage row gives each box ~170px, which is narrower than the words in
   // it. See `columnLayout`.
   const tall = isPortrait(ctx.format);
+  const v2 = isV2(ctx);
+  /** The body region: the content box less the chrome. What v2 grows into and reports against. */
+  const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
+  const budget = bodyBudget(
+    ctx.format,
+    p.eyebrow,
+    p.headline,
+    noteHeight(p.note, noteWidth(ctx.format), 36, face),
+    38,
+    undefined,
+    face,
+  );
+  const grow = v2 ? { budget, region } : undefined;
   const L = tall
-    ? columnLayout(
-        W,
-        bodyBudget(
-          ctx.format,
-          p.eyebrow,
-          p.headline,
-          noteHeight(p.note, noteWidth(ctx.format), 36, face),
-          38,
-          undefined,
-          face,
-        ),
-        p.stages,
-        face,
-        loop,
-      )
-    : pipeLayout(W, p.stages, loop, face);
+    ? columnLayout(W, budget, p.stages, face, loop, grow)
+    : pipeLayout(W, p.stages, loop, face, grow);
 
   /** Cross-axis centre of the row/column — the spine every connector sits on. */
   const spine = L.vertical ? L.boxX + L.boxW / 2 : M + L.boxH / 2;
@@ -493,7 +684,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
 
     const labelH = (L.labelLines[i]?.length ?? 1) * L.size * LABEL_LH;
     const noteCount = L.noteLines[i]?.length ?? 0;
-    const noteH = noteCount > 0 ? NOTE_TOP + noteCount * NOTE * NOTE_LH : 0;
+    const noteH = noteCount > 0 ? NOTE_TOP + noteCount * L.note * NOTE_LH : 0;
     const top = box.y + (box.h - labelH - noteH) / 2;
 
     const label = text(
@@ -516,7 +707,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
             stage.note,
             { x: box.x + box.w / 2, y: top + labelH + NOTE_TOP + (noteH - NOTE_TOP) / 2 },
             {
-              size: NOTE,
+              size: L.note,
               fill: theme.muted,
               anchor: "middle",
               maxWidth: L.innerW,
@@ -811,9 +1002,13 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     parts,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    // With a note, v2 hands the spare height to the gap above it (below), so the
+    // body spans the region; without one the diagram is all there is.
+    ...(v2 ? { fit: fitOf(p.note ? region - 38 : L.svgH, region) } : {}),
     css: [
       chromeCss(theme),
       ".pipewrap{margin-top:38px;display:flex;justify-content:center}",
+      ...(v2 && p.note ? [`#${sid} .pipewrap{margin-bottom:auto}`] : []),
       noteCss("pipenote", theme, 36),
       ambient(sid, `-stage${focus}`, BREATHE),
     ].join("\n"),

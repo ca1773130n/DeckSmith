@@ -160,6 +160,14 @@ describe("prefsFromFlags", () => {
   it("refuses a non-numeric picture cap by its flag", () => {
     expect(() => prefsFromFlags({ imageMax: "some" })).toThrow(/--image-max expects a number/);
   });
+
+  it("carries --design, and the schema defaults it to classic and refuses anything else", async () => {
+    expect(prefsFromFlags({ design: "v2" })).toEqual({ design: "v2" });
+    const root = await project();
+    expect((await loadPrefs({}, root)).design).toBe("classic");
+    expect((await loadPrefs(prefsFromFlags({ design: "v2" }), root)).design).toBe("v2");
+    await expect(loadPrefs(prefsFromFlags({ design: "v3" }), root)).rejects.toThrow(/design/);
+  });
 });
 
 describe("systemPrompt", () => {

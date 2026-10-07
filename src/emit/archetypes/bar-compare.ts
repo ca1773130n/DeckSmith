@@ -26,9 +26,12 @@
  * also where the height it needs comes from, since portrait has height to spare
  * and width it does not.
  */
+import type { BeatOf } from "../../types.js";
+import { fitOf, GROWTH, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, spotlighter } from "../kit.js";
 import {
+  type Face,
   faceOf,
   group,
   id,
@@ -51,6 +54,7 @@ import {
   isPortrait,
   noteCss,
   noteHeight,
+  noteWidth,
   tween,
 } from "./title.js";
 
@@ -124,8 +128,241 @@ const MIN_LEN = 8;
 /** Descender depth as a fraction of the type size, erring deep. */
 const DESCENT = 0.25;
 
+/** A glyph's box above its baseline, less the 0.34em a centred baseline sits below centre. */
+const GLYPH_OVER = 0.62;
+
 /** Portrait only: the label's own line, and the air under it before the rail. */
 const HEAD_GAP = 14;
+
+/**
+ * How big each part of the chart may grow. `CLASSIC` is v0.8.0 to the byte;
+ * `GROWN` multiplies the three caps by `GROWTH` and lets the rows spread — the
+ * plan's QW6 for this archetype (`BAR_MAX = min(96·1.6, region-derived)`). The
+ * region still bounds all of it: `bar` is solved against `avail` first and the
+ * cap only clips the answer.
+ */
+interface Caps {
+  bar: number;
+  label: number;
+  value: number;
+  spread: boolean;
+  /**
+   * The most type a row's text may have, as a fraction of its bar. Classic's
+   * 0.86 (labels) and 0.9 (values) were chosen while a value could not pass
+   * 48px; a grown one can, and its glyph box is 1.2em with 0.96em above the
+   * baseline, so centred on the bar it clears the bar's top edge only below
+   * ~0.8 of it. At 0.9 the first row's 76px value stood 5px above the chart —
+   * `text_box_overflow` on `#sN-v0` in the 2026-10-07 eval.
+   */
+  labelFit: number;
+  valueFit: number;
+  /**
+   * The share of the gutter a label is solved against, and the slack its
+   * measured width is given back: 1 in classic, `MEASURE_SLACK` grown. The
+   * label is right-aligned to the gutter's inner edge and the gutter is sized
+   * to the width table's answer, so a label the table under-measures runs out
+   * of the chart's LEFT edge by the error — 3-8px at a grown 74px in a Japanese
+   * and a Korean deck, `text_box_overflow` on `text.bc-lab`. (The same label at
+   * classic's 46px does it on one v0.8.0 deck too; classic is left as it is.)
+   */
+  measure: number;
+}
+const CLASSIC: Caps = {
+  bar: BAR_MAX,
+  label: LABEL_MAX,
+  value: VALUE_MAX,
+  spread: false,
+  labelFit: 0.86,
+  valueFit: 0.9,
+  measure: 1,
+};
+const GROWN: Caps = {
+  bar: BAR_MAX * GROWTH,
+  label: LABEL_MAX * GROWTH,
+  value: VALUE_MAX * GROWTH,
+  spread: true,
+  labelFit: 0.78,
+  valueFit: 0.78,
+  measure: MEASURE_SLACK,
+};
+/** The most air a spread row gets between rails, as a fraction of the bar: one bar's height. */
+const GAP_SPREAD = 1;
+
+interface LayoutArgs {
+  p: BeatOf<"bar-compare">["params"];
+  beatId: string;
+  W: number;
+  avail: number;
+  unitBand: number;
+  tall: boolean;
+  face: Face;
+  caps: Caps;
+}
+
+/**
+ * Every number the painter needs, solved from the budget. Throws — with the
+ * sentence the beat's author needs — when the chart cannot be drawn at all.
+ */
+function barLayout({ p, beatId, W, avail, unitBand, tall, face, caps }: LayoutArgs) {
+  const count = p.bars.length;
+  // H = count*bar + (count-1)*gap, with gap a fixed fraction of bar.
+  let bar = Math.min(caps.bar, (avail - unitBand - FOOT) / (count + GAP_RATIO * (count - 1)));
+  let pitch = bar * (1 + GAP_RATIO);
+
+  /* ------------------------------- the gutter, sized by the widest label */
+
+  // Stacked, a label has the whole width and there is no gutter to keep it out
+  // of; the only cap left is the type scale itself.
+  const gutterMax = tall ? 0 : share(GUTTER_MAX, W);
+  const gutterInner = tall ? W : gutterMax - GUTTER_PAD;
+  // textWidth is linear in size, so the size at which the widest label exactly
+  // fills the gutter is a division rather than a search.
+  const unitWidth = Math.max(
+    1,
+    ...p.bars.map((b) => textWidth(b.label, 1, LABEL_WEIGHT, 0, false, face)),
+  );
+  const labelSize = Math.max(
+    MIN_FONT,
+    // A stacked label is not competing with its bar for height, so it is not
+    // sized against one either — `bar * 0.86` is what keeps a label inside the
+    // rail it sits beside, and beside is the case that has gone.
+    Math.min(
+      caps.label,
+      tall ? caps.label : bar * caps.labelFit,
+      (gutterInner * caps.measure) / unitWidth,
+    ),
+  );
+  const lines = p.bars.map((b) => wrap(b.label, labelSize, gutterInner, LABEL_WEIGHT, 0, face));
+  const maxLines = Math.max(...lines.map((l) => l.length));
+  const lead = labelSize * 1.12;
+  /** Portrait: the band a row spends on its label before the rail starts. */
+  const head = tall ? maxLines * lead + HEAD_GAP : 0;
+
+  if (tall) {
+    // Every row now costs its label's band as well as its bar, so the bar is
+    // re-solved against what is left rather than clamped afterwards.
+    bar = Math.min(
+      caps.bar,
+      (avail - unitBand - FOOT - count * head) / (count + GAP_RATIO * (count - 1)),
+    );
+    pitch = head + bar * (1 + GAP_RATIO);
+  } else {
+    const needed = maxLines * lead + 10;
+    if (needed > pitch) {
+      // A label that only fits on two lines needs a taller row than its bar does.
+      // Growing the row is right; setting the label below MIN_FONT never is.
+      pitch = needed;
+      bar = Math.min(bar, pitch / (1 + GAP_RATIO));
+    }
+  }
+
+  const valueSize = Math.max(MIN_FONT, Math.min(caps.value, bar * caps.valueFit));
+  let barsH = (count - 1) * pitch + head + bar;
+  // What hangs below the last row's centre line: a value's descender, or half a
+  // wrapped label block plus its descender. Stacked, the label is above its own
+  // bar and can never be what hangs below it.
+  const foot = Math.max(
+    0,
+    Math.ceil(
+      Math.max(
+        valueSize * (0.34 + DESCENT),
+        tall ? 0 : ((maxLines - 1) * lead) / 2 + labelSize * (0.34 + DESCENT),
+      ) -
+        bar / 2,
+    ) + 4,
+  );
+  // HEADROOM, v2 only: the mirror of `foot`, above the first row. A glyph box
+  // is 1.2em with ~0.96em over the baseline, and a value's baseline sits 0.34em
+  // under its row's centre, so text over ~0.8 of a bar — or a wrapped label,
+  // centred on its bar — stands above the chart's top edge. Classic never
+  // measured this and its bytes stand (one v0.8.0 deck in the eval fails
+  // `text_box_overflow` on exactly that label); a grown chart is pushed down by
+  // what overhangs instead.
+  const headroom = caps.spread
+    ? Math.ceil(
+        Math.max(
+          0,
+          valueSize * GLYPH_OVER - bar / 2,
+          tall ? 0 : ((maxLines - 1) * lead) / 2 + labelSize * GLYPH_OVER - bar / 2,
+        ),
+      )
+    : 0;
+  // SPREAD, v2 only: once the bars are as thick as they may grow, the rows
+  // move apart into whatever height is still spare — up to `GAP_SPREAD` of a
+  // bar between rails, the SPARSE band's "spread gaps" (src/emit/fit.ts). Never
+  // tighter than the classic pitch, and never past `avail`.
+  if (caps.spread && count > 1) {
+    const room = (avail - headroom - unitBand - foot - head - bar) / (count - 1);
+    pitch = Math.max(pitch, Math.min(head + bar * (1 + GAP_SPREAD), room));
+    barsH = (count - 1) * pitch + head + bar;
+  }
+  const H = headroom + barsH + unitBand + foot;
+  if (H > avail) {
+    throw new Error(
+      `bar-compare ${beatId}: ${count} bars with labels this long need ${Math.ceil(H)}px of the ${Math.floor(avail)}px this slide has. Shorten the labels or split the beat.`,
+    );
+  }
+  // Ceiled. The label is right-aligned to the gutter's inner edge, so a gutter
+  // that is a fraction of a pixel narrower than the text it holds puts the first
+  // glyph a hair outside the frame — measured at -0.002px, which is nothing to
+  // look at and exactly the near-miss this file already refuses to round down to
+  // elsewhere. A whole pixel costs nothing and cannot be off by a fraction.
+  const gutter = tall
+    ? 0
+    : Math.min(
+        gutterMax,
+        Math.ceil(
+          Math.max(
+            ...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT, 0, false, face)),
+          ) /
+            caps.measure +
+            GUTTER_PAD,
+        ),
+      );
+
+  /* ------------------------------------- the scale, derived from the data */
+
+  const metrics = p.bars.map((b) => {
+    const printed = String(b.value);
+    const dot = printed.indexOf(".");
+    const decimals = dot < 0 ? 0 : printed.length - dot - 1;
+    return {
+      ...b,
+      printed,
+      /** The decimal grid `printed` sits on, so the counter cannot land beside it. */
+      snap: decimals === 0 ? "1" : `0.${"0".repeat(decimals - 1)}1`,
+      /** Exponent notation and deep decimals have no such grid; those labels fade. */
+      countable: !printed.includes("e") && decimals <= 4,
+      tail: textWidth(printed, valueSize, 700, 0, false, face) + VALUE_GAP,
+    };
+  });
+
+  // Reserve on both sides so the outermost bar's value stays inside the frame.
+  const reserveR = Math.max(...metrics.map((m) => (m.value < 0 ? 0 : m.tail)));
+  const reserveL = Math.max(0, ...metrics.map((m) => (m.value < 0 ? m.tail : 0)));
+  const plotW = W - gutter - reserveL - reserveR;
+  if (plotW < share(MIN_PLOT, W)) {
+    throw new Error(
+      `bar-compare ${beatId}: labels and values leave only ${Math.floor(plotW)}px to compare in. Shorten them or split the beat.`,
+    );
+  }
+
+  return {
+    bar,
+    pitch,
+    labelSize,
+    head,
+    valueSize,
+    barsH,
+    H,
+    headroom,
+    gutter,
+    gutterInner,
+    metrics,
+    reserveL,
+    plotW,
+  };
+}
 
 export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const { sid, theme } = ctx;
@@ -166,116 +403,32 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
     face,
   );
 
-  // H = count*bar + (count-1)*gap, with gap a fixed fraction of bar.
-  let bar = Math.min(BAR_MAX, (avail - unitBand - FOOT) / (count + GAP_RATIO * (count - 1)));
-  let pitch = bar * (1 + GAP_RATIO);
-
-  /* ------------------------------- the gutter, sized by the widest label */
-
-  // Stacked, a label has the whole width and there is no gutter to keep it out
-  // of; the only cap left is the type scale itself.
-  const gutterMax = tall ? 0 : share(GUTTER_MAX, W);
-  const gutterInner = tall ? W : gutterMax - GUTTER_PAD;
-  // textWidth is linear in size, so the size at which the widest label exactly
-  // fills the gutter is a division rather than a search.
-  const unitWidth = Math.max(
-    1,
-    ...p.bars.map((b) => textWidth(b.label, 1, LABEL_WEIGHT, 0, false, face)),
-  );
-  const labelSize = Math.max(
-    MIN_FONT,
-    // A stacked label is not competing with its bar for height, so it is not
-    // sized against one either — `bar * 0.86` is what keeps a label inside the
-    // rail it sits beside, and beside is the case that has gone.
-    Math.min(LABEL_MAX, tall ? LABEL_MAX : bar * 0.86, gutterInner / unitWidth),
-  );
-  const lines = p.bars.map((b) => wrap(b.label, labelSize, gutterInner, LABEL_WEIGHT, 0, face));
-  const maxLines = Math.max(...lines.map((l) => l.length));
-  const lead = labelSize * 1.12;
-  /** Portrait: the band a row spends on its label before the rail starts. */
-  const head = tall ? maxLines * lead + HEAD_GAP : 0;
-
-  if (tall) {
-    // Every row now costs its label's band as well as its bar, so the bar is
-    // re-solved against what is left rather than clamped afterwards.
-    bar = Math.min(
-      BAR_MAX,
-      (avail - unitBand - FOOT - count * head) / (count + GAP_RATIO * (count - 1)),
-    );
-    pitch = head + bar * (1 + GAP_RATIO);
-  } else {
-    const needed = maxLines * lead + 10;
-    if (needed > pitch) {
-      // A label that only fits on two lines needs a taller row than its bar does.
-      // Growing the row is right; setting the label below MIN_FONT never is.
-      pitch = needed;
-      bar = Math.min(bar, pitch / (1 + GAP_RATIO));
+  // v2 tries the grown caps and, if the chart cannot be drawn that big, draws it
+  // exactly as classic would. So the beats this archetype REFUSES are the same
+  // under both designs — `narrate` and `timing` emit without a design, and a
+  // beat refused in one place and drawn in the other would desynchronise them.
+  const args = { p, beatId: beat.id, W, avail, unitBand, tall, face };
+  const v2 = isV2(ctx);
+  let L: ReturnType<typeof barLayout> | undefined;
+  if (v2) {
+    // The note's REAL height, where classic charges one line by contract. A
+    // grown chart is sized to the last pixel of what is left, so the second line
+    // of a two-line Japanese note was 58px of chart pushed out of the region.
+    const noteBand = p.note
+      ? Math.max(NOTE_H, noteHeight(p.note, noteWidth(ctx.format) * MEASURE_SLACK, 26, face))
+      : 0;
+    const grownAvail = bodyBudget(ctx.format, p.eyebrow, p.headline, noteBand, BODY_TOP, 0, face);
+    try {
+      L = barLayout({ ...args, avail: grownAvail, caps: GROWN });
+    } catch {
+      L = undefined;
     }
   }
-
-  const valueSize = Math.max(MIN_FONT, Math.min(VALUE_MAX, bar * 0.9));
-  const barsH = (count - 1) * pitch + head + bar;
-  // What hangs below the last row's centre line: a value's descender, or half a
-  // wrapped label block plus its descender. Stacked, the label is above its own
-  // bar and can never be what hangs below it.
-  const foot = Math.max(
-    0,
-    Math.ceil(
-      Math.max(
-        valueSize * (0.34 + DESCENT),
-        tall ? 0 : ((maxLines - 1) * lead) / 2 + labelSize * (0.34 + DESCENT),
-      ) -
-        bar / 2,
-    ) + 4,
-  );
-  const H = barsH + unitBand + foot;
-  if (H > avail) {
-    throw new Error(
-      `bar-compare ${beat.id}: ${count} bars with labels this long need ${Math.ceil(H)}px of the ${Math.floor(avail)}px this slide has. Shorten the labels or split the beat.`,
-    );
-  }
-  // Ceiled. The label is right-aligned to the gutter's inner edge, so a gutter
-  // that is a fraction of a pixel narrower than the text it holds puts the first
-  // glyph a hair outside the frame — measured at -0.002px, which is nothing to
-  // look at and exactly the near-miss this file already refuses to round down to
-  // elsewhere. A whole pixel costs nothing and cannot be off by a fraction.
-  const gutter = tall
-    ? 0
-    : Math.min(
-        gutterMax,
-        Math.ceil(
-          Math.max(
-            ...lines.flat().map((l) => textWidth(l, labelSize, LABEL_WEIGHT, 0, false, face)),
-          ) + GUTTER_PAD,
-        ),
-      );
-
-  /* ------------------------------------- the scale, derived from the data */
-
-  const metrics = p.bars.map((b) => {
-    const printed = String(b.value);
-    const dot = printed.indexOf(".");
-    const decimals = dot < 0 ? 0 : printed.length - dot - 1;
-    return {
-      ...b,
-      printed,
-      /** The decimal grid `printed` sits on, so the counter cannot land beside it. */
-      snap: decimals === 0 ? "1" : `0.${"0".repeat(decimals - 1)}1`,
-      /** Exponent notation and deep decimals have no such grid; those labels fade. */
-      countable: !printed.includes("e") && decimals <= 4,
-      tail: textWidth(printed, valueSize, 700, 0, false, face) + VALUE_GAP,
-    };
-  });
-
-  // Reserve on both sides so the outermost bar's value stays inside the frame.
-  const reserveR = Math.max(...metrics.map((m) => (m.value < 0 ? 0 : m.tail)));
-  const reserveL = Math.max(0, ...metrics.map((m) => (m.value < 0 ? m.tail : 0)));
-  const plotW = W - gutter - reserveL - reserveR;
-  if (plotW < share(MIN_PLOT, W)) {
-    throw new Error(
-      `bar-compare ${beat.id}: labels and values leave only ${Math.floor(plotW)}px to compare in. Shorten them or split the beat.`,
-    );
-  }
+  L ??= barLayout({ ...args, caps: CLASSIC });
+  const { bar, pitch, labelSize, head, valueSize, barsH, H, gutter, gutterInner, metrics } = L;
+  /** v2's headroom over the first row; 0 in classic, where `0 + y` is `y` to the bit. */
+  const top0 = L.headroom;
+  const { reserveL, plotW } = L;
   const plotX = gutter + reserveL;
 
   // Anchored at zero, always. A negative value puts zero inside the plot rather
@@ -287,7 +440,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
 
   const rows = metrics.map((m, i) => {
     // `head` is zero beside a gutter, so the rail starts at the row's own top.
-    const top = i * pitch + head;
+    const top = top0 + i * pitch + head;
     const mid = top + bar / 2;
     const len = m.value === 0 ? 0 : Math.max(MIN_LEN, (Math.abs(m.value) / span) * plotW);
     const x = m.value < 0 ? zeroX - len : zeroX;
@@ -297,7 +450,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
       top,
       mid,
       /** Where the label sets: on its own line above the rail, or beside it. */
-      labelY: tall ? i * pitch + (head - HEAD_GAP) / 2 : mid,
+      labelY: tall ? top0 + i * pitch + (head - HEAD_GAP) / 2 : mid,
       len,
       x,
       valueX: m.value < 0 ? x - VALUE_GAP : x + len + VALUE_GAP,
@@ -319,7 +472,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   const unitText = p.unit
     ? text(
         p.unit,
-        { x: zeroX, y: barsH + 44 },
+        { x: zeroX, y: top0 + barsH + 44 },
         {
           size: MIN_FONT,
           weight: 500,
@@ -351,8 +504,8 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
           { id: id(sid, "zero") },
         )
       : line(
-          { x: zeroX, y: 0 },
-          { x: zeroX, y: barsH },
+          { x: zeroX, y: top0 },
+          { x: zeroX, y: top0 + barsH },
           {
             id: id(sid, "zero"),
             stroke: theme.rule,
@@ -507,13 +660,24 @@ ${svg(id(sid, "chart"), W, H, body)}
   // would undo the dim before anyone had read it. 0.62 is legible by
   // construction, so the losing bars are still there to be compared against.
 
+  // v2: the region the body was given, and how much of it the chart and note
+  // will paint. With a note, the chart's `margin-bottom:auto` hands every spare
+  // pixel to the gap above the note, so the note sits on the region's floor and
+  // the body spans it; without one, the chart is all there is.
+  const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0, face);
+  const fit = v2 ? { fit: fitOf(p.note ? region - BODY_TOP : H, region) } : {};
+
   return {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
+    ...fit,
     css: [
       chromeCss(theme),
       `.bc-wrap{margin-top:${BODY_TOP}px}`,
+      // Scoped to the scene, so a classic scene in the same document — there is
+      // none today, but the dedup set does not know that — keeps its centring.
+      ...(v2 && p.note ? [`#${sid} .bc-wrap{margin-bottom:auto}`] : []),
       `.bc-rail{fill:${theme.panel}}`,
       noteCss("bc-note", theme, 26),
       // `filter`, because this bar's entrance owns its `width` and `x` attributes

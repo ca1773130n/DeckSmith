@@ -7,12 +7,56 @@
  * GSAP then tints and swells in step with its legend row.
  */
 import type { Term } from "../../types.js";
+import { fitOf, isV2 } from "../fit.js";
 import type { Emitter, Theme } from "../kit.js";
 import { contentW, esc, js, raw, spotlighter } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
 import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
-import { chrome, chromeCss, chromeIn, holdsWithin, isPortrait, tween } from "./title.js";
+import {
+  bodyBudget,
+  chrome,
+  chromeCss,
+  chromeIn,
+  holdsWithin,
+  isPortrait,
+  tween,
+} from "./title.js";
+
+/**
+ * v2: the equation's wanted size, grown. `mathFit` measures the rendered line in
+ * the browser and steps it DOWN until it fits the box, so a bigger ask can only
+ * cost a few measuring steps — never a clipped equation. 1.3 rather than the fit
+ * engine's 1.6: a 108px display asked at 173 would be a single symbol per line
+ * on most of the corpus' equations, and the walk reads the terms, not the glyphs.
+ */
+const EQ_GROWTH = 1.3;
+/** v2: the legend's type, and the air between its rows. Classic is 48 and 30. */
+const LEG_SIZE_V2 = 60;
+const LEG_GAP_V2 = 36;
+/** `.eqslide`'s minimum gap between the equation and its legend. */
+const EQ_GAP = 64;
+
+/**
+ * How tall a display will come out, from its source — the fit engine's
+ * prediction for this archetype, and an ESTIMATE in a way the SVG archetypes'
+ * are not: KaTeX sets the line and `mathFit` re-sets it in the browser.
+ *
+ * Calibrated on the 30 equation-walk holds of the 2026-10-07 fill eval, where a
+ * flat 1.3em per line under-predicted fill by 0.1–0.25 on most of them: a line
+ * with sub- and superscripts is ~1.5em of ink, a fraction or a matrix adds
+ * about an em, a big operator with limits half of one, and a display too wide
+ * for the box at the size chosen here is broken by `mathFit` into as many lines
+ * as it is box-widths long. Residual error is about ±0.12 of a region; `verify`
+ * reports anything past 0.2.
+ */
+function displayHeight(raw: string, size: number, statements: number, box: number): number {
+  const tall = /\\[dt]?frac|\\binom|\\begin\{([bpvBV]?matrix|cases|array|aligned)/.test(raw);
+  const big = /\\(sum|prod|int|oint|bigcup|bigcap)/.test(raw);
+  const em = 1.5 + (tall ? 1 : 0) + (big ? 0.5 : 0);
+  const lines = Math.max(statements, Math.ceil((texUnits(raw) * size) / (box * 0.95)));
+  return lines * size * em + (lines - 1) * size * 0.5;
+}
 
 /** `output: "html"` suppresses KaTeX's hidden MathML mirror, which the layout inspector reads as overlapping text. */
 /**
@@ -606,6 +650,9 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   // `prepareWalk`, and `src/emit/tex.ts` for why.
   const walk = prepareWalk(eq, p.terms, beat.id);
   const terms = walk.used;
+  const v2 = isV2(ctx);
+  /** The equation's height once the fit has settled — ESTIMATED, for the prediction only. */
+  let eqH = 2 * PLAIN_FONT * 1.5;
 
   const legend = legendRows(sid, terms, theme);
   const chips = terms.map((t) => chipSetup(sid, t));
@@ -646,11 +693,12 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
     // This is still an ESTIMATE, from a glyph count. `mathFit` below measures the
     // rendered line and corrects it; see there for what happens when it is wrong.
     const longest = raw.reduce((a, b) => (b.length > a.length ? b : a));
-    const want = equationSize(longest);
+    const want = v2 ? Math.round(equationSize(longest) * EQ_GROWTH) : equationSize(longest);
     const size = Math.max(
       MIN_FONT,
       Math.min(want, Math.floor(contentW(ctx.format) / Math.max(...raw.map(texUnits)))),
     );
+    eqH = displayHeight(walk.raw, size, shown.length, contentW(ctx.format));
     const body =
       shown.length === 1
         ? ""
@@ -746,6 +794,18 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
     );
   }
 
+  // v2's prediction. ESTIMATED rather than solved, unlike the SVG archetypes:
+  // KaTeX's line height and the browser-side `mathFit` are not knowable here
+  // (see `displayHeight`), and a legend row is charged its 1.2 line box.
+  // `.eqslide` is `space-evenly`, so of the slack only the gap BETWEEN the two
+  // blocks is inside the painted extent. `verify` holds this against the
+  // browser; a wrong estimate is reported, not hidden.
+  const region = bodyBudget(ctx.format, p.eyebrow, p.headline, 0, 0, 0);
+  const legSize = v2 ? LEG_SIZE_V2 : 48;
+  const legGap = v2 ? LEG_GAP_V2 : 30;
+  const legH = terms.length * legSize * 1.2 + Math.max(0, terms.length - 1) * legGap;
+  const slack = Math.max(0, region - eqH - legH - EQ_GAP);
+
   return {
     html,
     tl,
@@ -753,6 +813,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
     measure,
     ...(walk.notes.length ? { warnings: walk.notes } : {}),
     holds: holdsWithin(holds, beat.seconds),
+    ...(v2 ? { fit: fitOf(eqH + EQ_GAP + legH + slack / 3, region) } : {}),
     css: [
       chromeCss(theme),
       // `flex:1`, not `height:68vh`. 68vh is 734px measured against the viewport,
@@ -763,7 +824,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
       // to overflow with — and it centres against the real remainder.
       // `space-evenly`, so the equation and its legend divide the box between
       // them instead of huddling in the middle of it with a band above and below.
-      ".eqslide{display:flex;flex-direction:column;justify-content:space-evenly;gap:64px;flex:1;min-height:0}",
+      `.eqslide{display:flex;flex-direction:column;justify-content:space-evenly;gap:${EQ_GAP}px;flex:1;min-height:0}`,
       ".katex-display{margin:0 !important}",
       `.eq{text-align:center;color:${theme.fg}}`,
       // Only present when the display was split into statements, and the split
@@ -783,6 +844,10 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
       // Transforms do not apply to inline boxes, and KaTeX spans are inline.
       ".term{display:inline-block}",
       legendCss(theme),
+      // Scoped, because `legendCss` is the shared block every walk emits once.
+      ...(v2
+        ? [`#${sid} .legend{gap:${LEG_GAP_V2}px}`, `#${sid} .leg{font-size:${LEG_SIZE_V2}px}`]
+        : []),
       // The block, not the term under discussion: which term that is, is a fact
       // about the paused timeline, and CSS cannot see it. The terms are also the
       // one thing here GSAP tints and swells, so a rule on them would win the
