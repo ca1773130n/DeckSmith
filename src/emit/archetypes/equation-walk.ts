@@ -9,6 +9,7 @@
 import type { Term } from "../../types.js";
 import type { Emitter, Theme } from "../kit.js";
 import { contentW, esc, js, raw, spotlighter } from "../kit.js";
+import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
 import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
@@ -674,16 +675,28 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
     ];
   }
 
-  const html = `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format))}
-<div class="eqslide">
+  const slide = `<div class="eqslide">
   ${eqHtml}
   <div class="legend">
     ${legend}
   </div>
 </div>`;
+  // `--design v2` may move the chrome under the equation (src/emit/look.ts).
+  // The classic string is kept as it was rather than routed through the frame:
+  // this emitter has always measured its headline as Latin, and the frame
+  // measures with the deck's face, which would re-break CJK headlines.
+  const F =
+    ctx.look?.placement === "foot"
+      ? frameOf(ctx, { eyebrow: p.eyebrow, headline: p.headline, evidence: beat.evidence })
+      : undefined;
+  const html = F
+    ? F.compose(slide)
+    : `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format))}
+${slide}`;
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
+    ...(F?.tl ?? []),
     tween(`#${sid}-eq`, { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.7 }, 0.8),
   ];
 
@@ -788,6 +801,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
       // one thing here GSAP tints and swells, so a rule on them would win the
       // cascade and cancel the walk.
       ambient(sid, "-eq", BREATHE),
+      ...(F?.css ? [F.css] : []),
     ].join("\n"),
   };
 };

@@ -7,6 +7,7 @@
  * learns what a camera frustum or an orderbook is.
  */
 import type { Archetype, BeatOf, Format, Source } from "../types.js";
+import type { Look } from "./look.js";
 
 /* ------------------------------------------------------- the content box */
 
@@ -232,6 +233,16 @@ export interface EmitContext {
   // about to be thrown away. A measurement pass that genuinely does not care
   // says `start: 0` and says it on purpose; the compiler now asks.
   start: number;
+  /**
+   * `--design v2` only: the arrangement the Director chose for this beat — a
+   * body variant and where the chrome sits. See src/emit/look.ts.
+   *
+   * ABSENT ON EVERY CLASSIC BUILD, and absent means the classic scene byte for
+   * byte. The measuring passes (`planCut`, `narrate`, `timing`, `refs`) never set
+   * it either, which is safe because a look may change geometry and never time:
+   * the Director rejects any look whose holds or chrome landing differ.
+   */
+  look?: Look;
 }
 
 /* ------------------------------------------------- the animation vocabulary */
@@ -452,6 +463,14 @@ export interface Scene {
   holds: number[];
   /** CSS this archetype needs. Deduplicated by the shell, emitted once. */
   css?: string;
+  /**
+   * How much of its body box this scene's body fills along the axis it grows
+   * on, 0–1: the drawn height over the height it was given. Optional, in-memory
+   * only — never serialised, so it moves no byte. The `--design v2` Director
+   * prefers the look that fills more (src/plan/direct.ts); an emitter that does
+   * not report it is scored as neither full nor hollow.
+   */
+  fill?: number;
 }
 
 export type Emitter<A extends Archetype> = (beat: BeatOf<A>, ctx: EmitContext) => Scene;

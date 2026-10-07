@@ -7,14 +7,13 @@
  */
 import type { Figure } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc, words } from "../kit.js";
+import { esc, words } from "../kit.js";
+import { frameOf, variantOf } from "../look.js";
 import { faceOf, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
 import {
   BODY_LH,
   BODY_SIZE,
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
@@ -203,10 +202,23 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       `claim-figure ${beat.id}: no figure "${p.figureId}" in source ${ctx.source.id}`,
     );
   }
-  const box = contentW(ctx.format);
+  /**
+   * The content box, or what the chosen placement leaves the body
+   * (src/emit/look.ts). The figure this beat draws is named so an aside in the
+   * rail never repeats it.
+   */
+  const F = frameOf(ctx, {
+    eyebrow: p.eyebrow,
+    headline: p.headline,
+    drawn: [p.figureId],
+    evidence: beat.evidence,
+  });
+  const box = F.w;
+  const variant = variantOf(ctx, "claim-figure");
   // PORTRAIT: everything stacks, so the aspect test never applies — a 3.6-aspect
   // strip and a square plate both get the full 860 and differ only in how much
-  // height they then ask for.
+  // height they then ask for. The `stacked` variant asks for that arrangement on
+  // a wide canvas too.
   const portrait = isPortrait(ctx.format);
   const wide = !portrait && fig.width / fig.height >= FULL_WIDTH_ASPECT;
 
@@ -224,8 +236,16 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     wrap(p.claim, CLAIM_SIZE, width - CLAIM_RULE, 400, 0, face).length *
       Math.round(CLAIM_SIZE * CLAIM_LH) +
     34;
-  const rowBudget = bodyBudget(ctx.format, p.eyebrow, p.headline, CAP_BAND, 26, undefined, face);
-  const tall = portrait || (!wide && bandFor(BESIDE_COL) - 34 > rowBudget);
+  const rowBudget = F.budget(CAP_BAND, 26);
+  const tall = portrait || variant === "stacked" || (!wide && bandFor(BESIDE_COL) - 34 > rowBudget);
+  // `mirror` is the beside row with the figure first. Where the row is not drawn —
+  // a strip figure set under, or a claim too long to stand beside — it would
+  // be the classic slide under another name, which is exactly what the sameness
+  // metrics must not be told. So it refuses, and the Director looks elsewhere.
+  const mirror = variant === "mirror";
+  if (mirror && (tall || wide)) {
+    throw new Error(`claim-figure ${beat.id}: mirror needs the beside row, and this beat stacks`);
+  }
 
   // Stacked, the claim is above the figure rather than beside it, so it comes out
   // of the figure's height budget. Measured against the box because that is the
@@ -244,18 +264,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // overflowed by the difference, and the caption's text landed at y=1087.16 on
   // a 1080 canvas — seven pixels, invisible to the gate until it started
   // sampling the deck's own stops rather than nine midpoints of a 92s timeline.
-  const figMax =
-    Math.round(
-      bodyBudget(
-        ctx.format,
-        p.eyebrow,
-        p.headline,
-        CAP_BAND + claimBand,
-        26,
-        tall ? 0 : undefined,
-        face,
-      ),
-    ) - 32;
+  const figMax = Math.round(F.budget(CAP_BAND + claimBand, 26, tall ? 0 : undefined)) - 32;
   // A claim long enough to leave no plate is not a layout to solve, it is a beat
   // to split — the same answer `split-compare` and `callout` already give, in the
   // same words. Without this the cap goes negative, the browser discards an
@@ -287,10 +296,13 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
     ? `<div class="cf-stack">${claim}\n<div>${figure}\n${caption}</div></div>`
     : wide
       ? `${figure}\n<div class="cf-under">${claim}\n${caption}</div>`
-      : `<div class="cf-beside">${claim}\n<div>${figure}\n${caption}</div></div>`;
+      : mirror
+        ? `<div class="cf-beside cf-mirror"><div>${figure}\n${caption}</div>\n${claim}</div>`
+        : `<div class="cf-beside">${claim}\n<div>${figure}\n${caption}</div></div>`;
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
     tween(
       `#${sid}-c .w`,
       { opacity: 0, y: 14 },
@@ -319,7 +331,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   ];
 
   return {
-    html: `${chrome(sid, p.eyebrow, p.headline, box, face)}\n${body}`,
+    html: F.compose(body),
     tl,
     holds: holdsWithin([1.4, 2.4], beat.seconds),
     css: [
@@ -355,7 +367,14 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // rule naming only `img` over a clip is a cap that silently does not
       // apply — the video would render at its natural 1920x1080 and run off the
       // canvas, which is invariant-5 territory that no gate reads.
-      `.figwrap ${held.el}{max-width:100%;max-height:${figMax}px;width:auto;height:auto;display:block}`,
+      //
+      // SCOPED TO THE SCENE UNDER `--design v2`. Scene CSS is one global sheet,
+      // so this per-beat number, written as a bare class rule, is decided for
+      // EVERY claim-figure in the deck by whichever one comes last: measured on a
+      // shipped v0.8.0 deck (3b9eaf0b.en), four rules of 308/492/492/566px, and a
+      // plate solved for 308 then drawn at up to 566. Classic keeps its bytes;
+      // v2 scopes it so each plate gets the height its own slide solved.
+      `${ctx.look ? `#${sid} ` : ""}.figwrap ${held.el}{max-width:100%;max-height:${figMax}px;width:auto;height:auto;display:block}`,
       `.caption{font-size:${BODY_SIZE}px;line-height:${BODY_LH};color:${theme.dim};margin-top:16px}`,
       // The image, not its wrapper: the wrapper's entrance already writes
       // `transform`. 1.2% of the 550px cap is 3.3px a side, which the wrapper's
@@ -364,6 +383,8 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // over a `<video>` is one ambient rule that animates nothing, and the
       // slide reads as dead rather than as held.
       ambient(sid, `-f ${held.el}`, DRIFT),
+      ...(mirror ? [`#${sid} .cf-mirror{grid-template-columns:1fr ${BESIDE_COL}px}`] : []),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };

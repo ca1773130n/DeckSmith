@@ -23,7 +23,8 @@
  */
 import type { Figure } from "../../types.js";
 import type { Emitter } from "../kit.js";
-import { contentW, esc, spotlighter } from "../kit.js";
+import { esc, spotlighter } from "../kit.js";
+import { frameOf, variantOf } from "../look.js";
 import type { Box } from "../svg.js";
 import {
   DRAW_FROM,
@@ -43,15 +44,12 @@ import {
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
-  bodyBudget,
-  chrome,
   chromeCss,
   chromeIn,
   holdsWithin,
   isPortrait,
   noteCss,
   noteHeight,
-  noteWidth,
   tween,
 } from "./title.js";
 
@@ -157,20 +155,29 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // Every measurement below is charged to the DECK's face, not to each run's
   // own characters: a CJK bundle sets an all-ASCII label in Noto Sans too.
   const face = faceOf(theme.fontStack);
-  const W = contentW(ctx.format);
-  const H = bodyBudget(
-    ctx.format,
-    p.eyebrow,
-    p.headline,
-    noteHeight(p.note, noteWidth(ctx.format), undefined, face),
-    undefined,
-    undefined,
-    face,
-  );
+  // The content box, or what the chosen placement leaves the body
+  // (src/emit/look.ts). Figures a side draws are named so a rail aside never
+  // repeats one.
+  const F = frameOf(ctx, {
+    eyebrow: p.eyebrow,
+    headline: p.headline,
+    drawn: [p.left.figureId, p.right.figureId],
+    evidence: beat.evidence,
+  });
+  const W = F.w;
+  const H = F.budget(noteHeight(p.note, F.noteW, undefined, face));
 
   // Two equal panels with a 2×GUTTER channel between them for the divider —
-  // columns across the box in landscape, rows down it in portrait.
-  const tall = isPortrait(ctx.format);
+  // columns across the box in landscape, rows down it in portrait. The `rows`
+  // variant asks for the stacked arrangement on a wide canvas: two full-width
+  // bands, which is what a pair of short lists reads best as beside a rail.
+  const variant = variantOf(ctx, "split-compare");
+  if (variant === "rows" && figs.some(Boolean)) {
+    // A figure in a band a third of the slide tall is a strip of a figure, and a
+    // pair of figures is compared side by side or not at all.
+    throw new Error(`split-compare ${beat.id}: rows are for lists, and a side here is a figure`);
+  }
+  const tall = isPortrait(ctx.format) || variant === "rows";
   const lanes = tracks(tall ? H : W, 2, GUTTER * 2);
   const pw = tall ? W : (lanes[0]?.w ?? W / 2);
   /** Height one panel has to itself, before its own heading has taken any. */
@@ -372,12 +379,14 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       );
 
   const note = p.note ? `\n<div class="sc-note" id="${sid}-note">${esc(p.note)}</div>` : "";
-  const html = `${chrome(sid, p.eyebrow, p.headline, W, face)}
-<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`;
+  const html = F.compose(
+    `<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`,
+  );
 
   const at = [1.15, 2.05];
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
     // The frame before either side of the argument: the divider grows down from
     // under the headline, and the panels arrive into a structure that already exists.
     tween(
@@ -482,6 +491,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       // `transform`; the breath is on the label itself and moves `filter`, so the
       // two never write the same property on the same element.
       ambient(sid, "-lab1", BREATHE),
+      ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
 };
