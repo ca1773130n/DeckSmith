@@ -177,7 +177,12 @@ function arrangements(
       });
     } else if (mode === "wide") {
       const half = (box - 56) / 2;
-      const claimSize = grownClaim(half, Number.POSITIVE_INFINITY);
+      // The claim grows only into height the figure does not need at its classic
+      // size (its own pixels, or the box's width). Grown without a bound, a
+      // 120-character claim took the plate down to 206px tall — 40% of what
+      // v0.8.0 drew (set20 8872a314 s3, fix-round Tier A).
+      const classicH = Math.min(fig.height, ((box - PLATE_PAD) * fig.height) / fig.width);
+      const claimSize = grownClaim(half, Math.max(0, region - 26 - PLATE_PAD - 26 - classicH));
       const row = Math.max(claimH(half, claimSize), capH(half) - 16);
       const plate = plateIn(box - PLATE_PAD, region - 26 - PLATE_PAD - 26 - row);
       out.push({ mode, claimSize, plate, fit: fitOf(plate.h + PLATE_PAD + 26 + row, region) });

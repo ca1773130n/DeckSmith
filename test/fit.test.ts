@@ -484,6 +484,21 @@ describe("claim-figure under v2", () => {
     expect(v.figureArea).toBe(Number(m?.[1]) * Number(m?.[2]));
   });
 
+  it("never grows the claim into the height a wide figure had at its classic size", () => {
+    // set20 8872a314 s3 (fix-round Tier A): a 1159x326 strip under a grown
+    // 120-character claim came out 732x206, 40% of what classic drew.
+    const strip = withFigure(1159, 326);
+    const long = beat("claim-figure", {
+      headline: "The figure carries the claim",
+      claim:
+        "A claim long enough to wrap onto several lines once it is set at the larger size the fit engine would like to give it here.",
+      figureId: "f1",
+    });
+    const c = claimFigure(long, ctx(undefined, strip));
+    const v = claimFigure(long, ctx("v2", strip));
+    expect(v.figureArea ?? 0).toBeGreaterThanOrEqual(c.figureArea ?? 0);
+  });
+
   it("grows the claim without adding a line to it", () => {
     const v = claimFigure(claim, ctx("v2", withFigure(1000, 750)));
     expect(Number(/#s1 \.claim\{font-size:(\d+)px/.exec(v.css ?? "")?.[1])).toBeGreaterThan(50);

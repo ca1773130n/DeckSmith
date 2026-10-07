@@ -103,7 +103,9 @@ describe("direct", () => {
       .map(Number);
     expect(shrunk.length).toBeGreaterThan(0);
     for (const pct of shrunk) expect(pct).toBeLessThan(80);
-    expect(real.beats[0]?.placement).toBe("top");
+    // Whatever it picks is not one of those.
+    const chosen = real.beats[0]?.signature;
+    expect(real.beats[0]?.refused.map((r) => r.signature)).not.toContain(chosen);
     // The same looks, drawing the figure as large as classic does, are not refused for it.
     const classicArea = emitScene(b09, {
       source,
@@ -231,8 +233,10 @@ describe("design: the switch", () => {
     // Then the last part of s2, s3, s4, s8, s13, s14 restores the slide to full
     // instead of dimming its neighbour (only the spotlight tweens move). Then the
     // rows of s14's table share its height and no row is lifted out of line.
+    // Then s9's claim stops growing into its strip figure's classic height, so
+    // the foot look keeps the figure at 1383x384 (classic draws it 1373x381).
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "6b1104a840887c604cb2f58da46884f3f2843b526977df2c40a376314d3ade8f",
+      "2d5091720ac3050ffe0db34fe303e17bff25c4f63799c36341d9fa8dac44a4d0",
     );
   });
 
