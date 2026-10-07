@@ -23,11 +23,12 @@
  */
 import type { Figure } from "../../types.js";
 import { fitOf, isV2 } from "../fit.js";
-import type { Emitter } from "../kit.js";
+import type { Emitter, ListForm, Theme } from "../kit.js";
 import { esc, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import type { Box } from "../svg.js";
 import {
+  circle,
   DRAW_FROM,
   DRAW_TO,
   type Face,
@@ -314,12 +315,21 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       y += cardH + (listH > 0 ? STACK_GAP : 0);
     }
 
-    for (const item of list) {
+    const form = theme.forms?.list ?? "tick";
+    for (const [n, item] of list.entries()) {
       const h = itemHeight(item, itemSize, itemW, face);
+      const gap = itemSize * ITEM_GAP + spread;
       // A tick rather than a dot: it carries the side's tone at the height of the
-      // first line, so a list reads as belonging to its half at a glance.
+      // first line, so a list reads as belonging to its half at a glance. A v2
+      // pack may mark its items its own way (`Theme.forms.list`), all in the same
+      // indent, so no measurement here moves.
       parts.push(
-        roundRect({ x: x0, y: y + itemSize * 0.32, w: 5, h: itemSize * 0.95 }, 2.5, { fill: tone }),
+        ...listMark(
+          form,
+          { x: x0, y, h, w: pw, gap, size: itemSize, n, last: n === list.length - 1 },
+          tone,
+          theme,
+        ),
         text(
           item,
           { x: x0 + INDENT, y: y + h / 2 },
@@ -333,7 +343,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
           },
         ),
       );
-      y += h + itemSize * ITEM_GAP + spread;
+      y += h + gap;
     }
 
     return `<g id="${sid}-side${i}">${parts.join("")}</g>`;
@@ -505,3 +515,76 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     ].join("\n"),
   };
 };
+
+/**
+ * The mark beside one list item, in the pack's form. Every form sits in the
+ * `INDENT` the tick always had (or behind or under the item), so the item's
+ * text, and every line count measured for it, is where classic put it.
+ *
+ * - `tick`: classic — a bar in the side's tone at the first line's height.
+ * - `number`: 1, 2, 3 in the tone, at the 40px floor: a numbered list.
+ * - `dot`: a disc at the first line's centre.
+ * - `card`: the item on a panel of its own, the tick on its edge.
+ * - `rule`: no mark, a hairline under every item but the last.
+ */
+function listMark(
+  form: ListForm,
+  at: {
+    x: number;
+    y: number;
+    h: number;
+    w: number;
+    gap: number;
+    size: number;
+    n: number;
+    last: boolean;
+  },
+  tone: string,
+  theme: Theme,
+): string[] {
+  const { x, y, h, w, gap, size } = at;
+  const tick = roundRect({ x, y: y + size * 0.32, w: 5, h: size * 0.95 }, 2.5, { fill: tone });
+  const firstLine = y + size * 0.32 + (size * 0.95) / 2;
+  switch (form) {
+    case "number":
+      // At the audience floor (invariant 5), and one digit, so it fits the 40px
+      // indent the tick had: lists here run to five items, not ten.
+      return [
+        text(
+          String(at.n + 1),
+          { x, y: firstLine },
+          {
+            size: MIN_FONT,
+            weight: 700,
+            fill: tone,
+            vAlign: "middle",
+          },
+        ),
+      ];
+    case "dot":
+      return [circle({ x: x + 7, y: firstLine }, Math.round(size * 0.16), { fill: tone })];
+    case "card": {
+      // Inside half the gap above and below, so two cards never touch.
+      const pad = Math.min(gap * 0.45, size * 0.3);
+      const cx = Math.max(0, x - 18);
+      return [
+        roundRect({ x: cx, y: y - pad, w: w + (x - cx), h: h + 2 * pad }, 12, {
+          fill: theme.panel,
+        }),
+        tick,
+      ];
+    }
+    case "rule":
+      return at.last
+        ? []
+        : [
+            line(
+              { x, y: y + h + gap / 2 },
+              { x: x + w, y: y + h + gap / 2 },
+              { stroke: theme.rule, "stroke-width": 2 },
+            ),
+          ];
+    default:
+      return [tick];
+  }
+}

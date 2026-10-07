@@ -47,7 +47,13 @@ export const signal: DeckTheme = {
     ".scene .figwrap,.scene .af-plate{border-color:#ff2d5566;border-radius:18px;box-shadow:0 30px 80px -30px #ff2d5559}",
     ".scene .panel{border-radius:18px}",
     ".scene .sub{border-top-color:#ff2d55}",
+    // Title: the headline glows on the brand's own light.
+    ".titleslide .bighead{text-shadow:0 0 90px #ff2d5540}",
   ].join("\n"),
+  forms: {
+    list: "tick",
+    affinity: { placement: { foot: 1 }, variant: { "split-compare:columns": 1 } },
+  },
 };
 
 /** Navy drafting film, a cyan rule, a faint grid. IBM Plex throughout. */
@@ -68,7 +74,21 @@ export const blueprint: DeckTheme = {
     ".scene .figwrap,.scene .af-plate{border-color:#4cc9f0;border-radius:2px;box-shadow:12px 12px 0 #4cc9f026}",
     ".scene .panel{border-radius:2px}",
     ".scene .sub{border-top-style:dashed;border-top-color:#4cc9f0}",
+    // Bars are square, on dashed drafting tracks.
+    ".scene .bc-bar{rx:0}",
+    ".scene .bc-rail{rx:0;fill-opacity:0;stroke:#4cc9f066;stroke-width:2;stroke-dasharray:8 8}",
+    // Title: a drawing frame, registration corners and all.
+    ".titleslide{position:relative;outline:2px solid #4cc9f02e;outline-offset:40px}",
+    '.titleslide::before{content:"";position:absolute;left:-40px;top:-40px;width:44px;height:44px;border-top:4px solid #4cc9f0;border-left:4px solid #4cc9f0}',
+    '.titleslide::after{content:"";position:absolute;right:-40px;bottom:-40px;width:44px;height:44px;border-bottom:4px solid #4cc9f0;border-right:4px solid #4cc9f0}',
   ].join("\n"),
+  forms: {
+    list: "number",
+    affinity: {
+      placement: { rail: 1 },
+      variant: { "split-compare:rows": 1, "pipeline:column": 1 },
+    },
+  },
 };
 
 /** Espresso ground, amber accent, a serif headline over Inter. Matted figures. */
@@ -90,7 +110,17 @@ export const atlas: DeckTheme = {
     ".scene .figwrap,.scene .af-plate{border-color:#e9a23b80;border-radius:4px;box-shadow:0 0 0 8px #15110c,0 0 0 9px #e9a23b4d}",
     ".scene .panel{border-radius:4px}",
     ".scene .sub{border-top-color:#e9a23b}",
+    ".scene .bc-bar{rx:4}",
+    ".scene .bc-rail{rx:4;fill-opacity:.55}",
+    // Title: centred under a gold rule, like a frontispiece.
+    ".titleslide{text-align:center}",
+    ".titleslide .eyebrow::before{position:absolute;left:calc(50% - 60px)}",
+    ".titleslide .sub{border-top-color:transparent}",
   ].join("\n"),
+  forms: {
+    list: "dot",
+    affinity: { placement: { top: 1 }, variant: { "claim-figure:mirror": 1, "callout:rows": 1 } },
+  },
 };
 
 /** Cream stock, oxblood accent, Source Serif throughout. A journal page. */
@@ -111,7 +141,19 @@ export const folio: DeckTheme = {
     ".scene .figwrap,.scene .af-plate{border-color:#cfc3ae;border-radius:2px;box-shadow:0 1px 0 #0000000d,0 22px 44px -22px #3b2a1047}",
     ".scene .panel{border-radius:4px}",
     ".scene .sub{border-top-color:#9a2333}",
+    ".scene .bc-bar{rx:0}",
+    ".scene .bc-rail{fill-opacity:0}",
+    // Title: a journal masthead, a heavy rule over a hairline.
+    ".titleslide{position:relative}",
+    '.titleslide::before{content:"";position:absolute;left:0;right:0;top:-34px;height:6px;border-top:4px solid #1c1814;border-bottom:1px solid #1c1814}',
   ].join("\n"),
+  forms: {
+    list: "number",
+    affinity: {
+      placement: { top: 1 },
+      variant: { "split-compare:rows": 1, "bar-compare:versus": 1 },
+    },
+  },
 };
 
 /** Cool white, ultramarine accent, a grotesk headline over Plex. Dotted ground. */
@@ -132,7 +174,14 @@ export const chalk: DeckTheme = {
     ".scene .figwrap,.scene .af-plate{border-color:#2547d040;border-radius:16px;box-shadow:0 24px 48px -24px #0e162147}",
     ".scene .panel{border-radius:18px}",
     ".scene .sub{border-top-color:#2547d0}",
+    ".scene .bc-bar{rx:14;stroke:#0e1621;stroke-width:3}",
+    // Title: every word run over with a highlighter.
+    ".titleslide .bighead .w{background-image:linear-gradient(transparent 62%,#2547d02e 62%,#2547d02e 94%,transparent 94%)}",
   ].join("\n"),
+  forms: {
+    list: "card",
+    affinity: { placement: { foot: 1 }, variant: { "callout:rows": 1, "bar-compare:versus": 1 } },
+  },
 };
 
 /** Sage ground, forest accent, a Plex headline over a serif body. Tabbed plates. */
@@ -153,7 +202,19 @@ export const journal: DeckTheme = {
     ".scene .figwrap,.scene .af-plate{border-color:#1f6b4a59;border-radius:10px;box-shadow:-10px 0 0 #1f6b4a}",
     ".scene .panel{border-radius:10px}",
     ".scene .sub{border-top-color:#1f6b4a}",
+    ".scene .bc-bar{rx:3}",
+    ".scene .bc-rail{rx:3;fill-opacity:0;stroke:#d3dacd;stroke-width:2}",
+    // Title: a forest bar down the whole title block.
+    ".titleslide{position:relative}",
+    '.titleslide::before{content:"";position:absolute;left:-46px;top:0;bottom:0;width:8px;border-radius:4px;background:#1f6b4a}',
   ].join("\n"),
+  forms: {
+    list: "rule",
+    affinity: {
+      placement: { rail: 1 },
+      variant: { "split-compare:rows": 1, "claim-figure:stacked": 1 },
+    },
+  },
 };
 
 /** The packs `--design v2` chooses among, in a fixed order the picker hashes into. */

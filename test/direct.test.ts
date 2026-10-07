@@ -131,7 +131,8 @@ describe("direct", () => {
   });
 
   it("prefers the look that fills its body", () => {
-    // Two bars: rows draw a thin band, columns stand the full height.
+    // Two bars: rows draw a thin band, two columns leave the plot empty, and a
+    // versus sets the two values as the slide's figures.
     const twoBars = {
       id: "b1",
       archetype: "bar-compare",
@@ -150,7 +151,7 @@ describe("direct", () => {
     } as Beat;
     // Over many papers, not one: one seed's taste could land on columns by luck.
     for (let k = 0; k < 12; k++) {
-      expect(direct([twoBars], { ...opts, seed: `paper-${k}` }).beats[0]?.variant).toBe("columns");
+      expect(direct([twoBars], { ...opts, seed: `paper-${k}` }).beats[0]?.variant).toBe("versus");
     }
   });
 });
@@ -210,9 +211,10 @@ describe("design: the switch", () => {
     // (s9 0.05 → 0.032, s15 → 0.018), so their last word lands by the stop.
     // Then the figure floor: s9 leaves the foot look, which drew its figure at
     // 70% of the top look's area, for the top look at 1542x428 (was 1286x357),
-    // and both plates hug their images.
+    // and both plates hug their images. Then callout titles capped at 0.9 of the
+    // headline (s2 60 → 57px) and s14 set as the rows of a table at the foot.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "ef23a5b977b9ec8ec254379f2d0d49fe328a59e8b24f746134dcaeecbd94860b",
+      "b336d73c0e8b5fa66a32508854561604cae43a9295c10655ec815aa9465f1a4f",
     );
   });
 

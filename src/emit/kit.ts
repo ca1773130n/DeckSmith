@@ -188,6 +188,30 @@ export interface Theme {
    * (`faceOf`), so the two are declared together by the pack (`src/emit/type.ts`).
    */
   displayStack?: string;
+  /**
+   * A v2 style pack's component forms: how it draws the parts every deck has,
+   * so two packs differ in FORM and not only in colour (review, 2026-10-08:
+   * "one template in four colours"). Absent on every classic theme, which is
+   * what keeps a classic build's bytes v0.8.0's.
+   */
+  forms?: PackForms;
+}
+
+/** How a pack marks a list item. `tick` is the classic coloured bar. */
+export type ListForm = "tick" | "number" | "dot" | "card" | "rule";
+
+export interface PackForms {
+  list?: ListForm;
+  /**
+   * Which looks this pack leans towards, as score bonuses the Director adds
+   * (src/plan/direct.ts): by placement, and by `archetype:variant`. So the
+   * same storyboard opens differently under two packs instead of every deck's
+   * second slide being the same two-column comparison.
+   */
+  affinity?: {
+    placement?: Partial<Record<"top" | "rail" | "foot", number>>;
+    variant?: Readonly<Record<string, number>>;
+  };
 }
 
 export interface EmitContext {

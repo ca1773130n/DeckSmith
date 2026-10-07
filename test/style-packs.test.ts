@@ -323,6 +323,18 @@ describe("the v2 packs", () => {
     "text-decoration-color",
     "text-decoration-thickness",
     "text-underline-offset",
+    "text-shadow",
+    // Moves glyphs inside their line boxes, never a box: line counts are the same.
+    "text-align",
+    // Outlines are painted outside the box and take no space.
+    "outline",
+    "outline-offset",
+    // SVG paint and corner radii: the rect's geometry is its attributes.
+    "rx",
+    "fill-opacity",
+    "stroke",
+    "stroke-width",
+    "stroke-dasharray",
   ]);
   const PSEUDO = new Set([
     ...PAINT,
@@ -334,6 +346,10 @@ describe("the v2 packs", () => {
     "bottom",
     "width",
     "height",
+    "border-top",
+    "border-left",
+    "border-right",
+    "border-bottom",
   ]);
 
   it.each(names)("%s's skin paints and never moves a box", (name) => {
@@ -364,13 +380,55 @@ describe("the v2 packs", () => {
   });
 
   it("puts a CJK deck's bundled family in front of the chrome stack too", () => {
-    const { theme } = deckLook({ theme: "folio", lang: "ko" });
+    const { theme } = deckLook({ theme: "signal", lang: "ko" });
     expect(theme.fontStack.startsWith('"Noto Sans KR", ')).toBe(true);
     expect(theme.displayStack?.startsWith('"Noto Sans KR", ')).toBe(true);
     // And the chrome is still measured at the pack's scale, in Hangul.
     const face = faceOf(theme.fontStack) as PackFace;
     expect(face.script).toBe("hangul");
+    expect(face.type).toBe(TYPES["grotesk-inter"]);
+    expect(face.cjkSerif).toBeUndefined();
+  });
+
+  it("sets a serif pack's serif roles in the bundle's Noto Serif, in every CJK language", () => {
+    // Review 2026-10-08: every CJK glyph fell back to Noto Sans whatever the
+    // pack, so a serif pack's one change of face vanished in ko, ja and zh.
+    const folio = deckLook({ theme: "folio", lang: "ko" }).theme; // serif body and display
+    expect(folio.fontStack.startsWith('"Noto Serif KR", ')).toBe(true);
+    expect(folio.displayStack?.startsWith('"Noto Serif KR", ')).toBe(true);
+    const atlas = deckLook({ theme: "atlas", lang: "zh-Hans" }).theme; // serif display only
+    expect(atlas.fontStack.startsWith('"Noto Sans SC", ')).toBe(true);
+    expect(atlas.displayStack?.startsWith('"Noto Serif SC", ')).toBe(true);
+    const journal = deckLook({ theme: "journal", lang: "ja" }).theme; // serif body only
+    expect(journal.fontStack.startsWith('"Noto Serif JP", ')).toBe(true);
+    expect(journal.displayStack?.startsWith('"Noto Sans JP", ')).toBe(true);
+    // Still the pack's spec, still the script — and measured as the serif.
+    const face = faceOf(folio.fontStack) as PackFace;
     expect(face.type).toBe(TYPES.serif);
+    expect(face.script).toBe("hangul");
+    expect(face.cjkSerif).toBe(true);
+    expect((displayFace(faceOf(atlas.fontStack)) as PackFace).cjkSerif).toBe(true);
+    expect((faceOf(atlas.fontStack) as PackFace).cjkSerif).toBeUndefined();
+    // Hangul at Noto Serif KR's 0.966em, Han unchanged, Latin wider.
+    const sans = faceOf(deckLook({ theme: "signal", lang: "ko" }).theme.fontStack);
+    expect(textWidth("가나다", 100, 400, 0, false, face)).toBeGreaterThan(
+      textWidth("가나다", 100, 400, 0, false, sans),
+    );
+    expect(textWidth("漢字", 100, 400, 0, false, faceOf(journal.fontStack))).toBeCloseTo(
+      textWidth(
+        "漢字",
+        100,
+        400,
+        0,
+        false,
+        faceOf(deckLook({ theme: "signal", lang: "ja" }).theme.fontStack),
+      ),
+      6,
+    );
+    // Classic themes never get a serif.
+    expect(
+      deckLook({ theme: "paper", lang: "ko" }).theme.fontStack.startsWith('"Noto Sans KR"'),
+    ).toBe(true);
   });
 
   it("leaves a classic theme's chrome stack absent", () => {
@@ -699,13 +757,15 @@ describe("v2 pack goldens", () => {
       },
     ],
   });
+  // Re-pinned 2026-10-08 (review fix round): each pack now draws its own bar
+  // corners and tracks and its own title composition, in the skin.
   const GOLDEN: Record<string, string> = {
-    atlas: "76688df33b9dd5455679b8e0cb895e65c4841f8ad84d5ac5b089e30b31eff668",
-    blueprint: "9b2ee0826f4899e9022119c104c5c17ee60165090e21b38cb1d5dacea72abab4",
-    chalk: "2074ba9844686d6c9b43e25e123e05aa314f5376f1fdb13cc07209f05ffdee27",
-    folio: "8493c4355d86716c5297b39fc6412aef8136f3a16e34346b27bbb8a5c0364eaf",
-    journal: "1229b6fb7e6d764117b12a4ad599b30a4ca73a8f4e51517dedec992abdb1ee20",
-    signal: "9268062119bd12736ddae0b1c09ff9daa5be67ed934a2b05a9a0401a8532662e",
+    atlas: "a26d28ef7432e965a75e8c50e4aa3241afde8328ff237de21049a3d50a683883",
+    blueprint: "b27c387005b3e644f6689307f8c358b81944327605c3439bec5c78b8150e993a",
+    chalk: "b8eca602cbc18709cc2aa7f49d06debe28ec857a5164e499477810f8fcde695d",
+    folio: "16abedfe97c79b103947ec741de6349e3852e8d9f5e74d51b56e1695117ff4b8",
+    journal: "95d87eec6733a5bf129925f2184eeca2bdecd3033b72dcda71d8416b2e0f87c9",
+    signal: "3c3bff1ff0d8583588460c02cc557cf61895737862f119979f1adcb7cc4c91d1",
   };
 
   it.each(Object.keys(PACKS))("%s emits the composition it emitted when pinned", (name) => {

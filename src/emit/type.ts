@@ -215,7 +215,7 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
  * CONTAINS a spec's families — a user's own theme — is not that spec.
  */
 export function typeForStack(fontStack: string): TypeSpec | undefined {
-  const latin = fontStack.replace(/^"Noto Sans (KR|JP|SC|TC)", /, "");
+  const latin = fontStack.replace(/^"Noto (Sans|Serif) (KR|JP|SC|TC)", /, "");
   return Object.values(TYPES).find((t) => t.stack === latin);
 }
 

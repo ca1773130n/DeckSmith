@@ -266,7 +266,10 @@ export async function refreshFont(
   // Noto, where they never draw a glyph but are still a family the page asks
   // for — hyperframes' lint refuses one with no @font-face). So they ship with
   // every deck that wears the pack. Empty for a classic theme.
-  const type = typeOf(faceOf(deckLook(storyboard, theme).theme.fontStack));
+  const look = deckLook(storyboard, theme).theme;
+  const type = typeOf(faceOf(look.fontStack));
+  // A serif pack's CJK roles are set in the bundle's Noto Serif (`deckLook`).
+  const serif = /"Noto Serif /.test(`${look.fontStack} ${look.displayStack ?? ""}`);
   const extra = [...new Set([type.body, type.display])].filter((f) => f !== "inter");
   const packFaces = async (): Promise<string[]> => {
     const css: string[] = [];
@@ -284,6 +287,7 @@ export async function refreshFont(
       storyboard.lang,
       JSON.stringify(source) + JSON.stringify(storyboard),
       dir,
+      { serif },
     );
     if (bundle) step(`build: font bundle covers ${bundle.family}`);
     // The CSS goes back to the caller so the composition can DECLARE the face

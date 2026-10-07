@@ -6,8 +6,8 @@
 import { fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { esc, lift, settle, spotlighter } from "../kit.js";
-import { frameOf } from "../look.js";
-import { faceOf, wrap } from "../svg.js";
+import { frameOf, variantOf } from "../look.js";
+import { faceOf, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   BODY_LH,
@@ -39,6 +39,20 @@ const TYPE_GROWTH = 1.4;
 /** The panel's air over its content, from the cap below — the same 1.22 / 1.1. */
 const AIR_ACROSS = 1.22;
 const AIR_DOWN = 1.1;
+/**
+ * v2: grown body type never passes this share of the headline. Panel titles
+ * grown to 70px under a 62px headline flipped the slide's hierarchy (ja s3,
+ * s14, review 2026-10-08).
+ */
+const HEADLINE_CAP = 0.9;
+/** `rows`: the label column's share of the box, the gutter beside it, and a row's air. */
+const ROW_LABEL_SHARE = 0.32;
+const ROW_GUTTER = 56;
+const ROW_PAD_Y = 30;
+/** How much of its box a `rows` table opens out to when its rows are short. */
+const ROWS_FILL = 0.75;
+/** `rows` is a table of short statements: past this many lines a panel wants its box. */
+const ROW_MAX_LINES = 4;
 
 export const callout: Emitter<"callout"> = (beat, ctx) => {
   const { sid, theme } = ctx;
@@ -75,7 +89,22 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // reads down a phone just as well as it reads across a slide, and each row then
   // gets the whole measure, which is what stops the wrapping.
   // LANDSCAPE: side by side, which is what 1700px is for.
-  const cols = isPortrait(ctx.format) ? 1 : p.panels.length;
+  // `rows` (v2): each panel a row of a table — label left, lines right — so a
+  // callout of short panels reads as a designed table across the slide instead
+  // of short boxes with holes inside their borders (en s8, s15 measured ~0.4
+  // full in the review of 2026-10-08).
+  const rowsVariant = variantOf(ctx, "callout") === "rows";
+  if (rowsVariant) {
+    if (isPortrait(ctx.format) || p.panels.length < 2) {
+      throw new Error(`callout ${beat.id}: rows need two panels or more on a wide slide`);
+    }
+    if (p.panels.some((panel) => panel.lines.length > ROW_MAX_LINES)) {
+      throw new Error(
+        `callout ${beat.id}: a panel of more than ${ROW_MAX_LINES} lines is not a table row`,
+      );
+    }
+  }
+  const cols = isPortrait(ctx.format) || rowsVariant ? 1 : p.panels.length;
   // The content box, or what the chosen placement leaves (src/emit/look.ts).
   const F = frameOf(ctx, { eyebrow: p.eyebrow, headline: p.headline, evidence: beat.evidence });
   const box = F.w;
@@ -87,8 +116,22 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     body: Math.floor(BODY_SIZE * k),
   });
   /** `measure` under 1 is v2's conservative count — see `MEASURE_SLACK`. */
+  const labelW = Math.round(box * ROW_LABEL_SHARE);
+  const linesW = box - labelW - ROW_GUTTER;
   const needAt = (k: number, measure = 1) => {
     const { label: ls, body: bs } = sizes(k);
+    if (rowsVariant) {
+      return p.panels
+        .map((panel) => {
+          const label = wrap(panel.label, ls, labelW * measure, 600, 0, face).length * ls * 1.2;
+          const body = panel.lines.reduce(
+            (h, l) => h + wrap(l, bs, linesW * measure, 400, 0, face).length * bs * BODY_LH,
+            0,
+          );
+          return Math.max(label, body) + 2 * ROW_PAD_Y;
+        })
+        .reduce((a, b) => a + b, 0);
+    }
     const w = inner * measure;
     const heights = p.panels.map((panel) => {
       const label = wrap(panel.label, ls, w, 600, 0, face).length * ls * 1.2;
@@ -136,9 +179,19 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // panel stays proportional to its content (the reason for the cap above) and
   // the content is what gets bigger. Checked only after classic's own refusal,
   // so v2 refuses exactly the beats classic does.
-  const k = v2 ? growToFit((x) => needAt(x, MEASURE_SLACK) * air, budget, 1, TYPE_GROWTH) : 1;
+  const growth = Math.max(
+    1,
+    Math.min(TYPE_GROWTH, (HEADLINE_CAP * typeOf(face).headline.size) / LABEL_SIZE),
+  );
+  const k = v2 ? growToFit((x) => needAt(x, MEASURE_SLACK) * air, budget, 1, growth) : 1;
   const need = k === 1 ? need1 : needAt(k, MEASURE_SLACK);
-  const cap = Math.min(budget, Math.round(need * air));
+  // A table's rows may take more air than a box's panels: the rules between them
+  // are what hold a sparse table together, where air inside a border reads as a
+  // hole. So short rows open out to `ROWS_FILL` of the box, their text centred.
+  const cap = Math.min(
+    budget,
+    Math.round(rowsVariant ? Math.max(need * air, budget * ROWS_FILL) : need * air),
+  );
 
   const note = p.note ? `\n<div class="conote" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html =
@@ -196,6 +249,8 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     // `.panels` is `flex:1` under a `max-height` of `cap`, so it is exactly `cap`
     // tall whenever the box has that much; the note sits under it.
     ...(v2 ? { fit: fitOf(cap + noteH, region) } : {}),
+    // What the Director scores looks on: how much of its box the panels take.
+    ...(v2 ? { fill: Math.min(1, Math.round((cap / budget) * 1000) / 1000) } : {}),
     css: [
       chromeCss(theme),
       // Column count is set inline, so this block is identical for every callout
@@ -226,6 +281,14 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       // spoken to at the final hold. Its label carries the panel's accent colour,
       // and no tween touches it: the entrance moves the panel around it.
       ...(p.panels.length === 0 ? [] : [ambient(sid, `-p${p.panels.length - 1} .plabel`, BREATHE)]),
+      ...(rowsVariant
+        ? [
+            `#${sid} .panels{gap:0;border-bottom:2px solid ${theme.rule}}`,
+            `#${sid} .panel{display:grid;grid-template-columns:${labelW}px 1fr;column-gap:${ROW_GUTTER}px;align-content:center;background:none;border:0;border-top:2px solid ${theme.rule};border-radius:0;padding:${ROW_PAD_Y}px 0}`,
+            `#${sid} .plabel{grid-row:1 / span ${ROW_MAX_LINES + 1};margin:0}`,
+            `#${sid} .pline{grid-column:2;margin-top:0}`,
+          ]
+        : []),
       ...(F.css ? [F.css] : []),
     ].join("\n"),
   };

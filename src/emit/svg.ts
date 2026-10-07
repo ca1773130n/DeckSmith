@@ -549,6 +549,23 @@ function charUnits(
   return [UNMEASURED, true];
 }
 
+/** Hangul syllables and jamo in Noto Serif KR: 0.966em at 400 and 700 alike. */
+const CJK_SERIF_HANGUL = 0.966;
+/**
+ * The Latin inside a CJK run set in Noto Serif, over what the sans table
+ * charges: measured 1.07 on average over 62 letters and digits (worst "I",
+ * 1.38). 1.12 errs wide, which costs room; erring narrow draws off the canvas.
+ */
+const CJK_SERIF_LATIN = 1.12;
+
+/** `charUnits` for a run Noto Serif draws: Han and kana as before, the rest wider. */
+function serifUnits(c: string, units: number): number {
+  const cp = c.codePointAt(0) ?? 0;
+  if ((cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0x3130 && cp <= 0x318f)) return CJK_SERIF_HANGUL;
+  if (cp < 0x3000) return units * CJK_SERIF_LATIN;
+  return units;
+}
+
 /**
  * How much wider Inter sets at each weight the deck uses. MEASURED, per glyph,
  * as the mean over the whole table.
@@ -614,6 +631,14 @@ export interface PackFace {
   readonly script: Script;
   readonly glyphs: LatinFace;
   readonly type: TypeSpec;
+  /**
+   * A CJK deck whose pack sets this role in a serif: the bundle's Noto Serif
+   * draws the run, not Noto Sans. Han and kana are the same 1.0em in both;
+   * Hangul is 0.966em against 0.920, and the Latin inside a run is about 7%
+   * wider (measured 2026-10-08, Chrome 145, KR/JP/SC at 400 and 700). See
+   * `CJK_SERIF_HANGUL` and `CJK_SERIF_LATIN`.
+   */
+  readonly cjkSerif?: boolean;
 }
 
 /**
@@ -638,7 +663,12 @@ export function typeOf(face: Face): TypeSpec {
  * headline and the title slide's headline are set in. Identity for classic.
  */
 export function displayFace(face: Face): Face {
-  return typeof face === "string" ? face : { ...face, glyphs: face.type.display };
+  if (typeof face === "string") return face;
+  // `deckLook` puts Noto Serif at the head of a CJK pack's display stack exactly
+  // when its spec's display face is the serif, so the spec says which face draws.
+  const cjkSerif = face.script !== "latin" && face.type.display === "source-serif-4";
+  const { cjkSerif: _body, ...rest } = face;
+  return { ...rest, glyphs: face.type.display, ...(cjkSerif ? { cjkSerif } : {}) };
 }
 
 /** Inter's metrics are the module's own constants, so they are `null` here. */
@@ -666,14 +696,16 @@ function faceWeight(m: FaceMetrics, weight: number): number {
  * on the em grid at 1.0.
  */
 export function faceOf(fontStack: string): Face {
-  const script: Script = /Noto Sans KR/.test(fontStack)
+  const script: Script = /Noto (Sans|Serif) KR/.test(fontStack)
     ? "hangul"
-    : /Noto Sans (JP|SC|TC)/.test(fontStack)
+    : /Noto (Sans|Serif) (JP|SC|TC)/.test(fontStack)
       ? "cjk"
       : "latin";
   // A stack no v2 type spec claims is classic, and stays the bare string it was.
   const type = typeForStack(fontStack);
-  return type ? { script, glyphs: type.body, type } : script;
+  if (!type) return script;
+  const cjkSerif = /^"Noto Serif /.test(fontStack);
+  return { script, glyphs: type.body, type, ...(cjkSerif ? { cjkSerif } : {}) };
 }
 
 export function textWidth(
@@ -697,8 +729,10 @@ export function textWidth(
   const cjkRun = CJK_RANGE.test(text) || script !== "latin";
   const hangul = (cjkRun && HANGUL_RANGE.test(text)) || script === "hangul";
   const m = metricsOf(face);
+  const serif = typeof face !== "string" && face.cjkSerif === true;
   for (const c of text) {
-    const [units, scalesWithWeight] = charUnits(c, tabular, cjkRun, hangul, m);
+    const [raw, scalesWithWeight] = charUnits(c, tabular, cjkRun, hangul, m);
+    const units = serif ? serifUnits(c, raw) : raw;
     if (scalesWithWeight) weighted += units;
     else emGrid += units;
     chars++;

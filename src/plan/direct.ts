@@ -162,7 +162,9 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
     let bestTie = 0;
     for (const { look, fill } of pool) {
       const sig = signature(beat.archetype, look);
-      const score = scoreOf(sig, look, fill, sigs, picked, used, opts.seed);
+      const score =
+        scoreOf(sig, look, fill, sigs, picked, used, opts.seed) +
+        affinityOf(opts.theme, beat.archetype, look);
       const tie = fnv1a(`${opts.seed}\u0000${beat.id}\u0000${sig}`);
       if (score > bestScore + 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
         best = look;
@@ -246,6 +248,21 @@ export const FIGURE_FLOOR = 0.8;
 function figureShare(scene: Scene, classic: Scene): number | undefined {
   if (!scene.figureArea || !classic.figureArea) return undefined;
   return scene.figureArea / classic.figureArea;
+}
+
+/**
+ * What a style pack adds for a look it leans towards (`Theme.forms.affinity`).
+ * Weighted under one earlier use of the signature (0.35), so a pack shifts which
+ * of the near-equal looks a deck takes without overriding fit or variety.
+ */
+const AFFINITY_WEIGHT = 0.25;
+
+function affinityOf(theme: Theme, archetype: Archetype, look: Look): number {
+  const a = theme.forms?.affinity;
+  if (!a) return 0;
+  const byPlacement = a.placement?.[look.placement] ?? 0;
+  const byVariant = a.variant?.[`${archetype}:${look.variant}`] ?? 0;
+  return AFFINITY_WEIGHT * (byPlacement + byVariant);
 }
 
 /** The parts of a scene a look must not change: its holds, and when its chrome lands. */

@@ -11,7 +11,7 @@
  * `.figwrap` is how a rule ends up being decided by emission order, so nothing
  * an emitter styles is styled here as well.
  */
-import { familyFor } from "../source/fonts.js";
+import { familyFor, serifFamilyFor } from "../source/fonts.js";
 import type { Format, Storyboard } from "../types.js";
 import {
   PAD_X,
@@ -27,6 +27,7 @@ import {
   zoomOf,
 } from "./kit.js";
 import { type DeckTheme, resolveTheme } from "./themes/index.js";
+import { typeForStack } from "./type.js";
 
 export {
   type DeckTheme,
@@ -64,11 +65,21 @@ export function deckLook(
   const family = familyFor(storyboard.lang);
   // A pack's chrome stack needs the same family in front, or a Korean headline
   // is set by whatever the host has while its body is set in the bundle.
+  //
+  // A v2 pack whose spec sets a role in the serif gets the bundle's SERIF for
+  // that role (`serifFamilyFor`), so atlas's headlines and folio's and
+  // journal's text are a Myeongjo, a Mincho or a Song in a CJK deck as they are
+  // Source Serif in a Latin one. Classic themes have no spec, so no serif.
+  const spec = typeForStack(base.fontStack);
+  const serif = serifFamilyFor(storyboard.lang);
+  const lead = (isSerif: boolean) => (isSerif && serif ? serif : family);
   const theme: DeckTheme = family
     ? {
         ...base,
-        fontStack: `"${family}", ${base.fontStack}`,
-        ...(base.displayStack ? { displayStack: `"${family}", ${base.displayStack}` } : {}),
+        fontStack: `"${lead(spec?.body === "source-serif-4")}", ${base.fontStack}`,
+        ...(base.displayStack
+          ? { displayStack: `"${lead(spec?.display === "source-serif-4")}", ${base.displayStack}` }
+          : {}),
       }
     : base;
   return { family, theme };

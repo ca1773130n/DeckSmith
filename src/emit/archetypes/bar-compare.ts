@@ -397,7 +397,9 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   // the `H > avail` throw below names the beat and says what to shorten, which
   // is a better answer than bars drawn over the headline.
   const avail = F.budget(p.note ? NOTE_H : 0, BODY_TOP, 0);
-  if (variantOf(ctx, "bar-compare") === "columns") return columns(beat, ctx, F, face, avail);
+  const variant = variantOf(ctx, "bar-compare");
+  if (variant === "columns") return columns(beat, ctx, F, face, avail);
+  if (variant === "versus") return versus(beat, ctx, F, face, avail);
 
   // v2 tries the grown caps and, if the chart cannot be drawn that big, draws it
   // exactly as classic would. So the beats this archetype REFUSES are the same
@@ -738,6 +740,13 @@ function columns(
   if (p.bars.some((b) => b.value < 0)) {
     throw new Error(`bar-compare ${beat.id}: columns draw no negative values`);
   }
+  // Two columns across a 1700px plot leave most of it empty — zh s14 in the
+  // review (2026-10-08) was two bars and ~70% air. Two values are a `versus`.
+  if (count < 3) {
+    throw new Error(
+      `bar-compare ${beat.id}: ${count} columns leave the plot empty — that is a versus`,
+    );
+  }
   const slot = W / count;
   const bw = Math.min(COL_BAR_MAX, slot * COL_BAR_SHARE);
   const labelW = slot - 24;
@@ -925,6 +934,266 @@ ${svg(id(sid, "chart"), W, H, body)}
   const focal = rows.reduce((best, r) => (r.value > best.value ? r : best));
   const spot = spotlighter(sid, ".bc-bar");
   if (count > 1) tl.push(...spot.lit(`#${id(sid, "bar", focal.i)}`, settled));
+  const tailAt = settled + 0.3;
+  if (p.unit) {
+    tl.push(tween(`#${id(sid, "unit")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, tailAt));
+  }
+  if (p.note) {
+    tl.push(
+      tween(
+        `#${id(sid, "note")}`,
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.6 },
+        tailAt,
+      ),
+    );
+  }
+  if (p.unit || p.note) holds.push(tailAt + 0.7);
+
+  return {
+    html,
+    tl,
+    holds: holdsWithin(holds, beat.seconds),
+    fill: Math.min(1, H / avail),
+    css: [
+      chromeCss(theme),
+      `.bc-wrap{margin-top:${BODY_TOP}px}`,
+      `.bc-rail{fill:${theme.panel}}`,
+      noteCss("bc-note", theme, 26),
+      ambient(sid, `-bar${focal.i}`, BREATHE),
+      ...(F.css ? [F.css] : []),
+    ].join("\n"),
+  };
+}
+
+/* ---------------------------------------------------- variant: `versus` */
+
+/** The largest a `versus` figure is set. Numbers are exempt from the headline cap. */
+const VS_VALUE_MAX = 200;
+/** Never smaller than the grown rows' value: below this it is not a stat, it is a label. */
+const VS_VALUE_MIN = 96;
+const VS_BAR = 22;
+const VS_GAP = 30;
+/** Inside each half, either side of its content. */
+const VS_PAD = 64;
+const VS_LABEL_LINES = 2;
+
+/**
+ * Two values as two large figures, each with its label and a proportional bar
+ * under it, either side of a rule.
+ *
+ * WHY. Two bars are 46% of bar-compare beats' commonest case, and neither
+ * arrangement serves them: rows draw a thin band across the middle of the body,
+ * columns stand two posts in a 1700px plot (zh s14 in the review of 2026-10-08:
+ * ~70% of the chart empty). With two numbers the numbers are the slide, so they
+ * are set as the slide's largest type, and the bar keeps the ratio honest.
+ *
+ * TIME IS THE ROWS ARRANGEMENT'S, EXACTLY, as for `columns`: same reveal
+ * instants, same holds, same count-up.
+ */
+function versus(
+  beat: BeatOf<"bar-compare">,
+  ctx: EmitContext,
+  F: Frame,
+  face: Face,
+  avail: number,
+): Scene {
+  const { sid, theme } = ctx;
+  const p = beat.params;
+  const count = p.bars.length;
+  if (count !== 2) {
+    throw new Error(`bar-compare ${beat.id}: a versus compares exactly two values, not ${count}`);
+  }
+  if (p.bars.some((b) => b.value < 0)) {
+    throw new Error(`bar-compare ${beat.id}: a versus draws no negative values`);
+  }
+  const W = F.w;
+  const slot = W / 2;
+  const inner = slot - 2 * VS_PAD;
+  const printed = p.bars.map((b) => String(b.value));
+
+  let labelSize = Math.floor(LABEL_MAX * GROWTH);
+  const linesAt = (s: number) => p.bars.map((b) => wrap(b.label, s, inner, LABEL_WEIGHT, 0, face));
+  const over = (s: number) =>
+    linesAt(s).some((l) => l.length > VS_LABEL_LINES) ||
+    p.bars.some((b) => cutsWord(b.label, s, inner, LABEL_WEIGHT, face));
+  while (labelSize > MIN_FONT && over(labelSize)) labelSize--;
+  if (over(labelSize)) {
+    throw new Error(
+      `bar-compare ${beat.id}: a label needs more than ${VS_LABEL_LINES} lines in a half`,
+    );
+  }
+  const lines = linesAt(labelSize);
+  const lead = Math.round(labelSize * 1.15);
+  const labelBand = Math.max(...lines.map((l) => l.length)) * lead;
+  const unitBand = p.unit ? UNIT_BAND : 0;
+  const foot = Math.ceil(labelSize * DESCENT) + 4;
+  const fixed = VS_GAP + labelBand + VS_GAP + VS_BAR + unitBand + foot;
+
+  let valueSize = Math.min(VS_VALUE_MAX, Math.floor((avail - fixed) / 1.1));
+  const wide = (s: number) => printed.some((t) => textWidth(t, s, 700, 0, false, face) > inner);
+  while (valueSize > VS_VALUE_MIN && wide(valueSize)) valueSize--;
+  if (valueSize < VS_VALUE_MIN || wide(valueSize)) {
+    throw new Error(`bar-compare ${beat.id}: no room to set two values as figures`);
+  }
+  // The figure's box: its cap height sits on `valueBox`, its descent is the gap.
+  const valueBox = Math.round(valueSize * 1.1);
+  const H = valueBox + fixed;
+  if (H > avail) {
+    throw new Error(
+      `bar-compare ${beat.id}: ${Math.round(H)}px of versus in a ${Math.round(avail)}px box`,
+    );
+  }
+  // Centred in the box it was given, so a short stat does not sit on the headline.
+  const top = Math.max(0, Math.floor((avail - H) / 2));
+  const hi = Math.max(...p.bars.map((b) => b.value)) || 1;
+
+  const toned = p.bars.some((b) => b.tone);
+  const fillOf = (t: "a" | "b" | "c" | "d" | undefined, i: number) =>
+    t ? theme.tones[t] : toned ? theme.dim : i === 1 ? theme.accent : theme.muted;
+  const valueFill = (t: "a" | "b" | "c" | "d" | undefined) => (t ? theme.tones[t] : theme.fg);
+
+  const rows = p.bars.map((b, i) => {
+    const decimals = printed[i]?.includes(".") ? (printed[i]?.split(".")[1]?.length ?? 0) : 0;
+    const x = slot * i + VS_PAD;
+    return {
+      ...b,
+      i,
+      x,
+      cx: slot * i + slot / 2,
+      len: b.value === 0 ? 0 : Math.max(MIN_LEN, (b.value / hi) * inner),
+      printed: printed[i] ?? "",
+      snap: decimals === 0 ? "1" : `0.${"0".repeat(decimals - 1)}1`,
+      countable: !(printed[i] ?? "").includes("e") && decimals <= 4,
+    };
+  });
+  const valueY = top + Math.round(valueSize * 0.86);
+  const labelY = top + valueBox + VS_GAP + labelBand / 2;
+  const barY = top + valueBox + VS_GAP + labelBand + VS_GAP;
+
+  const body = [
+    line(
+      { x: slot, y: top },
+      { x: slot, y: barY + VS_BAR },
+      { id: id(sid, "zero"), stroke: theme.rule, "stroke-width": 2 },
+    ),
+    ...rows.map((r) =>
+      roundRect({ x: r.x, y: barY, w: inner, h: VS_BAR }, VS_BAR / 2, { class: "bc-rail" }),
+    ),
+    ...rows.map((r) =>
+      roundRect({ x: r.x, y: barY, w: r.len, h: VS_BAR }, VS_BAR / 2, {
+        id: id(sid, "bar", r.i),
+        class: "bc-bar",
+        fill: fillOf(r.tone, r.i),
+      }),
+    ),
+    ...rows.map((r) =>
+      text(
+        r.label,
+        { x: r.x, y: labelY },
+        {
+          size: labelSize,
+          weight: LABEL_WEIGHT,
+          fill: theme.muted,
+          maxWidth: inner,
+          face,
+          lineHeight: 1.15,
+          vAlign: "middle",
+          class: "bc-lab",
+        },
+      ),
+    ),
+    ...rows.map((r) =>
+      text(
+        r.printed,
+        { x: r.x, y: valueY },
+        {
+          size: valueSize,
+          weight: 700,
+          fill: valueFill(r.tone),
+          class: "bc-val",
+          id: id(sid, "v", r.i),
+        },
+      ),
+    ),
+    p.unit
+      ? text(
+          p.unit,
+          { x: VS_PAD, y: barY + VS_BAR + 44 },
+          {
+            size: MIN_FONT,
+            weight: 500,
+            fill: theme.dim,
+            id: id(sid, "unit"),
+          },
+        )
+      : "",
+  ].join("");
+
+  const note = p.note ? `\n<div class="bc-note" id="${id(sid, "note")}">${esc(p.note)}</div>` : "";
+  const html = F.compose(`<div class="bc-wrap">
+${svg(id(sid, "chart"), W, Math.max(H, avail), body)}
+</div>${note}`);
+
+  // The rows arrangement's clock, constant for constant — see `columns`.
+  const railsAt = 0.6;
+  const barsAt = 0.95;
+  const step = Math.min(0.4, 2.4 / count);
+  const grow = 0.85;
+  const tl = [
+    ...chromeIn(sid, p.eyebrow !== undefined),
+    ...F.tl,
+    tween(
+      `#${sid} .bc-rail`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.45, stagger: 0.05 },
+      railsAt,
+    ),
+    tween(`#${id(sid, "zero")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, railsAt),
+    tween(
+      `#${sid} .bc-lab`,
+      { opacity: 0, y: 18 },
+      { opacity: 1, y: 0, duration: 0.4, stagger: nv(step) },
+      0.8,
+    ),
+    tween(
+      `#${sid} .bc-val`,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.3, stagger: nv(step) },
+      barsAt + 0.15,
+    ),
+  ];
+  for (const r of rows) {
+    const at = barsAt + r.i * step;
+    tl.push(
+      tween(
+        `#${id(sid, "bar", r.i)}`,
+        { attr: { width: 0 } },
+        { attr: { width: nv(r.len) }, duration: grow, ease: "power3.out" },
+        at,
+      ),
+    );
+    if (r.countable) {
+      tl.push(
+        tween(
+          `#${id(sid, "v", r.i)}`,
+          { textContent: 0 },
+          {
+            textContent: r.value,
+            snap: { textContent: Number(r.snap) },
+            duration: 0.8,
+            ease: "power2.out",
+          },
+          at + 0.1,
+        ),
+      );
+    }
+  }
+  const settled = barsAt + (count - 1) * step + grow + 0.05;
+  const holds = [settled + 0.2];
+  const focal = rows.reduce((best, r) => (r.value > best.value ? r : best));
+  const spot = spotlighter(sid, ".bc-bar");
+  tl.push(...spot.lit(`#${id(sid, "bar", focal.i)}`, settled));
   const tailAt = settled + 0.3;
   if (p.unit) {
     tl.push(tween(`#${id(sid, "unit")}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, tailAt));

@@ -36,7 +36,8 @@ import {
 } from "../src/emit/fit.js";
 import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
 import { contentW } from "../src/emit/kit.js";
-import { cutsWord, faceOf, textWidth } from "../src/emit/svg.js";
+import { cutsWord, faceOf, textWidth, typeOf } from "../src/emit/svg.js";
+import { PACKS } from "../src/emit/themes/packs.js";
 import {
   type Beat,
   type BeatOf,
@@ -387,6 +388,36 @@ describe("callout under v2", () => {
     const body = Number(/#s1 \.panel\{font-size:(\d+)px/.exec(v.css ?? "")?.[1]);
     expect(body).toBeGreaterThan(40);
     expect(body).toBeLessThanOrEqual(56);
+  });
+
+  it("never grows a panel title past 0.9 of the pack's headline", () => {
+    // ja s3, s14 (review 2026-10-08): 70px panel titles under a 62px headline.
+    for (const name of Object.keys(PACKS)) {
+      const theme = PACKS[name] as Theme;
+      const v = callout(short, { ...ctx("v2"), theme });
+      const label = Number(/#s1 \.plabel\{font-size:(\d+)px/.exec(v.css ?? "")?.[1] ?? 50);
+      const headline = typeOf(faceOf(theme.fontStack)).headline.size;
+      expect(label, name).toBeLessThanOrEqual(Math.ceil(0.9 * headline));
+    }
+  });
+
+  it("sets short panels as the rows of a table, and fills more of the box doing it", () => {
+    const rows = callout(short, { ...ctx("v2"), look: { variant: "rows", placement: "top" } });
+    const panels = callout(short, ctx("v2"));
+    expect(rows.css).toContain("#s1 .panel{display:grid;grid-template-columns:");
+    expect(rows.html).toContain("grid-template-columns:repeat(1, 1fr)");
+    expect(rows.holds).toEqual(panels.holds);
+    expect(rows.fill ?? 0).toBeGreaterThan(panels.fill ?? 0);
+    const long = beat("callout", {
+      headline: "A long one",
+      panels: [
+        { label: "A", lines: ["one", "two", "three", "four", "five"] },
+        { label: "B", lines: ["one"] },
+      ],
+    });
+    expect(() =>
+      callout(long, { ...ctx("v2"), look: { variant: "rows", placement: "top" } }),
+    ).toThrow(/not a table row/);
   });
 
   it("refuses exactly what classic refuses", () => {

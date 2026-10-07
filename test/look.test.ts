@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { bodyBudget, chrome } from "../src/emit/archetypes/title.js";
 import { openSeconds } from "../src/emit/composition.js";
-import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
+import type { EmitContext, ListForm, Scene, Theme } from "../src/emit/kit.js";
 import { contentH, contentW } from "../src/emit/kit.js";
 import {
   candidates,
@@ -23,6 +23,8 @@ import {
   signature,
 } from "../src/emit/look.js";
 import { ink } from "../src/emit/themes/ink.js";
+import { PACKS } from "../src/emit/themes/packs.js";
+import { direct } from "../src/plan/direct.js";
 import {
   type Beat,
   type BeatOf,
@@ -264,15 +266,19 @@ describe("every variant keeps the classic scene's time", () => {
 describe("bar-compare: columns", () => {
   const look: Look = { variant: "columns", placement: "top" };
 
-  it("fills the height a two-bar row band leaves empty", () => {
-    const rows = emitScene(bars(2), ctx());
-    const cols = emitScene(bars(2), ctx(look));
-    expect(rows.fill).toBeLessThan(0.5);
+  it("fills the height a three-bar row band leaves empty", () => {
+    const rows = emitScene(bars(3), ctx());
+    const cols = emitScene(bars(3), ctx(look));
+    expect(rows.fill).toBeLessThan(0.7);
     expect(cols.fill).toBeGreaterThan(0.9);
-    expect(cols.html).toContain('id="s1-bar1"');
+    expect(cols.html).toContain('id="s1-bar2"');
     // Bars grow upward: the tween writes y and height, not x and width.
     const grow = cols.tl.find((t) => t.target === "#s1-bar0");
     expect(Object.keys(grow?.to.attr ?? {})).toEqual(["y", "height"]);
+  });
+
+  it("refuses two columns, which leave most of the plot empty (zh s14, review 2026-10-08)", () => {
+    expect(() => emitScene(bars(2), ctx(look))).toThrow(/that is a versus/);
   });
 
   it("refuses negative values rather than drawing a zero line mid-column", () => {
@@ -287,6 +293,31 @@ describe("bar-compare: columns", () => {
     for (const b of long.params.bars) b.label = "Qwen2.5-VL-32B-Instruct-Preview";
     expect(() => emitScene(long, ctx(look))).toThrow(/word cut/);
     expect(() => emitScene(long, ctx())).not.toThrow();
+  });
+});
+
+describe("bar-compare: versus", () => {
+  const vs = { variant: "versus", placement: "top" } as const;
+
+  it("sets two values as the slide's largest type, on the rows' own clock", () => {
+    const rows = emitScene(bars(2, [58.4, 87.6]), ctx());
+    const v = emitScene(bars(2, [58.4, 87.6]), ctx(vs));
+    // Same stops: a look moves geometry, never time.
+    expect(v.holds).toEqual(rows.holds);
+    const sizes = [...v.html.matchAll(/class="bc-val"[^>]*font-size="(\d+)"/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(sizes).toHaveLength(2);
+    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(96);
+    // The bar keeps the ratio: it grows along x.
+    const grow = v.tl.find((t) => t.target === "#s1-bar0");
+    expect(Object.keys(grow?.to.attr ?? {})).toEqual(["width"]);
+    expect(v.fill).toBeGreaterThan(rows.fill ?? 0);
+  });
+
+  it("refuses anything but two values", () => {
+    expect(() => emitScene(bars(3), ctx(vs))).toThrow(/exactly two/);
+    expect(() => emitScene(bars(2, [3, -1]), ctx(vs))).toThrow(/negative/);
   });
 });
 
@@ -371,5 +402,59 @@ describe("split-compare: rows", () => {
     expect(() => emitScene(split(true), ctx({ variant: "rows", placement: "top" }))).toThrow(
       /rows are for lists/,
     );
+  });
+});
+
+describe("a pack's own forms", () => {
+  // Review 2026-10-08: "one template in four colours" — the same tick, the same
+  // pill, the same title on every pack. Each pack now draws them its own way.
+  const withList = (list: ListForm): EmitContext => ({
+    ...ctx(),
+    theme: { ...theme, forms: { list } },
+  });
+
+  it("marks list items as the pack says, in the classic indent, and classic keeps its tick", () => {
+    const tick = emitScene(split(), ctx()).html;
+    const numbered = emitScene(split(), withList("number")).html;
+    const dotted = emitScene(split(), withList("dot")).html;
+    const carded = emitScene(split(), withList("card")).html;
+    const ruled = emitScene(split(), withList("rule")).html;
+    expect(numbered).toMatch(/font-size="40"[^>]*><tspan[^>]*>1</);
+    expect(numbered).toMatch(/>2</);
+    expect(dotted).toContain("<circle");
+    expect(tick).not.toContain("<circle");
+    expect(carded.match(new RegExp(`fill="${theme.panel}"`, "g"))?.length).toBeGreaterThanOrEqual(
+      4,
+    );
+    expect(ruled).not.toEqual(tick);
+    // The items' text is set where classic set it: only the marks differ.
+    const texts = (html: string) =>
+      [...html.matchAll(/<text[^>]*>[^<]*(Fixed views|Chosen views)/g)].map((m) => m[0]);
+    expect(texts(numbered)).toEqual(texts(tick));
+  });
+
+  it("gives every v2 pack its own list form, title and bar corners, and leans the Director its own way", () => {
+    const lists = new Set(Object.values(PACKS).map((p) => p.forms?.list));
+    expect(lists.size).toBeGreaterThanOrEqual(4);
+    for (const [name, p] of Object.entries(PACKS)) {
+      expect(p.skin, name).toMatch(/\.titleslide/);
+      expect(p.forms?.affinity, name).toBeDefined();
+    }
+    const corners = new Set(
+      Object.values(PACKS).map((p) => /\.bc-bar\{rx:(\d+)/.exec(p.skin ?? "")?.[1] ?? "pill"),
+    );
+    expect(corners.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it("opens the same storyboard differently under different packs", () => {
+    // The second slide of three of the four preview decks was the same
+    // two-column layout at the same coordinates.
+    const picks = new Set<string>();
+    for (const name of ["signal", "blueprint", "atlas", "folio", "chalk", "journal"]) {
+      const theme = PACKS[name] as Theme;
+      const d = direct([split()], { source, format, theme, seed: "one-paper", design: "v2" });
+      picks.add(d.beats[0]?.signature ?? "");
+    }
+    expect(picks.size).toBeGreaterThanOrEqual(3);
   });
 });

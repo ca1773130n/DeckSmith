@@ -64,10 +64,10 @@ export const VARIANTS: Readonly<Partial<Record<Archetype, readonly string[]>>> =
   "split-compare": ["columns", "rows"],
   "claim-figure": ["beside", "mirror", "stacked"],
   pipeline: ["row", "stair", "column"],
-  "bar-compare": ["bars", "columns"],
+  "bar-compare": ["bars", "columns", "versus"],
   // One arrangement, but its chrome may move to the foot: callouts are 7.9% of
   // beats, the largest single signature left once the four above vary.
-  callout: ["panels"],
+  callout: ["panels", "rows"],
   // Same reason, 6.6% of beats, and the archetype most often set twice in a row
   // (a derivation walked over two beats) — the one adjacency a single
   // arrangement cannot avoid.
@@ -155,9 +155,18 @@ export function candidates(beat: Beat, format: Format): Look[] {
         { variant: "columns", placement: "rail" },
         { variant: "bars", placement: "foot" },
         { variant: "columns", placement: "foot" },
+        // Two values, set as figures (the emitter refuses any other count).
+        { variant: "versus", placement: "top" },
+        { variant: "versus", placement: "foot" },
       ];
     case "callout":
-      return [classic, { variant: "panels", placement: "foot" }];
+      return [
+        classic,
+        { variant: "panels", placement: "foot" },
+        // Short panels as the rows of a table (the emitter refuses long ones).
+        { variant: "rows", placement: "top" },
+        { variant: "rows", placement: "foot" },
+      ];
     case "equation-walk":
       return [classic, { variant: "display", placement: "foot" }];
     default:
