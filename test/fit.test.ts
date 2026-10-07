@@ -17,6 +17,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { barCompare } from "../src/emit/archetypes/bar-compare.js";
+import { callout } from "../src/emit/archetypes/callout.js";
+import { claimFigure } from "../src/emit/archetypes/claim-figure.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { pipeLayout, pipeline } from "../src/emit/archetypes/pipeline.js";
 import { emitDeck } from "../src/emit/composition.js";
@@ -279,5 +281,72 @@ describe("pipeline under v2", () => {
       ctx("v2"),
     );
     expect(v.fit?.fill).toBeGreaterThanOrEqual(FULL_AT);
+  });
+});
+
+describe("callout under v2", () => {
+  const short = beat("callout", {
+    headline: "What the source does not test",
+    panels: [
+      { label: "Tested", lines: ["Indoor scenes"] },
+      { label: "Not tested", lines: ["Outdoor scenes"] },
+    ],
+  });
+
+  it("grows the panels' type, scoped to the scene, where classic stays at 40/50", () => {
+    const c = callout(short, ctx());
+    const v = callout(short, ctx("v2"));
+    expect(c.css).not.toContain("#s1 .panel{");
+    const body = Number(/#s1 \.panel\{font-size:(\d+)px/.exec(v.css ?? "")?.[1]);
+    expect(body).toBeGreaterThan(40);
+    expect(body).toBeLessThanOrEqual(56);
+  });
+
+  it("refuses exactly what classic refuses", () => {
+    const over = beat("callout", {
+      headline: "Too much",
+      panels: [
+        { label: "All of it", lines: Array.from({ length: 14 }, () => "a line of panel text") },
+      ],
+    });
+    expect(() => callout(over, ctx())).toThrow(/callout b1/);
+    expect(() => callout(over, ctx("v2"))).toThrow(/callout b1/);
+  });
+});
+
+describe("claim-figure under v2", () => {
+  const withFigure = (w: number, h: number): Source =>
+    ({
+      ...bare,
+      figures: [{ id: "f1", src: "f1.png", caption: "Figure 1: the result.", width: w, height: h }],
+    }) as Source;
+  const claim = beat("claim-figure", {
+    headline: "The figure carries the claim",
+    claim: "It holds across every split.",
+    figureId: "f1",
+  });
+
+  it("SIZES the plate instead of leaving a small figure at its natural pixels", () => {
+    const src = withFigure(400, 300);
+    const c = claimFigure(claim, ctx(undefined, src));
+    const v = claimFigure(claim, ctx("v2", src));
+    expect(c.css).toContain("width:auto;height:auto");
+    const m = /#s1 \.figwrap img\{width:(\d+)px;height:(\d+)px/.exec(v.css ?? "");
+    expect(Number(m?.[1])).toBeGreaterThan(400);
+    // Never more than twice its own pixels.
+    expect(Number(m?.[1])).toBeLessThanOrEqual(800);
+  });
+
+  it("grows the claim without adding a line to it", () => {
+    const v = claimFigure(claim, ctx("v2", withFigure(1000, 750)));
+    expect(Number(/#s1 \.claim\{font-size:(\d+)px/.exec(v.css ?? "")?.[1])).toBeGreaterThan(50);
+  });
+
+  it("moves a 2.3:1 figure under its claim, where beside it is width-bound", () => {
+    const src = withFigure(1150, 500);
+    expect(claimFigure(claim, ctx(undefined, src)).html).toContain("cf-beside");
+    const v = claimFigure(claim, ctx("v2", src));
+    expect(v.html).toContain("cf-under");
+    expect(fillBand(v.fit?.fill ?? 0)).toBe("full");
   });
 });
