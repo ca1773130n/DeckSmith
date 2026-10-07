@@ -261,31 +261,41 @@ export async function refreshFont(
   step: Step,
   theme?: string,
 ): Promise<string | undefined> {
+  const dir = join(out, "assets", "fonts");
+  // A v2 pack names its own faces in every stack, CJK decks' included (behind
+  // Noto, where they never draw a glyph but are still a family the page asks
+  // for — hyperframes' lint refuses one with no @font-face). So they ship with
+  // every deck that wears the pack. Empty for a classic theme.
+  const type = typeOf(faceOf(deckLook(storyboard, theme).theme.fontStack));
+  const extra = [...new Set([type.body, type.display])].filter((f) => f !== "inter");
+  const packFaces = async (): Promise<string[]> => {
+    const css: string[] = [];
+    for (const face of extra) css.push(await vendorFace(face, dir));
+    if (extra.length) step(`build: vendored ${extra.map(familyOf).join(", ")} for the pack`);
+    return css;
+  };
   if (familyFor(storyboard.lang) === null) {
-    const dir = join(out, "assets", "fonts");
     const css = await vendorInter(dir);
     step("build: vendored Inter beside the deck");
-    const type = typeOf(faceOf(deckLook(storyboard, theme).theme.fontStack));
-    const extra = [...new Set([type.body, type.display])].filter((f) => f !== "inter");
-    const faces: string[] = [];
-    for (const face of extra) faces.push(await vendorFace(face, dir));
-    if (extra.length) step(`build: vendored ${extra.map(familyOf).join(", ")} for the pack`);
-    return [css, ...faces].join("\n");
+    return [css, ...(await packFaces())].join("\n");
   }
   try {
     const bundle = await bundleFont(
       storyboard.lang,
       JSON.stringify(source) + JSON.stringify(storyboard),
-      join(out, "assets", "fonts"),
+      dir,
     );
     if (bundle) step(`build: font bundle covers ${bundle.family}`);
     // The CSS goes back to the caller so the composition can DECLARE the face
     // rather than link it. Writing the file is still what puts the woff2 beside
     // the deck; only the declaration moves.
-    return bundle?.css;
+    return bundle ? [bundle.css, ...(await packFaces())].join("\n") : undefined;
   } catch (err) {
+    // The composition then LINKS the ingest bundle instead, and a pack's faces
+    // go undeclared — which the lint gate reports as an error rather than
+    // letting the chrome fall back silently.
     step(
-      `build: could not refresh the font bundle (${err instanceof Error ? err.message : err}); keeping the one from ingest`,
+      `build: could not refresh the font bundle (${err instanceof Error ? err.message : err}); keeping the one from ingest${extra.length ? ` — the pack's ${extra.map(familyOf).join(", ")} will be undeclared` : ""}`,
     );
     return undefined;
   }
@@ -341,6 +351,24 @@ export async function vendorFace(face: Exclude<LatinFace, "inter">, dir: string)
   return vendorFontsource(FONTSOURCE[face], familyOf(face), dir);
 }
 
+/**
+ * A pack face is declared with INTER'S VERTICAL METRICS.
+ *
+ * Every vertical number in the emitters — line boxes, SVG label `dy`, the
+ * centring of a tspan block — and every bounding box the gates measure was
+ * tuned on Inter, whose ascent and descent are 0.969 and 0.241 em. Source Serif
+ * 4 is 1.036 / 0.335, Plex 1.025 / 0.275, Space Grotesk 0.984 / 0.292. Set as
+ * they come, the taller boxes made a real deck FAIL: two stacked bar-chart
+ * labels reported as overprinting and a split-compare label as overflowing its
+ * box, where Inter at the same positions passed. With these overrides a pack
+ * face's line box and glyph box are Inter's (measured in Chrome: ascent 0.969,
+ * descent 0.242, `line-height: normal` 1.21 for all three); only the outlines
+ * differ, which is the point of the face. Horizontal advances are untouched,
+ * so `src/emit/faces.ts` still describes them.
+ */
+const PACK_DISPLAY =
+  "font-display: block;\n  ascent-override: 96.875%;\n  descent-override: 24.1211%;\n  line-gap-override: 0%";
+
 async function vendorFontsource(pkgName: string, family: string, dir: string): Promise<string> {
   const pkg = dirname(createRequire(import.meta.url).resolve(pkgName));
   const css = await readFile(join(pkg, "index.css"), "utf8");
@@ -351,7 +379,7 @@ async function vendorFontsource(pkgName: string, family: string, dir: string): P
   const declared = `${family} Variable`;
   const ours = css
     .replaceAll(`font-family: '${declared}'`, `font-family: '${family}'`)
-    .replaceAll("font-display: swap", "font-display: block")
+    .replaceAll("font-display: swap", family === "Inter" ? "font-display: block" : PACK_DISPLAY)
     .replace(/url\(\.\/files\/([^)]+)\) format\('woff2-variations'\)/g, "url($1) format('woff2')");
   // A rewrite that matched nothing is a deck declaring '<family> Variable', or a
   // url() into a directory it does not ship: the silent fallback again. Loud.

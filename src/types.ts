@@ -825,6 +825,19 @@ export const prefsSchema = z.object({
   /* --- look --- */
   theme: z.string().default("ink"),
   /**
+   * Which generation of the look to emit. `classic` is v0.8.0, byte for byte —
+   * the default, so an npm user's decks do not change under them. `v2` turns on
+   * the redesign; for the style track that means a v2 style pack is picked per
+   * deck when no theme is named (`src/emit/themes/pick.ts`).
+   */
+  design: z.enum(["classic", "v2"]).default("classic"),
+  /**
+   * What `--design v2` hashes to pick a pack. Absent means the storyboard's
+   * `sourceId`. A caller with one paper in several languages passes the paper's
+   * id here so every language wears the same pack.
+   */
+  packSeed: z.string().optional(),
+  /**
    * Multiplies every emitted tween duration. Below 1 is faster.
    *
    * IGNORED when `duration` is set: the target owns the pace, and the two cannot

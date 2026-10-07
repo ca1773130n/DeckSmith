@@ -784,7 +784,9 @@ invalidates a storyboard you have already edited.
 | `lang` | the source's | plan | BCP-47. Drives the copy, the voice, and the font subset |
 | `tone` | `plain` | plan | `plain` · `academic` · `conversational` · `punchy` |
 | `density` | `normal` | plan | `sparse` · `normal` · `dense` — how much text a slide may carry |
-| `theme` | `ink` | emit | `ink` · `paper` · `mono` |
+| `theme` | `ink` | emit | `ink` · `paper` · `mono`, or a v2 style pack by name (see Themes) |
+| `design` | `classic` | narrate, emit | `classic` is the v0.8.0 look byte for byte · `v2` picks a style pack per deck when no theme is named |
+| `packSeed` | the source id | narrate, emit | what `design: v2` hashes to pick a pack; pass a paper id so its languages share one |
 | `animationSpeed` | `1` | emit | multiplies every duration, hold and beat length. Below 1 is faster |
 | `narration.voice` | picked for `lang`+`tone` | narrate | an explicit edge-tts voice id |
 | `narration.rate` | `+0%` | narrate | edge-tts prosody |
@@ -832,8 +834,8 @@ why `slideCount` did nothing.
 decksmith.config.json: unknown preference "narration.speed". Valid: enabled, voice, rate, pitch, subtitles.
 ```
 
-On the command line: `--slides --lang --tone --density` on `plan`, `--theme --speed` on
-`build`, `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
+On the command line: `--slides --lang --tone --density` on `plan`, `--theme --design
+--pack-seed --speed` on `build` (`--design --pack-seed` on `narrate` too), `--voice --rate --pitch --no-subtitles` on `narrate`, `--images --image-provider
 --image-model --image-style --image-max` on `plan` and `illustrate`, and all but the image
 flags on `pack`, which records the preferences the deck was made under — whether it was
 illustrated is read off the storyboard itself, the way `narration.enabled` is read off the
@@ -861,6 +863,34 @@ naming a family the deck does not declare falls back silently.
 
 A theme is a name and a palette, and that is the whole extension point: a new one is a
 file in `src/emit/themes/` plus a line in `THEMES`. No archetype learns it exists.
+
+### v2 style packs
+
+Six more, each a whole look rather than a palette: its own typeface pairing and type
+scale, ground and accent, eyebrow treatment, figure framing and surface.
+
+| Pack | Ground | Headline / body | Finish |
+|---|---|---|---|
+| `signal` | violet-black, Magma accent | Space Grotesk / Inter | accent tick over the eyebrow, glow-shadowed figures, two-tone haze |
+| `blueprint` | navy, cyan | IBM Plex Sans / IBM Plex Sans | underlined eyebrow, square offset-shadow plates, faint grid |
+| `atlas` | espresso, amber | Source Serif 4 / Inter | rule over the eyebrow, matted figures, vignette |
+| `folio` | cream, oxblood | Source Serif 4 / Source Serif 4 | sentence-case eyebrow with a rule under it, paper-shadow plates |
+| `chalk` | cool white, ultramarine | Space Grotesk / IBM Plex Sans | thick underline eyebrow, rounded soft plates, dotted ground |
+| `journal` | sage, forest | IBM Plex Sans / Source Serif 4 | margin bar on the eyebrow, tabbed plates |
+
+`--theme <pack>` forces one. `--design v2` picks one when nobody named a theme (a
+storyboard's default `ink` counts as nobody): a weighted, deterministic hash of the
+source id (or `--pack-seed`), leaning mildly toward packs that suit the deck's mix of
+archetypes. Over the 176 HypePaper storyboards on disk the busiest pack carries 20.5% of
+decks. With narration on disk, a pack that would stage a beat with a different stop count
+than the narration was recorded at is skipped for the next one, and if none fits the
+storyboard's own theme is kept — so `--design v2` never breaks a narrated rebuild.
+
+Each pack's faces ship beside a Latin deck, vendored from `@fontsource-variable/*` like
+Inter, and are measured by their own width tables (`src/emit/faces.ts`, written by
+`node scripts/measure-faces.mjs --write`). A CJK deck keeps its Noto bundle first in every
+stack, so it changes palette, scale, eyebrow, framing and surface but not glyph shapes.
+The packs' interfaces are written up in `.planning/2026-10-07-v2-style-packs.md`.
 
 ## Narration
 
@@ -1278,6 +1308,8 @@ src/prefs.ts          the three-layer preference resolver
 src/emit/kit.ts       the seam between the deck shell and the archetype emitters
 src/emit/archetypes/  one emitter per archetype
 src/emit/themes/      one palette per file; the registry is the extension point
+src/emit/type.ts      type specs: the v2 packs' faces and chrome scale, read by chromeHeight and chromeCss
+src/emit/faces.ts     measured width tables for the packs' Latin faces (generated)
 src/images/           the three rungs a brief is drawn through, and the illustrate step
 src/narrate/          edge-tts, one segment per stop
 src/pack/             the .deck container and its bake/link/embed policy

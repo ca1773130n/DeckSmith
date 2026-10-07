@@ -5,7 +5,8 @@
  * guards one of two promises: a CLASSIC theme measures and emits exactly what it
  * did before packs existed, and a PACK is measured in the face it is drawn in.
  */
-import { mkdtemp, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,6 +33,7 @@ import {
   wrap,
 } from "../src/emit/svg.js";
 import { baseCss, type DeckTheme, deckLook, ink, PACKS } from "../src/emit/theme.js";
+import { chooseLook, fnv1a, packWeights, rankPacks } from "../src/emit/themes/pick.js";
 import {
   CLASSIC_TYPE,
   em,
@@ -41,7 +43,9 @@ import {
   TYPES,
   typeForStack,
 } from "../src/emit/type.js";
+import { loadPrefs, prefsFromFlags } from "../src/prefs.js";
 import { storyboardSchema } from "../src/types.js";
+import narratedStoryboard from "./fixtures/narrated-storyboard.json" with { type: "json" };
 
 /** A pack face whose Latin glyphs are `glyphs`, whatever spec carries it. */
 function measuredIn(glyphs: MeasuredFace): PackFace {
@@ -377,6 +381,55 @@ describe("vendored pack faces", () => {
     },
   );
 
+  it("declares a pack face with Inter's vertical metrics, and leaves Inter's own alone", async () => {
+    const css = await vendorFace("source-serif-4", await mkdtemp(join(tmpdir(), "ds-face-")));
+    const faces = css.split("@font-face").slice(1);
+    expect(faces.length).toBeGreaterThan(0);
+    for (const f of faces) {
+      expect(f).toContain("ascent-override: 96.875%");
+      expect(f).toContain("descent-override: 24.1211%");
+      expect(f).toContain("line-gap-override: 0%");
+    }
+  });
+
+  it("ships a pack's faces with a CJK deck too, behind its Noto bundle", async () => {
+    // A cached bundle, stamped the way `bundleFont` stamps one, so this needs no
+    // network: the stamp is the hash of the family and the deck's glyphs.
+    const storyboard = storyboardSchema.parse({
+      sourceId: "x",
+      title: "t",
+      lang: "ko",
+      beats: [
+        { id: "b1", intent: "i", archetype: "title", seconds: 4, params: { headline: "안녕" } },
+      ],
+    });
+    const source = {
+      id: "x",
+      title: "t",
+      lang: "ko",
+      sections: [],
+      figures: [],
+      equations: [],
+      tables: [],
+    };
+    const out = await mkdtemp(join(tmpdir(), "ds-f-"));
+    const text = [...new Set(JSON.stringify(source) + JSON.stringify(storyboard))]
+      .filter((c) => c > " ")
+      .sort()
+      .join("");
+    const stamp = `/* decksmith ${createHash("sha256").update(`Noto Sans KR\n${text}`).digest("hex").slice(0, 16)} */`;
+    await mkdir(join(out, "assets", "fonts"), { recursive: true });
+    await writeFile(
+      join(out, "assets", "fonts", "fonts.css"),
+      `${stamp}\n@font-face { font-family: 'Noto Sans KR'; src: url(notosanskr-0.woff2); }`,
+    );
+    const css = await refreshFont(storyboard, source, out, () => {}, "blueprint");
+    expect(css).toContain("font-family: 'Noto Sans KR'");
+    expect(css).toContain("font-family: 'IBM Plex Sans';");
+    const classic = await refreshFont(storyboard, source, out, () => {});
+    expect(classic).not.toContain("IBM Plex Sans");
+  });
+
   it("vendors a Latin pack's faces with Inter, and only Inter for a classic theme", async () => {
     const storyboard = storyboardSchema.parse({
       sourceId: "x",
@@ -412,5 +465,99 @@ describe("vendored pack faces", () => {
     expect(pack).toContain("font-family: 'Inter';");
     expect(pack).toContain("font-family: 'Space Grotesk';");
     expect(pack).toContain("font-family: 'IBM Plex Sans';");
+  });
+});
+
+/* -------------------------------------------------------------------- pick */
+
+describe("picking a pack per deck", () => {
+  const board = storyboardSchema.parse(narratedStoryboard);
+  const beats = board.beats;
+  /** Twenty paper-like ids, fixed, so the spread below is a fact about the hash. */
+  const SEEDS = Array.from({ length: 20 }, (_, i) =>
+    `${(0x9e3779b1 * (i + 1)).toString(16).padStart(8, "0")}-paper-${i}`.slice(0, 24),
+  );
+
+  it("spreads twenty decks over at least three packs, none on more than 40%", () => {
+    const counts: Record<string, number> = {};
+    for (const s of SEEDS) {
+      const p = rankPacks(beats, s)[0] ?? "";
+      counts[p] = (counts[p] ?? 0) + 1;
+    }
+    expect(Object.keys(counts).length).toBeGreaterThanOrEqual(3);
+    expect(Math.max(...Object.values(counts)) / SEEDS.length).toBeLessThanOrEqual(0.4);
+  });
+
+  it("is a pure function of the beats and the seed", () => {
+    expect(rankPacks(beats, "abc")).toEqual(rankPacks(beats, "abc"));
+    expect(new Set(rankPacks(beats, "abc"))).toEqual(new Set(Object.keys(PACKS)));
+    expect(fnv1a("hypepaper")).toBe(fnv1a("hypepaper"));
+  });
+
+  it("leans with the content: an equation deck finds the serif packs more often", () => {
+    const only = (archetype: string) =>
+      beats
+        .filter((b) => b.archetype === archetype)
+        .slice(0, 1)
+        .flatMap((b) => Array(10).fill(b));
+    const formal = only("equation-walk");
+    const quantity = only("bar-compare");
+    const share = (bs: typeof beats, pack: string) =>
+      Array.from({ length: 400 }, (_, i) => rankPacks(bs, `s${i}`)[0]).filter((p) => p === pack)
+        .length / 400;
+    expect(share(formal, "folio")).toBeGreaterThan(share(quantity, "folio"));
+    expect(share(quantity, "signal")).toBeGreaterThan(share(formal, "signal"));
+    // Mild: no family hands any pack the majority.
+    expect(share(formal, "folio")).toBeLessThan(0.4);
+  });
+
+  it("weighs every pack at least 1, so none is ever unreachable", () => {
+    for (const w of Object.values(packWeights(beats))) expect(w).toBeGreaterThanOrEqual(1);
+  });
+
+  it("changes nothing for classic", () => {
+    expect(chooseLook({ storyboard: board, design: "classic" })).toBe("ink");
+    expect(chooseLook({ storyboard: { ...board, theme: "paper" }, design: "classic" })).toBe(
+      "paper",
+    );
+  });
+
+  it("lets a named theme or a storyboard's own theme force the look under v2", () => {
+    expect(chooseLook({ stated: "mono", storyboard: board, design: "v2" })).toBe("mono");
+    expect(chooseLook({ storyboard: { ...board, theme: "folio" }, design: "v2" })).toBe("folio");
+  });
+
+  it("picks the top-ranked pack under v2, by the seed when one is given", () => {
+    expect(chooseLook({ storyboard: board, design: "v2" })).toBe(
+      rankPacks(beats, board.sourceId)[0],
+    );
+    expect(chooseLook({ storyboard: board, design: "v2", seed: "p1" })).toBe(
+      rankPacks(beats, "p1")[0],
+    );
+  });
+
+  it("walks down the ranking past a pack the build refuses, and lands on the storyboard's own when all are", () => {
+    const ranked = rankPacks(beats, board.sourceId);
+    const refuse = new Set(ranked.slice(0, 2));
+    expect(chooseLook({ storyboard: board, design: "v2", accepts: (n) => !refuse.has(n) })).toBe(
+      ranked[2],
+    );
+    expect(chooseLook({ storyboard: board, design: "v2", accepts: () => false })).toBe("ink");
+  });
+});
+
+describe("the design preference", () => {
+  it("defaults to classic, so an npm user's decks do not move", async () => {
+    const prefs = await loadPrefs({}, await mkdtemp(join(tmpdir(), "ds-p-")));
+    expect(prefs.design).toBe("classic");
+    expect(prefs.packSeed).toBeUndefined();
+  });
+
+  it("reads --design and --pack-seed, and refuses a design that does not exist", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ds-p-"));
+    const prefs = await loadPrefs(prefsFromFlags({ design: "v2", packSeed: "paper-1" }), cwd);
+    expect(prefs.design).toBe("v2");
+    expect(prefs.packSeed).toBe("paper-1");
+    await expect(loadPrefs(prefsFromFlags({ design: "v3" }), cwd)).rejects.toThrow(/design/);
   });
 });
