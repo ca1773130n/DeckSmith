@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  type Box,
+  BTN_MIN,
   CAPTION_MIN_PX,
   cleanPrefs,
   DEFAULT_PREFS,
@@ -15,17 +17,22 @@ import {
   prefsFromStored,
   RATES,
   resolvePrefs,
+  safeBottomFor,
   snapRate,
   stageGeometry,
   stepRate,
   stepSize,
 } from "../src/deck/playback.js";
 
-/** Slide area with captions on, over the area it would have with them off. */
-function share(vw: number, vh: number, size: "s" | "m" | "l" | "xl" = "m"): number {
-  const on = stageGeometry(vw, vh, 16 / 9, { on: true, size });
-  const off = stageGeometry(vw, vh, 16 / 9, { on: false, size });
-  return (on.slideW * on.slideH) / (off.slideW * off.slideH);
+const SAFE = safeBottomFor(1920, 1080);
+const geo = (vw: number, vh: number, on: boolean, size: "s" | "m" | "l" | "xl" = "m") =>
+  stageGeometry(vw, vh, 16 / 9, { on, size }, { safeBottom: SAFE });
+
+/** Slide area over the largest 16:9 box the viewport holds. */
+function share(vw: number, vh: number, size: "s" | "m" | "l" | "xl" = "m", on = true): number {
+  const g = geo(vw, vh, on, size);
+  const full = Math.min(vw, (vh * 16) / 9) * Math.min(vh, (vw * 9) / 16);
+  return (g.slideW * g.slideH) / full;
 }
 
 const VIEWPORTS: [number, number][] = [
@@ -37,32 +44,76 @@ const VIEWPORTS: [number, number][] = [
   [358, 201],
 ];
 
+const meets = (a: Box, b: Box) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
 describe("stage geometry", () => {
-  it("gives the slide at least 83% of its captionless area at 1080p and in the 800x450 embed", () => {
+  it("gives the slide at least 83% of the screen at 1080p and in the 800x450 embed", () => {
     // v0.8.0 measured 76.9% and 68.7% here (plan §1).
     expect(share(1920, 1080)).toBeGreaterThanOrEqual(0.83);
     expect(share(800, 450)).toBeGreaterThanOrEqual(0.83);
     expect(share(1280, 720)).toBeGreaterThanOrEqual(0.83);
     expect(share(960, 540)).toBeGreaterThanOrEqual(0.83);
+    expect(share(358, 201)).toBeGreaterThanOrEqual(0.64);
   });
 
-  it("gives the slide everything with captions off", () => {
+  it("gives the slide everything with captions off wherever the bar costs nothing, and never less than with them on", () => {
     for (const [w, h] of VIEWPORTS) {
-      const g = stageGeometry(w, h, 16 / 9, { on: false, size: "m" });
-      // Fills one dimension: the whole width or the whole height.
-      expect(Math.max(g.slideW / w, g.slideH / h)).toBeCloseTo(1, 6);
-      expect(g.capH).toBe(0);
+      const off = geo(w, h, false);
+      expect(off.capH).toBe(0);
+      expect(share(w, h, "m", false)).toBeGreaterThanOrEqual(share(w, h, "m", true) - 1e-9);
+      if (off.dock !== "band") expect(Math.max(off.slideW / w, off.slideH / h)).toBeCloseTo(1, 6);
     }
   });
 
-  it("puts the strip in a portrait phone's letterbox, costing the slide nothing", () => {
-    expect(share(390, 844)).toBeCloseTo(1, 6);
+  it("puts the bar where it covers nothing: over the text-free foot, in spare letterbox, or in a band", () => {
+    // The review's blocker: the bar was inside the slide's box on every screen,
+    // and on a small slide a 48px bar is a fifth of the height.
+    expect(geo(1920, 1080, true).dock).toBe("pad");
+    expect(geo(1920, 1080, false).dock).toBe("pad");
+    expect(geo(390, 844, true).dock).toBe("letterbox");
+    expect(geo(800, 450, true).dock).toBe("band");
+    expect(geo(358, 201, true).dock).toBe("band");
+    for (const [w, h] of VIEWPORTS) {
+      for (const on of [true, false]) {
+        const g = geo(w, h, on);
+        const slide = { x: g.slideX, y: g.slideY, w: g.slideW, h: g.slideH };
+        if (g.dock === "pad") {
+          // Inside the slide, and only within its text-free foot.
+          expect(g.bar.y).toBeGreaterThanOrEqual(g.slideY + g.slideH * (1 - SAFE) - 1e-6);
+        } else {
+          expect(meets(g.bar, slide), `${w}x${h} ${g.dock}`).toBe(false);
+        }
+        expect(g.btn).toBeGreaterThanOrEqual(BTN_MIN);
+        expect(g.bar.y + g.bar.h).toBeLessThanOrEqual(h + 1e-6);
+      }
+    }
   });
 
-  it("never lets slide and strip together exceed the viewport, at any size", () => {
+  it("keeps a caption's text clear of the buttons beside it in a shared band", () => {
+    for (const [w, h] of VIEWPORTS) {
+      const g = geo(w, h, true);
+      if (g.dock !== "band") continue;
+      // The strip pads its text in past the clusters on both sides.
+      const sideBtns = g.compact ? 1.2 : 4.6;
+      expect(g.stripPad).toBeGreaterThanOrEqual(g.barInset + sideBtns * g.btn);
+      // And the budget is what is left: two lines of it, never more than 44em.
+      const measure = g.strip.w - 2 * g.stripPad;
+      expect(g.cueEm).toBeLessThanOrEqual((2 * measure) / g.capFont + 1e-6);
+      expect(g.cueEm).toBeLessThanOrEqual(44);
+    }
+  });
+
+  it("swaps four settings buttons for one menu only when the window is too narrow for both", () => {
+    expect(geo(358, 201, true).compact).toBe(true);
+    expect(geo(800, 450, true).compact).toBe(false);
+    expect(geo(1280, 720, true).compact).toBe(false);
+  });
+
+  it("never lets slide, strip and bar together exceed the viewport, at any size", () => {
     for (const [w, h] of VIEWPORTS) {
       for (const size of ["s", "m", "l", "xl"] as const) {
-        const g = stageGeometry(w, h, 16 / 9, { on: true, size });
+        const g = geo(w, h, true, size);
         expect(g.slideY + g.slideH + g.capH).toBeLessThanOrEqual(h + 1e-9);
         expect(g.slideW).toBeLessThanOrEqual(w + 1e-9);
         expect(g.capFont).toBeGreaterThanOrEqual(CAPTION_MIN_PX);
@@ -72,33 +123,44 @@ describe("stage geometry", () => {
 
   it("sizes the caption from the slide, not the window width, and smaller than v0.8.0", () => {
     // v0.8.0: clamp(22px, 2.2vw, 38px) — 38px at 1080p, 22px in the embed.
-    const big = stageGeometry(1920, 1080, 16 / 9, { on: true, size: "m" });
-    const embed = stageGeometry(800, 450, 16 / 9, { on: true, size: "m" });
+    const big = geo(1920, 1080, true);
+    const embed = geo(800, 450, true);
     expect(big.capFont).toBeLessThan(38);
     expect(embed.capFont).toBeLessThan(22);
     // Same slide height, same caption — however wide the window around it.
-    const wide = stageGeometry(3000, 1080, 16 / 9, { on: true, size: "m" });
+    const wide = geo(3000, 1080, true);
     expect(wide.capFont).toBeCloseTo(big.capFont, 6);
   });
 
   it("is not circular: the font follows from the viewport alone, and the strip fits under the slide", () => {
-    const g = stageGeometry(1920, 1080, 16 / 9, { on: true, size: "m" });
+    const g = geo(1920, 1080, true);
     expect(g.slideH + g.capH).toBeCloseTo(1080, 6);
     expect(g.capH).toBeCloseTo(3 * g.capFont, 6);
   });
 
-  it("grows the caption with each size step", () => {
-    const font = (size: "s" | "m" | "l" | "xl") =>
-      stageGeometry(1920, 1080, 16 / 9, { on: true, size }).capFont;
-    expect(font("s")).toBeLessThan(font("m"));
-    expect(font("m")).toBeLessThan(font("l"));
-    expect(font("l")).toBeLessThan(font("xl"));
+  it("grows the caption with each size step, on a big screen and on the phone embed", () => {
+    for (const [w, h] of [
+      [1920, 1080],
+      [358, 201],
+    ] as const) {
+      const font = (size: "s" | "m" | "l" | "xl") => geo(w, h, true, size).capFont;
+      if (w > 1000) expect(font("s")).toBeLessThan(font("m"));
+      expect(font("m")).toBeLessThan(font("l"));
+      expect(font("l")).toBeLessThan(font("xl"));
+    }
   });
 
-  it("centres slide and strip as one block", () => {
-    const g = stageGeometry(390, 844, 16 / 9, { on: true, size: "m" });
-    expect(g.slideY).toBeCloseTo((844 - g.slideH - g.capH) / 2, 6);
+  it("centres slide, strip and a letterbox bar as one block", () => {
+    const g = geo(390, 844, true);
+    expect(g.slideY).toBeCloseTo((844 - g.slideH - g.capH - g.bar.h) / 2, 6);
+    expect(g.bar.y).toBeCloseTo(g.slideY + g.slideH + g.capH, 6);
     expect(g.slideX).toBeCloseTo(0, 6);
+  });
+
+  it("knows the composition's text-free foot from its size", () => {
+    // (84 - 16) / 1080: `.scene`'s bottom padding less a margin.
+    expect(safeBottomFor(1920, 1080)).toBeCloseTo(68 / 1080, 9);
+    expect(safeBottomFor(0, 0)).toBe(0);
   });
 });
 
@@ -179,6 +241,17 @@ describe("the v2 keymap", () => {
     expect(keyAction({ key: "ArrowRight", repeat: true })).toBe("next");
     expect(keyAction({ key: "c", repeat: true })).toBeNull();
     expect(keyAction({ key: "Enter", repeat: true })).toBeNull();
+  });
+
+  it("reads a letter key by its physical key when an IME turns it into Hangul or kana", () => {
+    // Korean 2-set: c → ㅊ, m → ㅡ, f → ㄹ. Before, every toggle did nothing.
+    expect(keyAction({ key: "ㅊ", code: "KeyC" })).toBe("captions");
+    expect(keyAction({ key: "ㅡ", code: "KeyM" })).toBe("mute");
+    expect(keyAction({ key: "ㄹ", code: "KeyF" })).toBe("fullscreen");
+    expect(keyAction({ key: "Process", code: "KeyK" })).toBe("play");
+    // ASCII is taken as typed: a layout's own letter wins over the key's position.
+    expect(keyAction({ key: "a", code: "KeyQ" })).toBeNull();
+    expect(keyAction({ key: "Enter", code: "Enter" })).toBe("play");
   });
 
   it("maps speed and size", () => {

@@ -15,6 +15,7 @@ import {
   parseHash,
   planTransition,
   refused,
+  SILENT_HOLD,
   type SlideSpec,
   type Stop,
   showingAt,
@@ -443,6 +444,9 @@ class FakeAudio {
   removeAttribute() {
     this.#src = "";
   }
+  getAttribute(name: string): string | null {
+    return name === "src" && this.#src !== "" ? this.#src : null;
+  }
   addEventListener() {}
 }
 
@@ -614,14 +618,38 @@ describe("autoplay's dwell clock", () => {
     expect(dwellMs({ playing: true, heard: false, gapMs: 30_000 })).toBe(8000);
   });
 
-  it("shortens a silent wait at the viewer's speed, but never below the reading floor", () => {
+  it("divides every wait by the viewer's speed, after clamping it", () => {
     expect(dwellMs({ playing: true, heard: false, gapMs: 4000, rate: 2 })).toBe(2000);
-    expect(dwellMs({ playing: true, heard: false, gapMs: 2000, rate: 2 })).toBe(1500);
+    // The floor is a reading time at 1x; a viewer at 2x reads at 2x too.
+    expect(dwellMs({ playing: true, heard: false, gapMs: 2000, rate: 2 })).toBe(1000);
     expect(dwellMs({ playing: true, heard: false, gapMs: 4000, rate: 0.75 })).toBeCloseTo(
       5333.33,
       1,
     );
     expect(dwellMs({ playing: true, heard: true, gapMs: 4000, rate: 2 })).toBeNull();
+  });
+
+  it("lets the chosen speed shorten even the longest hold", () => {
+    // Review 2026-10-08: the cap was applied after the division, so a 15s gap
+    // held 8s at 1x AND at 2x — the speed never reached the deck's longest waits.
+    expect(dwellMs({ playing: true, heard: false, gapMs: 15_000, rate: 1 })).toBe(8000);
+    expect(dwellMs({ playing: true, heard: false, gapMs: 15_000, rate: 2 })).toBe(4000);
+  });
+
+  it("v2: holds a stop with no narration only for its reveal and a beat, not the author's gap", () => {
+    // 5-9 such stops a deck, each up to 8s of silence: 15-22% of a deck at 1x.
+    expect(
+      dwellMs({ playing: true, heard: false, gapMs: 15_000, silent: true, revealMs: 1200 }),
+    ).toBe(1200 + SILENT_HOLD);
+    expect(
+      dwellMs({ playing: true, heard: false, gapMs: 15_000, silent: true, revealMs: 600, rate: 2 }),
+    ).toBe(600 + SILENT_HOLD / 2);
+    // Never longer than the old wait would have been.
+    expect(
+      dwellMs({ playing: true, heard: false, gapMs: 1000, silent: true, revealMs: 2000 }),
+    ).toBe(1500);
+    // A stop whose segment exists but failed is not silent by design: it keeps the gap.
+    expect(dwellMs({ playing: true, heard: false, gapMs: 15_000, silent: false })).toBe(8000);
   });
 
   it("turns on the clock for a stop that claimed a segment and then could not play it", () => {
@@ -840,7 +868,7 @@ describe("the narration speed", () => {
   };
   const second: Stop = { t: 6, slide: 1, fragment: 0, notes: "", sceneId: "s2" };
 
-  function mount() {
+  function mount(v2 = true) {
     const audio = new FakeAudio();
     const doc = {
       createElement: () => audio,
@@ -851,8 +879,52 @@ describe("the narration speed", () => {
       subs: { textContent: "", hidden: false } as unknown as HTMLElement,
       flags: { textContent: "" } as unknown as HTMLElement,
     };
-    return { audio, voice: mountVoice(doc, TWO, ui) };
+    return { audio, voice: mountVoice(doc, TWO, ui, { v2 }) };
   }
+
+  it("leaves a classic deck's element exactly as v0.8.0 did: no rate, no pitch flag", () => {
+    // The classic player has no speed. Review 2026-10-08 asked that its voice
+    // be v0.8.0's call for call, so no rate is written to it at all.
+    const { audio, voice } = mount(false);
+    voice.at(STOP);
+    voice.setRate(2);
+    voice.at(second);
+    expect(audio.playbackRate).toBe(1);
+    expect(audio.defaultPlaybackRate).toBe(1);
+    expect((audio as unknown as { preservesPitch?: boolean }).preservesPitch).toBeUndefined();
+  });
+
+  it("pauses a sentence where it is and resumes it from there (v2's Enter)", () => {
+    const { audio, voice } = mount();
+    voice.at(STOP);
+    expect(audio.plays).toHaveLength(1);
+    audio.currentTime = 2.4;
+    voice.pause();
+    expect(audio.paused).toBe(true);
+    expect(audio.currentTime).toBe(2.4);
+    expect(voice.resume()).toBe(true);
+    // The same element, the same source, from the same second: not a restart.
+    expect(audio.plays).toHaveLength(2);
+    expect(audio.src).toContain("s1-0.mp3");
+    expect(audio.currentTime).toBe(2.4);
+    expect(audio.paused).toBe(false);
+  });
+
+  it("has nothing to resume after a step dropped the sentence, or after it ended", () => {
+    const { audio, voice } = mount();
+    voice.at(STOP);
+    voice.pause();
+    voice.hush();
+    expect(voice.resume()).toBe(false);
+    voice.at(STOP);
+    audio.ended = true;
+    voice.pause();
+    expect(voice.resume()).toBe(false);
+    // And nothing to resume that was never paused.
+    audio.ended = false;
+    voice.at(second);
+    expect(voice.resume()).toBe(false);
+  });
 
   it("changes the sentence that is playing, not only the next one", () => {
     const { audio, voice } = mount();

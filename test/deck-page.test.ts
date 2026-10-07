@@ -127,6 +127,8 @@ async function narrationFor(dir: string, storyboardPath: string): Promise<string
 
 /** What the fixture server was asked for and could not produce. */
 const missing: string[] = [];
+/** Milliseconds the fixture server sits on every narration file before sending it. */
+let slowAudioMs = 0;
 
 const TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -152,15 +154,19 @@ function serve(root: string): Server {
       return;
     }
     const file = join(root, path === "/" ? DECK_PAGE : path);
-    const stream = createReadStream(file);
-    stream.once("error", () => {
-      missing.push(path);
-      res.writeHead(404).end();
-    });
-    stream.once("open", () => {
-      res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
-      stream.pipe(res);
-    });
+    const send = () => {
+      const stream = createReadStream(file);
+      stream.once("error", () => {
+        missing.push(path);
+        res.writeHead(404).end();
+      });
+      stream.once("open", () => {
+        res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
+        stream.pipe(res);
+      });
+    };
+    if (slowAudioMs > 0 && /\.(mp3|wav)$/.test(path)) setTimeout(send, slowAudioMs);
+    else send();
   });
 }
 
@@ -229,6 +235,8 @@ describe.skipIf(chrome === null)("deck.html, opened in the renderer's own browse
     page: Page;
     /** Uncaught errors, console errors, and requests the browser could not make. */
     loud: string[];
+    /** Narration fetches a step abandoned. Expected; see `present`. */
+    aborted: string[];
     /** Every request that did not go to the fixture server. */
     offsite: string[];
     close: () => Promise<void>;
@@ -247,7 +255,27 @@ describe.skipIf(chrome === null)("deck.html, opened in the renderer's own browse
       // failures are ours.
       if (m.type() === "error") loud.push(`console.error: ${m.text()}`);
     });
-    page.on("requestfailed", (r) => loud.push(`failed: ${r.url()} ${r.failure()?.errorText}`));
+    const aborted: string[] = [];
+    page.on("requestfailed", (r) => {
+      const why = r.failure()?.errorText;
+      // ONE FAILURE IS THE DECK DOING ITS JOB, and only one. A step silences the
+      // stop it leaves by dropping the <audio> source (`silence` in runtime.ts),
+      // and Chrome reports a narration fetch still in flight at that moment as
+      // net::ERR_ABORTED. Whether a fetch is still in flight is a race against
+      // the machine's load: 0 of 10 isolated runs on v0.8.0 and on this branch
+      // hit it, and the full suite — with more browser tests running beside it —
+      // hit it 1 time in 3. v0.8.0 does it too, every time, once the file is slow
+      // (the "drops a narration fetch" test below makes it slow on purpose). Kept
+      // apart rather than ignored: any other failure, on any other URL, is loud.
+      if (
+        why === "net::ERR_ABORTED" &&
+        /\/audio\/[^/]+\.(mp3|wav)$/.test(new URL(r.url()).pathname)
+      ) {
+        aborted.push(r.url());
+        return;
+      }
+      loud.push(`failed: ${r.url()} ${why}`);
+    });
     page.on("request", (r) => {
       if (!r.url().startsWith(base) && !r.url().startsWith("data:")) offsite.push(r.url());
     });
@@ -260,7 +288,7 @@ describe.skipIf(chrome === null)("deck.html, opened in the renderer's own browse
     await page.waitForFunction("document.querySelector('.ds-count')?.textContent", {
       timeout: 60_000,
     });
-    return { page, loud, offsite, close: () => page.close() };
+    return { page, loud, aborted, offsite, close: () => page.close() };
   }
 
   /** Where the composition should be when the deck has settled on `i`. */
@@ -557,6 +585,28 @@ describe.skipIf(chrome === null)("deck.html, opened in the renderer's own browse
     }
   }, 120_000);
 
+  it("drops a narration fetch it no longer needs, and calls nothing else a failure", async () => {
+    // The mechanism behind the one failure `present` keeps apart, made
+    // deterministic: every narration file takes 1.5s, so the step lands while
+    // the fetch for the stop it leaves is still in flight.
+    slowAudioMs = 1500;
+    const open = await present();
+    try {
+      await arrived(open, 0);
+      await open.page.keyboard.press("ArrowRight");
+      await arrived(open, 1);
+      await open.page.keyboard.press("ArrowLeft");
+      await arrived(open, 0);
+      await new Promise((r) => setTimeout(r, 1_800));
+      expect(open.aborted.length, "the step did not abandon the slow fetch").toBeGreaterThan(0);
+      expect(open.aborted.every((u) => /\/audio\//.test(u))).toBe(true);
+      expect(open.loud).toEqual([]);
+    } finally {
+      slowAudioMs = 0;
+      await open.close();
+    }
+  }, 120_000);
+
   it("navigates a whole pass without throwing, 404ing, or leaving the machine", async () => {
     missing.length = 0;
     const open = await present();
@@ -648,7 +698,11 @@ function silentWav(seconds: number, rate = 8000): Buffer {
  * FIRST stop speaks a Japanese cue with no space in it — the one `splitCue`
  * cannot cut — so what the runtime shows there says which split it used.
  */
-async function playableNarration(dir: string, storyboardPath: string): Promise<string> {
+async function playableNarration(
+  dir: string,
+  storyboardPath: string,
+  name = "narration-v2.json",
+): Promise<string> {
   const storyboard = storyboardSchema.parse(JSON.parse(await readFile(storyboardPath, "utf8")));
   const real = JSON.parse(await readFile(repo("test/fixtures/real-cues.json"), "utf8")) as {
     cues: Record<string, string[]>;
@@ -657,11 +711,15 @@ async function playableNarration(dir: string, storyboardPath: string): Promise<s
   const unspaced = (real.cues.ja ?? []).find((t) => !/\s/.test(t) && t.length > 60);
   for (const [i, beat] of storyboard.beats.entries()) {
     const audio = `${beat.id}-0.wav`;
-    const text = (i === 0 ? unspaced : real.cues.en?.[i]) ?? `The line for ${beat.id}.`;
+    // A beat that carries its own narration must be said as written: `build`
+    // refuses audio that says something else (`scanNarrationDrift`).
+    const text =
+      beat.narration?.trim() ||
+      ((i === 0 ? unspaced : real.cues.en?.[i]) ?? `The line for ${beat.id}.`);
     beats[beat.id] = [{ stop: 0, text, audio, seconds: 12, cues: [{ start: 0, end: 12, text }] }];
     await writeFile(join(dir, audio), silentWav(12));
   }
-  const path = join(dir, "narration-v2.json");
+  const path = join(dir, name);
   await writeFile(path, `${JSON.stringify({ voice: "test", beats }, null, 2)}\n`);
   return path;
 }
@@ -672,8 +730,9 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
   let server: Server;
   let browser: Browser;
   let stops: Stop[] = [];
-  /** Every caption piece the fixture's real cues split into, in all four languages. */
-  let pieces: string[] = [];
+  let demoStops: Stop[] = [];
+  /** Every real cue, en/ko/ja/zh, uncut: each viewport cuts them to its own strip. */
+  let realCues: string[] = [];
 
   const VIEWPORTS: [number, number][] = [
     [1920, 1080],
@@ -708,15 +767,33 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
     await build(join(dir, "v2"), ["--design", "v2"]);
     await build(join(dir, "classic"), []);
     await run(process.execPath, [cli, "repack", join(dir, "classic")]);
+    // The demo under v2, pinned to a pack whose Director picks foot and rail
+    // headlines (test/look-page.test.ts): the slides whose text reaches lowest,
+    // which is where a control bar used to land on it.
+    const demo = repo("demo/storyboard.json");
+    await run(process.execPath, [
+      cli,
+      "build",
+      demo,
+      "--source",
+      repo("demo/source.json"),
+      "--narration",
+      await playableNarration(join(dir), demo, "narration-demo.json"),
+      "-o",
+      join(dir, "demo"),
+      "--no-fidelity",
+      "--design",
+      "v2",
+      "--theme",
+      "signal",
+    ]);
+    demoStops = buildStops(islandOf(await readFile(join(dir, "demo", DECK_PAGE), "utf8")));
 
     stops = buildStops(islandOf(await readFile(join(dir, "v2", DECK_PAGE), "utf8")));
-    const { splitForScreen } = await import("../src/deck/subtitles.js");
     const real = JSON.parse(await readFile(repo("test/fixtures/real-cues.json"), "utf8")) as {
       cues: Record<string, string[]>;
     };
-    pieces = Object.values(real.cues)
-      .flat()
-      .flatMap((text) => splitForScreen({ start: 0, end: 1, text }).map((c) => c.text));
+    realCues = Object.values(real.cues).flat();
 
     server = serve(dir);
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -778,40 +855,103 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
       formatHash(stops[i] as Stop),
     );
 
-  /** Rectangles of everything the layout promises about, in one round trip. */
+  /**
+   * Everything the layout promises about, in one round trip: the slide's box,
+   * every visible control's box, the caption's TEXT boxes (not the strip's: the
+   * strip is shared with the controls on purpose, its text never is), and every
+   * glyph run the composition is showing, mapped from the slide's 1920x1080
+   * into the page.
+   */
   const rects = (open: Open2) =>
     open.page.evaluate(() => {
-      const box = (sel: string) => {
-        const el = document.querySelector(sel);
+      type R = { x: number; y: number; w: number; h: number };
+      const box = (el: Element | null): R | null => {
         if (!el) return null;
         const r = el.getBoundingClientRect();
         return { x: r.x, y: r.y, w: r.width, h: r.height };
       };
-      const visible = [
-        ...document.querySelectorAll<HTMLElement>(".ds-controls > button, .ds-wrap > button"),
-      ]
-        .filter((b) => !b.hidden)
-        .map((b) => b.getBoundingClientRect())
-        .map((r) => Math.min(r.width, r.height));
+      const shown = (el: Element) => {
+        const cs = getComputedStyle(el);
+        return (
+          cs.display !== "none" &&
+          cs.visibility !== "hidden" &&
+          (el as HTMLElement).offsetParent !== null
+        );
+      };
+      const controls = [...document.querySelectorAll(".ds-controls button")]
+        .filter((b) => !b.closest(".ds-menu") && shown(b))
+        .map((b) => box(b) as R);
+      const textOf = (root: Node, doc: Document, map: (q: DOMRect) => R | null) => {
+        const out: R[] = [];
+        const walk = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          if (!n.textContent?.trim()) continue;
+          let visible = true;
+          for (let e = n.parentElement; e; e = e.parentElement) {
+            const cs = doc.defaultView?.getComputedStyle(e);
+            if (
+              !cs ||
+              cs.display === "none" ||
+              cs.visibility === "hidden" ||
+              Number(cs.opacity) < 0.05
+            )
+              visible = false;
+          }
+          if (!visible) continue;
+          const range = doc.createRange();
+          range.selectNodeContents(n);
+          for (const q of range.getClientRects()) {
+            const r = q.width >= 1 && q.height >= 1 ? map(q) : null;
+            if (r) out.push(r);
+          }
+        }
+        return out;
+      };
+      const subs = document.querySelector(".ds-subs") as HTMLElement;
+      const caption = subs.hidden
+        ? []
+        : textOf(subs, document, (q) => ({ x: q.x, y: q.y, w: q.width, h: q.height }));
+      const player = document.querySelector("hyperframes-player");
+      const iframe = player?.shadowRoot?.querySelector("iframe");
+      const slide = box(player);
+      let slideText: R[] = [];
+      if (iframe?.contentDocument?.body && slide) {
+        const ir = iframe.getBoundingClientRect();
+        const d = iframe.contentDocument;
+        const sx = ir.width / d.documentElement.clientWidth;
+        const sy = ir.height / d.documentElement.clientHeight;
+        slideText = textOf(d.body, d, (q) => {
+          const r = { x: ir.x + q.x * sx, y: ir.y + q.y * sy, w: q.width * sx, h: q.height * sy };
+          // Off the canvas is not on screen: scenes not showing sit outside it.
+          const on = r.x < ir.right && r.y < ir.bottom && r.x + r.w > ir.x && r.y + r.h > ir.y;
+          return on ? r : null;
+        });
+      }
       return {
         vw: innerWidth,
         vh: innerHeight,
-        slide: box("hyperframes-player"),
-        subs: box(".ds-subs"),
-        controls: box(".ds-controls"),
-        menu: box(".ds-menu:not([hidden])"),
-        smallest: Math.min(...visible),
+        dock: document.documentElement.dataset.dock ?? "",
+        budget: Number(document.documentElement.dataset.dsCueEm),
+        slide,
+        controls,
+        caption,
+        slideText,
+        menu: box(document.querySelector(".ds-menu:not([hidden])")),
+        smallest: Math.min(...controls.map((r) => Math.min(r.w, r.h))),
       };
     });
 
   type Rect = { x: number; y: number; w: number; h: number } | null;
-  const disjoint = (a: Rect, b: Rect) =>
-    !a ||
-    !b ||
-    a.y + a.h <= b.y + 0.5 ||
-    b.y + b.h <= a.y + 0.5 ||
-    a.x + a.w <= b.x ||
-    b.x + b.w <= a.x;
+  const overlaps = (a: Rect, b: Rect) =>
+    !!a &&
+    !!b &&
+    a.x < b.x + b.w - 0.5 &&
+    b.x < a.x + a.w - 0.5 &&
+    a.y < b.y + b.h - 0.5 &&
+    b.y < a.y + a.h - 0.5;
+  /** Every control that lands on any of `texts`. Empty is the promise. */
+  const covering = (controls: Rect[], texts: Rect[]) =>
+    controls.flatMap((c) => texts.filter((t) => overlaps(c, t)).map((t) => ({ c, t })));
   const inside = (a: Rect, b: Rect) =>
     !!a &&
     !!b &&
@@ -824,6 +964,21 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
     const full = Math.min(r.vw, (r.vh * 16) / 9) * Math.min(r.vh, (r.vw * 9) / 16);
     return ((r.slide?.w ?? 0) * (r.slide?.h ?? 0)) / full;
   };
+  /** The longest real cue piece at this page's budget, put up in the strip. */
+  const longestCaption = async (o: Open2) => {
+    const { splitForScreen, cueEm } = await import("../src/deck/subtitles.js");
+    const budget = await o.page.evaluate(() => Number(document.documentElement.dataset.dsCueEm));
+    const pieces = realCues.flatMap((text) =>
+      splitForScreen({ start: 0, end: 1, text }, budget).map((c) => c.text),
+    );
+    const longest = pieces.reduce((a, b) => (cueEm(b) > cueEm(a) ? b : a), "");
+    await o.page.evaluate((t: string) => {
+      const s = document.querySelector<HTMLElement>(".ds-subs") as HTMLElement;
+      s.textContent = t;
+      s.hidden = false;
+    }, longest);
+    return pieces;
+  };
 
   it("marks the page it was built with --design v2, and the repacked one, and not the classic one", async () => {
     const { PLAYER_MARKER } = await import("../src/deck/playback.js");
@@ -834,7 +989,8 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
 
   it("gives the slide its space back and never puts a control over a caption, at six viewports", async () => {
     // Targets from the plan (QW3 + critic 7, 8): ≥83% with CC on at 1080p and in
-    // the 800x450 embed (v0.8.0: 76.9% and 68.7%); 100% with CC off.
+    // the 800x450 embed (v0.8.0: 76.9% and 68.7%), the letterbox free on a
+    // portrait phone, and the phone embed above the 64% the strip alone left.
     const floor: Record<string, number> = {
       "1920x1080": 0.83,
       "1280x720": 0.83,
@@ -847,30 +1003,35 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
       const o = await open(`v2/${DECK_PAGE}`, w, h);
       try {
         await at(o, 0);
-        await o.page.evaluate(() => {
-          // The longest caption the strip is ever asked to hold, shown now.
-          const s = document.querySelector<HTMLElement>(".ds-subs") as HTMLElement;
-          s.hidden = false;
-        });
+        await longestCaption(o);
         const on = await rects(o);
-        const label = `${w}x${h}`;
-        expect(share(on), label).toBeGreaterThanOrEqual(floor[label] as number);
-        expect(disjoint(on.controls, on.subs), `${label}: controls over captions`).toBe(true);
-        expect(inside(on.controls, on.slide), `${label}: controls outside the slide`).toBe(true);
+        const label = `${w}x${h} (${on.dock})`;
+        expect(share(on), label).toBeGreaterThanOrEqual(floor[`${w}x${h}`] as number);
+        expect(on.caption.length, `${label}: no caption on screen to measure`).toBeGreaterThan(0);
+        expect(covering(on.controls, on.caption), `${label}: a control over a caption`).toEqual([]);
+        expect(covering(on.controls, on.slideText), `${label}: a control over slide text`).toEqual(
+          [],
+        );
         expect(on.smallest, `${label}: a target under 40px`).toBeGreaterThanOrEqual(40);
 
-        // Every menu stays inside the slide, so it cannot reach the strip either.
-        for (const button of [".ds-speed", ".ds-size"]) {
+        // A menu is a viewer's momentary, explicit choice: it may sit over the
+        // slide while open, but never leaves the window.
+        for (const button of [".ds-speed", ".ds-size", ".ds-more"]) {
+          if (!(await o.page.$eval(button, (b) => (b as HTMLElement).offsetParent !== null)))
+            continue;
           await o.page.click(button);
           const m = await rects(o);
-          expect(inside(m.menu, m.slide), `${label}: ${button} menu leaves the slide`).toBe(true);
-          expect(disjoint(m.menu, m.subs), `${label}: ${button} menu over captions`).toBe(true);
+          const win = { x: 0, y: 0, w: m.vw, h: m.vh };
+          expect(inside(m.menu, win), `${label}: ${button} menu leaves the window`).toBe(true);
           await o.page.keyboard.press("Escape");
         }
 
         await o.page.keyboard.press("c");
         const off = await rects(o);
-        expect(share(off), `${label} with CC off`).toBeGreaterThan(0.999);
+        // Off, the slide never gets smaller; where the bar costs nothing it gets all of it.
+        expect(share(off), `${label} with CC off`).toBeGreaterThanOrEqual(share(on) - 1e-9);
+        if (off.dock !== "band") expect(share(off), `${label} with CC off`).toBeGreaterThan(0.999);
+        expect(covering(off.controls, off.slideText), `${label} CC off: slide text`).toEqual([]);
         expect(o.loud).toEqual([]);
       } finally {
         await o.close();
@@ -878,11 +1039,60 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
     }
   }, 300_000);
 
+  it("never puts a control over the slide's text on a deck with foot and rail headlines, at six viewports", async () => {
+    // The review's blocker (2026-10-08): with the bar inside the slide, foot
+    // headlines lost 15-36px to it at 390x844 and 3-26px at 800x450. Every
+    // stop of the demo, at every viewport, with the bar up.
+    const looks = JSON.parse(await readFile(join(dir, "demo", "look.json"), "utf8")) as {
+      beats: { placement: string }[];
+    };
+    expect(looks.beats.some((b) => b.placement === "foot")).toBe(true);
+    for (const [w, h] of VIEWPORTS) {
+      const o = await open(`demo/${DECK_PAGE}`, w, h);
+      try {
+        for (const stop of demoStops) {
+          await o.page.evaluate((hash: string) => {
+            location.hash = hash;
+          }, formatHash(stop));
+          await o.page.waitForFunction(
+            (hsh: string) => location.hash === hsh,
+            {},
+            formatHash(stop),
+          );
+          // Let the cut land and the composition paint.
+          await new Promise((r) => setTimeout(r, 120));
+          await o.page.mouse.move(w / 2, h / 2);
+          const r = await rects(o);
+          expect(
+            r.slideText.length,
+            `${w}x${h} ${formatHash(stop)}: nothing measured`,
+          ).toBeGreaterThan(0);
+          expect(
+            covering(r.controls, r.slideText),
+            `${w}x${h} (${r.dock}) ${formatHash(stop)}: a control over slide text`,
+          ).toEqual([]);
+        }
+        expect(o.loud).toEqual([]);
+      } finally {
+        await o.close();
+      }
+    }
+  }, 600_000);
+
   it("fits every real caption, en/ko/ja/zh, on two lines at every viewport and size", async () => {
+    const { splitForScreen } = await import("../src/deck/subtitles.js");
     for (const [w, h] of VIEWPORTS) {
       for (const size of ["s", "m", "l", "xl"]) {
         const o = await open(`v2/${DECK_PAGE}?ccsize=${size}`, w, h);
         try {
+          // Cut as this page cuts them: to its own strip's width at this size.
+          const budget = await o.page.evaluate(() =>
+            Number(document.documentElement.dataset.dsCueEm),
+          );
+          expect(budget, `${w}x${h} ${size}: no budget`).toBeGreaterThan(8);
+          const pieces = realCues.flatMap((text) =>
+            splitForScreen({ start: 0, end: 1, text }, budget).map((c) => c.text),
+          );
           const over = await o.page.evaluate((texts: string[]) => {
             const s = document.querySelector<HTMLElement>(".ds-subs") as HTMLElement;
             s.hidden = false;
@@ -899,34 +1109,90 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
     }
   }, 300_000);
 
-  it("shows the caption the screen split made, not the 84-character one", async () => {
-    const { cueEm, SCREEN_CUE_EM } = await import("../src/deck/subtitles.js");
+  it("makes each caption size step visible, even on the phone embed", async () => {
+    // Review 2026-10-08: at 358x201 every size clamped to the 13px floor, so the
+    // size control did nothing on HypePaper's mobile iframe.
+    for (const [w, h] of [
+      [358, 201],
+      [800, 450],
+    ] as const) {
+      const fonts: number[] = [];
+      for (const size of ["m", "l", "xl"]) {
+        const o = await open(`v2/${DECK_PAGE}?ccsize=${size}`, w, h);
+        try {
+          fonts.push(
+            await o.page.$eval(".ds-subs", (s) => Number.parseFloat(getComputedStyle(s).fontSize)),
+          );
+        } finally {
+          await o.close();
+        }
+      }
+      expect(fonts[1], `${w}x${h} L over M`).toBeGreaterThan(fonts[0] as number);
+      expect(fonts[2], `${w}x${h} XL over L`).toBeGreaterThan(fonts[1] as number);
+    }
+  }, 120_000);
+
+  it("shows the caption the screen split made for this strip, not the 84-character one", async () => {
+    const { cueEm } = await import("../src/deck/subtitles.js");
     const o = await open(`v2/${DECK_PAGE}`, 358, 201);
     try {
       await at(o, 0);
+      await o.page.keyboard.press("Enter");
       await o.page.waitForFunction("document.querySelector('.ds-subs')?.textContent", {
         timeout: 30_000,
       });
       const shown = await o.page.$eval(".ds-subs", (s) => ({
         text: s.textContent ?? "",
         over: s.scrollHeight > s.clientHeight + 1,
+        budget: Number(document.documentElement.dataset.dsCueEm),
       }));
-      expect(cueEm(shown.text)).toBeLessThanOrEqual(SCREEN_CUE_EM);
+      expect(cueEm(shown.text)).toBeLessThanOrEqual(shown.budget);
       expect(shown.over).toBe(false);
     } finally {
       await o.close();
     }
   }, 120_000);
 
-  it("steps on Space, plays on Enter, toggles captions on c, and leaves Cmd+F to the browser", async () => {
+  it("steps on Space, plays and PAUSES on Enter, toggles captions on c, and leaves Cmd+F to the browser", async () => {
     const o = await open(`v2/${DECK_PAGE}`);
     try {
       await at(o, 0);
       await o.page.keyboard.press("Space");
       await at(o, 1);
       expect(await o.page.$eval(".ds-play", (b) => (b as HTMLElement).dataset.on)).not.toBe("1");
+      // Paused is paused: arriving by Space said nothing.
+      const audio = () =>
+        o.page.evaluate(() => {
+          const a = document.querySelector("audio") as HTMLAudioElement;
+          return { t: a.currentTime, paused: a.paused, src: a.getAttribute("src") ?? "" };
+        });
+      expect((await audio()).paused).toBe(true);
+
       await o.page.keyboard.press("Enter");
       await o.page.waitForFunction("document.querySelector('.ds-play').dataset.on === '1'");
+      await o.page.waitForFunction("document.querySelector('audio').currentTime > 0.8", {
+        timeout: 30_000,
+      });
+      // Enter again PAUSES THE VOICE, not just the auto-advance (review 2026-10-08:
+      // the sentence went on talking under a paused button).
+      await o.page.keyboard.press("Enter");
+      await o.page.waitForFunction("document.querySelector('.ds-play').dataset.on === '0'");
+      const p0 = await audio();
+      expect(p0.paused).toBe(true);
+      await new Promise((r) => setTimeout(r, 700));
+      const p1 = await audio();
+      expect(p1.paused).toBe(true);
+      expect(p1.t).toBeCloseTo(p0.t, 3);
+      // And Enter RESUMES from that word rather than starting the sentence over.
+      await o.page.keyboard.press("Enter");
+      await o.page.waitForFunction(
+        (t: number) => (document.querySelector("audio") as HTMLAudioElement).currentTime > t + 0.3,
+        { timeout: 15_000 },
+        p1.t,
+      );
+      const r = await audio();
+      expect(r.src).toBe(p1.src);
+      expect(r.t).toBeGreaterThan(p1.t);
       await o.page.keyboard.press("Enter");
       await o.page.waitForFunction("document.querySelector('.ds-play').dataset.on === '0'");
 
@@ -974,6 +1240,7 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
             paused: a.paused,
           };
         });
+      await o.page.keyboard.press("Enter");
       await o.page.waitForFunction("document.querySelector('audio')?.currentTime > 0.2", {
         timeout: 30_000,
       });

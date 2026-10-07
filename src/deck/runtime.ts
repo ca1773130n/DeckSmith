@@ -34,6 +34,7 @@ import {
   RATES,
   rateLabel,
   resolvePrefs,
+  safeBottomFor,
   stageGeometry,
   stepRate,
   stepSize,
@@ -46,6 +47,7 @@ import {
   NARRATION_ISLAND,
   type Narration,
   parseNarration,
+  SCREEN_CUE_EM,
   segmentFor,
   splitForScreen,
 } from "./subtitles.js";
@@ -207,12 +209,43 @@ export function dwellMs(opts: {
   playing: boolean;
   heard: boolean;
   gapMs: number;
-  /** The viewer's speed. The gap shrinks with it; the floor does not — a line still has to be read. */
+  /** The viewer's speed. Every wait is divided by it, after it is clamped. */
   rate?: number;
+  /**
+   * v2: the stop has no narration segment at all — silent BY DESIGN, not a
+   * segment that failed to play. Its reveal is the whole of its content, so the
+   * deck waits for the reveal (`revealMs`, already at the viewer's speed) and a
+   * beat to take it in, then moves on. See `SILENT_HOLD`.
+   */
+  silent?: boolean;
+  revealMs?: number;
 }): number | null {
   if (!opts.playing || opts.heard) return null;
-  return Math.min(MAX_DWELL, Math.max(MIN_DWELL, opts.gapMs / rateOf(opts.rate)));
+  const rate = rateOf(opts.rate);
+  if (opts.silent === true) {
+    const reveal = Math.max(0, opts.revealMs ?? 0);
+    return Math.min(clampDwell(opts.gapMs) / rate, reveal + SILENT_HOLD / rate);
+  }
+  // Clamp FIRST, then divide. The other order let MAX_DWELL cap a wait the rate
+  // had already shortened, so at 2x a 15s gap still sat out 8s — the speed the
+  // viewer chose never reached the longest waits in the deck.
+  return clampDwell(opts.gapMs) / rate;
 }
+
+function clampDwell(gapMs: number): number {
+  return Math.min(MAX_DWELL, Math.max(MIN_DWELL, gapMs));
+}
+
+/**
+ * How long a v2 deck playing itself holds a stop that has nothing to say, after
+ * its reveal has played, at 1x. Measured on the four preview decks (review,
+ * 2026-10-08): every one has 5–9 such stops, and at MAX_DWELL each they were
+ * 40–65s of silence against 227–303s of speech — 15–22% of the deck at 1x and a
+ * quarter to a third of it at 2x, the "slow" the founder heard. The linear
+ * render folds these stops into the sentence before them; this is the player's
+ * nearest equivalent: let the reveal land, give it a moment, go on.
+ */
+export const SILENT_HOLD = 1500;
 
 /* --------------------------------------------------------------------- Hash */
 
@@ -497,21 +530,27 @@ const CSS = `
 `;
 
 /**
- * The v2 player's chrome: one control bar, YouTube-style, that hides itself.
+ * The v2 player's chrome: one control bar, and a caption strip.
  *
  * THE STAGE IS LAID OUT BY `stageGeometry` (./playback.ts), not by CSS
- * arithmetic, and handed in as four custom properties: the slide's box
- * (--ds-sx/-sy/-sw/-sh) and the caption strip's font and height. The strip sits
- * directly under the slide, both centred as one block, so on a portrait phone it
- * lands in the letterbox and the slide gives up nothing for it.
+ * arithmetic, and handed in as custom properties: the slide's box
+ * (--ds-sx/-sy/-sw/-sh), the bar's (--ds-bx/-by/-bw/-bh, its inset --ds-bi and
+ * button size --ds-btn) and the strip's (--ds-tx/-ty/-tw/-th, its side padding
+ * --ds-tp and font --ds-cap-font). `data-dock` on the root says which of the
+ * three places the bar is in, and `ds-compact` swaps four buttons for one menu.
  *
- * NOTHING HERE MAY COVER A CAPTION. The bar lives inside the SLIDE's box, on
- * its bottom edge, over a scrim; the strip is below that box. So however the
- * window is shaped, controls and cue text are in disjoint rectangles —
- * test/deck-page.test.ts measures it at six viewports. The cost is that the bar
- * covers the bottom of the slide while it is up, which is why it is not up for
- * long: 2.5s after the last pointer move, unless the pointer is on it, focus is
- * in it, or a menu is open.
+ * A CONTROL NEVER COVERS TEXT. That is the whole reason for `Dock`: the bar is
+ * under the slide in spare letterbox, or over the slide's bottom PADDING (the
+ * band every composition leaves empty of text) when that band is at least a
+ * 48px bar, or in a band of its own beside the captions. Beside, not over: the
+ * strip pads its text in by the width of the control clusters, so cue text and
+ * buttons are in disjoint rectangles. test/deck-page.test.ts measures both —
+ * controls against captions, and controls against every glyph the slide draws —
+ * at six viewports.
+ *
+ * Only the `pad` bar hides itself when idle (2.5s after the last pointer move,
+ * unless the pointer is on it, focus is in it, or a menu is open). Nowhere else
+ * does it cover anything, so there it stays, where a viewer can find it.
  *
  * Every target is at least 40px. (No backticks in this block: it is inside a
  * template literal.)
@@ -525,20 +564,19 @@ html.ds-v2 hyperframes-player{position:fixed;left:var(--ds-sx,0);top:var(--ds-sy
   top:calc(var(--ds-sy) + var(--ds-sh) - 3px);background:rgba(255,255,255,.16)}
 .ds-bar>i{display:block;height:100%;background:currentColor;transform-origin:0 50%;
   transform:scaleX(0);transition:transform .18s ease-out}
-.ds-chrome{--ds-btn:clamp(40px,calc(var(--ds-sh,0px) * .05),56px)}
-.ds-controls{position:fixed;left:var(--ds-sx);width:var(--ds-sw);
-  height:calc(var(--ds-btn) + 8px);top:calc(var(--ds-sy) + var(--ds-sh) - var(--ds-btn) - 8px);
-  box-sizing:border-box;padding:4px 6px;display:flex;align-items:center;gap:2px;
-  font-size:clamp(13px,calc(var(--ds-sh,0px) * .02),20px);pointer-events:auto;
-  background:linear-gradient(to top,rgba(0,0,0,.72),rgba(0,0,0,0));
+.ds-controls{position:fixed;left:var(--ds-bx);top:var(--ds-by);width:var(--ds-bw);height:var(--ds-bh);
+  box-sizing:border-box;padding:0 var(--ds-bi,6px);display:flex;align-items:center;gap:2px;
+  font-size:clamp(13px,calc(var(--ds-btn,40px) * .36),18px);pointer-events:auto;
   transition:opacity .2s ease-out}
+html[data-dock="pad"] .ds-controls{padding-bottom:4px;align-items:flex-end;
+  background:linear-gradient(to top,rgba(0,0,0,.72),rgba(0,0,0,0))}
 .ds-controls[data-shown="0"]{opacity:0;pointer-events:none}
-.ds-controls button{min-width:var(--ds-btn);height:var(--ds-btn);padding:0 8px;border:0;border-radius:8px;
+.ds-controls button{min-width:var(--ds-btn,40px);height:var(--ds-btn,40px);padding:0 8px;border:0;border-radius:8px;
   background:transparent;color:#fff;font:inherit;line-height:1;cursor:pointer;
   display:inline-grid;place-items:center;white-space:nowrap}
 .ds-controls button:hover{background:rgba(255,255,255,.16)}
 .ds-controls button:focus-visible{outline:2px solid #fff;outline-offset:-2px}
-.ds-controls button[hidden]{display:none}
+.ds-controls button[hidden],.ds-controls .ds-wrap[hidden]{display:none}
 .ds-play::before{content:"";display:block;width:0;height:0;margin-left:3px;
   border-left:12px solid currentColor;border-top:8px solid transparent;border-bottom:8px solid transparent}
 .ds-play[data-on="1"]::before{margin-left:0;width:12px;height:14px;border:0;
@@ -550,16 +588,19 @@ html.ds-v2 hyperframes-player{position:fixed;left:var(--ds-sx,0);top:var(--ds-sy
 .ds-cc[aria-pressed="false"]{opacity:.6}
 .ds-fs::before{content:"";width:14px;height:14px;box-sizing:border-box;
   border:2px solid currentColor;border-radius:2px}
-/* Menus hang off the BAR, not their button: a phone-width slide is narrower
-   than six rates laid out from the speed button leftwards. Right-aligned
-   inside the slide and wrapping, so a menu never leaves the slide's box — and
-   so never reaches the caption strip below it. */
+.ds-more{font-size:22px;letter-spacing:.06em}
+html.ds-compact .ds-count,html.ds-compact .ds-full{display:none}
+html:not(.ds-compact) .ds-morewrap{display:none}
+/* Menus hang off the BAR, not their button, and open upward over the slide:
+   a menu is a viewer's explicit, momentary choice, and it closes on the next
+   click. Right-aligned and wrapping, so it never leaves the window. */
 .ds-wrap{display:inline-flex}
 .ds-menu{position:absolute;right:6px;bottom:calc(100% + 2px);display:flex;flex-wrap:wrap;
-  justify-content:flex-end;gap:2px;max-width:calc(var(--ds-sw) - 12px);box-sizing:border-box;
+  justify-content:flex-end;align-items:center;gap:2px;max-width:calc(100vw - 12px);box-sizing:border-box;
   padding:4px;border-radius:10px;background:rgba(20,20,20,.94);box-shadow:0 4px 18px rgba(0,0,0,.5)}
 .ds-menu[hidden]{display:none}
 .ds-menu button[aria-checked="true"]{background:#fff;color:#000}
+.ds-mlabel{flex-basis:100%;padding:2px 6px 0;font-size:12px;opacity:.7}
 .ds-flags{position:fixed;left:calc(var(--ds-sx) + 10px);top:calc(var(--ds-sy) + 8px);
   max-width:calc(var(--ds-sw) - 20px);padding:2px 8px;border-radius:6px;
   background:rgba(0,0,0,.6);font-size:13px}
@@ -575,9 +616,9 @@ html.ds-v2 hyperframes-player{position:fixed;left:var(--ds-sx,0);top:var(--ds-sy
   padding:20px 24px;background:rgba(10,10,10,.92);font-size:19px;line-height:1.6;
   white-space:pre-wrap;pointer-events:auto}
 .ds-notes[hidden]{display:none}
-.ds-subs{position:fixed;left:0;right:0;top:calc(var(--ds-sy) + var(--ds-sh));
-  height:var(--ds-cap-h,0px);box-sizing:border-box;overflow:hidden;
-  display:flex;align-items:center;justify-content:center;padding:0 max(12px,4vw);
+.ds-subs{position:fixed;left:var(--ds-tx,0);top:var(--ds-ty);width:var(--ds-tw,100vw);
+  height:var(--ds-th,0px);box-sizing:border-box;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;padding:0 var(--ds-tp,12px);
   text-align:center;color:#fff;font-weight:600;font-size:var(--ds-cap-font,13px);
   line-height:${CAPTION_LINE_HEIGHT};text-wrap:pretty}
 .ds-subs[hidden]{visibility:hidden}
@@ -592,6 +633,9 @@ export interface ChromeV2 extends ReturnType<typeof mountChrome> {
   size: HTMLButtonElement;
   sizeMenu: HTMLElement;
   fs: HTMLButtonElement;
+  /** Compact mode's one settings button, and its menu (speed, captions, size, full screen). */
+  more: HTMLButtonElement;
+  moreMenu: HTMLElement;
   /** A polite live region: setting changes are announced, cue text never is. */
   say: HTMLElement;
 }
@@ -605,6 +649,8 @@ function mountChromeV2(doc: Document): ChromeV2 {
   const item = (cls: string, value: string, label: string) =>
     `<button class="${cls}" type="button" role="menuitemradio" data-value="${value}" ` +
     `aria-checked="false">${label}</button>`;
+  const rates = RATES.map((r) => item("ds-rate", String(r), rateLabel(r))).join("");
+  const sizes = CAPTION_SIZES.map((z) => item("ds-sz", z, z.toUpperCase())).join("");
   const chrome = doc.createElement("div");
   chrome.className = "ds-chrome";
   chrome.innerHTML =
@@ -614,19 +660,25 @@ function mountChromeV2(doc: Document): ChromeV2 {
     '<button class="ds-play" type="button" aria-label="Play the deck" aria-keyshortcuts="Enter"></button>' +
     '<span class="ds-count"></span><span class="ds-gap"></span>' +
     '<button class="ds-video" type="button" hidden>Video</button>' +
-    '<span class="ds-wrap"><button class="ds-speed" type="button" aria-haspopup="menu" ' +
+    '<span class="ds-wrap ds-full"><button class="ds-speed" type="button" aria-haspopup="menu" ' +
     'aria-expanded="false" aria-label="Narration speed" aria-keyshortcuts="Shift+. Shift+,">1×</button>' +
-    `<span class="ds-menu" role="menu" aria-label="Narration speed" hidden>${RATES.map((r) =>
-      item("ds-rate", String(r), rateLabel(r)),
-    ).join("")}</span></span>` +
-    '<button class="ds-cc" type="button" aria-pressed="true" aria-label="Captions" ' +
+    `<span class="ds-menu" role="menu" aria-label="Narration speed" hidden>${rates}</span></span>` +
+    '<button class="ds-cc ds-full" type="button" aria-pressed="true" aria-label="Captions" ' +
     'aria-keyshortcuts="C">CC</button>' +
-    '<span class="ds-wrap"><button class="ds-size" type="button" aria-haspopup="menu" ' +
+    '<span class="ds-wrap ds-full ds-sizewrap"><button class="ds-size" type="button" aria-haspopup="menu" ' +
     'aria-expanded="false" aria-label="Caption size">Aa</button>' +
-    `<span class="ds-menu" role="menu" aria-label="Caption size" hidden>${CAPTION_SIZES.map((z) =>
-      item("ds-sz", z, z.toUpperCase()),
-    ).join("")}</span></span>` +
-    '<button class="ds-fs" type="button" aria-label="Full screen" aria-keyshortcuts="F"></button>' +
+    `<span class="ds-menu" role="menu" aria-label="Caption size" hidden>${sizes}</span></span>` +
+    '<button class="ds-fs ds-full" type="button" aria-label="Full screen" aria-keyshortcuts="F"></button>' +
+    // Compact: the same four settings behind one button, for a window too
+    // narrow to show them beside a caption.
+    '<span class="ds-wrap ds-morewrap"><button class="ds-more" type="button" aria-haspopup="menu" ' +
+    'aria-expanded="false" aria-label="Settings">⋯</button>' +
+    '<span class="ds-menu" role="menu" aria-label="Settings" hidden>' +
+    `<span class="ds-mlabel">Speed</span>${rates}` +
+    '<span class="ds-mlabel">Captions</span><button class="ds-cc2" type="button" role="menuitemcheckbox" ' +
+    'aria-checked="true">CC</button>' +
+    `${sizes}<button class="ds-fs2" type="button" role="menuitem">Full screen</button>` +
+    "</span></span>" +
     "</div>" +
     '<div class="ds-notes" hidden></div><div class="ds-say" aria-live="polite"></div>';
   doc.body.append(chrome);
@@ -649,6 +701,8 @@ function mountChromeV2(doc: Document): ChromeV2 {
     size: q<HTMLButtonElement>(".ds-size"),
     sizeMenu: menus[1] as HTMLElement,
     fs: q<HTMLButtonElement>(".ds-fs"),
+    more: q<HTMLButtonElement>(".ds-more"),
+    moreMenu: menus[2] as HTMLElement,
     say: q(".ds-say"),
   };
 }
@@ -738,6 +792,20 @@ export interface Voice {
    * its `currentTime` — the clock v2's hold motion seeks by (src/deck/motion.ts).
    */
   onProgress: (fn: (seconds: number) => void) => void;
+  /**
+   * Pause the sentence where it is: the element stops, its clock stops, and the
+   * hold motion that seeks by that clock stops with it. v2's Enter. Unlike
+   * `hush`, the source is kept, so `resume` can carry on from the same word.
+   */
+  pause: () => void;
+  /**
+   * Carry on with the paused sentence from where it stopped. False when there
+   * is nothing to carry on — no segment here, it already finished, or a step
+   * has since dropped it — and the caller should speak the stop afresh.
+   */
+  resume: () => boolean;
+  /** Re-cut the current stop's captions after the strip changed width. */
+  refit: () => void;
 }
 
 const SILENT: Voice = {
@@ -751,6 +819,9 @@ const SILENT: Voice = {
   onSettled: () => {},
   unlock: () => {},
   onProgress: () => {},
+  pause: () => {},
+  resume: () => false,
+  refit: () => {},
 };
 
 /**
@@ -828,14 +899,29 @@ export function mountVoice(
      * nag on top of the slide.
      */
     flagSubtitles?: boolean;
+    /**
+     * The v2 player. Only it has a speed, a hold motion and captions cut to the
+     * strip's width, so only it touches `playbackRate`, reports progress, or
+     * re-cuts cues. A classic deck's voice is v0.8.0's, call for call.
+     */
+    v2?: boolean;
+    /**
+     * How a v2 deck cuts a segment's cues for the strip it has NOW. Asked on
+     * every arrival and by `refit`, because the strip's width changes with the
+     * window and with the controls beside it.
+     */
+    cut?: (cues: readonly Cue[]) => Cue[];
   } = {},
 ): Voice {
   const audio = doc.createElement("audio");
   audio.preload = "auto";
   doc.body.append(audio);
+  const v2 = opts.v2 === true;
+  const cut = opts.cut ?? ((c: readonly Cue[]) => c as Cue[]);
 
   let rate = 1;
   const applyRate = () => {
+    if (!v2) return;
     audio.defaultPlaybackRate = rate;
     audio.playbackRate = rate;
     // Speed, not pitch: a voice at 1.5x should sound like the same person
@@ -843,6 +929,8 @@ export function mountVoice(
     (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
   };
   applyRate();
+  /** Set while a v2 viewer has paused a sentence that is still loaded; see `pause`. */
+  let held = false;
 
   let muted = false;
   let subtitles = true;
@@ -907,7 +995,7 @@ export function mountVoice(
   let progress: (seconds: number) => void = () => {};
   const follow = () => {
     paint();
-    progress(audio.currentTime);
+    if (v2) progress(audio.currentTime);
     const done = audio.ended || (audio.paused && audio.currentTime > 0);
     raf = done ? 0 : requestAnimationFrame(follow);
   };
@@ -915,6 +1003,7 @@ export function mountVoice(
   const silence = () => {
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
+    held = false;
     audio.pause();
     // Not just `pause()`: a `play()` promise still in flight would otherwise
     // resolve after we have left and start the previous stop's sentence over
@@ -957,7 +1046,7 @@ export function mountVoice(
     const segment = segmentFor(narration, stop.sceneId, stop.fragment);
     if (!segment) return false;
 
-    cues = segment.cues;
+    cues = cut(segment.cues);
     // Muting keeps the audio playing, silently. It is not the same as not
     // playing: the element's clock is what subtitles read, so a viewer who
     // wants captions without sound still gets them — and a muted element is
@@ -968,6 +1057,13 @@ export function mountVoice(
     // `playbackRate` to `defaultPlaybackRate`. Both are set, so either order
     // holds — this line is what makes it not depend on that.
     applyRate();
+    settle(mine);
+    if (raf === 0) raf = requestAnimationFrame(follow);
+    return true;
+  };
+
+  /** Start the element and report, for arrival `mine`, whether it will be heard. */
+  function settle(mine: number): void {
     void Promise.resolve(audio.play()).then(
       () => {
         if (mine !== epoch) return;
@@ -996,9 +1092,7 @@ export function mountVoice(
         settled(false);
       },
     );
-    if (raf === 0) raf = requestAnimationFrame(follow);
-    return true;
-  };
+  }
 
   return {
     at: speak,
@@ -1014,6 +1108,29 @@ export function mountVoice(
     },
     onProgress: (fn) => {
       progress = fn;
+    },
+    pause: () => {
+      if (!here || !audio.getAttribute("src") || audio.ended) return;
+      held = true;
+      audio.pause();
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    },
+    resume: () => {
+      if (!held || !here || !audio.getAttribute("src") || audio.ended) return false;
+      held = false;
+      applyRate();
+      settle(epoch);
+      if (raf === 0) raf = requestAnimationFrame(follow);
+      return true;
+    },
+    refit: () => {
+      if (!here || cues.length === 0) return;
+      const segment = segmentFor(narration, here.sceneId, here.fragment);
+      if (!segment) return;
+      cues = cut(segment.cues);
+      showing = null;
+      paint();
     },
     toggleMute: () => {
       muted = !muted;
@@ -1242,11 +1359,23 @@ async function start(doc: Document): Promise<void> {
   const v2 = wantsV2(doc);
   const ui = v2 ? mountChromeV2(doc) : mountChrome(doc);
   // Absent island = the silent deck we shipped before narration existed.
+  // v2 keeps each cue whole here and cuts it per arrival, to the strip's width
+  // at that moment (`cueBudget`, set by `layout`): the strip is narrower beside
+  // the controls than under the slide, and both change with the window.
+  let cueBudget: number = SCREEN_CUE_EM;
   const narration = parseNarration(
     doc.querySelector(NARRATION_ISLAND)?.textContent,
-    v2 ? { split: (cue) => splitForScreen(cue) } : {},
+    v2 ? { split: (cue) => [cue] } : {},
   );
-  const voice = narration ? mountVoice(doc, narration, ui, { flagSubtitles: !v2 }) : SILENT;
+  const voice = narration
+    ? mountVoice(doc, narration, ui, {
+        flagSubtitles: !v2,
+        v2,
+        ...(v2
+          ? { cut: (cues: readonly Cue[]) => cues.flatMap((c) => splitForScreen(c, cueBudget)) }
+          : {}),
+      })
+    : SILENT;
   /**
    * The viewer's preferences. Only a v2 page reads or changes them, so on every
    * other page `rate()` is 1 and the deck plays exactly as it did.
@@ -1372,16 +1501,24 @@ async function start(doc: Document): Promise<void> {
    */
   /** The last answer `settleDwell` was given, so a speed change can re-arm the same wait. */
   let heardNow = false;
+  /** Whether a stop has narration at all — a stop with none is silent by design, not by failure. */
+  const hasSegment = (stop: Stop) => !!segmentFor(narration, stop.sceneId, stop.fragment);
+  /** Wall-clock ms of the reveal `go` just started, so a silent stop's wait starts after it. */
+  let revealing = 0;
   const settleDwell = (heard: boolean) => {
     clearDwell();
     heardNow = heard;
     const stop = stops[at] as Stop;
     const next = stops[at + 1];
+    // Only a v2 deck tells a stop with nothing to say from one whose sound failed.
+    const silent = v2 && !hasSegment(stop);
     const ms = dwellMs({
       playing,
       heard,
       gapMs: next ? (next.t - stop.t) * 1000 : 0,
       rate: rate(),
+      silent,
+      revealMs: revealing,
     });
     if (ms !== null) dwell = setTimeout(advance, ms);
   };
@@ -1390,6 +1527,20 @@ async function start(doc: Document): Promise<void> {
     clearDwell();
     ui.play.dataset.on = on ? "1" : "0";
     ui.play.setAttribute("aria-label", on ? "Pause the deck" : "Play the deck");
+    if (v2) {
+      // v2's Enter is PLAY/PAUSE, the briefing player's and every video
+      // player's: pause stops the voice where it is, and play carries on from
+      // that word. It used to toggle only the auto-advance, so the sentence
+      // went on talking under a "paused" button, and play restarted it from 0.
+      if (!on) {
+        voice.pause();
+        return;
+      }
+      if (voice.resume()) {
+        settleDwell(true);
+        return;
+      }
+    }
     if (on) {
       // Re-speak the stop we are on, so pressing play says the current sentence
       // rather than sitting silent until the next one.
@@ -1483,6 +1634,7 @@ async function start(doc: Document): Promise<void> {
         ? { animate: true, durationMs: ((stop.t - lead) * 1000) / rate() }
         : planTransition(shown, stop.t, { reducedMotion, rate: rate() });
     // No frame means nothing to paint, so there is nothing to animate either.
+    revealing = plan.animate && !instant && frame ? plan.durationMs : 0;
     if (plan.animate && !instant && frame) glide(frame, stop.t, plan.durationMs);
     else cutTo(stop.t);
 
@@ -1498,7 +1650,12 @@ async function start(doc: Document): Promise<void> {
     let speaking = false;
     if (at !== spoken) {
       spoken = at;
-      speaking = voice.at(stop);
+      // v2, paused: the slide moves and the voice stays quiet — paused means
+      // paused. The stop is spoken from its first word when play is pressed.
+      if (v2 && !playing) {
+        voice.hush();
+        spoken = -1;
+      } else speaking = voice.at(stop);
     }
     // Unguarded, unlike the voice: this tears an open player down, and a frame
     // that survives into the next slide keeps playing under it.
@@ -1578,20 +1735,54 @@ async function start(doc: Document): Promise<void> {
   const aspect =
     (Number(player.getAttribute("width")) || 16) / (Number(player.getAttribute("height")) || 9);
 
-  /** Put the slide and its caption strip where `stageGeometry` says. */
+  /** The composition's text-free foot, as a share of its height — where a `pad` bar may sit. */
+  const safeBottom = safeBottomFor(
+    Number(player.getAttribute("width")) || 0,
+    Number(player.getAttribute("height")) || 0,
+  );
+  /** Which of `Dock`'s three places the bar is in now. Only `pad` auto-hides. */
+  let dock = "band";
+
+  /** Put the slide, its caption strip and the control bar where `stageGeometry` says. */
   const layout = () => {
     if (!v2) return;
-    const g = stageGeometry(innerWidth, innerHeight, aspect, {
-      on: prefs.cc && narrated,
-      size: prefs.ccsize,
-    });
-    const st = doc.documentElement.style;
-    st.setProperty("--ds-sx", `${g.slideX}px`);
-    st.setProperty("--ds-sy", `${g.slideY}px`);
-    st.setProperty("--ds-sw", `${g.slideW}px`);
-    st.setProperty("--ds-sh", `${g.slideH}px`);
-    st.setProperty("--ds-cap-font", `${g.capFont}px`);
-    st.setProperty("--ds-cap-h", `${g.capH}px`);
+    const g = stageGeometry(
+      innerWidth,
+      innerHeight,
+      aspect,
+      { on: prefs.cc && narrated, size: prefs.ccsize },
+      { safeBottom },
+    );
+    const root = doc.documentElement;
+    const st = root.style;
+    const px = (name: string, v: number) => st.setProperty(name, `${v}px`);
+    px("--ds-sx", g.slideX);
+    px("--ds-sy", g.slideY);
+    px("--ds-sw", g.slideW);
+    px("--ds-sh", g.slideH);
+    px("--ds-bx", g.bar.x);
+    px("--ds-by", g.bar.y);
+    px("--ds-bw", g.bar.w);
+    px("--ds-bh", g.bar.h);
+    px("--ds-bi", g.barInset);
+    px("--ds-btn", g.btn);
+    px("--ds-tx", g.strip.x);
+    px("--ds-ty", g.strip.y);
+    px("--ds-tw", g.strip.w);
+    px("--ds-th", g.strip.h);
+    px("--ds-tp", g.stripPad);
+    px("--ds-cap-font", g.capFont);
+    root.dataset.dock = g.dock;
+    root.classList.toggle("ds-compact", g.compact);
+    dock = g.dock;
+    // The caption budget follows the strip. Re-cut what is on screen when it moves.
+    const budget = Math.round(g.cueEm * 10) / 10;
+    root.dataset.dsCueEm = String(budget);
+    if (budget !== cueBudget) {
+      cueBudget = budget;
+      voice.refit();
+    }
+    if (v2ui && dock !== "pad") v2ui.controls.dataset.shown = "1";
   };
 
   // STORAGE CAN THROW, not merely be empty: a sandboxed frame without
@@ -1627,15 +1818,22 @@ async function start(doc: Document): Promise<void> {
   const paintControls = () => {
     if (!v2ui) return;
     v2ui.speed.textContent = rateLabel(prefs.speed);
-    for (const b of v2ui.speedMenu.querySelectorAll("button")) {
+    // Every copy: the full bar's menus and the compact settings menu alike.
+    for (const b of ui.chrome.querySelectorAll<HTMLElement>(".ds-rate")) {
       b.setAttribute("aria-checked", String(Number(b.dataset.value) === prefs.speed));
     }
     v2ui.cc.setAttribute("aria-pressed", String(prefs.cc));
     v2ui.cc.hidden = !narrated;
     v2ui.size.hidden = !narrated;
-    for (const b of v2ui.sizeMenu.querySelectorAll("button")) {
+    for (const b of ui.chrome.querySelectorAll<HTMLElement>(
+      ".ds-sz, .ds-cc2, .ds-mlabel:nth-of-type(2)",
+    )) {
+      b.hidden = !narrated;
+    }
+    for (const b of ui.chrome.querySelectorAll<HTMLElement>(".ds-sz")) {
       b.setAttribute("aria-checked", String(b.dataset.value === prefs.ccsize));
     }
+    ui.chrome.querySelector(".ds-cc2")?.setAttribute("aria-checked", String(prefs.cc));
   };
 
   /**
@@ -1679,7 +1877,8 @@ async function start(doc: Document): Promise<void> {
   /** The bar hides 2.5s after the last sign of a viewer, unless they are using it. */
   const HIDE_MS = 2500;
   let idle: ReturnType<typeof setTimeout> | 0 = 0;
-  const menuOpen = () => !!v2ui && (!v2ui.speedMenu.hidden || !v2ui.sizeMenu.hidden);
+  const menuOpen = () =>
+    !!v2ui && (!v2ui.speedMenu.hidden || !v2ui.sizeMenu.hidden || !v2ui.moreMenu.hidden);
   const held = () =>
     !!v2ui &&
     (menuOpen() || v2ui.controls.matches(":hover") || v2ui.controls.contains(doc.activeElement));
@@ -1688,6 +1887,9 @@ async function start(doc: Document): Promise<void> {
     idle = setTimeout(() => {
       idle = 0;
       if (!v2ui) return;
+      // Only a bar over the slide hides, and only while the deck plays: paused,
+      // the play button is the next thing a viewer needs.
+      if (dock !== "pad" || !playing) return;
       if (held()) hideLater();
       else v2ui.controls.dataset.shown = "0";
     }, HIDE_MS);
@@ -1702,6 +1904,7 @@ async function start(doc: Document): Promise<void> {
     for (const [b, m] of [
       [v2ui.speed, v2ui.speedMenu],
       [v2ui.size, v2ui.sizeMenu],
+      [v2ui.more, v2ui.moreMenu],
     ] as const) {
       m.hidden = true;
       b.setAttribute("aria-expanded", "false");
@@ -1753,6 +1956,18 @@ async function start(doc: Document): Promise<void> {
     });
     click(v2ui.cc, () => apply({ cc: !prefs.cc }, "user"));
     click(v2ui.fs, fullscreen);
+    click(v2ui.more, (e) => toggleMenu(v2ui.more, v2ui.moreMenu, e.detail === 0));
+    click(v2ui.moreMenu, (e) => {
+      const b = (e.target as Element | null)?.closest?.<HTMLElement>("button");
+      if (!b) return;
+      if (b.classList.contains("ds-rate")) apply({ speed: Number(b.dataset.value) }, "user");
+      else if (b.classList.contains("ds-sz"))
+        apply({ ccsize: b.dataset.value as CaptionSize }, "user");
+      else if (b.classList.contains("ds-cc2")) apply({ cc: !prefs.cc }, "user");
+      else if (b.classList.contains("ds-fs2")) fullscreen();
+      else return;
+      closeMenus();
+    });
     v2ui.controls.addEventListener("focusin", reveal);
     doc.addEventListener("pointermove", reveal, { passive: true });
     doc.addEventListener("pointerdown", reveal, { passive: true });
