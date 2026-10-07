@@ -821,6 +821,7 @@ invalidates a storyboard you have already edited.
 | `design` | `classic` | narrate, emit | `classic` is the v0.8.0 look byte for byte · `v2` is the redesign: the v2 player (see "The v2 player") and a style pack per deck when no theme is named |
 | `packSeed` | the source id | narrate, emit | what `design: v2` hashes to pick a pack; pass a paper id so its languages share one |
 | `animationSpeed` | `1` | emit | multiplies every duration, hold and beat length. Below 1 is faster |
+| `design` | `classic` | emit | `classic` (the 0.8 look, byte-identical) · `v2` (the redesign — see [v2 motion](#v2-motion)) |
 | `narration.voice` | picked for `lang`+`tone` | narrate | an explicit edge-tts voice id |
 | `narration.rate` | `+0%` | narrate | edge-tts prosody |
 | `narration.pitch` | `+0Hz` | narrate | edge-tts prosody |
@@ -876,7 +877,8 @@ narration beside it.
 
 A preference sitting at its default says nothing, so a stored artifact wins over it and
 loses to anything you type. `plan` stamps `lang` and `theme` into the storyboard it
-writes; `build` then uses the storyboard's unless `--theme` or a config file restates one.
+writes (and `design`, only when one was asked for); `build` then uses the storyboard's
+unless `--theme`/`--design` or a config file restates one.
 Language is never overridden at build time — it describes copy that is already written.
 
 `--design v2` (or `"design": "v2"` in the config file) lets the build vary each beat's
@@ -886,6 +888,31 @@ top, in a left rail or under the body. The choice is made by code, deterministic
 paper — never by the planner — and it never moves a stop, so narration stays aligned.
 `build` writes the choices to `out/look.json`. Without the flag the deck is the classic one,
 byte for byte. See `.planning/2026-10-07-v2-layout-director.md`.
+
+## v2 motion
+
+`--design v2` replaces the 0.8 deck's single motion — every scene fading up the same
+eyebrow and headline, every seam the same 0.4s dissolve, nothing moving once a slide has
+built — with a grammar planned per deck (`src/emit/motion.ts`):
+
+- **Entrances.** Six verbs — `rise`, `slide`, `snap`, `focus`, `wipe`, `mask` — one per
+  scene, chosen from the source id and beat id, never the same twice in a row, with the
+  stock `rise` capped at a quarter of the deck.
+- **Seams.** `dissolve`, `push`, `lift`, `wipe`, `zoom`, picked from how two neighbouring
+  beats relate (same family → push, a role boundary → zoom, a title → lift, into the close
+  → dissolve), never repeated back to back, and at least three kinds in a deck of ten or
+  more beats. A beat `inside` the one before keeps the camera dive.
+- **Emphasis while the narrator talks.** The part a sentence is about pulses, glows or is
+  underlined, starting on a cue boundary of that sentence inside the quiet stretch after
+  its stop, and is back at rest before the next reveal — so every frame a gate captures
+  at a stop is unchanged.
+
+All of it is `fromTo` tweens with no callbacks, seeded rather than random, and keeps every
+hold, every scene window and `timing.json` exactly as `classic` writes them. In `deck.html`
+a v2 deck also glides through the seam into the next slide (0.8 cut to its first stop,
+already built) and, while a stop's audio plays, seeks the scene through that stop's quiet
+stretch on the audio clock so the emphasis lands on the same word as in the video. Both
+are off under `prefers-reduced-motion`.
 
 ## Themes
 

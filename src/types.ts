@@ -723,9 +723,17 @@ export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
 };
 
 /**
- * `classic` is v0.8.0's output, byte for byte, and the default. `v2` opts into
- * the redesign: today the v2 player in deck.html (speed, CC, caption size,
- * auto-hiding controls, remembered preferences — see src/deck/playback.ts).
+ * Which generation of the look a deck is built in.
+ *
+ * `classic` is every deck built before 0.9 and stays byte-identical: it is what
+ * an unset design means, so an npm user and every ink golden see no change. `v2`
+ * opts into the redesign: the v2 player in deck.html (speed, CC, caption size,
+ * remembered preferences — src/deck/playback.ts), the fit engine
+ * (src/emit/fit.ts), a style pack per deck (src/emit/themes/pick.ts), varied
+ * layouts (src/plan/direct.ts) and the motion grammar (src/emit/motion.ts). One
+ * switch rather than one flag per feature, so a deck is always one coherent
+ * design and `--design classic` is a complete rollback.
+ *
  * OPTIONAL rather than defaulted in both schemas, so a storyboard, a config or
  * a pack that never mentions it serialises exactly as it did.
  */
@@ -738,7 +746,12 @@ export const storyboardSchema = z
     title: z.string(),
     lang: z.string().default("en"),
     theme: z.string().default("ink"),
-    /** The look generation this deck was planned for. Absent is `classic`, the v0.8.0 output. */
+    /**
+     * The design this storyboard asks to be built in. OPTIONAL with no default,
+     * so a stored storyboard parses to exactly the object it did before this
+     * field existed and nothing hashed from it moves. `--design` on `build`
+     * overrides it; absent everywhere means `classic`.
+     */
     design: designSchema.optional(),
     beats: z.array(beatSchema).min(1),
   })

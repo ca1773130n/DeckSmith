@@ -48,7 +48,7 @@ import {
   pendingIllustrations,
 } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
-import { loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
+import { designFor, loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
 import { captureFrames } from "./render/capture.js";
 import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
@@ -256,6 +256,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "design",
     "packSeed",
     "speed",
+    "design",
     "voice",
     "rate",
     "pitch",
@@ -467,6 +468,9 @@ imageFlags(
     ...planned,
     lang: prefs.lang,
     theme: stated(prefs, "theme") ?? planned.theme,
+    // Recorded only when someone asked, so a storyboard planned without the flag
+    // is byte-for-byte what it was before `design` existed.
+    ...(stated(prefs, "design") ? { design: prefs.design } : {}),
   };
   // A brief with no picture yet is what `--images` asked for; without the flag
   // it is a hole `build` would refuse, and better refused here.
@@ -623,7 +627,7 @@ voiceFlags(
   const theme = chooseLook({
     stated: stated(prefs, "theme"),
     storyboard,
-    design: prefs.design ?? storyboard.design ?? "classic",
+    design: designFor(prefs, storyboard.design),
     seed: prefs.packSeed,
   });
   const narration = await narrate({ ...storyboard, theme }, source, prefs, { dir, format });
@@ -709,8 +713,8 @@ lookFlags(
     // the copy that is already written, not a wish. Under `--design v2` a pack
     // is picked instead when nobody named one — resolved below, once the
     // narration and the pace it must be staged at are in hand.
-    // The design: a flag or config over the storyboard over classic.
-    const design = prefs.design ?? storyboard.design ?? "classic";
+    // The design: a flag or config, else the storyboard's, else classic.
+    const design = designFor(prefs, storyboard.design);
 
     const out = resolve(o.out);
     await mkdir(out, { recursive: true });
@@ -1065,6 +1069,11 @@ voiceFlags(
     ...chosen,
     lang: stated(chosen, "lang") ?? storyboard.lang,
     theme: stated(chosen, "theme") ?? storyboard.theme,
+    // Only when someone said: an unset design is classic, and a key that was
+    // never there must not appear in the manifest of a deck that asked for nothing.
+    ...((chosen.design ?? storyboard.design)
+      ? { design: designFor(chosen, storyboard.design) }
+      : {}),
   };
 
   const found = await findNarration(sbPath, o.narration);

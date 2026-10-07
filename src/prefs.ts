@@ -16,7 +16,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { z } from "zod";
 import { slidesFor } from "./plan/duration.js";
-import { prefsSchema, type Source } from "./types.js";
+import { type Design, prefsSchema, type Source } from "./types.js";
 
 export type Prefs = z.infer<typeof prefsSchema>;
 
@@ -128,6 +128,19 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (Object.keys(images).length) patch.images = images;
 
   return patch;
+}
+
+/**
+ * The design a build uses: a `--design` flag or a config file, else what the
+ * storyboard was planned under, else `classic`.
+ *
+ * NOT `stated()`, which treats a value at its default as unsaid. `design` has
+ * no default — it is optional in the schema — so an explicit `classic` is
+ * distinguishable from silence, and it IS the rollback: it has to win over a
+ * storyboard planned under v2.
+ */
+export function designFor(prefs: Pick<Prefs, "design">, recorded?: Design): Design {
+  return prefs.design ?? recorded ?? "classic";
 }
 
 /** The flag surface the CLI exposes. Every one optional: absent means unstated. */
