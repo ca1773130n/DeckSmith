@@ -47,9 +47,12 @@ Six packs: `signal`, `blueprint`, `atlas` (dark) and `folio`, `chalk`, `journal`
   should read the same `prefs.design` rather than add a second flag.
 - **`chooseLook` / `rankPacks` (src/emit/themes/pick.ts).** Picking is deterministic:
   rendezvous hashing over `fnv1a(seed + pack)`, weighted 1 + affinity × archetype-family mix.
-  `build` passes `accepts`, which rejects a pack whose staging changes the stop count recorded
-  in the narration on disk (through `planCut`'s `assertNarrationStaging`), so a narrated rebuild
-  never breaks. `narrate --design v2` stages in the same pick.
+  `build` passes `accepts = costsNothing(...)`. It rejects a pack whose staging changes the stop
+  count recorded in the narration on disk (through `planCut`'s `assertNarrationStaging`). It also
+  rejects a pack that refuses a beat the storyboard's own theme draws: a real en deck in an
+  earlier `folio` lost a six-bar chart. Both checks run through `planCut`, so a narrated rebuild
+  never breaks and never loses a slide to a look. Every spec's one-line chrome is also capped at
+  classic's 146px, so refusals stay rare. `narrate --design v2` stages in the same pick.
 - **Fonts.** `refreshFont(..., theme?)` vendors the pack's faces from `@fontsource-variable/*`
   for every deck that wears the pack, CJK included, because hyperframes lint refuses a named
   family with no `@font-face`. Pack faces are declared with Inter's vertical metrics

@@ -33,7 +33,13 @@ import {
   wrap,
 } from "../src/emit/svg.js";
 import { baseCss, type DeckTheme, deckLook, ink, PACKS } from "../src/emit/theme.js";
-import { chooseLook, fnv1a, packWeights, rankPacks } from "../src/emit/themes/pick.js";
+import {
+  chooseLook,
+  costsNothing,
+  fnv1a,
+  packWeights,
+  rankPacks,
+} from "../src/emit/themes/pick.js";
 import {
   CLASSIC_TYPE,
   em,
@@ -44,7 +50,7 @@ import {
   typeForStack,
 } from "../src/emit/type.js";
 import { loadPrefs, prefsFromFlags } from "../src/prefs.js";
-import { storyboardSchema } from "../src/types.js";
+import { FORMATS, type Format, storyboardSchema } from "../src/types.js";
 import narratedStoryboard from "./fixtures/narrated-storyboard.json" with { type: "json" };
 
 /** A pack face whose Latin glyphs are `glyphs`, whatever spec carries it. */
@@ -189,6 +195,14 @@ describe("type specs", () => {
     expect(t.title.lo).toBeGreaterThanOrEqual(t.headline.size);
   });
 
+  it.each(Object.keys(TYPES))("%s's one-line chrome costs no more than classic's", (key) => {
+    const h = (t: typeof CLASSIC_TYPE) =>
+      lineBox(t.eyebrow.size, t.eyebrow.lh) +
+      t.eyebrow.gap +
+      lineBox(t.headline.size, t.headline.lh);
+    expect(h(TYPES[key] as typeof CLASSIC_TYPE)).toBeLessThanOrEqual(h(CLASSIC_TYPE));
+  });
+
   // `fitText` sizes the title untracked, so only a tightening is free.
   it.each(Object.keys(TYPES))("%s never tracks the title open", (key) => {
     expect(TYPES[key]?.title.tracking).toBeLessThanOrEqual(0);
@@ -225,7 +239,7 @@ describe("the chrome a pack draws, and what it is charged", () => {
   });
 
   it("charges a pack's chrome at the pack's scale", () => {
-    const t = TYPES["grotesk-inter"];
+    const t = TYPES.plex;
     if (!t) throw new Error("spec");
     const face: Face = faceOf(t.stack);
     // One line each, so the sum is exactly the pack's two line boxes and gap.
@@ -559,5 +573,66 @@ describe("the design preference", () => {
     expect(prefs.design).toBe("v2");
     expect(prefs.packSeed).toBe("paper-1");
     await expect(loadPrefs(prefsFromFlags({ design: "v3" }), cwd)).rejects.toThrow(/design/);
+  });
+});
+
+describe("a pack may cost a deck nothing", () => {
+  // From a real HypePaper deck (Gen-Searcher, en, 2026-10-06), plus one bar.
+  // The six-bar original is what `folio` first dropped ("need 660px of the
+  // 653px"); folio's chrome has since been capped at classic's height, and at
+  // seven bars the serif-bodied packs still refuse it where ink draws it.
+  const tight = {
+    id: "b10",
+    intent: "Gen-Searcher improves overall KnowGen K-Score for three downstream image generators.",
+    seconds: 15,
+    archetype: "bar-compare",
+    params: {
+      eyebrow: "KnowGen",
+      headline: "Gen-Searcher improves all three paired generators on KnowGen",
+      unit: "Overall K-Score",
+      bars: [
+        { label: "Qwen-Image", value: 14.98, tone: "a" },
+        { label: "Qwen-Image + Gen-Searcher", value: 31.52, tone: "b" },
+        { label: "Seedream 4.5", value: 31.01, tone: "a" },
+        { label: "Seedream 4.5 + Gen-Searcher", value: 47.29, tone: "b" },
+        { label: "Nano Banana Pro", value: 50.38, tone: "a" },
+        { label: "Nano Banana Pro + Gen-Searcher", value: 53.3, tone: "b" },
+        { label: "FLUX.1 dev", value: 40.2, tone: "a" },
+      ],
+    },
+  };
+  const board = storyboardSchema.parse({
+    sourceId: "gen-searcher",
+    title: "t",
+    beats: [
+      { id: "b1", intent: "i", archetype: "title", seconds: 4, params: { headline: "Hi" } },
+      tight,
+    ],
+  });
+  const source = {
+    id: "x",
+    title: "t",
+    lang: "en",
+    sections: [],
+    figures: [],
+    equations: [],
+    tables: [],
+  };
+  const format = FORMATS["deck-16x9"] as Format;
+
+  it("refuses a pack that would leave out a beat the storyboard's own theme draws", () => {
+    const accepts = costsNothing(board, source, format, { speed: 1 });
+    expect(accepts("folio")).toBe(false);
+    expect(accepts("journal")).toBe(false);
+    expect(accepts("signal")).toBe(true);
+  });
+
+  it("so --design v2 never picks one, whatever the hash says", () => {
+    const accepts = costsNothing(board, source, format, { speed: 1 });
+    for (const seed of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+      expect(["folio", "journal"]).not.toContain(
+        chooseLook({ storyboard: board, design: "v2", seed, accepts }),
+      );
+    }
   });
 });

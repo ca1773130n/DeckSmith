@@ -117,6 +117,12 @@ function spec(
  * - `grotesk-plex`: Space Grotesk headline over a Plex body.
  * - `plex-serif`: a Plex headline over a serif body, the inverse of `serif-inter`.
  *
+ * HEIGHT. A one-line eyebrow plus a one-line headline costs at most classic's
+ * 146px in every spec, so a pack's bigger type comes out of its leading and
+ * gaps rather than out of the body's room. Measured why: `serif` at 44/70 cost
+ * a real deck a six-bar chart (`costsNothing` in themes/pick.ts now refuses
+ * such a pack, but a pack that rarely needs refusing is the better pack).
+ *
  * FLOORS. Every eyebrow is at least 40px (invariant 5). Title tracking is never
  * positive: `fitText` measures untracked, so only a tightening is free.
  */
@@ -131,7 +137,7 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 24,
       color: "accent",
     },
-    headline: { size: 70, weight: 700, tracking: -0.03, lh: 1.08 },
+    headline: { size: 70, weight: 700, tracking: -0.03, lh: 1.06 },
     title: { lo: 96, hi: 168, weight: 700, tracking: -0.04 },
   }),
   plex: spec("plex", "ibm-plex-sans", "ibm-plex-sans", {
@@ -162,7 +168,7 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
   }),
   serif: spec("serif", "source-serif-4", "source-serif-4", {
     eyebrow: {
-      size: 44,
+      size: 42,
       weight: 600,
       tracking: 0.01,
       upper: false,
@@ -170,7 +176,7 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 18,
       color: "accent",
     },
-    headline: { size: 70, weight: 700, tracking: -0.012, lh: 1.1 },
+    headline: { size: 68, weight: 700, tracking: -0.012, lh: 1.08 },
     title: { lo: 96, hi: 164, weight: 700, tracking: -0.02 },
   }),
   "grotesk-plex": spec("grotesk-plex", "ibm-plex-sans", "space-grotesk", {

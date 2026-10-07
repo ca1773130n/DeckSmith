@@ -21,7 +21,14 @@
  * caller that must refuse one (narration staged against another look) moves
  * along it without re-rolling anything.
  */
-import { ARCHETYPE_FAMILY, type ArchetypeFamily, type Storyboard } from "../../types.js";
+import {
+  ARCHETYPE_FAMILY,
+  type ArchetypeFamily,
+  type Format,
+  type Source,
+  type Storyboard,
+} from "../../types.js";
+import { type DeckNarration, planCut } from "../composition.js";
 import { PACKS } from "./packs.js";
 
 /** How much each family pulls a deck toward a pack. Mild by design; see above. */
@@ -114,4 +121,48 @@ export function chooseLook(c: LookChoice): string {
   if (c.design !== "v2" || c.storyboard.theme !== "ink") return c.storyboard.theme;
   const ranked = rankPacks(c.storyboard.beats, c.seed ?? c.storyboard.sourceId);
   return ranked.find((name) => c.accepts?.(name) ?? true) ?? c.storyboard.theme;
+}
+
+/**
+ * The `accepts` a build hands `chooseLook`: a pack may cost this deck nothing.
+ *
+ * Two ways it could, both found on real decks:
+ *
+ * - A beat staged with a different stop count than the narration on disk was
+ *   recorded at. `planCut` throws for that (`assertNarrationStaging`).
+ * - A beat the storyboard's own theme draws but the pack refuses. Measured: an
+ *   en deck in `folio` lost a six-bar bar-compare ("need 660px of the 653px")
+ *   because the pack's chrome is a few px taller. That is a whole slide gone for
+ *   a look, which is never a trade worth making silently, so the pack is
+ *   skipped for the next one in the ranking instead.
+ *
+ * Pure: it only runs `planCut`, the same pass the build makes, once per pack it
+ * is asked about plus once for the baseline.
+ */
+export function costsNothing(
+  storyboard: Storyboard,
+  source: Source,
+  format: Format,
+  opts: { speed: number; narration?: DeckNarration | undefined },
+): (name: string) => boolean {
+  const refused = (theme: string): Set<string> | null => {
+    const out = new Set<string>();
+    try {
+      planCut(storyboard, source, format, {
+        theme,
+        speed: opts.speed,
+        ...(opts.narration ? { narration: opts.narration } : {}),
+        onBeatError: (id) => out.add(id),
+      });
+      return out;
+    } catch {
+      return null;
+    }
+  };
+  let baseline: Set<string> | undefined;
+  return (name) => {
+    baseline ??= refused(storyboard.theme) ?? new Set();
+    const lost = refused(name);
+    return lost !== null && [...lost].every((id) => baseline?.has(id));
+  };
 }

@@ -883,8 +883,9 @@ storyboard's default `ink` counts as nobody): a weighted, deterministic hash of 
 source id (or `--pack-seed`), leaning mildly toward packs that suit the deck's mix of
 archetypes. Over the 176 HypePaper storyboards on disk the busiest pack carries 20.5% of
 decks. With narration on disk, a pack that would stage a beat with a different stop count
-than the narration was recorded at is skipped for the next one, and if none fits the
-storyboard's own theme is kept — so `--design v2` never breaks a narrated rebuild.
+than the narration was recorded at, or that would leave out a beat the storyboard's own
+theme draws, is skipped for the next one; if none fits, the storyboard's own theme is kept.
+So `--design v2` never breaks a narrated rebuild and never costs a slide.
 
 Each pack's faces ship beside a Latin deck, vendored from `@fontsource-variable/*` like
 Inter, and are measured by their own width tables (`src/emit/faces.ts`, written by
