@@ -924,6 +924,79 @@ already built) and, while a stop's audio plays, seeks the scene through that sto
 stretch on the audio clock so the emphasis lands on the same word as in the video. Both
 are off under `prefers-reduced-motion`.
 
+## v2 bespoke scenes (`--bespoke`)
+
+The archetypes finish building in about five seconds and then hold still while the voice
+keeps talking. `build --design v2 --bespoke` hands four to six beats per deck to Codex
+instead: for each, a GSAP + SVG scene written for that beat, keyed to its narration cues,
+that keeps explaining for as long as the sentence runs. Everything else stays v2. It is off
+unless asked for; v2 without it, and classic, emit the bytes they did.
+
+```bash
+decksmith build storyboard.json --source source.json -o deck --design v2 --bespoke
+# bespoke: b03-action-loop.draft in 354s …
+# bespoke: 5 of 5 beats drawn bespoke, 10 Codex call(s), 541737 tokens, 1144s
+```
+
+**Which beats.** A deterministic rule (`src/bespoke/select.ts`): mechanism archetypes
+(pipeline, equation-walk/-morph, line-chart, stack, grid, split-/bar-compare, and figures
+last), mechanism words in en/ko/ja/zh, a cited equation, and the beat's weight; ties
+broken by a hash. Never a title, callout or table, a beat with no narration, or a beat a
+camera dives through. `plan --bespoke` lets the planner mark beats `bespoke: true|false`;
+`false` is obeyed, `true` is a strong hint.
+
+**Per beat:** draft → static contract → probe deck (a real build with every `verify` gate
+plus the motion gates, photographed at every cue) → one critique-and-fix call with the
+contact sheet attached (`codex exec -i`) → static contract → probe again. A beat that does
+not pass keeps its archetype — the deck is never failed. If the fix round breaks a draft
+that passed, the draft is kept.
+
+**Caps**, checked before every call: `--bespoke-calls` (default 12; two per beat) and
+`--bespoke-seconds` (default 1800). A quota or rate-limit answer stops every further call.
+Codex runs only through the account's own CLI (`--bespoke-cli`, `--bespoke-model`), never
+an API key. A paced deck (`--speed`/`--duration` other than 1×) and non-16:9 formats are
+skipped, with a line saying so.
+
+**Cache.** Keyed by everything a scene is drawn from — the beat's words and params, the
+quoted excerpts, the cue windows, the stops, the box, the pack, the prompt and contract
+versions, the model — under `~/.cache/decksmith/bespoke` (`--bespoke-cache`). A rebuild
+costs no calls. A beat the gates rejected after its critique round is cached as rejected;
+a fallback the beat did not earn (cap, quota, timeout) is not.
+
+**What a generated scene may run.** Three layers. (1) A static walk before anything is
+built or opened (`src/bespoke/contract.ts`, acorn): GSAP timeline calls with literal vars
+at explicit seconds, `gsap.set`, scoped `root.querySelector`, `Math` minus `random`, local
+code; `window`, `document`, `fetch`, `eval`, timers, storage, navigation, callbacks and
+function-valued tween vars are refused by name; CSS must be scoped to the scene with no
+at-rules, `url()` or animation; markup is SVG and inline HTML with no handlers, SMIL or
+external references. (2) A CSP `<meta>` in every composition that carries one —
+`connect-src 'none'`, no `unsafe-eval`, local files only — and a probe that fails a scene
+on any page error, request or navigation. (3) The player's frame is sandboxed
+(`allow-scripts allow-same-origin allow-downloads`). The paper's text reaches the model
+fenced as untrusted data. The static walk is not a proof against obfuscation — a
+property name assembled from parts at run time gets past it — which is what (2) and (3)
+are for; and (3) isolates only when decks are served from another origin than the host.
+
+**The motion gates** (`src/verify/scenes.ts`) run on every scene `bespoke.json` lists, as
+errors: `static_hold` (the picture must change during every cue), `graphic_crosses_text`
+(a visible stroke through a label, or a shape painted over one), and `seek_order` (the
+frame must not depend on what was seeked before it, beyond 1500px of rasterising noise).
+`seek_order` also runs on every other scene of a v2 deck, as a warning; it is what found
+the equation-walk bug fixed alongside this (22,037px before, 0 after). Below the tolerance
+and not traced: v2's equation-walk on the narrated demo differs by 529px on one KaTeX
+glyph when reached from past the scene's end.
+
+`build` writes `bespoke.json` beside the deck: what was drawn and from where (cache,
+draft, critique), why each fallback, calls, tokens, seconds. Set
+`DECKSMITH_BESPOKE_WORK=<dir>` to keep the prompts, replies and contact sheets.
+
+**Costs** (measured on three HypePaper decks, see
+[`.planning/2026-10-08-v2-bespoke.md`](.planning/2026-10-08-v2-bespoke.md)): a draft took
+3-11 minutes and a critique 3-10, about 110k tokens a beat; a deck's pass took 13-31
+minutes for 10-12 calls and 540-705k tokens. A rebuild from the cache made 0 calls and
+wrote byte-identical files. None of that fits a 300-second build timeout: a host running
+this has to give `build` that long, or run it off the request path.
+
 ## Themes
 
 Three, each a position rather than a hue.
