@@ -662,6 +662,21 @@ nothing, so it can never dangle.
 }
 
 /**
+ * `--bespoke` only. The planner may mark the beats a generated scene would
+ * explain best; src/bespoke/select.ts weighs the mark, it does not obey it.
+ */
+const BESPOKE_HINT = `
+
+BESPOKE SCENES
+
+Set \`bespoke: true\` on the four to six beats that explain a MECHANISM — a
+process that runs, an equation whose terms act, a curve that moves, a
+comparison that is a distance — and that the narration talks over for a while.
+Those beats get a custom animation drawn for them; everything else keeps its
+archetype. Set \`bespoke: false\` on a beat whose archetype must stay (a real
+figure the viewer must see). Leave it null otherwise.`;
+
+/**
  * The rules, then the preferences the person asking for the deck chose. They go
  * last because they are the part the model is most likely to drift from, and the
  * end of a prompt is the part it holds hardest.
@@ -674,7 +689,7 @@ export function systemPrompt(prefs: Prefs): string {
   // what it can be is honest, which is why the LENGTH block below now says the
   // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
-  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images) : ""}
+  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images) : ""}${prefs.bespoke?.enabled ? BESPOKE_HINT : ""}
 
 PREFERENCES — chosen by the person who asked for this deck.
 ${

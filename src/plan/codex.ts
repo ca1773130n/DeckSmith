@@ -138,8 +138,13 @@ const PLANNER_INVISIBLE = new Set(["tilt"]);
  * back carrying one, so no post-hoc check is needed to reject what the model was
  * never offered, and the schema bytes are identical to what they were.
  */
-function plannerInvisible(prefs: Pick<Prefs, "genre">): ReadonlySet<string> {
-  return paperArcRequested(prefs) ? PLANNER_INVISIBLE : new Set([...PLANNER_INVISIBLE, "role"]);
+function plannerInvisible(prefs: Pick<Prefs, "genre" | "bespoke">): ReadonlySet<string> {
+  const hidden = new Set(PLANNER_INVISIBLE);
+  if (!paperArcRequested(prefs)) hidden.add("role");
+  // `bespoke` for the same reason as `role`: shown only to a plan asked for with
+  // `--bespoke`, so every other plan's schema bytes are what they were.
+  if (!prefs.bespoke?.enabled) hidden.add("bespoke");
+  return hidden;
 }
 
 /** Strip `hidden` keys, and the `required` entries naming them. */
@@ -206,6 +211,12 @@ export interface RunnerArgs {
    * `cwd` to fence the writes to.
    */
   sandbox?: "read-only" | "workspace-write";
+  /** Images attached to the prompt (`codex exec -i`). The bespoke critique round sends its frames. */
+  images?: string[];
+  /** The CLI to run. Absent: `codex` on PATH. */
+  bin?: string;
+  /** Told the run's token count when the CLI reports one. */
+  onUsage?: (tokens: number) => void;
 }
 
 /** What the planner needs from the outside world: a prompt in, a final message out. */
@@ -330,6 +341,7 @@ export function codexCommand(args: RunnerArgs): { argv: string[]; env?: NodeJS.P
     "--color",
     "never",
     ...(args.model ? ["--model", args.model] : []),
+    ...(args.images ?? []).flatMap((path) => ["-i", path]),
     "-",
   ];
   return sandbox === "workspace-write" && args.cwd !== undefined
@@ -342,11 +354,17 @@ export function runCodex(args: RunnerArgs): Promise<void> {
   const { argv, env } = codexCommand(args);
 
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", argv, {
-      stdio: ["pipe", "ignore", "pipe"],
+    const child = spawn(args.bin ?? "codex", argv, {
+      stdio: ["pipe", args.onUsage ? "pipe" : "ignore", "pipe"],
       ...(env === undefined ? {} : { env }),
     });
     let stderr = "";
+    // Only the tail matters (the usage line is last), and a pipe nobody reads
+    // fills and stalls the child, so it is drained into a bounded buffer.
+    let stdout = "";
+    child.stdout?.on("data", (c: Buffer) => {
+      stdout = (stdout + c.toString()).slice(-4000);
+    });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`Codex did not finish within ${Math.round(args.timeoutMs / 1000)}s.`));
@@ -360,19 +378,21 @@ export function runCodex(args: RunnerArgs): Promise<void> {
       reject(
         err.code === "ENOENT"
           ? new Error(
-              'The "codex" CLI is not on PATH. Install it, or sign in with `codex login`, then retry.',
+              `The "${args.bin ?? "codex"}" CLI is not on PATH. Install it, or sign in with \`codex login\`, then retry.`,
             )
           : err,
       );
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      const used = /tokens used\s*\n?\s*([\d,]+)/i.exec(`${stdout}\n${stderr}`);
+      if (used?.[1] && args.onUsage) args.onUsage(Number(used[1].replace(/,/g, "")));
       if (code === 0) return resolve();
       reject(
         new Error(`codex exec exited ${code}.\n${stderr.trim().split("\n").slice(-8).join("\n")}`),
       );
     });
 
-    child.stdin.end(args.prompt);
+    child.stdin?.end(args.prompt);
   });
 }
