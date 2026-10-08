@@ -43,6 +43,8 @@ export function attribute(f: Finding, windows: readonly SceneWindow[]): string |
     if (f.beatId && f.beatId === w.beatId) return w.sid;
     if (new RegExp(`#${w.sid}(?![0-9])`).test(f.message)) return w.sid;
   }
+  // A finding that names another scene is that scene's, whatever its time says.
+  if (/#s\d+(?![0-9])/.test(f.message)) return undefined;
   const at = /t=([0-9.]+)s/.exec(f.message);
   if (at) {
     const t = Number(at[1]);

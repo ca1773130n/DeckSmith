@@ -517,3 +517,21 @@ describe("the bespoke pass", () => {
     expect(calls[1]?.prompt).toContain("c1s = 1s");
   });
 });
+
+describe("pinning a verify finding to a probed scene", () => {
+  const windows = [{ sid: "s10", beatId: "b11", start: 140, duration: 20, cues: [] }];
+  it("by selector, by beat, and by time — but never another scene's", async () => {
+    const { attribute } = await import("../src/bespoke/probe.js");
+    const f = (message: string, beatId?: string) => ({
+      severity: "error" as const,
+      gate: "g",
+      rule: "r",
+      message,
+      ...(beatId ? { beatId } : {}),
+    });
+    expect(attribute(f("x [#s10-a t=150s]"), windows)).toBe("s10");
+    expect(attribute(f("x", "b11"), windows)).toBe("s10");
+    expect(attribute(f("x at t=150.2s"), windows)).toBe("s10");
+    expect(attribute(f("x [#s9-chart t=148.489s]"), windows)).toBeUndefined();
+  });
+});
