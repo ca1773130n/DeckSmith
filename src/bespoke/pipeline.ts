@@ -455,7 +455,11 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       );
     }
   };
-  const gateA = await gate(draftMap, "draft");
+  // With no fresh draft there is nothing for a critique round to look at, and
+  // the final round gates the cached scenes anyway: one probe build, not two.
+  const gateA = fresh.some((b) => b.draft)
+    ? await gate(draftMap, "draft")
+    : new Map<string, GateResult>();
   for (const b of work1) {
     const g = gateA.get(b.beat.id);
     if (!g) continue;

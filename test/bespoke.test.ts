@@ -363,8 +363,17 @@ describe("the bespoke pass", () => {
     expect(calls.some((c) => c.prompt.includes("UNTRUSTED DATA"))).toBe(true);
 
     const again = fake(() => SCENE);
-    const second = await bespokePass({ ...input({ run: again.run }), prefs: prefs() });
+    const rounds: string[] = [];
+    const counting: GateFn = async (m, round) => {
+      rounds.push(round);
+      return pass(m, round);
+    };
+    const second = await bespokePass({
+      ...input({ run: again.run, gate: counting }),
+      prefs: prefs(),
+    });
     expect(again.calls.length).toBe(0);
+    expect(rounds).toEqual(["final"]);
     expect(Object.keys(second.map)).toEqual(Object.keys(first.map));
     expect(second.report.scenes.every((s) => s.from === "cache")).toBe(true);
   });
