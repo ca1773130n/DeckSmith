@@ -26,9 +26,10 @@ export type Prefs = z.infer<typeof prefsSchema>;
  * wipe a `rate` the config file set, and `--image-style` must not wipe its
  * `provider`.
  */
-export type PrefsPatch = Partial<Omit<Prefs, "narration" | "images">> & {
+export type PrefsPatch = Partial<Omit<Prefs, "narration" | "images" | "bespoke">> & {
   narration?: Partial<Prefs["narration"]>;
   images?: Partial<Prefs["images"]>;
+  bespoke?: Partial<NonNullable<Prefs["bespoke"]>>;
 };
 
 export const CONFIG_FILE = "decksmith.config.json";
@@ -36,8 +37,9 @@ export const CONFIG_FILE = "decksmith.config.json";
 const PREF_KEYS = Object.keys(prefsSchema.shape);
 const NARRATION_KEYS = Object.keys(prefsSchema.shape.narration.unwrap().shape);
 const IMAGES_KEYS = Object.keys(prefsSchema.shape.images.unwrap().shape);
+const BESPOKE_KEYS = Object.keys(prefsSchema.shape.bespoke.unwrap().shape);
 /** The nested blocks, with the keys each one admits. `checkKeys` and `merge` walk this. */
-const NESTED = { narration: NARRATION_KEYS, images: IMAGES_KEYS } as const;
+const NESTED = { narration: NARRATION_KEYS, images: IMAGES_KEYS, bespoke: BESPOKE_KEYS } as const;
 
 /**
  * Resolve the preferences that govern one run.
@@ -127,6 +129,18 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (flags.imageMax !== undefined) images.max = number("--image-max", flags.imageMax);
   if (Object.keys(images).length) patch.images = images;
 
+  const bespoke: Partial<NonNullable<Prefs["bespoke"]>> = {};
+  if (flags.bespoke !== undefined) bespoke.enabled = flags.bespoke;
+  if (flags.bespokeCalls !== undefined)
+    bespoke.maxCalls = number("--bespoke-calls", flags.bespokeCalls);
+  if (flags.bespokeSeconds !== undefined)
+    bespoke.maxSeconds = number("--bespoke-seconds", flags.bespokeSeconds);
+  if (flags.bespokeModel !== undefined) bespoke.model = flags.bespokeModel;
+  if (flags.bespokeCli !== undefined) bespoke.cli = flags.bespokeCli;
+  if (flags.bespokeCache !== undefined) bespoke.cache = flags.bespokeCache;
+  // Absent unless something was said, for the reason the block has no default.
+  if (Object.keys(bespoke).length) patch.bespoke = bespoke;
+
   return patch;
 }
 
@@ -170,6 +184,13 @@ export interface PrefFlags {
   imageModel?: string;
   imageStyle?: string;
   imageMax?: string | number;
+  /** `--bespoke`: generated scenes for a few mechanism beats (v2 only). */
+  bespoke?: boolean;
+  bespokeCalls?: string | number;
+  bespokeSeconds?: string | number;
+  bespokeModel?: string;
+  bespokeCli?: string;
+  bespokeCache?: string;
 }
 
 /* ------------------------------------------------------------------ internals */
@@ -220,15 +241,17 @@ function checkKeys(value: unknown, path: string): PrefsPatch {
   return value as PrefsPatch;
 }
 
-/** Shallow, except for the two nested objects, which merge field by field. */
+/** Shallow, except for the nested objects, which merge field by field. */
 function merge(base: PrefsPatch, patch: PrefsPatch): PrefsPatch {
   const narration = { ...base.narration, ...patch.narration };
   const images = { ...base.images, ...patch.images };
+  const bespoke = { ...base.bespoke, ...patch.bespoke };
   return {
     ...base,
     ...patch,
     ...(Object.keys(narration).length ? { narration } : {}),
     ...(Object.keys(images).length ? { images } : {}),
+    ...(Object.keys(bespoke).length ? { bespoke } : {}),
   };
 }
 

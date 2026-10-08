@@ -5,6 +5,7 @@
  * beside it fails to compile, which is the only guarantee that keeps the union in
  * `types.ts` honest.
  */
+import { bespokeScene } from "../../bespoke/scene.js";
 import type { Archetype, Beat } from "../../types.js";
 import type { EmitContext, Emitter, Scene } from "../kit.js";
 import { annotatedFigure } from "./annotated-figure.js";
@@ -47,5 +48,9 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
  * every archetype has exactly one emitter of the right shape.
  */
 export function emitScene(beat: Beat, ctx: EmitContext): Scene {
+  // A bespoke scene replaces the archetype for this beat and only this beat.
+  // Here rather than in `layout` so that every caller staging the beat gets it.
+  const bespoke = ctx.bespoke?.[beat.id];
+  if (bespoke) return bespokeScene(beat, ctx, bespoke);
   return (emitters[beat.archetype] as Emitter<Archetype>)(beat, ctx);
 }
