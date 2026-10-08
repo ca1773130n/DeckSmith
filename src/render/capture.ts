@@ -195,6 +195,12 @@ export interface DeckPage {
 
 export interface OpenOptions {
   timeoutMs?: number;
+  /**
+   * Collect what the page did that a deck must not: script errors, console
+   * errors (a CSP refusal is one), and any request or navigation that is not
+   * a local file. Registered before the page loads, so load-time ones count.
+   */
+  watch?: string[];
 }
 
 /**
@@ -242,6 +248,21 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
     // defined when the bundle is injected instead of served. Same guard the
     // renderer installs.
     await page.evaluateOnNewDocument("self.__name = self.__name || ((fn) => fn);");
+    const watch = opts.watch;
+    if (watch) {
+      page.on("pageerror", (e) => watch.push(`page error: ${e instanceof Error ? e.message : e}`));
+      page.on("console", (m) => {
+        if (m.type() === "error") watch.push(`console error: ${m.text()}`);
+      });
+      page.on("request", (r) => {
+        const url = r.url();
+        if (!/^(file|data|blob|about):/.test(url)) watch.push(`network request: ${url}`);
+      });
+      page.on("framenavigated", (f) => {
+        const url = f.url();
+        if (!/^(file|about):/.test(url)) watch.push(`navigation: ${url}`);
+      });
+    }
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.goto(pathToFileURL(index).href, { waitUntil: "load", timeout });
     await page.addScriptTag({ path: runtimePath() });
