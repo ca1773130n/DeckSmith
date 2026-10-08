@@ -934,8 +934,9 @@ unless asked for; v2 without it, and classic, emit the bytes they did.
 
 ```bash
 decksmith build storyboard.json --source source.json -o deck --design v2 --bespoke
-# bespoke: b03-action-loop.draft in 354s …
-# bespoke: 5 of 5 beats drawn bespoke, 10 Codex call(s), 541737 tokens, 1144s
+# bespoke: b03-action-loop.draft in 121s …
+# bespoke: b05-backbone — every gate passed and the rubric probe is clean; no critique call
+# bespoke: 4 of 5 beats drawn bespoke, 7 Codex call(s), 190985 tokens, 343s
 ```
 
 **Which beats.** A deterministic rule (`src/bespoke/select.ts`): mechanism archetypes
@@ -946,15 +947,46 @@ camera dives through. `plan --bespoke` lets the planner mark beats `bespoke: tru
 `false` is obeyed, `true` is a strong hint.
 
 **Per beat:** draft → static contract → probe deck (a real build with every `verify` gate
-plus the motion gates, photographed at every cue) → one critique-and-fix call with the
-contact sheet attached (`codex exec -i`) → static contract → probe again. A beat that does
-not pass keeps its archetype — the deck is never failed. If the fix round breaks a draft
-that passed, the draft is kept.
+plus the motion gates, photographed at every cue) → the rubric probe → at most one
+critique-and-fix call with the contact sheet and the measures attached (`codex exec -i`) →
+static contract → probe again. A draft that passed every gate and is clean by the rubric
+probe is kept without the critique call. A beat that does not pass keeps its archetype —
+the deck is never failed. If the fix round breaks a draft that passed, the draft is kept.
+
+**What the model is shown** (`src/bespoke/prompt.ts`): the beat, its cues, the paper's
+excerpts (fenced, untrusted), the contract, motion-design rules with numbers (one focal
+element per cue at 88-120px, the rest dimmed but kept; fill the box; paint it with filled
+shapes; at least three kinds of motion, one of flow, camera, counter or morph; the end
+frame a summary), text widths measured in the pack's own font, and two of four hand-made
+reference scenes (`src/bespoke/references.ts`: a routing mechanism with particle flow and
+a counter, a camera zoom into one block, a traced curve whose gap morphs into the headline
+number, a scatter whose dots travel into a bell), picked for the beat's archetype and
+painted in the pack's colours. `test/bespoke-references.test.ts` runs each reference
+through every gate and the rubric probe in a real deck, so a reference that stops passing
+stops being one. Parts a cue introduces are `<g data-cue="N">` groups (semantic grouping,
+after Vector Prism, arXiv 2512.14336). MorphSVG is registered for a deck only when one of
+its scenes morphs.
+
+**The rubric probe** (`rubricProbe`, free: it reads what the probe measured) sends a
+passing draft to the critique round when any of these is off: the drawing paints under 12%
+of its box at the end (round 1's scenes painted 4-16%), more than half its parts are still
+dimmed at the end, no label reaches 88px, fewer than three kinds of motion or none of
+flow/camera/counter/morph, a cue whose picture changes by under 0.5% of the frame, or a
+warning about the scene. The critique round scores the frames against a six-line rubric
+(fills the stage, one focus per cue, motion explains, legible hierarchy, the pack, sync),
+is told the measures and every finding with the colliding labels' coordinates, and returns
+the fixed scene.
 
 **Caps**, checked before every call: `--bespoke-calls` (default 12; two per beat) and
 `--bespoke-seconds` (default 1800). A quota or rate-limit answer stops every further call.
 Codex runs only through the account's own CLI (`--bespoke-cli`, `--bespoke-model`), never
-an API key. A paced deck (`--speed`/`--duration` other than 1×) and non-16:9 formats are
+an API key, five calls in flight (`bespoke.concurrency` in the config file), at
+`bespoke.effort` reasoning (default `medium`; `default` keeps the account's), from the
+scratch directory, and with its tools off: shell, apps, plugins, browser, image
+generation, web search and every MCP server the account configured. A bespoke call is a
+text transform; with tools on, the agent spent its first turns reading the account's own
+instruction files and skills (measured: 56,679 input tokens over several turns and
+135-488s for a draft that tool-less took one turn of 18,247 and 166s). A paced deck (`--speed`/`--duration` other than 1×) and non-16:9 formats are
 skipped, with a line saying so.
 
 **Cache.** Keyed by everything a scene is drawn from — the beat's words and params, the
@@ -979,8 +1011,15 @@ are for; and (3) isolates only when decks are served from another origin than th
 
 **The motion gates** (`src/verify/scenes.ts`) run on every scene `bespoke.json` lists, as
 errors: `static_hold` (the picture must change during every cue), `graphic_crosses_text`
-(a visible stroke through a label, or a shape painted over one), and `seek_order` (the
-frame must not depend on what was seeked before it, beyond 1500px of rasterising noise).
+(a visible stroke through a label — a curve whose bounding box contains a label is not
+its plate — or a shape painted over one), `seek_order` (the frame must not depend on what
+was seeked before it, beyond 1500px of rasterising noise), `stage_fill` (the settled
+drawing's bounding box covers 80% of its box), `type_hierarchy` (one label of 64px or
+more at the end), `stray_marker` (an SVG marker painted where its line is not drawn),
+`early_reveal` (a `data-cue="N"` group showing more than 0.5s before cue N) and
+`cue_groups` (no such groups, or one naming a cue the scene does not have). Content
+outside a clipping `<svg>` — a camera zoomed in — is neither off the frame nor crossing
+anything. Overlap and crossing findings carry the labels' boxes in the body box's px.
 `seek_order` also runs on every other scene of a v2 deck, as a warning; it is what found
 the equation-walk bug fixed alongside this (22,037px before, 0 after). Below the tolerance
 and not traced: v2's equation-walk on the narrated demo differs by 529px on one KaTeX
@@ -990,12 +1029,13 @@ glyph when reached from past the scene's end.
 draft, critique), why each fallback, calls, tokens, seconds. Set
 `DECKSMITH_BESPOKE_WORK=<dir>` to keep the prompts, replies and contact sheets.
 
-**Costs** (measured on three HypePaper decks, see
-[`.planning/2026-10-08-v2-bespoke.md`](.planning/2026-10-08-v2-bespoke.md)): a draft took
-3-11 minutes and a critique 3-10, about 110k tokens a beat; a deck's pass took 13-31
-minutes for 10-12 calls and 540-705k tokens. A rebuild from the cache made 0 calls and
-wrote byte-identical files. None of that fits a 300-second build timeout: a host running
-this has to give `build` that long, or run it off the request path.
+**Costs** (measured on four HypePaper decks, see
+[`.planning/2026-10-08-v2-bespoke-round2.md`](.planning/2026-10-08-v2-bespoke-round2.md)):
+a draft takes 93-186s and a critique 82-127s; a deck's pass took 338-517s for 7-11 calls
+and 133-196k tokens, and the whole `build` 392-617s. Round 1 (prompt with no references,
+tools on, high effort, three in flight) took 13-31 minutes and 540-705k tokens a deck. A
+rebuild from the cache makes 0 calls. None of that fits a 300-second build timeout: a host
+running this has to give `build` that long, or run it off the request path.
 
 ## Themes
 
