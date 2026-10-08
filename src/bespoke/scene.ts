@@ -51,6 +51,11 @@ export function bespokeRegion(beat: Beat, ctx: Pick<EmitContext, "format" | "the
   };
 }
 
+/** Whether a scene's script tweens `morphSVG` (MorphSVGPlugin must be registered first). */
+export function usesMorph(script: string): boolean {
+  return /\bmorphSVG\b/.test(script);
+}
+
 export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry): Scene {
   const p = beat.params as { eyebrow?: string; headline: string };
   const { sid, theme } = ctx;
@@ -65,6 +70,8 @@ ${f.markup}
     tl: chromeIn(sid, p.eyebrow !== undefined),
     script: f.script,
     holds: entry.holds,
+    // Vendored only when a scene morphs, so no other deck carries its bytes.
+    ...(usesMorph(f.script) ? { plugins: ["morphSVG"] } : {}),
     css: [
       chromeCss(theme),
       `#${sid}-g{position:relative;flex:none;width:${width}px;height:${height}px;margin-top:${BODY_TOP}px;color:${theme.fg}}`,

@@ -102,11 +102,29 @@ export function browserGate(deck: ProbeDeck): GateFn {
         frames.map((f) => ({ label: `${f.key} ${f.t.toFixed(2)}s`, png: f.png })),
         sheet,
       );
+      const end = probe.layout.find((l) => l.sid === w.sid && l.key === "end");
+      const cueChange = probe.cueChanges
+        .filter((c) => c.sid === w.sid)
+        .sort((a, b) => a.cue - b.cue)
+        .map((c) => c.changed / c.total);
       out.set(beat, {
         findings: [...motion, ...gates].map((f) => `${f.severity} ${f.rule}: ${f.message}`),
         failed: failing.length > 0,
         sheet,
         legend: frames.map((f) => `${f.key} = ${f.t.toFixed(2)}s`).join(", "),
+        metrics: {
+          ...(end?.fill !== undefined ? { fill: end.fill } : {}),
+          ...(end?.cells !== undefined ? { cells: end.cells } : {}),
+          ...(end?.maxType !== undefined ? { maxType: end.maxType } : {}),
+          ...(end?.mass !== undefined ? { mass: end.mass } : {}),
+          ...(end?.dimmed !== undefined ? { dimmed: end.dimmed } : {}),
+          cueChange,
+        },
+        // The scene's own warnings: not the storyboard's (a headline that
+        // recites labels is the plan's), not lint's file-size note.
+        warnings: [...motion, ...gates]
+          .filter((f) => f.severity === "warning" && f.gate !== "storyboard")
+          .map((f) => `${f.rule}: ${f.message.slice(0, 160)}`),
       });
     }
     return out;

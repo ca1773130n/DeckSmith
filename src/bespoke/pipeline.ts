@@ -32,18 +32,25 @@ import {
 } from "../emit/composition.js";
 import type { EmitContext } from "../emit/kit.js";
 import { deckLook } from "../emit/theme.js";
-import { type Runner, type RunnerArgs, runCodex } from "../plan/codex.js";
+import { leanCodexConfig, type Runner, type RunnerArgs, runCodex } from "../plan/codex.js";
 import type { Prefs } from "../prefs.js";
 import { planTiming } from "../render/timing.js";
 import type { Beat, Format, Source, Storyboard } from "../types.js";
-import { GATES_VERSION, type SceneWindow, sceneWindows } from "../verify/scenes.js";
+import {
+  GATES_VERSION,
+  KEY_TYPE_PX,
+  type SceneWindow,
+  STAGE_FILL,
+  sceneWindows,
+} from "../verify/scenes.js";
 import { cacheKey, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
-import { checkFragment, type Fragment } from "./contract.js";
+import { checkFragment, type Fragment, motionKinds } from "./contract.js";
 import {
   type Brief,
   CONTRACT_VERSION,
   critiquePrompt,
   generatePrompt,
+  type Measured,
   PROMPT_VERSION,
   REPLY_SCHEMA,
 } from "./prompt.js";
@@ -61,6 +68,10 @@ export interface GateResult {
   sheet?: string;
   /** What each cell of the sheet is. */
   legend?: string;
+  /** What the probe measured: the rubric probe reads it, the critique round is told it. */
+  metrics?: Measured;
+  /** Warnings about the scene itself (not the storyboard's), by rule. Any one sends it to critique. */
+  warnings?: string[];
 }
 
 /** Builds a deck with these candidates, gates each, and says what it found — keyed by beat id. */
@@ -102,6 +113,12 @@ export interface SceneReport {
   key?: string;
   /** The scene id it was drawn at, filled in once the deck is emitted. */
   sid?: string;
+  /** Motion kinds the kept scene's script uses. */
+  kinds?: string[];
+  /** The probe's measures of the kept scene (or of the last candidate, on a fallback). */
+  metrics?: Measured;
+  /** Whether a critique call was made, skipped because the rubric probe was clean, or never reached. */
+  critique?: "ran" | "skipped" | "none";
 }
 
 export interface BespokeReport {
@@ -176,6 +193,56 @@ async function pool<T>(
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, lane));
 }
 
+/** Below this share of the frame, a cue "barely moves" by the rubric's measure (static_hold's floor is 0.015%). */
+export const RUBRIC_CUE_CHANGE = 0.005;
+/** The focal size the prompt asks for; the gate's floor is `KEY_TYPE_PX`. */
+export const RUBRIC_FOCAL_PX = 88;
+/**
+ * The share of its box a settled drawing should paint. MEASURED 2026-10-08:
+ * round 1's sixteen scenes painted 3.9-15.6% (median ~9%) — thin outlines and
+ * small captions — and round 2's first twenty 10-57% (median ~25%).
+ */
+export const RUBRIC_MASS = 0.12;
+/**
+ * More than this share of the drawn parts under 0.6 opacity at the settled
+ * frame, and the end is not a summary. Round 2's first full run left zh s6 and
+ * en s6 ending on a frame of ghosts with one lit part.
+ */
+export const RUBRIC_DIMMED = 0.5;
+/** Motion kinds that are more than fade-and-draw; a scene should use one. */
+const EXPLAINING = ["flow", "camera", "counter", "morph"];
+
+/**
+ * The rubric probe: is a scene that passed every gate also clean by the
+ * rubric's MEASURABLE half? Free — it reads what the probe already measured —
+ * and it decides whether the critique call (~4 minutes, ~30k tokens) is spent.
+ * Empty means clean. What it cannot measure (is this the right picture for the
+ * sentence?) it does not pretend to; that is the reason a clean scene is still
+ * looked at by a person in the preview.
+ */
+export function rubricProbe(m: Measured | undefined, warnings: readonly string[] = []): string[] {
+  if (!m) return ["nothing was measured"];
+  const out: string[] = [];
+  for (const w of warnings) out.push(`warning: ${w}`);
+  if (m.fill === undefined || m.fill < STAGE_FILL) out.push("the drawing does not fill the stage");
+  if (m.mass !== undefined && m.mass < RUBRIC_MASS)
+    out.push(`the drawing is thin: it paints ${Math.round(100 * m.mass)}% of its box`);
+  if (m.dimmed !== undefined && m.dimmed > RUBRIC_DIMMED)
+    out.push(`the end frame is mostly dimmed (${Math.round(100 * m.dimmed)}% of its parts)`);
+  if (m.cells !== undefined && m.cells < 0.6)
+    out.push(`something is drawn in only ${Math.round(100 * m.cells)}% of the 6x4 grid`);
+  if ((m.maxType ?? 0) < Math.max(KEY_TYPE_PX, RUBRIC_FOCAL_PX))
+    out.push(`no focal label reaches ${RUBRIC_FOCAL_PX}px`);
+  const kinds = m.kinds ?? [];
+  if (kinds.length < 3) out.push(`only ${kinds.length} kind(s) of motion`);
+  if (!kinds.some((k) => EXPLAINING.includes(k)))
+    out.push("no flow, camera, counter or morph — the motion is fades and draws");
+  (m.cueChange ?? []).forEach((c, i) => {
+    if (c < RUBRIC_CUE_CHANGE) out.push(`cue ${i + 1} barely moves (${(100 * c).toFixed(2)}%)`);
+  });
+  return out;
+}
+
 /** The paper the prompt may quote for this beat: its cited sections, equations and figure captions. */
 export function contextFor(beat: Beat, source: Source): string {
   const ids = (kind: string) =>
@@ -191,6 +258,12 @@ export function contextFor(beat: Beat, source: Source): string {
     ...source.figures.filter((f) => figs.has(f.id)).map((f) => `figure ${f.id}: ${f.caption}`),
   ];
   return parts.join("\n\n").slice(0, 6000) || "(no excerpt cited)";
+}
+
+/** A gate's measures with the candidate's motion kinds added. */
+function withKinds(m: Measured | undefined, f: Fragment | undefined): Measured | undefined {
+  if (!m) return undefined;
+  return f ? { ...m, kinds: motionKinds(f.script) } : m;
 }
 
 export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
@@ -293,6 +366,13 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   await writeFile(schemaPath, JSON.stringify(REPLY_SCHEMA));
   const cache = new SceneCache(prefs.cache ?? defaultCacheDir());
   const run = input.run ?? runCodex;
+  // Tool-less, single-turn calls (see TOOL_FEATURES), at the configured effort.
+  // Only for the production runner: a test's runner never spawns anything.
+  const effort = prefs.effort ?? "medium";
+  const config = [
+    ...(input.run ? [] : await leanCodexConfig(prefs.cli ?? "codex")),
+    ...(effort === "default" ? [] : [`model_reasoning_effort="${effort}"`]),
+  ];
 
   interface Beat1 {
     beat: Beat;
@@ -306,6 +386,11 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     draftPassed?: boolean;
     fixed?: Fragment;
     fixedFindings: string[];
+    /** The measures (with the script's motion kinds) of the draft and of the fix. */
+    draftMetrics?: Measured;
+    draftWarnings: string[];
+    fixedMetrics?: Measured;
+    critique: "ran" | "skipped" | "none";
     stop?: string;
     /** A fallback the beat earned (gates), as opposed to one the budget imposed. */
     earned?: boolean;
@@ -372,6 +457,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       calls: 0,
       draftFindings: [],
       fixedFindings: [],
+      draftWarnings: [],
+      critique: "none",
     });
   }
 
@@ -405,6 +492,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         schemaPath,
         outPath,
         timeoutMs: budget.seconds() * 1000,
+        // The scratch dir, so no project's AGENTS.md is read into the call.
+        cwd: work,
+        config,
         ...(prefs.model ? { model: prefs.model } : {}),
         ...(prefs.cli ? { bin: prefs.cli } : {}),
         ...(images.length ? { images } : {}),
@@ -473,27 +563,47 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     }
     b.draftFindings = g.findings;
     b.draftPassed = !g.failed;
+    b.draftWarnings = g.warnings ?? [];
+    b.draftMetrics = withKinds(g.metrics, b.draft);
   }
 
-  // Round 2: one critique-and-fix per drafted beat, frames attached when there are frames.
+  // Round 2: one critique-and-fix per drafted beat that needs one, frames
+  // attached. A draft that passed every gate AND is clean by the rubric probe
+  // is kept as it is: the call would cost minutes to restate a clean bill.
   const drafted = work1.filter((b) => b.draft && !b.stop);
-  await pool(drafted, prefs.concurrency, async (b) => {
-    const g = gateA.get(b.beat.id);
-    const f = await call(
-      b,
-      "critique",
-      critiquePrompt(
-        b.brief,
-        b.draft as Fragment,
-        b.draftFindings,
-        g?.sheet ? g.legend : undefined,
-      ),
-      g?.sheet ? [g.sheet] : [],
-    );
-    if (!f) return;
-    b.fixed = f;
-    b.fixedFindings = statics(f);
-  });
+  for (const b of drafted) {
+    if (!b.draftPassed) continue;
+    const issues = rubricProbe(b.draftMetrics, b.draftWarnings);
+    if (issues.length === 0) {
+      b.critique = "skipped";
+      step(
+        `bespoke: ${b.beat.id} — every gate passed and the rubric probe is clean; no critique call`,
+      );
+    } else step(`bespoke: ${b.beat.id} — to critique: ${issues.slice(0, 3).join("; ")}`);
+  }
+  await pool(
+    drafted.filter((b) => b.critique !== "skipped"),
+    prefs.concurrency,
+    async (b) => {
+      const g = gateA.get(b.beat.id);
+      b.critique = "ran";
+      const f = await call(
+        b,
+        "critique",
+        critiquePrompt(
+          b.brief,
+          b.draft as Fragment,
+          b.draftFindings,
+          g?.sheet ? g.legend : undefined,
+          b.draftMetrics,
+        ),
+        g?.sheet ? [g.sheet] : [],
+      );
+      if (!f) return;
+      b.fixed = f;
+      b.fixedFindings = statics(f);
+    },
+  );
 
   const finalMap: Record<string, { fragment: Fragment; holds: number[] }> = {};
   for (const b of work1) {
@@ -512,13 +622,21 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       calls: b.calls,
       findings: [],
       key: b.key,
+      critique: b.critique,
       ...extra,
     });
     const gb = gateB.get(b.beat.id);
     if (b.cached) {
       if (gb && !gb.failed) {
         map[b.beat.id] = { fragment: b.cached, holds: b.holds };
-        scenes.push(report1("bespoke", { from: "cache" }));
+        const metrics = withKinds(gb.metrics, b.cached);
+        scenes.push(
+          report1("bespoke", {
+            from: "cache",
+            kinds: motionKinds(b.cached.script),
+            ...(metrics ? { metrics } : {}),
+          }),
+        );
       } else {
         scenes.push(
           report1("fallback", {
@@ -532,16 +650,21 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     let fragment: Fragment | undefined;
     let from: SceneReport["from"];
     let note: string | undefined;
+    let metrics: Measured | undefined;
     if (b.fixed && b.fixedFindings.length === 0 && gb && !gb.failed) {
       fragment = b.fixed;
       from = "critique";
+      metrics = withKinds(gb.metrics, b.fixed);
     } else if (b.draft && b.draftPassed) {
       // The fix round broke a draft that had passed: keep the draft.
       fragment = b.draft;
       from = "draft";
+      metrics = b.draftMetrics;
       note = b.fixed
         ? `the critique round's scene failed (${(b.fixedFindings.length ? b.fixedFindings : (gb?.findings ?? [])).slice(0, 2).join("; ")}); kept the draft, which passed`
-        : `no critique round (${b.stop ?? "no reply"}); kept the draft, which passed`;
+        : b.critique === "skipped"
+          ? "every gate passed and the rubric probe was clean; kept the draft without a critique call"
+          : `no critique round (${b.stop ?? "no reply"}); kept the draft, which passed`;
     }
     if (fragment) {
       map[b.beat.id] = { fragment, holds: b.holds };
@@ -560,6 +683,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         report1("bespoke", {
           from: from as "draft" | "critique",
           ...(note ? { reason: note } : {}),
+          kinds: motionKinds(fragment.script),
+          ...(metrics ? { metrics } : {}),
         }),
       );
       continue;
@@ -587,7 +712,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         gates: GATES_VERSION,
       });
     }
-    scenes.push(report1("fallback", { reason, findings }));
+    const last = b.fixed ? withKinds(gb?.metrics, b.fixed) : b.draftMetrics;
+    scenes.push(report1("fallback", { reason, findings, ...(last ? { metrics: last } : {}) }));
   }
 
   if (!input.work) await rm(work, { recursive: true, force: true });

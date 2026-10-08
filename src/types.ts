@@ -967,8 +967,21 @@ export const prefsSchema = z.object({
       cli: z.string().optional(),
       /** Where generated scenes are cached. Absent: the user cache directory. */
       cache: z.string().optional(),
-      /** Codex calls in flight at once. */
-      concurrency: z.int().min(1).max(8).default(4),
+      /**
+       * Codex calls in flight at once. Five: MEASURED 2026-10-08, a deck's
+       * five drafts at three in flight took two waves (252s) where one wave is
+       * ~150s, and the second wave alone put the pass over ten minutes. Still
+       * bounded by `maxCalls` per deck.
+       */
+      concurrency: z.int().min(1).max(8).default(5),
+      /**
+       * `model_reasoning_effort` for the bespoke calls. MEASURED 2026-10-08, one
+       * draft prompt, tools off: medium 166s and 24k tokens, high 371s and 50k.
+       * The references and the gates carry the look; the extra reasoning bought
+       * time. Absent from a config file means medium; "default" leaves the
+       * account's own setting.
+       */
+      effort: z.enum(["low", "medium", "high", "default"]).default("medium"),
     })
     .optional(),
 });

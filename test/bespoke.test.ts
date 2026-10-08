@@ -13,7 +13,13 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cacheKey, canonical, type KeyInput, SceneCache } from "../src/bespoke/cache.js";
 import type { Fragment } from "../src/bespoke/contract.js";
-import { Budget, bespokePass, type GateFn, type GateResult } from "../src/bespoke/pipeline.js";
+import {
+  Budget,
+  bespokePass,
+  type GateFn,
+  type GateResult,
+  rubricProbe,
+} from "../src/bespoke/pipeline.js";
 import { bespokeHolds } from "../src/bespoke/scene.js";
 import { selectBespoke, target } from "../src/bespoke/select.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
@@ -73,7 +79,7 @@ const narration = narrate(demo);
 
 /** A scene that keeps the contract, moving on every cue. */
 const SCENE: Fragment = {
-  markup: `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600"><circle id="SCENEID-dot" cx="100" cy="300" r="30" fill="#f7c948"/></svg>`,
+  markup: `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600"><g id="SCENEID-a" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="300" r="30" fill="#f7c948"/></g><g id="SCENEID-b" data-cue="2"></g></svg>`,
   css: "#SCENEID-svg { overflow: visible; }",
   script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
 tl.to("#SCENEID-dot", { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
@@ -338,6 +344,7 @@ describe("the bespoke pass", () => {
     maxCalls: 12,
     maxSeconds: 1800,
     concurrency: 2,
+    effort: "medium" as const,
     cache: cacheDir,
     ...over,
   });
@@ -524,6 +531,112 @@ describe("the bespoke pass", () => {
     await bespokePass({ ...input({ run, gate }), prefs: prefs({ maxCalls: 2 }) });
     expect(calls[1]?.images).toEqual([sheet]);
     expect(calls[1]?.prompt).toContain("c1s = 1s");
+    // The critique judges against the rubric, with what was measured.
+    expect(calls[1]?.prompt).toContain("RUBRIC");
+    expect(calls[1]?.prompt).toContain("# MEASURED");
+  });
+
+  /** A scene whose script asks for flow, a counter and a focus change. */
+  const RICH: Fragment = {
+    ...SCENE,
+    script: `${SCENE.script}
+tl.to("#SCENEID-n", { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
+tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
+  };
+  const clean = { fill: 0.9, cells: 0.8, maxType: 96, cueChange: [0.02, 0.03] };
+
+  it("skips the critique call when every gate passed and the rubric probe is clean", async () => {
+    const { calls, run } = fake(() => RICH);
+    const gate: GateFn = async (m) =>
+      new Map(Object.keys(m).map((id) => [id, { findings: [], failed: false, metrics: clean }]));
+    const r = await bespokePass({ ...input({ run, gate }), prefs: prefs() });
+    const n = Object.keys(r.map).length;
+    expect(n).toBeGreaterThan(0);
+    expect(calls.length).toBe(n);
+    expect(r.report.scenes.every((sc) => sc.critique === "skipped" && sc.from === "draft")).toBe(
+      true,
+    );
+    expect(r.report.scenes[0]?.kinds).toEqual(expect.arrayContaining(["flow", "counter", "focus"]));
+  });
+
+  it("still critiques a passing draft the rubric probe finds wanting", async () => {
+    const { calls, run } = fake(() => RICH);
+    const small = { ...clean, fill: 0.6 };
+    const gate: GateFn = async (m) =>
+      new Map(Object.keys(m).map((id) => [id, { findings: [], failed: false, metrics: small }]));
+    const r = await bespokePass({ ...input({ run, gate }), prefs: prefs({ maxCalls: 2 }) });
+    expect(calls.length).toBe(2);
+    expect(r.report.scenes[0]?.critique).toBe("ran");
+    expect(calls[1]?.prompt).toContain("stage fill (bbox / box area, end frame): 60%");
+  });
+
+  it("calls Codex from the scratch dir, at the configured effort", async () => {
+    const { calls, run } = fake(() => SCENE);
+    await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 2, effort: "low" }) });
+    expect(calls[0]?.cwd).toBe(work);
+    expect(calls[0]?.config).toContain('model_reasoning_effort="low"');
+  });
+});
+
+describe("the rubric probe", () => {
+  const kinds = ["flow", "counter", "focus"];
+  const ok = { fill: 0.9, cells: 0.8, maxType: 96, kinds, cueChange: [0.02, 0.03] };
+  it("is clean only when every measurable criterion is", () => {
+    expect(rubricProbe(ok)).toEqual([]);
+    expect(rubricProbe(undefined)).toEqual(["nothing was measured"]);
+    expect(rubricProbe({ ...ok, fill: 0.7 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, mass: 0.2 })).toEqual([]);
+    expect(rubricProbe({ ...ok, mass: 0.08 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, dimmed: 0.3 })).toEqual([]);
+    expect(rubricProbe({ ...ok, dimmed: 0.7 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, maxType: 70 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, kinds: ["draw", "focus", "stagger"] })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, kinds: ["flow"] })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, cueChange: [0.02, 0.001] })).toHaveLength(1);
+    expect(rubricProbe(ok, ["overlapping_gsap_tweens: x"])).toHaveLength(1);
+  });
+});
+
+describe("a tool-less codex call", () => {
+  it("turns every tool feature, web search and each configured MCP server off", async () => {
+    const { leanCodexConfig, codexCommand, TOOL_FEATURES } = await import("../src/plan/codex.js");
+    const list = async () =>
+      JSON.stringify([
+        { name: "hypepaper", enabled: true },
+        { name: "off-already", enabled: false },
+        { name: "bad name; rm", enabled: true },
+      ]);
+    const config = await leanCodexConfig("codex", list);
+    for (const f of TOOL_FEATURES) expect(config).toContain(`features.${f}=false`);
+    expect(config).toContain('web_search="disabled"');
+    expect(config).toContain("mcp_servers.hypepaper.enabled=false");
+    expect(config.join(" ")).not.toContain("off-already");
+    expect(config.join(" ")).not.toContain("rm");
+    const { argv } = codexCommand({
+      prompt: "p",
+      schemaPath: "s",
+      outPath: "o",
+      timeoutMs: 1,
+      cwd: "/w",
+      config: ["features.shell_tool=false"],
+    });
+    expect(argv.join(" ")).toContain("-C /w --sandbox read-only");
+    expect(argv.join(" ")).toContain("-c features.shell_tool=false");
+  });
+});
+
+describe("a scene that morphs", () => {
+  it("registers MorphSVG for that deck only", async () => {
+    const { bespokeScene, usesMorph } = await import("../src/bespoke/scene.js");
+    const beat = demo.beats.find((b) => b.archetype === "pipeline") as (typeof demo.beats)[number];
+    const ctx = { source, format: deck16, theme: resolveTheme("ink"), sid: "s3", start: 0 };
+    const morph = {
+      ...SCENE,
+      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
+    };
+    expect(usesMorph(morph.script)).toBe(true);
+    expect(bespokeScene(beat, ctx, { fragment: morph, holds: [1] }).plugins).toEqual(["morphSVG"]);
+    expect(bespokeScene(beat, ctx, { fragment: SCENE, holds: [1] }).plugins).toBeUndefined();
   });
 });
 

@@ -67,7 +67,12 @@ export function instantiate(f: Fragment, sid: string): Fragment {
 
 /** Every reason this fragment may not be built. Empty means it may. */
 export function checkFragment(f: Fragment): StaticFinding[] {
-  return [...checkMarkup(f.markup), ...checkCss(f.css), ...checkScript(f.script)];
+  return [
+    ...checkMarkup(f.markup),
+    ...checkCueGroups(f.markup),
+    ...checkCss(f.css),
+    ...checkScript(f.script),
+  ];
 }
 
 /* ----------------------------------------------------------------- selectors */
@@ -214,6 +219,10 @@ export function checkMarkup(markup: string): StaticFinding[] {
           bad("markup_id", `id "${value}" is the shell's — the body box, eyebrow and headline`);
         else if (ids.has(value)) bad("markup_id", `id "${value}" is used twice`);
         ids.add(value);
+      } else if (attr === "data-cue") {
+        // The cue a group arrives on: `early_reveal` holds the scene to it.
+        if (!/^[1-9][0-9]?$/.test(value))
+          bad("markup_cue", `data-cue="${value.slice(0, 20)}" is not a cue number (1, 2, 3 …)`);
       } else if (foreignUrl(value)) bad("markup_ref", `<${name} ${attr}=…> uses url()`);
       if (/javascript:/i.test(value)) bad("markup_ref", `<${name} ${attr}=…> names javascript:`);
     }
@@ -225,6 +234,24 @@ export function checkMarkup(markup: string): StaticFinding[] {
       );
   }
   return out;
+}
+
+/**
+ * Semantic grouping (Vector Prism, arXiv 2512.14336): the parts a cue brings on
+ * move as one group, and the group says which cue that is — which is also what
+ * `early_reveal` holds the scene to. A whole scene needs at least two.
+ */
+function checkCueGroups(markup: string): StaticFinding[] {
+  const body = markup.replace(/<!--[\s\S]*?-->/g, "");
+  const n = [...body.matchAll(/\sdata-cue\s*=/gi)].length;
+  return n >= 2
+    ? []
+    : [
+        {
+          rule: "markup_cue",
+          message: `${n} element(s) carry data-cue — group each part a cue introduces in a <g id="${SID_TOKEN}-…" data-cue="N">`,
+        },
+      ];
 }
 
 /* ----------------------------------------------------------------------- css */
@@ -676,6 +703,125 @@ export function checkScript(script: string): StaticFinding[] {
   });
 }
 
+/** The value of `key` in an object literal, if it is written there. */
+function prop(obj: AnyNode, key: string): AnyNode | undefined {
+  for (const p of obj.properties as AnyNode[]) {
+    if (p.type !== "Property") continue;
+    const k = p.key as AnyNode;
+    const name = k.type === "Identifier" && !p.computed ? k.name : k.value;
+    if (name === key) return p.value as AnyNode;
+  }
+  return undefined;
+}
+
+/**
+ * `morphSVG` takes path data or a SELECTOR, and MorphSVG resolves a selector
+ * against the whole document — so a selector here is a target like any other
+ * and must be the scene's own. Path data (`"M0 0 …"`) reads nothing.
+ */
+function checkMorph(vars: AnyNode, what: string, bad: (rule: string, message: string) => void) {
+  const v = prop(vars, "morphSVG");
+  if (!v) return;
+  const shape = v.type === "ObjectExpression" ? prop(v, "shape") : v;
+  const s = shape ? leadingString(shape) : undefined;
+  if (s === undefined) {
+    bad("script_morph", `${what}: morphSVG needs a literal — "#${SID_TOKEN}-…" or path data`);
+    return;
+  }
+  if (!/^\s*[Mm]/.test(s) && !scopedSelector(s.length ? s : "?"))
+    bad(
+      "script_scope",
+      `${what} morphs to "${s.slice(0, 50)}", which is not scoped to #${SID_TOKEN}`,
+    );
+}
+
+/**
+ * The kinds of motion a scene's timeline uses, read off its tweens' vars —
+ * for the report, and for the rubric probe that decides whether a scene that
+ * passed every gate still needs the critique round. Static, so it is a
+ * statement about what the script ASKS for; the frames say whether it shows.
+ */
+export const MOTION_KINDS = [
+  "draw",
+  "morph",
+  "camera",
+  "counter",
+  "stagger",
+  "flow",
+  "move",
+  "scale",
+  "focus",
+  "recolor",
+] as const;
+export type MotionKind = (typeof MOTION_KINDS)[number];
+
+export function motionKinds(script: string): MotionKind[] {
+  let program: AnyNode;
+  try {
+    program = parse(script, {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      allowReturnOutsideFunction: true,
+    }) as unknown as AnyNode;
+  } catch {
+    return [];
+  }
+  const kinds = new Set<MotionKind>();
+  const keysOf = (o: AnyNode): string[] =>
+    (o.properties as AnyNode[]).flatMap((p) => {
+      if (p.type !== "Property") return [];
+      const k = p.key as AnyNode;
+      const name = String(k.type === "Identifier" ? k.name : k.value);
+      const v = p.value as AnyNode;
+      return v.type === "ObjectExpression" && (name === "attr" || name === "css")
+        ? keysOf(v).map((x) => `${name}.${x}`)
+        : [name];
+    });
+  const num = (v: AnyNode | undefined) =>
+    v?.type === "Literal" && typeof v.value === "number" ? v.value : undefined;
+  const walk = (n: AnyNode) => {
+    if (n.type === "CallExpression") {
+      const callee = n.callee as AnyNode;
+      const obj = callee.type === "MemberExpression" ? (callee.object as AnyNode) : undefined;
+      const method = memberName(callee);
+      if (
+        obj?.type === "Identifier" &&
+        obj.name === "tl" &&
+        (method === "to" || method === "fromTo")
+      ) {
+        const args = n.arguments as AnyNode[];
+        const vars = args[method === "fromTo" ? 2 : 1];
+        const target = leadingString(args[0] as AnyNode) ?? "";
+        if (vars?.type === "ObjectExpression") {
+          const keys = keysOf(vars);
+          const has = (re: RegExp) => keys.some((k) => re.test(k));
+          const repeat = num(prop(vars, "repeat")) ?? 0;
+          if (has(/^drawSVG$/)) kinds.add("draw");
+          if (has(/^morphSVG$/)) kinds.add("morph");
+          if (has(/^attr\.viewBox$/) || /-cam(?![\w-])/.test(target)) kinds.add("camera");
+          if (has(/^(textContent|innerText)$/)) kinds.add("counter");
+          if (has(/^stagger$/)) kinds.add("stagger");
+          const moves = has(
+            /^(x|y|xPercent|yPercent|keyframes|strokeDashoffset|attr\.(cx|cy|x|y|x1|y1|x2|y2|points|d))$/,
+          );
+          if (moves && (repeat > 0 || has(/^keyframes$/) || has(/^strokeDashoffset$/)))
+            kinds.add("flow");
+          else if (moves) kinds.add("move");
+          if (has(/^(scale|scaleX|scaleY|rotation|attr\.(r|rx|ry|width|height))$/))
+            kinds.add("scale");
+          const o = num(prop(vars, "opacity"));
+          if (o !== undefined && o > 0.05 && o < 0.7) kinds.add("focus");
+          if (has(/^(fill|stroke|color|attr\.(fill|stroke)|backgroundColor)$/))
+            kinds.add("recolor");
+        }
+      }
+    }
+    for (const c of children(n)) walk(c);
+  };
+  walk(program);
+  return MOTION_KINDS.filter((k) => kinds.has(k));
+}
+
 function checkCall(n: AnyNode, bad: (rule: string, message: string) => void): void {
   const callee = n.callee as AnyNode;
   const args = n.arguments as AnyNode[];
@@ -716,6 +862,7 @@ function checkCall(n: AnyNode, bad: (rule: string, message: string) => void): vo
     for (const v of vars) {
       if (v?.type !== "ObjectExpression")
         bad("script_vars", `${what} needs its vars as an object literal, so they can be read here`);
+      else checkMorph(v, what, bad);
     }
     if (on === "tl") {
       const posIndex = method === "fromTo" ? 3 : 2;

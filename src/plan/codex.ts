@@ -217,6 +217,8 @@ export interface RunnerArgs {
   bin?: string;
   /** Told the run's token count when the CLI reports one. */
   onUsage?: (tokens: number) => void;
+  /** Extra `-c key=value` overrides, in order (see `leanCodexConfig`). */
+  config?: readonly string[];
 }
 
 /** What the planner needs from the outside world: a prompt in, a final message out. */
@@ -341,12 +343,87 @@ export function codexCommand(args: RunnerArgs): { argv: string[]; env?: NodeJS.P
     "--color",
     "never",
     ...(args.model ? ["--model", args.model] : []),
+    ...(args.config ?? []).flatMap((c) => ["-c", c]),
     ...(args.images ?? []).flatMap((path) => ["-i", path]),
     "-",
   ];
   return sandbox === "workspace-write" && args.cwd !== undefined
     ? { argv, env: { ...process.env, TMPDIR: args.cwd } }
     : { argv };
+}
+
+/**
+ * Features that give a `codex exec` run TOOLS. A call that is a pure text
+ * transform — a prompt in, a schema-held JSON reply out — needs none of them,
+ * and with them the agent spends turns on the account's own setup instead:
+ * MEASURED 2026-10-08 on one bespoke draft prompt, the default config ran
+ * `cat` on the user's global AGENTS.md and an animation skill before
+ * answering — 56,679 input tokens over several turns and 135-488s — where the
+ * same prompt with these off was one turn of 18,247 input tokens.
+ */
+export const TOOL_FEATURES = [
+  "shell_tool",
+  "unified_exec",
+  "apps",
+  "plugins",
+  "multi_agent",
+  "browser_use",
+  "computer_use",
+  "image_generation",
+  "skill_search",
+  "tool_suggest",
+] as const;
+
+let leanMemo: Promise<string[]> | undefined;
+
+/**
+ * `-c` overrides for a tool-less, single-turn `codex exec`: every tool feature
+ * off, web search off, and every MCP server the account configured disabled by
+ * name (the config's own names, read once per process with `codex mcp list`;
+ * a name the config does not define cannot be disabled, only invented). If the
+ * list cannot be read, the features alone still remove the shell.
+ */
+export function leanCodexConfig(
+  bin = "codex",
+  list: (bin: string) => Promise<string> = listMcp,
+): Promise<string[]> {
+  leanMemo ??= (async () => {
+    const out = [...TOOL_FEATURES.map((f) => `features.${f}=false`), 'web_search="disabled"'];
+    try {
+      const servers = JSON.parse(await list(bin)) as Array<{ name?: unknown; enabled?: unknown }>;
+      for (const s of servers)
+        if (typeof s.name === "string" && /^[\w-]+$/.test(s.name) && s.enabled !== false)
+          out.push(`mcp_servers.${s.name}.enabled=false`);
+    } catch {
+      // No list: the shell is still gone, which is most of the cost.
+    }
+    return out;
+  })();
+  return leanMemo;
+}
+
+function listMcp(bin: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      bin,
+      ["-c", "features.plugins=false", "-c", "features.apps=false", "mcp", "list", "--json"],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let out = "";
+    child.stdout.on("data", (c: Buffer) => {
+      out += c.toString();
+    });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`codex mcp list exited ${code}`));
+    });
+  });
 }
 
 /** The production `Runner`: `codex exec` on PATH, stdin in, a file out. */

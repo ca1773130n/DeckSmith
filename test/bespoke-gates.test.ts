@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Fragment } from "../src/bespoke/contract.js";
-import type { BespokeMap } from "../src/bespoke/scene.js";
+import { type BespokeMap, bespokeRegion } from "../src/bespoke/scene.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import type { DeckNarration } from "../src/emit/composition.js";
 import { resolveTheme } from "../src/emit/theme.js";
@@ -24,10 +24,13 @@ import {
   gradeLayout,
   gradeSeekOrder,
   gradeStillCues,
+  KEY_TYPE_PX,
   MIN_CHANGE,
   type Probe,
+  paintedShare,
   probeScenes,
   readTimingFile,
+  STAGE_FILL,
   sceneWindows,
 } from "../src/verify/scenes.js";
 
@@ -77,6 +80,74 @@ describe("the graders", () => {
     ]);
   });
 
+  it("stage_fill, type_hierarchy and cue_groups grade the settled frame only", () => {
+    const row = {
+      sid: "s5",
+      t: 9,
+      crossings: [],
+      occlusions: [],
+      overlaps: [],
+      small: [],
+      off: [],
+      fill: 0.6,
+      maxType: 56,
+      groups: [] as number[],
+      cueStarts: [1, 4],
+    };
+    expect(gradeLayout([{ ...row, key: "end" }]).map((f) => f.rule)).toEqual([
+      "stage_fill",
+      "type_hierarchy",
+      "cue_groups",
+    ]);
+    // The same numbers mid-scene are a build in progress, not a verdict.
+    expect(gradeLayout([{ ...row, key: "c1z" }])).toEqual([]);
+    expect(
+      gradeLayout([{ ...row, key: "end", fill: STAGE_FILL, maxType: KEY_TYPE_PX, groups: [1, 2] }]),
+    ).toEqual([]);
+    // A group naming a cue the scene does not have.
+    expect(
+      gradeLayout([{ ...row, key: "end", fill: 0.9, maxType: 80, groups: [1, 3] }]).map(
+        (f) => f.rule,
+      ),
+    ).toEqual(["cue_groups"]);
+  });
+
+  it("early_reveal: a cue group showing before its cue fails, inside the 0.5s slack it does not", () => {
+    const row = {
+      sid: "s5",
+      key: "c1z",
+      crossings: [],
+      occlusions: [],
+      overlaps: [],
+      small: [],
+      off: [],
+      cueStarts: [1, 4],
+    };
+    const shown = [{ id: "s5-second", cue: 2 }];
+    expect(gradeLayout([{ ...row, t: 3.0, revealed: shown }]).map((f) => f.rule)).toEqual([
+      "early_reveal",
+    ]);
+    expect(gradeLayout([{ ...row, t: 3.6, revealed: shown }])).toEqual([]);
+    expect(gradeLayout([{ ...row, t: 3.0, revealed: [{ id: "s5-first", cue: 1 }] }])).toEqual([]);
+  });
+
+  it("stray_marker: one finding per frame that shows an arrowhead without its line", () => {
+    const f = gradeLayout([
+      {
+        sid: "s5",
+        key: "c1a",
+        t: 1.5,
+        crossings: [],
+        occlusions: [],
+        overlaps: [],
+        small: [],
+        off: [],
+        strays: ["s5-wire (an arrowhead at the end of a line not drawn that far)"],
+      },
+    ]);
+    expect(f.map((x) => x.rule)).toEqual(["stray_marker"]);
+  });
+
   it("seek_order: antialiasing is tolerated, a state leak is not", () => {
     expect(
       gradeSeekOrder([{ sid: "s8", key: "c1a", t: 1.5, order: "descending", px: 50 }]),
@@ -97,6 +168,25 @@ describe("the graders", () => {
     expect(named.map((f) => f.message.slice(0, 3))).toEqual(["#s4"]);
     const loose = gradeErrors(["network request: https://evil.example/"], ["s2", "s4"]);
     expect(loose.map((f) => f.rule)).toEqual(["page_error", "page_error"]);
+  });
+
+  it("measures how much of a box a drawing paints, against the same frame without it", () => {
+    const px = (vals: number[]) => new Uint8Array(vals);
+    // 4x1 frame at 1920/4 scale: the box covers the middle two pixels.
+    const shown = {
+      width: 4,
+      height: 1,
+      channels: 3,
+      pixels: px([0, 0, 0, 200, 200, 200, 0, 0, 0, 9, 9, 9]),
+    };
+    const hidden = {
+      width: 4,
+      height: 1,
+      channels: 3,
+      pixels: px([0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 9, 9]),
+    };
+    expect(paintedShare(shown, hidden, { x: 480, y: 0, w: 960, h: 270 })).toBe(0.5);
+    expect(paintedShare(hidden, hidden, { x: 0, y: 0, w: 1920, h: 270 })).toBe(0);
   });
 
   it("counts changed pixels across channel layouts", () => {
@@ -179,40 +269,94 @@ function narrate(): DeckNarration {
   return { voice: "test", dir: "audio", beats };
 }
 
-const SVG = (inner: string) =>
-  `<svg id="SCENEID-svg" width="1700" height="560" viewBox="0 0 1700 560" style="position:absolute;left:0;top:0">${inner}</svg>`;
-const LABEL = `<text id="SCENEID-lab" x="850" y="280" font-size="56" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text>`;
+/**
+ * Fixtures sized to the beat's own body box (`bespokeRegion`), because the
+ * stage-fill gate measures against it. Corner marks span the box, the label is
+ * the scene's one 72px focal element, and every part sits in a cue group.
+ */
+type Box = { width: number; height: number };
+const SVG = (b: Box, inner: string, style = "") =>
+  `<svg id="SCENEID-svg" width="${b.width}" height="${b.height}" viewBox="0 0 ${b.width} ${b.height}" style="position:absolute;left:0;top:0${style}">${inner}</svg>`;
+const LABEL = (b: Box, size = 72) =>
+  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="${size}" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g>`;
+const CORNERS = (b: Box) =>
+  `<g id="SCENEID-c" data-cue="1">${[
+    [30, 30],
+    [b.width - 30, 30],
+    [30, b.height - 30],
+    [b.width - 30, b.height - 30],
+  ]
+    .map(([x, y], i) => `<circle id="SCENEID-k${i}" cx="${x}" cy="${y}" r="20" fill="#4cc9f0"/>`)
+    .join("")}</g>`;
+const DOT = (b: Box) =>
+  `<g id="SCENEID-m" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="${b.height - 110}" r="30" fill="#f7c948"/></g>`;
+const MOVE = (b: Box) => `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
+tl.to("#SCENEID-dot", { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`;
 
-/** Moves through every cue, nothing crosses its label, seekable. */
-const GOOD: Fragment = {
-  markup: SVG(`${LABEL}<circle id="SCENEID-dot" cx="100" cy="460" r="30" fill="#f7c948"/>`),
+/** Moves through every cue, fills its box, nothing crosses its label, seekable. */
+const GOOD = (b: Box): Fragment => ({
+  markup: SVG(b, `${LABEL(b)}${CORNERS(b)}${DOT(b)}`),
   css: "",
-  script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: 1600 }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`,
-};
+  script: MOVE(b),
+});
 /** Draws, then holds still. */
-const STILL: Fragment = {
-  markup: SVG(LABEL),
+const STILL = (b: Box): Fragment => ({
+  markup: SVG(b, `${LABEL(b)}${CORNERS(b)}`),
   css: "",
   script: `gsap.set("#SCENEID-lab", { opacity: 0 });
 tl.to("#SCENEID-lab", { opacity: 1, duration: 0.5 }, 1);`,
-};
-/** A stroke straight through the label — the spike's stray arc, in miniature. */
-const CROSSING: Fragment = {
+});
+/**
+ * A stroke straight through the label — the spike's stray arc, in miniature.
+ * The path also runs round the box first, so its bounding box CONTAINS the
+ * label: a container is a plate for a fill, never for a stroke through text.
+ */
+const CROSSING = (b: Box): Fragment => ({
   markup: SVG(
-    `${LABEL}<path id="SCENEID-arc" d="M100 280 L1600 280" stroke="#4cc9f0" stroke-width="4"/><circle id="SCENEID-dot" cx="100" cy="460" r="30" fill="#f7c948"/>`,
+    b,
+    `${LABEL(b)}${CORNERS(b)}<g id="SCENEID-x" data-cue="1"><path id="SCENEID-arc" d="M100 60 H${b.width - 100} V${b.height - 60} H100 V${b.height / 2} H${b.width - 100}" fill="none" stroke="#4cc9f0" stroke-width="4"/></g>${DOT(b)}`,
   ),
   css: "",
-  script: GOOD.script,
-};
+  script: MOVE(b),
+});
 /** The equation-walk bug: a second fromTo on a target, from-state written at build time. */
-const ORDERED: Fragment = {
-  markup: SVG(`${LABEL}<circle id="SCENEID-dot" cx="100" cy="460" r="30" fill="#f7c948"/>`),
+const ORDERED = (b: Box): Fragment => ({
+  markup: GOOD(b).markup,
   css: "",
-  script: `${GOOD.script}
+  script: `${MOVE(b)}
 tl.fromTo("#SCENEID-lab", { opacity: 1 }, { opacity: 0.2, duration: 0.5 }, 2);
 tl.fromTo("#SCENEID-lab", { opacity: 0.2 }, { opacity: 1, duration: 0.5 }, 6);`,
-};
+});
+/** Round 1's look: a 48px label and a moving dot huddled in the top-left of the box. */
+const SMALL = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="300" y="80" font-size="48" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder</text></g><g id="SCENEID-m" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="200" r="24" fill="#f7c948"/></g>`,
+  ),
+  css: "",
+  script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
+tl.to("#SCENEID-dot", { attr: { cx: 500 }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`,
+});
+/** An arrow drawn late with a marker: its head shows from the start, where no line is yet. */
+const STRAY = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `<defs><marker id="SCENEID-head" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4cc9f0"/></marker></defs>${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-w" data-cue="1"><path id="SCENEID-wire" d="M120 140 L${b.width - 120} 140" fill="none" stroke="#4cc9f0" stroke-width="5" marker-end="url(#SCENEID-head)"/></g>`,
+  ),
+  css: "",
+  script: `${MOVE(b)}
+gsap.set("#SCENEID-wire", { drawSVG: "0% 0%" });
+tl.to("#SCENEID-wire", { drawSVG: "0% 100%", duration: 1, ease: "none" }, 7);`,
+});
+/** A group tagged for cue 2 that is on screen from the first frame. */
+const EARLY = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-late" data-cue="2"><rect id="SCENEID-tag" x="${b.width - 400}" y="${b.height - 200}" width="240" height="80" fill="#f7c948"/></g>`,
+  ),
+  css: "",
+  script: MOVE(b),
+});
 
 describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
   let dir = "";
@@ -220,31 +364,37 @@ describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
   const sidOf = new Map<string, string>();
   const ids = demo.beats
     .filter((b) =>
-      ["pipeline", "stack", "grid", "bar-compare", "split-compare"].includes(b.archetype),
+      [
+        "pipeline",
+        "stack",
+        "grid",
+        "bar-compare",
+        "split-compare",
+        "line-chart",
+        "annotated-figure",
+      ].includes(b.archetype),
     )
     .map((b) => b.id);
-  const assign: Record<string, Fragment> = {
-    [ids[0] as string]: GOOD,
-    [ids[1] as string]: STILL,
-    [ids[2] as string]: CROSSING,
-    [ids[3] as string]: ORDERED,
-  };
+  const fixtures = { GOOD, STILL, CROSSING, ORDERED, SMALL, STRAY, EARLY };
+  const idOf = Object.fromEntries(Object.keys(fixtures).map((k, i) => [k, ids[i] as string]));
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "decksmith-gates-"));
     const narration = narrate();
     const bespoke: Record<string, { fragment: Fragment; holds: number[] }> = {};
-    for (const [id, fragment] of Object.entries(assign)) {
+    for (const [name, make] of Object.entries(fixtures)) {
+      const id = idOf[name] as string;
       const i = demo.beats.findIndex((b) => b.id === id);
       const beat = demo.beats[i] as (typeof demo.beats)[number];
+      const ink = resolveTheme("ink");
       const holds = emitScene(beat, {
         source,
         format: deck16,
-        theme: resolveTheme("ink"),
+        theme: ink,
         sid: `s${i + 1}`,
         start: 0,
       }).holds;
-      bespoke[id] = { fragment, holds };
+      bespoke[id] = { fragment: make(bespokeRegion(beat, { format: deck16, theme: ink })), holds };
     }
     const built = await buildDeck(demo, source, dir, {
       design: "v2",
@@ -255,33 +405,53 @@ describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
     });
     for (const [i, b] of built.cut.kept.entries()) sidOf.set(b.id, `s${i + 1}`);
     const timing = (await readTimingFile(dir)) as Timing;
-    const wanted = new Set(Object.keys(assign).map((id) => sidOf.get(id) as string));
+    const wanted = new Set(Object.values(idOf).map((id) => sidOf.get(id) as string));
     const errors: string[] = [];
     probe = await probeScenes(sceneWindows(timing, wanted), {
       open: () => openDeck(dir, { watch: errors }),
       errors,
     });
-  }, 240_000);
+  }, 300_000);
 
   afterAll(async () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  const rulesFor = (id: string) =>
-    probe.findings.filter((f) => f.message.startsWith(`#${sidOf.get(id)}`)).map((f) => f.rule);
+  const rulesFor = (name: keyof typeof fixtures) =>
+    probe.findings
+      .filter((f) => f.message.startsWith(`#${sidOf.get(idOf[name] as string)}`))
+      .map((f) => f.rule);
 
-  it("passes a scene that keeps moving, keeps clear of its label and seeks cleanly", () => {
-    expect(rulesFor(ids[0] as string)).toEqual([]);
+  it("passes a scene that keeps moving, fills its box, keeps clear of its label and seeks cleanly", () => {
+    expect(rulesFor("GOOD")).toEqual([]);
+  });
+  it("measures what each scene paints at its settled frame, and leaves the page as it found it", () => {
+    const mass = (name: keyof typeof fixtures) =>
+      probe.layout.find((l) => l.sid === sidOf.get(idOf[name] as string) && l.key === "end")
+        ?.mass ?? -1;
+    expect(mass("GOOD")).toBeGreaterThan(0);
+    expect(mass("SMALL")).toBeLessThan(mass("GOOD"));
+    // Hiding the body to measure it must not leak into the seeks after it.
+    expect(rulesFor("GOOD")).not.toContain("seek_order");
   });
   it("fails a scene that holds still over its narration", () => {
-    expect(rulesFor(ids[1] as string)).toContain("static_hold");
+    expect(rulesFor("STILL")).toContain("static_hold");
   });
   it("fails a stroke through a label", () => {
-    expect(rulesFor(ids[2] as string)).toContain("graphic_crosses_text");
-    expect(rulesFor(ids[2] as string)).not.toContain("static_hold");
+    expect(rulesFor("CROSSING")).toContain("graphic_crosses_text");
+    expect(rulesFor("CROSSING")).not.toContain("static_hold");
   });
   it("fails a frame that depends on seek history", () => {
-    expect(rulesFor(ids[3] as string)).toContain("seek_order");
+    expect(rulesFor("ORDERED")).toContain("seek_order");
+  });
+  it("fails a small drawing in a corner of its box, with no label that reads first", () => {
+    expect(rulesFor("SMALL")).toEqual(expect.arrayContaining(["stage_fill", "type_hierarchy"]));
+  });
+  it("fails an arrowhead shown before its line is drawn, and only that", () => {
+    expect(new Set(rulesFor("STRAY"))).toEqual(new Set(["stray_marker"]));
+  });
+  it("fails a cue-2 group on screen during cue 1, and only that", () => {
+    expect(new Set(rulesFor("EARLY"))).toEqual(new Set(["early_reveal"]));
   });
 });
 

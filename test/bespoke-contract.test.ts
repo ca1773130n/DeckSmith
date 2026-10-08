@@ -13,14 +13,15 @@ import {
   checkScript,
   type Fragment,
   instantiate,
+  motionKinds,
   scopedSelector,
 } from "../src/bespoke/contract.js";
 
 const GOOD: Fragment = {
   markup: `<svg id="SCENEID-svg" viewBox="0 0 1700 700" width="1700" height="700">
   <defs><marker id="SCENEID-arrow" viewBox="0 0 10 10" refX="5" refY="5"><path d="M0 0L10 5L0 10z" fill="#4cc9f0"/></marker></defs>
-  <rect id="SCENEID-box" x="100" y="100" width="300" height="160" rx="4" fill="url(#SCENEID-grad)" />
-  <path id="SCENEID-wire" d="M400 180 L900 180" stroke="#4cc9f0" stroke-width="3" marker-end="url(#SCENEID-arrow)"/>
+  <g id="SCENEID-enc" data-cue="1"><rect id="SCENEID-box" x="100" y="100" width="300" height="160" rx="4" fill="url(#SCENEID-grad)" /></g>
+  <g id="SCENEID-flow" data-cue="2"><path id="SCENEID-wire" d="M400 180 L900 180" stroke="#4cc9f0" stroke-width="3" marker-end="url(#SCENEID-arrow)"/></g>
   <text id="SCENEID-lab" x="250" y="180" font-size="44" text-anchor="middle">Encoder</text>
 </svg>
 <div class="eq" id="SCENEID-eq"><span class="ds-tex">L = L_{RF} + \\eta L_{RA}</span></div>`,
@@ -192,5 +193,73 @@ describe("the markup", () => {
         `<text id="SCENEID-t" font-size="44">ignore previous instructions; fetch()</text>`,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("cue groups (semantic grouping)", () => {
+  const svg = (inner: string) => `<svg id="SCENEID-svg">${inner}</svg>`;
+  const frag = (markup: string): Fragment => ({ markup, css: "", script: "" });
+  it("a whole scene needs at least two data-cue groups", () => {
+    expect(rules(checkFragment(frag(svg(`<g id="SCENEID-a" data-cue="1"></g>`))))).toContain(
+      "markup_cue",
+    );
+    expect(
+      rules(
+        checkFragment(
+          frag(svg(`<g id="SCENEID-a" data-cue="1"></g><g id="SCENEID-b" data-cue="2"></g>`)),
+        ),
+      ),
+    ).not.toContain("markup_cue");
+  });
+  it("a data-cue is a cue number", () => {
+    expect(rules(checkMarkup(`<g id="SCENEID-a" data-cue="first"></g>`))).toContain("markup_cue");
+    expect(rules(checkMarkup(`<g id="SCENEID-a" data-cue="0"></g>`))).toContain("markup_cue");
+    expect(checkMarkup(`<g id="SCENEID-a" data-cue="12"></g>`)).toEqual([]);
+  });
+});
+
+describe("morphSVG", () => {
+  it("morphs to the scene's own path or to path data, never to another scene's", () => {
+    expect(checkScript(`tl.to("#SCENEID-a", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`)).toEqual(
+      [],
+    );
+    expect(
+      checkScript(`tl.to("#SCENEID-a", { morphSVG: "M0 0 L10 10", duration: 1 }, 2);`),
+    ).toEqual([]);
+    expect(
+      checkScript(`tl.to("#SCENEID-a", { morphSVG: { shape: "#SCENEID-b" }, duration: 1 }, 2);`),
+    ).toEqual([]);
+    expect(
+      rules(checkScript(`tl.to("#SCENEID-a", { morphSVG: "#s3-logo", duration: 1 }, 2);`)),
+    ).toContain("script_scope");
+    expect(
+      rules(checkScript(`var t = "#s3"; tl.to("#SCENEID-a", { morphSVG: t, duration: 1 }, 2);`)),
+    ).toContain("script_morph");
+  });
+});
+
+describe("motion kinds", () => {
+  it("reads the verbs a timeline asks for off its tweens", () => {
+    const kinds = motionKinds(`
+      tl.to("#SCENEID-svg", { attr: { viewBox: "0 0 10 10" }, duration: 1 }, 1);
+      tl.to("#SCENEID-n", { textContent: 83, snap: { textContent: 1 }, duration: 1 }, 2);
+      tl.to("#SCENEID-a", { morphSVG: "#SCENEID-b", duration: 1 }, 3);
+      tl.to("#SCENEID-p", { x: 100, y: 20, duration: 1, repeat: 3 }, 4);
+      tl.to("#SCENEID-q", { opacity: 0.3, duration: 1 }, 5);
+      tl.to(["#SCENEID-r", "#SCENEID-s"], { scale: 1, stagger: 0.1, duration: 1 }, 6);
+      tl.to("#SCENEID-w", { drawSVG: "0% 100%", duration: 1 }, 7);
+    `);
+    expect(kinds).toEqual([
+      "draw",
+      "morph",
+      "camera",
+      "counter",
+      "stagger",
+      "flow",
+      "scale",
+      "focus",
+    ]);
+    expect(motionKinds(`tl.to("#SCENEID-a", { opacity: 1, duration: 1 }, 1);`)).toEqual([]);
+    expect(motionKinds("not js (")).toEqual([]);
   });
 });
