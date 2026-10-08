@@ -36,7 +36,7 @@ import { type Runner, type RunnerArgs, runCodex } from "../plan/codex.js";
 import type { Prefs } from "../prefs.js";
 import { planTiming } from "../render/timing.js";
 import type { Beat, Format, Source, Storyboard } from "../types.js";
-import { type SceneWindow, sceneWindows } from "../verify/scenes.js";
+import { GATES_VERSION, type SceneWindow, sceneWindows } from "../verify/scenes.js";
 import { cacheKey, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
 import { checkFragment, type Fragment } from "./contract.js";
 import {
@@ -109,6 +109,7 @@ export interface BespokeReport {
   model: string;
   promptVersion: string;
   contractVersion: string;
+  gates: string;
   caps: { calls: number; seconds: number };
   calls: number;
   tokens: number;
@@ -204,6 +205,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     version: 1,
     model,
     promptVersion: PROMPT_VERSION,
+    gates: GATES_VERSION,
     contractVersion: CONTRACT_VERSION,
     caps: { calls: prefs.maxCalls, seconds: prefs.maxSeconds },
     calls: budget.calls,
@@ -222,7 +224,16 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   }
 
   const { theme } = deckLook(storyboard, input.theme);
-  const base = { theme: input.theme, design: "v2" as const, narration, speed: 1 };
+  // A beat its archetype cannot draw is dropped here exactly as `build` drops
+  // it (`onBeatError`), silently, because `build` already says so: the pass
+  // must stage the deck `build` will emit, and must never be what fails it.
+  const base = {
+    theme: input.theme,
+    design: "v2" as const,
+    narration,
+    speed: 1,
+    onBeatError: () => {},
+  };
   const cut = planCut(storyboard, source, format, base);
   const kept = cut.kept;
   const selection = selectBespoke(kept, {
@@ -370,7 +381,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     if (hit?.verdict === "accepted" && hit.fragment && checkFragment(hit.fragment).length === 0) {
       b.cached = hit.fragment;
       step(`bespoke: ${b.beat.id} from cache`);
-    } else if (hit?.verdict === "rejected") {
+    } else if (hit?.verdict === "rejected" && hit.gates === GATES_VERSION) {
       b.stop = `cached rejection: ${hit.note}`;
       b.earned = true;
       step(`bespoke: ${b.beat.id} — cached rejection, keeping the archetype`);
@@ -539,6 +550,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         calls: b.calls,
         model,
         promptVersion: PROMPT_VERSION,
+        gates: GATES_VERSION,
       });
       scenes.push(
         report1("bespoke", {
@@ -568,6 +580,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         calls: b.calls,
         model,
         promptVersion: PROMPT_VERSION,
+        gates: GATES_VERSION,
       });
     }
     scenes.push(report1("fallback", { reason, findings }));

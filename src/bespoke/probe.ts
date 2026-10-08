@@ -63,6 +63,8 @@ export function browserGate(deck: ProbeDeck): GateFn {
       speed: 1,
       assetsFrom: deck.assetsFrom,
       bespoke: candidates,
+      // As `build` does: a beat its archetype refuses costs that slide, not the probe.
+      onBeatError: () => {},
     });
     const sidOf = new Map(built.cut.kept.map((b, i) => [b.id, `s${i + 1}`]));
     const timing = await readTimingFile(dir);

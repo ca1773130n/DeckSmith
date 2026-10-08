@@ -478,6 +478,22 @@ describe("the bespoke pass", () => {
     expect(second.report.scenes.every((s) => /cached rejection/.test(s.reason ?? ""))).toBe(true);
   });
 
+  it("survives a beat its archetype cannot draw, as build does", async () => {
+    const cf = demo.beats.find((b) => b.archetype === "claim-figure") as Beat;
+    const broken = {
+      ...cf,
+      id: "broken",
+      params: { ...cf.params, figureId: "no-such-figure" },
+    } as Beat;
+    const board = { ...demo, beats: [...demo.beats, broken] };
+    const { run } = fake(() => SCENE);
+    const r = await bespokePass({
+      ...input({ run, storyboard: board, narration: narrate(demo) }),
+      prefs: prefs(),
+    });
+    expect(Object.keys(r.map).length).toBeGreaterThan(0);
+  });
+
   it("does nothing on a paced deck, whose cue times are not the scene's", async () => {
     const { calls, run } = fake(() => SCENE);
     const r = await bespokePass({ ...input({ run, speed: 0.8 }), prefs: prefs() });

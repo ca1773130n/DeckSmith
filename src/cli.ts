@@ -1425,6 +1425,12 @@ async function runBespoke(
       onStep: step,
       gate: browserGate({ ...deck, narration, work, onStep: step }),
     });
+  } catch (err) {
+    // The pass must never be what fails a build: every beat keeps its archetype.
+    step(
+      `build: the bespoke pass stopped (${err instanceof Error ? err.message.split("\n")[0] : err}), so every beat keeps its archetype`,
+    );
+    return undefined;
   } finally {
     if (!keep) await rm(work, { recursive: true, force: true });
   }
