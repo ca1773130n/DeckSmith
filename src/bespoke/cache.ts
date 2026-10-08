@@ -61,6 +61,12 @@ export interface CacheEntry {
   calls: number;
   model: string;
   promptVersion: string;
+  /**
+   * `GATES_VERSION` when the verdict was reached. A rejection is the gates'
+   * opinion, so one from other gates is not trusted; an acceptance is re-gated
+   * on every build anyway.
+   */
+  gates?: string;
 }
 
 /** JSON with sorted keys, so two equal objects hash equal whatever order they were built in. */

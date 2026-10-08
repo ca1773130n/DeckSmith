@@ -35,8 +35,18 @@ import { decodePng, type Frame } from "./fidelity.js";
 
 /** A pixel counts as changed when its RGB moved by more than this, summed. Same as the spike's. */
 export const PIXEL_DELTA = 24;
-/** Fewer changed pixels than this between two seeks of one instant is antialiasing. */
-export const SEEK_TOLERANCE_PX = 200;
+/**
+ * Fewer changed pixels than this between two seeks of one instant is rasterising,
+ * not state. MEASURED: a never-seeked page against a warm one differs by up to
+ * 644px on a scene that looks identical — antialiasing along the headline's
+ * glyphs, which the shell's own entrance had moved — and a KaTeX glyph by 529px.
+ * The leaks this gate exists for are an order of magnitude past it: 13,958 and
+ * 22,037px for the equation-walk bug, a dimmed label in the test at several
+ * thousand.
+ */
+export const SEEK_TOLERANCE_PX = 1500;
+/** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
+export const GATES_VERSION = "gates-2";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
