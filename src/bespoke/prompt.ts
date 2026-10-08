@@ -20,7 +20,7 @@ import type { Theme } from "../emit/kit.js";
 import { SID_TOKEN } from "./contract.js";
 
 /** Bump with any change to either prompt: it is part of every cache key. */
-export const PROMPT_VERSION = "bespoke-1";
+export const PROMPT_VERSION = "bespoke-2";
 /** Bump with any change to what `checkFragment` accepts. Also part of every key. */
 export const CONTRACT_VERSION = "contract-1";
 
@@ -113,7 +113,7 @@ function contract(b: Brief): string {
      tween, add immediateRender:false.
    - vars are ALWAYS object literals written inline. No functions anywhere in vars (no
      function-based values, no onStart/onUpdate/onComplete or any other callback), no
-     repeat:-1 (finite repeat only, 0..60), no "random(...)" strings, no stagger from:"random".
+     repeat:-1 (repeat as a NUMBER LITERAL 0..60 — never a variable), no "random(...)" strings, no stagger from:"random".
    - Allowed: gsap.set, gsap.utils.interpolate/clamp/mapRange/normalize/snap/wrap, tl.to/
      fromTo/set, root.querySelector/querySelectorAll, Math (not Math.random), Number, Array,
      parseFloat, parseInt, var/let/const, for loops with a condition, local functions, arrays,
@@ -152,7 +152,8 @@ ${anchors(W, H)}
    b ${t.tones.b}, c ${t.tones.c}, d ${t.tones.d}. Font: inherit (already loaded). Strokes 2-4px.
    No images, no external URLs, no web fonts.
 8. LIBRARIES. gsap 3 and DrawSVGPlugin are registered (tween drawSVG:"0% 0%" -> "0% 100%"
-   to draw a stroke). MorphSVG and MotionPath are NOT available: move things along a path by
+   to draw a stroke). A marker (arrowhead) renders even while its path is drawn to 0%,
+   so keep such a path at opacity 0 until it starts drawing. MorphSVG and MotionPath are NOT available: move things along a path by
    tweening attr x/y or transforms through explicit keyframes. For typeset math, put
    <span class="ds-tex">TeX source</span> inside an HTML <div> overlay; the shell typesets it
    with KaTeX. Give that div a font-size >= 48px. Never put TeX inside SVG <text>.
@@ -195,7 +196,9 @@ ${contract(b)}
 # CREATIVE DIRECTION
 - First choose the single visual metaphor that makes this mechanism obvious to a smart
   non-expert, then write the plan, then the layout table, then code.
-- Use the whole box: the drawing should span at least 70% of its width and height by the end.
+- Use the whole box: by the end the drawing spans at least 80% of its width AND its height —
+  reach the E/F columns and row 4. A diagram huddled in the top-left with an empty right third
+  or bottom band is the most common defect; plan the layout table so it cannot happen.
 - The final frame (D-0.5s) must be a complete, legible diagram that summarises the beat alone.
 - Motion carries meaning (flow = data moving, distance = similarity, a line drawing = a
   quantity being traced). No decorative spinning or bouncing. Eases: power2/power3/expo for
