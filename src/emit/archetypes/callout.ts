@@ -174,7 +174,11 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // panel count, and two panels each carrying 130px of empty floor is the hole
   // inside a border this fraction was chosen to avoid. Same intent, applied to
   // the thing that is actually growing.
-  const air = cols === 1 ? AIR_DOWN : AIR_ACROSS;
+  // v2 takes the smaller air across too: its `need` is already counted at
+  // MEASURE_SLACK, which over-predicts wrapping by ~8%, so 1.22 on top of it
+  // left the bottom third of every panel blank (ko deck b09, 2026-10-09: three
+  // panels to y≈655, their text ending at y≈445-500).
+  const air = cols === 1 || v2 ? AIR_DOWN : AIR_ACROSS;
   // v2: the TYPE grows until the panels, with their air, meet the box — the
   // panel stays proportional to its content (the reason for the cap above) and
   // the content is what gets bigger. Checked only after classic's own refusal,
@@ -281,6 +285,17 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       noteCss("conote", theme),
       // Scene-scoped: two callouts in one deck grow by different amounts, and the
       // shell emits each archetype's shared block once.
+      // v2: what air a panel keeps is split above and below its content rather
+      // than pooled under the last line, and a wrapped line is balanced so no
+      // panel ends on a lone "= 0.9" (b09, same review).
+      ...(v2
+        ? [
+            `#${sid} .pline,#${sid} .plabel{text-wrap:balance}`,
+            ...(rowsVariant
+              ? []
+              : [`#${sid} .panel{display:flex;flex-direction:column;justify-content:center}`]),
+          ]
+        : []),
       ...(v2 && k > 1
         ? [
             `#${sid} .panel{font-size:${grown.body}px}`,

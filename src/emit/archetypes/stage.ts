@@ -364,7 +364,7 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
             // is where the column's free space goes.
             `.stg-t{position:relative;display:flex;flex-direction:column}`,
             `#${sid} .stg-t{max-width:${col}px;${BLOCK[placement]}}`,
-            `.stg-h{${family}font-size:${HEAD_SIZE}px;line-height:${HEAD_LH};font-weight:${type.headline.weight};color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45)}`,
+            `.stg-h{${family}font-size:${HEAD_SIZE}px;line-height:${HEAD_LH};font-weight:${type.headline.weight};color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45);text-wrap:balance}`,
             `.stg-l{font-size:${LINE_SIZE}px;line-height:${LINE_LH};color:#ececec;margin-top:${LINE_GAP}px;text-shadow:0 2px 10px rgba(0,0,0,.45)}`,
           ]
         : []),

@@ -453,6 +453,21 @@ describe("callout under v2", () => {
     ).toThrow(/not a table row/);
   });
 
+  it("splits a panel's air above and below its lines, and balances a wrapped line", () => {
+    // ko deck b09 (2026-10-09): three panels to y≈655 with their text ending at
+    // y≈445-500, and "= 0.9" alone on a line.
+    const v = callout(short, ctx("v2"));
+    expect(v.css).toContain(
+      "#s1 .panel{display:flex;flex-direction:column;justify-content:center}",
+    );
+    expect(v.css).toContain("#s1 .pline,#s1 .plabel{text-wrap:balance}");
+    // Rows are a table: their own grid, not a centred column.
+    const rows = callout(short, { ...ctx("v2"), look: { variant: "rows", placement: "top" } });
+    expect(rows.css).not.toContain("justify-content:center}");
+    // Classic is untouched.
+    expect(callout(short, ctx()).css).not.toContain("text-wrap");
+  });
+
   it("refuses exactly what classic refuses", () => {
     const over = beat("callout", {
       headline: "Too much",

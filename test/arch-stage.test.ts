@@ -169,6 +169,9 @@ describe("stage", () => {
       // The scrim reaches a solid black at the alpha the contrast argument rests on.
       expect(css).toMatch(/#s4 \.stg-scrim\{background:linear-gradient\([^}]*rgba\(0,0,0,0\.55\)/);
       expect(css).toContain("color:#fff");
+      // Balanced, so a headline never ends on one short word under a full line
+      // ("만든다", "한다" alone on line two: ko deck b02 and b12, 2026-10-09).
+      expect(css).toMatch(/\.stg-h\{[^}]*text-wrap:balance/);
       const sizes = fontSizes(css);
       expect(sizes.length).toBeGreaterThan(0);
       for (const size of sizes) expect(size).toBeGreaterThanOrEqual(MIN_FONT);
