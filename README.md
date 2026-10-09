@@ -969,7 +969,11 @@ under them still hit; only the changed beat is drawn again.
 **Per beat:** device → illustration (or none) → draft → static contract → probe deck (a real build with every
 `verify` gate plus the motion gates, photographed at every cue) → the rubric probe → at most
 one critique-and-fix call with the contact sheet and the measures attached (`codex exec -i`)
-→ static contract → probe again → repair rounds. A draft that passed every gate and is clean
+→ static contract → probe again → repair rounds → for a beat that would otherwise fall back
+(its critique's scene fails and its draft did not pass), ONE second critique with that
+scene's own frames and findings, if the call cap and 420s of the clock allow, then its gates
+and repairs. r1 (2026-10-10) fell back on its three core mechanism beats, 24% of the video,
+each on a collision or two its critique had moved rather than removed. A draft that passed every gate and is clean
 by the rubric probe is kept without the critique call; one that fails only on what the
 repair fixes, and is otherwise clean, is repaired instead of critiqued. A beat that does not
 pass keeps its archetype — the deck is never failed. If the fix round breaks a draft that
@@ -1006,10 +1010,14 @@ for the chart that builds with the voice — axes draw, bars grow with their cou
 line traces, the named value lights — from the beat's own numbers, never a table painted
 over an illustration (`data_over_picture`).
 
-**The camera** of an illustrated scene is the shell's, staged in one grammar
-(`src/bespoke/shots.ts`). The scene names its `shots` — on which cue, how far into it, which
-subject — and the shell compiles them: an ESTABLISHING shot of the whole picture for at
-least 1.6s, a PUSH IN (1.1s, power3.inOut) that frames the named subject and its label at
+**The camera** of an illustrated scene is the shell's, staged in one of two grammars
+(`src/bespoke/shots.ts`), alternated over a deck's illustrated beats in deck order: one
+grammar for all of them made r1's three illustrated scenes the same tour three times. The
+scene names its `shots` — on which cue, how far into it, which subject — and the shell
+compiles them. `close-open` starts CLOSE on the first named subject at t=0 and opens out to
+the whole picture only at the reveal; `tour` starts with an ESTABLISHING shot of the whole
+picture for at
+least 1.6s, then a PUSH IN (1.1s, power3.inOut) that frames the named subject and its label at
 1.6-2.2x, a move straight to the next subject, a 3% creep while a shot is held, and a
 REVEAL back to the whole picture at the last cue; shots closer than 1.6s are dropped. Every
 camera tween is a `fromTo` with explicit from-values, and no two touch. The scene's own
@@ -1023,7 +1031,8 @@ scene says what each subject is called (`labels`); the shell gives each subject 
 above it (or across its top when there is no room), as wide as half the gap to each
 neighbour, and sets the name there on a plate — 56px, shrinking to 44, then two lines —
 with a leader line to a dot on the subject, entering as the camera first arrives on it (or
-at the reveal). The zones are in the draft prompt, which tells the scene to keep its own
+at the reveal). A label a later push-in would frame half in and half out (a neighbour's,
+usually) fades out as that move starts and back in when a shot shows it whole. The zones are in the draft prompt, which tells the scene to keep its own
 drawing out of them; a name that does not fit even on two lines at 44px is refused
 statically (`labels`). Round 4's first run, with the scene placing its own labels on the
 subjects, put them there and then failed four scenes in five on their own plates and
@@ -1122,16 +1131,25 @@ on its first paint, an outline round every subject, 12,698px raw, counts 309), `
 drawing's bounding box covers 80% of its box), `type_hierarchy` (one label of 64px or
 more at the end; not asked of an illustrated scene), `stray_marker` (an SVG marker painted where its line is not drawn),
 `early_reveal` (a `data-cue="N"` group showing more than 0.5s before cue N),
-`shot_variety` (an illustrated scene opens on the whole picture and the camera — sampled
+`text_clipped` (a word cut by the frame's edge while held: sampled every 0.5s, three samples
+in a row, under 96% of its width or 75% of its line box inside the clip), `morph_glitch` (a
+path tween — `attr: { d }` or morphSVG — whose shape, at any in-between sample, reaches more
+than 35% of its ends' size past the union of its two ends: r1 s4's wedge, an x tweened into
+a y between paths of different commands), `dim_text` (a word held under 3:1 contrast with
+what is painted behind it at a cue's end or the end; repaired without a call by lifting a
+literal dimming opacity on its targets to 0.6),
+`shot_variety` (an illustrated scene opens on the whole picture — unless its grammar is
+`close-open` — and the camera — sampled
 every 0.5s, no screenshot — HOLDS push-ins at 1.5x or closer on at least two different
 subjects; round 3's 1.1-1.4x pans are not push-ins), `label_anchor` (a label that names a
 subject sits within 96px of its box and covers no other subject by more than a quarter of
 itself, and at the end at least two subjects are named that way), `data_over_picture`
 (five or more numbers on the illustration),
 `cue_groups` (no such groups, or one naming a cue the scene does not have), `card_row`
-(`src/bespoke/cards.ts`, read off the markup: three or more alike rectangles in a row or a
-column, or four in a grid, covering 12% of the box — cards, panels or tiles as the main
-visual; such a scene goes to its one critique call and falls back if it is still cards), `end_dimmed`
+(`src/bespoke/cards.ts`, read off the markup: three or more alike rectangles — rects, or
+divs placed in px — in a row or a column, or four in a grid, covering 12% of the box —
+cards, panels or tiles as the main visual; never asked of a data beat, whose bars are alike
+by design; such a scene goes to its critique and falls back if it is still cards), `end_dimmed`
 (at the settled frame, more than 10% of the parts the scene had shown lit are left under
 0.6 opacity — a part drawn translucent from the start is not counted) and `camera_end` (the
 camera, or a viewBox, not home at the settled frame). Content
