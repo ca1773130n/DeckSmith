@@ -701,6 +701,46 @@ describe("illustrate", () => {
     expect(await readdir(assetsDir)).toHaveLength(6);
   });
 
+  /**
+   * A plate is a cut-out on white; a stage or a backdrop must run off every
+   * edge. Same prompt, same aspect, same rung — if `bleed` were not in the key,
+   * the stage would be served the plate from disk: the grey bands 6ff7762 fixed.
+   */
+  it("keys a full-bleed picture apart from a plate of the same prompt", async () => {
+    const assetsDir = await dir();
+    const one = (archetype: "claim-figure" | "stage") =>
+      storyboardSchema.parse({
+        sourceId: "paper",
+        title: "A paper",
+        beats: [
+          {
+            id: "b1",
+            intent: "i",
+            archetype,
+            params:
+              archetype === "stage"
+                ? { headline: "H", placement: "bottom-left", illustration: brief("a fjord") }
+                : { headline: "H", claim: "C", illustration: brief("a fjord") },
+          },
+        ],
+      });
+    const plate = await illustrate(one("claim-figure"), source, {
+      prefs: prefs(),
+      assetsDir,
+      chain: [fake("a").provider],
+    });
+    const again = fake("a");
+    const bled = await illustrate(one("stage"), source, {
+      prefs: prefs(),
+      assetsDir,
+      chain: [again.provider],
+    });
+    expect(again.calls).toEqual([expect.objectContaining({ prompt: "a fjord", bleed: true })]);
+    expect(bled.illustrated.map((i) => i.cached)).toEqual([false]);
+    const src = (o: typeof plate) => o.source.figures.find((f) => f.id === "gen-b1")?.src;
+    expect(src(bled)).not.toBe(src(plate));
+  });
+
   it("drops a rung after its first failure, says so once, and carries on down", async () => {
     const assetsDir = await dir();
     const a = fake("a", "boom");
