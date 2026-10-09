@@ -1058,8 +1058,8 @@ nothing inside a picture can be read or checked, so the picture illustrates and 
 `evidence` still points at the section. `plan` says how many pictures the storyboard asks
 for and the command to run; `build` and `pack` refuse the file until they exist.
 
-A `pipeline`, `split-compare`, `callout` or `bar-compare` may also carry a
-`backdrop: { illustration }` — a scene the diagram is drawn over. The picture covers the
+A `pipeline`, `split-compare`, `callout`, `bar-compare`, `hero-number` or `kinetic` may
+also carry a `backdrop: { illustration }` — a scene the diagram is drawn over. The picture covers the
 frame and drifts slowly, a uniform black scrim (0.62) darkens it, and the archetype is
 drawn unchanged in a glass palette: dark translucent panels, light ink, tones lifted just
 far enough to clear 4.5:1 over a pure-white pixel. Geometry and holds are the
@@ -1302,7 +1302,7 @@ names the figure or equation it rests on, a later pass can ask whether the anima
 actually asserts what the source asserts. Prior art verifies that slides *look* fine;
 nothing verifies that they are *true*.
 
-## The fourteen archetypes
+## The sixteen archetypes
 
 The explanatory vocabulary. These came out of hand-building a real deck
 (`.planning/EXPERIMENT-002-thinksr-korean.md`), not from guessing at what might be useful.
@@ -1323,10 +1323,12 @@ The explanatory vocabulary. These came out of hand-building a real deck
 | `bar-compare` | magnitudes that share a unit, grown from zero | `bars` (2–8), `unit?`, `backdrop?` |
 | `stack` | layers drawn bottom-up as offset planes | `layers` (2–7) |
 | `split-compare` | two things side by side, each figure or lines | `left`, `right`, `backdrop?` |
+| `hero-number` | one number filling the frame, its digits rolled in like an odometer | `value`, `unit?`, `label`, `compare?`, `headline`, `backdrop?` |
+| `kinetic` | a claim as moving type: 2–4 phrases, each its own move, a key word struck | `phrases` (`text`, `key?`), `headline`, `backdrop?` |
 
-The last six draw the mechanism rather than describe it, and `verify` warns when a deck
-leans on the others: a deck of headlines and bullet panels is what every other slide
-generator already makes.
+All but `title`, `data-table`, `callout` and `kinetic` draw rather than describe
+(`DIAGRAMMATIC` in `src/types.ts`), and `verify` warns when a deck leans on those four: a
+deck of headlines and bullet panels is what every other slide generator already makes.
 
 `stage` is the slide that is not a slide: the figure covers the frame edge to edge
 (cover-fit, so it is cropped to the frame's shape), with no plate, border or column. Words
@@ -1345,6 +1347,25 @@ once both are in, or after a piece's last frame. A still or clip drifts 4% over 
 cropped by more than 30% to fill the frame. With `--reserve-captions` the picture stops
 above the caption strip. The planner is told to reach for it when a visual should own the
 screen, and, under RULE 1's variety rule, to give consecutive stages different placements.
+
+`hero-number` and `kinetic` are full-bleed too, and need no picture. Without a
+`backdrop` they stand on a field of the pack's accent, darkened until it is no lighter
+than half the backdrop scrim's worst-case ground, so the same glass inks clear 4.5:1 on
+it; with one they go over the picture as the diagrams do. `hero-number` sets `value` as
+large as the frame holds (160–560px) and rolls each digit in on a reel — a strip of
+0-9 clipped to one cell with `clip-path`, its `y` tweened a whole number of cells, the
+right-hand reels turning most and every reel landing left to right. No counter is
+written from a callback (invariant 11). A `compare` whose value and `value` are both
+plain numbers is drawn as two bars to one scale, the baseline first; otherwise as a
+second figure. One stop, after the `headline` under it. `kinetic` sets two to four
+`phrases` as large as two lines each allow (64–120px), down a slight stair; each
+arrives word by word with its own move (rise, slide, drop or zoom, the first seeded by
+the beat id), then its `key` — verbatim in the phrase — is struck by a chip swept in
+behind it. One stop per phrase. Its moves are the content, so the scene sets
+`ownEntrances` and the v2 motion grammar leaves them alone. Its `headline` labels the
+slide and is not drawn. With `--images` both count as scenes, and the planner is held
+to at most 36% panel beats (pipeline, split-compare, callout, stack, data-table,
+backdrop or not): five of fourteen.
 
 `line-chart`'s `compare` is the one parameter that changes what its archetype *is*. Given
 `{ label, points }` the chart draws the baseline first, holds it, then reshapes the curve
