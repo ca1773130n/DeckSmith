@@ -110,7 +110,9 @@ decksmith unpack  talk.deck        -o reopened/
   from the viewer. `--subtitles burn` makes it part of the picture, and it is only
   accepted over a deck built with `--reserve-captions` — the layout is fixed at build
   time, so a deck that made no room cannot be given any an hour later, and the band would
-  land on the slide's own text. `render` refuses that rather than shipping it.
+  land on the slide's own text. `render` refuses that rather than shipping it. A burned
+  caption is a quiet lower third: 40-44px white type with a close dark halo, no box
+  (2026-10-10; it was 4% of the width — 71px at 1920 — on a 70% black bar).
 - **drift** — renders the deck twice and compares every frame. `--identical` fails on any
   differing byte, which is only honest for an image-free deck with no camera — the demo
   deck is not one, and fails it on both hyperframes pins (see
@@ -905,17 +907,27 @@ byte for byte. See `.planning/2026-10-07-v2-layout-director.md`.
 eyebrow and headline, every seam the same 0.4s dissolve, nothing moving once a slide has
 built — with a grammar planned per deck (`src/emit/motion.ts`):
 
-- **Entrances.** Six verbs — `rise`, `slide`, `snap`, `focus`, `wipe`, `mask` — one per
-  scene, chosen from the source id and beat id, never the same twice in a row, with the
-  stock `rise` capped at a quarter of the deck.
+- **Entrances.** One verb, `fade`: a part's opacity reveal at its own time and length,
+  with no travel, scale, clip or blur. There were six (`rise`, `slide`, `snap`, `focus`,
+  `wipe`, `mask`), and the founder's verdict on plates, chips, cards and labels sliding
+  and popping in was "graphic animation by animated UI elements is old-fashioned"
+  (2026-10-10). On a fallback archetype the motion is the picture's — the backdrop's
+  drift, the field, the camera — and the seams'; no panel or slab is lifted as it is
+  read, and split-compare's divider no longer sweeps a highlight.
 - **Seams.** `dissolve`, `push`, `lift`, `wipe`, `zoom`, picked from how two neighbouring
   beats relate (same family → push, a role boundary → zoom, a title → lift, into the close
   → dissolve), never repeated back to back, and at least three kinds in a deck of ten or
   more beats. A beat `inside` the one before keeps the camera dive.
-- **Emphasis while the narrator talks.** The part a sentence is about pulses, glows or is
-  underlined, starting on a cue boundary of that sentence inside the quiet stretch after
-  its stop, and is back at rest before the next reveal — so every frame a gate captures
-  at a stop is unchanged.
+- **Emphasis while the narrator talks.** The part a sentence is about glows (light only;
+  the scale `pulse` and the `underline` went with the entrances), starting on a cue
+  boundary of that sentence inside the quiet stretch after its stop, and is back at rest
+  before the next reveal — so every frame a gate captures at a stop is unchanged.
+
+**Type** (`V2_TYPE` in `src/emit/type.ts`, the founder's scale of 2026-10-10): headline
+and title slide 56px, kicker 40px, body, labels, notes and burned captions 40-44px, a
+display equation asked at 64px at most (its scripts then land at 44.8px), nothing under
+40px. Every v2 pack sets it; archetypes no longer grow their type into the region (their
+bars, boxes and figures still grow). `--design classic` keeps its own sizes.
 
 All of it is `fromTo` tweens with no callbacks, seeded rather than random, and keeps every
 hold, every scene window and `timing.json` exactly as `classic` writes them. In `deck.html`
@@ -1056,7 +1068,7 @@ through the static contract and is gated again (at most two repair rounds).
 
 **What the model is shown** (`src/bespoke/prompt.ts`): the beat, its cues, the paper's
 excerpts (fenced, untrusted), the contract, motion-design rules with numbers (one focal
-element per cue at 88-120px, the rest dimmed but kept; fill the box; paint it with filled
+element per cue, type 40-44px with the focal label 56px at most (`V2_TYPE`), the rest dimmed but kept; fill the box; paint it with filled
 shapes; at least three kinds of motion, one of flow, camera, counter or morph; the end
 frame a summary), text widths measured in the pack's own font, and two of four hand-made
 reference scenes (`src/bespoke/references.ts`: a routing mechanism with particle flow and
@@ -1072,8 +1084,8 @@ its scenes morphs.
 **The rubric probe** (`rubricProbe`, free: it reads what the probe measured) sends a
 passing draft to the critique round when any of these is off: the drawing paints under 12%
 of its box at the end (round 1's scenes painted 4-16%), more than half its parts are still
-dimmed at the end, no label reaches 88px (not asked of an illustrated scene, whose picture
-is its focus and whose names are the shell's), fewer than three kinds of motion or none of
+dimmed at the end, no label reaches 44px (not asked of an illustrated scene, whose picture
+is its focus and whose names are the shell's), a label declares over 56px, fewer than three kinds of motion or none of
 flow/camera/counter/morph, an illustrated scene that holds fewer than two push-ins, does not
 open wide, or names fewer than two subjects on them, a cue whose picture changes by under
 0.5% of the frame, or a warning about the scene. The critique round scores the frames against a six-line rubric
@@ -1128,8 +1140,9 @@ its plate — or a shape painted over one), `seek_order` (the frame must not dep
 was seeked before it, beyond 1500px of rasterising noise — counted on changed AREAS: a pixel
 counts when it and its 8 neighbours changed, so a picture re-rasterised a hair differently
 on its first paint, an outline round every subject, 12,698px raw, counts 309), `stage_fill` (the settled
-drawing's bounding box covers 80% of its box), `type_hierarchy` (one label of 64px or
-more at the end; not asked of an illustrated scene), `stray_marker` (an SVG marker painted where its line is not drawn),
+drawing's bounding box covers 80% of its box), `type_hierarchy` (one label of 44px or
+more at the end; not asked of an illustrated scene), `type_ceiling` (no label DECLARES more
+than 56px at the end — a push-in may draw it larger; KaTeX is exempt), `stray_marker` (an SVG marker painted where its line is not drawn),
 `early_reveal` (a `data-cue="N"` group showing more than 0.5s before cue N),
 `text_clipped` (a word cut by the frame's edge while held: sampled every 0.5s, three samples
 in a row, under 96% of its width or 75% of its line box inside the clip), `morph_glitch` (a
@@ -1587,8 +1600,8 @@ The explanatory vocabulary. These came out of hand-building a real deck
 | `bar-compare` | magnitudes that share a unit, grown from zero | `bars` (2–8), `unit?`, `backdrop?` |
 | `stack` | layers drawn bottom-up as offset planes | `layers` (2–7) |
 | `split-compare` | two things side by side, each figure or lines | `left`, `right`, `backdrop?` |
-| `hero-number` | one number filling the frame, its digits rolled in like an odometer | `value`, `unit?`, `label`, `compare?`, `headline`, `backdrop?` |
-| `kinetic` | a claim as moving type: 2–4 phrases, each its own move, a key word struck | `phrases` (`text`, `key?`), `headline`, `backdrop?` |
+| `hero-number` | one number as the slide's statement (v2: 56px, faded in; classic: filling the frame, rolled in like an odometer) | `value`, `unit?`, `label`, `compare?`, `headline`, `backdrop?` |
+| `kinetic` | a claim as type: 2–4 phrases (v2: 44-56px, faded in, the key word turns the accent; classic: each its own move, a key word struck) | `phrases` (`text`, `key?`), `headline`, `backdrop?` |
 
 All but `title`, `data-table`, `callout` and `kinetic` draw rather than describe
 (`DIAGRAMMATIC` in `src/types.ts`), and `verify` warns when a deck leans on those four: a
@@ -1618,7 +1631,12 @@ is a `bar-compare`, which classic still draws on its ground). Without a
 turn, by the beat's place in the deck, so field beats near each other differ — darkened
 until it is no lighter
 than half the backdrop scrim's worst-case ground, so the same glass inks clear 4.5:1 on
-it; with one they go over the picture as the diagrams do. `hero-number` sets `value` as
+it; with one they go over the picture as the diagrams do. Under `--design v2` both are
+quiet: `hero-number` sets `value` at the headline's 56px in the accent, its label and
+comparison as body lines, every part faded in where it stands; `kinetic` sets its phrases
+at 56px down to 44px, each word fading in, and turns the `key` the accent instead of
+sweeping a chip behind it — the motion is the picture under them. In classic,
+`hero-number` sets `value` as
 large as the frame holds (160–560px) and rolls each digit in on a reel — a strip of
 0-9 clipped to one cell with `clip-path`, its `y` tweened a whole number of cells, the
 right-hand reels turning most and every reel landing left to right. No counter is
