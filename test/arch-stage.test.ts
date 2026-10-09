@@ -167,7 +167,7 @@ describe("stage", () => {
       expect(scene.html).toContain('<p class="stg-l" id="s4-l">Everything else is a panel</p>');
       const css = scene.css ?? "";
       // The scrim reaches a solid black at the alpha the contrast argument rests on.
-      expect(css).toMatch(/#s4 \.stg-scrim\{background:linear-gradient\([^}]*rgba\(0,0,0,0\.66\)/);
+      expect(css).toMatch(/#s4 \.stg-scrim\{background:linear-gradient\([^}]*rgba\(0,0,0,0\.55\)/);
       expect(css).toContain("color:#fff");
       const sizes = fontSizes(css);
       expect(sizes.length).toBeGreaterThan(0);
@@ -176,8 +176,7 @@ describe("stage", () => {
   );
 
   it("grows the scrim with the text it sits under", () => {
-    const solid = (css: string) =>
-      Number(/rgba\(0,0,0,0\.66\) (\d+)px,rgba\(0,0,0,0\)/.exec(css)?.[1]);
+    const solid = (css: string) => Number(/rgba\(0,0,0,0\.55\) ([1-9]\d*)px/.exec(css)?.[1]);
     const one = stage(beat({ headline: "Short" }), ctx()).css ?? "";
     const three =
       stage(
@@ -247,7 +246,7 @@ describe("stage", () => {
    * white text over an unscrimmed picture with every other case green.
    *
    * Three claims, at every placement and format: every corner of the words'
-   * column is under the full 0.66; the picture is CLEAR away from the words on
+   * column is under the full 0.55; the picture is CLEAR away from the words on
    * any axis the frame has room on (a full-width band dimmed the sun the 16:9
    * headline named, and at 9:16 `right` put 96% of the frame under 0.66); and
    * the block's own CSS puts it at the corner the scrim assumes.
@@ -332,7 +331,7 @@ describe("stage", () => {
         [x0, y1],
         [x1, y1],
       ] as const) {
-        expect(alpha(x, y), `corner (${x}, ${y})`).toBeCloseTo(0.66, 6);
+        expect(alpha(x, y), `corner (${x}, ${y})`).toBeCloseTo(0.55, 6);
       }
 
       // Clear away from the words, wherever the frame has the room.

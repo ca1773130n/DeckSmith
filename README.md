@@ -1325,7 +1325,7 @@ are optional. `placement` is one of `none`, `bottom-left`, `top-left`, `center` 
 `right`; under anything but `none` the `headline` (72px) and an optional `line` (44px)
 are set in white over a black scrim. The scrim's solid part is sized from the text's
 measured height and width, bounded on both axes so the rest of the picture is left
-alone, and is 66% black, which white text clears at about 7:1 even over a pure white
+alone, and is 55% black, which white text clears at about 4.8:1 even over a pure white
 picture, so the contrast gate passes on whatever the picture is. Text is never shrunk: words
 that need more than three headline lines or two of `line` in their placement's column take
 a wider column (and `build` warns), and only words that will not fit across the whole

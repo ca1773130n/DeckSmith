@@ -10,9 +10,11 @@
  * WHAT KEEPS THE WORDS READABLE IS THE SCRIM, NOT THE PICTURE. The media is
  * arbitrary — a white paper figure, a dark night scene — so the text is always
  * white over a black scrim whose solid part covers the whole text block at
- * `SCRIM` alpha. At 0.66 black over a pure-white pixel the background is
- * 87/255, which white text clears at about 7:1, so the contrast gate passes on
- * any picture rather than on the one it was tried with. The solid extent is
+ * `SCRIM` alpha. At 0.55 black over a pure-white pixel the background is
+ * 115/255, which white text clears at about 4.8:1 — over the 4.5:1 bar for
+ * body text, though every stage line is large text (3:1) — so the contrast
+ * gate passes on any picture rather than on the one it was tried with. It was
+ * 0.66 (7:1), which read as a grey slab over a light picture. The solid extent is
  * DERIVED from the text block's measured height and width, and is
  * bounded on BOTH axes (`scrimFor`): a scrim that ran the whole width dimmed
  * the picture's subject wherever it shared the words' rows.
@@ -49,10 +51,31 @@ const LINE_LH = 1.4;
 const MAX_LINE_LINES = 2;
 const LINE_GAP = 18;
 /** Black at this alpha under the whole text block — see the header. */
-const SCRIM = 0.66;
+const SCRIM = 0.55;
 /** Margin of solid scrim past the text block, then the fade to clear. */
 const SCRIM_MARGIN = 56;
 const SCRIM_FADE = 360;
+/**
+ * The fade's shape, as [share of `SCRIM_FADE`, share of the solid alpha]. A
+ * straight ramp from a flat plateau leaves a visible edge where the slope
+ * starts (Mach banding), so on a light picture the scrim read as a grey block;
+ * this ease-out curve (Larsen's "easing gradients" scrim) has no such corner.
+ */
+const EASE: readonly (readonly [number, number])[] = [
+  [0, 1],
+  [0.19, 0.738],
+  [0.34, 0.541],
+  [0.47, 0.382],
+  [0.565, 0.278],
+  [0.65, 0.194],
+  [0.73, 0.126],
+  [0.802, 0.075],
+  [0.861, 0.042],
+  [0.91, 0.021],
+  [0.952, 0.008],
+  [0.982, 0.002],
+  [1, 0],
+];
 /**
  * Past this upscale a raster figure is soft at full bleed. Claim-figure caps its
  * plate at 1.25x (`UPSCALE_MAX`); a stage cannot cap without a frame, so it
@@ -119,40 +142,45 @@ export function scrimFor(
   boxW: number,
   boxH: number,
 ): { background: string; mask: string } {
-  const dark = `rgba(0,0,0,${SCRIM})`;
-  const opaque = "#000";
-  const clear = "rgba(0,0,0,0)";
-  const ramp = (ink: string, dir: string, solid: number) =>
-    `linear-gradient(${dir},${ink} 0px,${ink} ${solid}px,${clear} ${solid + SCRIM_FADE}px)`;
-  const band = (ink: string, dir: string, mid: number, half: number) => {
-    const lo = Math.round(mid - half - SCRIM_MARGIN);
-    const hi = Math.round(mid + half + SCRIM_MARGIN);
-    return `linear-gradient(${dir},${clear} ${lo - SCRIM_FADE}px,${ink} ${lo}px,${ink} ${hi}px,${clear} ${hi + SCRIM_FADE}px)`;
+  const at = (alpha: number, px: number) => `rgba(0,0,0,${+alpha.toFixed(3)}) ${Math.round(px)}px`;
+  /** The fade from `alpha` at `from` to clear at `to`, eased (`EASE`), as stops. */
+  const fade = (alpha: number, from: number, to: number) =>
+    EASE.map(([t, k]) => at(alpha * k, from + (to - from) * t));
+  const ramp = (alpha: number, dir: string, solid: number) =>
+    `linear-gradient(${dir},${[at(alpha, 0), ...fade(alpha, solid, solid + SCRIM_FADE)].join(",")})`;
+  const band = (alpha: number, dir: string, mid: number, half: number) => {
+    const lo = mid - half - SCRIM_MARGIN;
+    const hi = mid + half + SCRIM_MARGIN;
+    const stops = [
+      ...fade(alpha, lo, lo - SCRIM_FADE).reverse(),
+      ...fade(alpha, hi, hi + SCRIM_FADE),
+    ];
+    return `linear-gradient(${dir},${stops.join(",")})`;
   };
   // The block is centred in the content box, whose centre is the scrim box's:
   // the padding is symmetric once the reserve is out of both.
-  const rows = (ink: string) => band(ink, "to bottom", boxH / 2, textH / 2);
+  const rows = (alpha: number) => band(alpha, "to bottom", boxH / 2, textH / 2);
   // The left-hand placements' lines start at the padding, `right`'s end there
   // (`BLOCK`), and `center`'s are centred on the frame.
-  const fromLeft = (ink: string) => ramp(ink, "to right", PAD_X + textW + SCRIM_MARGIN);
+  const fromLeft = (alpha: number) => ramp(alpha, "to right", PAD_X + textW + SCRIM_MARGIN);
   switch (placement) {
     case "bottom-left":
       return {
-        background: ramp(dark, "to top", PAD_Y + textH + SCRIM_MARGIN),
-        mask: fromLeft(opaque),
+        background: ramp(SCRIM, "to top", PAD_Y + textH + SCRIM_MARGIN),
+        mask: fromLeft(1),
       };
     case "top-left":
       return {
-        background: ramp(dark, "to bottom", PAD_Y + textH + SCRIM_MARGIN),
-        mask: fromLeft(opaque),
+        background: ramp(SCRIM, "to bottom", PAD_Y + textH + SCRIM_MARGIN),
+        mask: fromLeft(1),
       };
     case "right":
       return {
-        background: ramp(dark, "to left", PAD_X + textW + SCRIM_MARGIN),
-        mask: rows(opaque),
+        background: ramp(SCRIM, "to left", PAD_X + textW + SCRIM_MARGIN),
+        mask: rows(1),
       };
     case "center":
-      return { background: rows(dark), mask: band(opaque, "to right", boxW / 2, textW / 2) };
+      return { background: rows(SCRIM), mask: band(1, "to right", boxW / 2, textW / 2) };
   }
 }
 
