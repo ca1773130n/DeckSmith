@@ -20,6 +20,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import type { z } from "zod";
+import { copyArt } from "./bespoke/art.js";
 import { type BespokeResult, bespokePass } from "./bespoke/pipeline.js";
 import { browserGate } from "./bespoke/probe.js";
 import { BESPOKE_FILE } from "./bespoke/scene.js";
@@ -228,6 +229,10 @@ function bespokeFlags(cmd: Command): Command {
     .option(
       "--bespoke-cache <dir>",
       "where generated scenes are cached (default ~/.cache/decksmith/bespoke)",
+    )
+    .option(
+      "--bespoke-art <n>",
+      "illustrations per deck from the account's image tool (default 6; 0 = none)",
     );
 }
 
@@ -291,6 +296,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "bespokeModel",
     "bespokeCli",
     "bespokeCache",
+    "bespokeArt",
   ] as const) {
     const value = o[key];
     if (value !== undefined) patch[key] = value as string;
@@ -889,6 +895,7 @@ bespokeFlags(
     await vendorKatex(out);
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
+    if (bespoke) await copyArt(Object.values(bespoke.map), out);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
     const look = [
       theme,

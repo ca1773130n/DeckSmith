@@ -289,6 +289,23 @@ describe("parseCheckReport", () => {
     ]);
   });
 
+  it("excuses a bespoke camera's drawing beyond its clipped box, never its chrome or another scene", () => {
+    const report = (selector: string) =>
+      OFF_CANVAS.replace('"#s4 .cell-label"', JSON.stringify(selector));
+    // The scene's own label, pushed past the box by a zoom: not painted.
+    const own = parseCheckReport(report("#s4-observation > text:nth-of-type(1)"), "", [], ["s4"]);
+    expect(own.findings.map((f) => `${f.rule}/${f.severity}`)[0]).toBe("canvas_overflow/info");
+    // The same scene with no clipping body, its headline, and another scene: still errors.
+    for (const [sel, clipped] of [
+      ["#s4-observation > text:nth-of-type(1)", []],
+      ["#s4-h", ["s4"]],
+      ["#s5-observation", ["s4"]],
+    ] as const) {
+      const v = parseCheckReport(report(sel), "", [], [...clipped]);
+      expect(v.findings[0]?.severity, sel).toBe("error");
+    }
+  });
+
   it("excuses only what is STRICTLY inside the window, not what sits on its edge", () => {
     // A hold is allowed to sit exactly at the move's boundary —
     // `assertStopsOutsideMove` puts stops at the edges, not beyond them — so a

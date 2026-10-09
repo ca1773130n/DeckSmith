@@ -402,6 +402,26 @@ export function leanCodexConfig(
   return leanMemo;
 }
 
+/**
+ * `leanCodexConfig` with ONE tool back: the image tool, for the bespoke pass's
+ * illustration call (src/bespoke/art.ts). The shell stays off — the agent
+ * reports where the tool saved the picture and the caller reads it from there —
+ * and so does `view_image`, which would spend the call's tokens looking at a
+ * picture the scene call is shown anyway. MEASURED 2026-10-09: 42s and 19k
+ * tokens for one picture this way, against 49s and 45k with the agent asked to
+ * inspect it.
+ */
+export async function artCodexConfig(
+  bin = "codex",
+  list: (bin: string) => Promise<string> = listMcp,
+): Promise<string[]> {
+  const lean = await leanCodexConfig(bin, list);
+  return [
+    ...lean.filter((c) => c !== "features.image_generation=false"),
+    "features.view_image=false",
+  ];
+}
+
 function listMcp(bin: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(

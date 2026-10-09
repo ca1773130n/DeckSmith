@@ -157,10 +157,38 @@ describe("the stylesheet", () => {
 });
 
 describe("the markup", () => {
-  it("refuses script, iframe, image and foreignObject", () => {
-    for (const tag of ["script", "iframe", "img", "image", "foreignObject", "object", "a"]) {
+  it("refuses script, iframe, img and foreignObject", () => {
+    for (const tag of ["script", "iframe", "img", "foreignObject", "object", "a"]) {
       expect(rules(checkMarkup(`<${tag} id="SCENEID-x"></${tag}>`))).toContain("markup_tag");
     }
+  });
+  it("admits <image> only as the beat's own illustration, with no href of its own", () => {
+    const art = `<image id="SCENEID-pic" data-art="1" x="0" y="0" width="800" height="450"/>`;
+    expect(checkMarkup(art, { art: true })).toEqual([]);
+    // A beat with no picture cannot place one.
+    expect(rules(checkMarkup(art))).toEqual(["markup_art"]);
+    // Not without data-art, and never with an href — not even one inside the scene.
+    expect(rules(checkMarkup(`<image id="SCENEID-x"/>`, { art: true }))).toContain("markup_art");
+    for (const href of ["https://evil.example/x.png", "#SCENEID-a", "data:image/png;base64,AA"])
+      expect(rules(checkMarkup(`<image data-art="1" href="${href}"/>`, { art: true }))).toContain(
+        "markup_ref",
+      );
+    expect(rules(checkMarkup(`<image data-art="1" xlink:href="x.png"/>`, { art: true }))).toContain(
+      "markup_ref",
+    );
+    expect(rules(checkMarkup(`<image data-art="2"/>`, { art: true }))).toContain("markup_art");
+  });
+  it("refuses geometry that is not path data, which errors in every scene of the page", () => {
+    expect(rules(checkMarkup(`<path id="SCENEID-p" d="M 95 240 H  sixty"/>`))).toContain(
+      "markup_geometry",
+    );
+    expect(rules(checkMarkup(`<polyline points="0,0 10,ten"/>`))).toContain("markup_geometry");
+    expect(checkMarkup(`<path id="SCENEID-p" d="M95 240H160 a20 20 0 0 1 -4.5e1 3Z"/>`)).toEqual(
+      [],
+    );
+  });
+  it("keeps the shell's camera id for the shell", () => {
+    expect(rules(checkMarkup(`<g id="SCENEID-cam"></g>`))).toContain("markup_id");
   });
   it("refuses SMIL, which runs on the wall clock", () => {
     expect(rules(checkMarkup(`<svg><animate attributeName="x" dur="1s"/></svg>`))).toContain(

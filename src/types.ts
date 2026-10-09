@@ -982,6 +982,13 @@ export const prefsSchema = z.object({
        * account's own setting.
        */
       effort: z.enum(["low", "medium", "high", "default"]).default("medium"),
+      /**
+       * Illustrations per deck: each bespoke beat may first have ONE picture
+       * drawn by the same account's image tool (src/bespoke/art.ts), which its
+       * scene is built around. 0 turns them off. Counted apart from `maxCalls`:
+       * MEASURED 2026-10-09, one picture is 36-49s and 19-25k tokens.
+       */
+      art: z.int().min(0).max(6).default(6),
     })
     .optional(),
 });

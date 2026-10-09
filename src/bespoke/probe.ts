@@ -53,6 +53,36 @@ export function attribute(f: Finding, windows: readonly SceneWindow[]): string |
   return undefined;
 }
 
+/**
+ * A console error no scene id names fails every scene probed with it — unless
+ * the value it quotes appears in exactly one candidate, which is then the
+ * culprit: an SVG parse error quotes the bad attribute. MEASURED 2026-10-09:
+ * one draft's broken path sent all five drafts of a deck to critique.
+ */
+export function pinPageErrors(
+  findings: Finding[],
+  candidates: BespokeMap,
+  sidOf: ReadonlyMap<string, string>,
+): Finding[] {
+  const bare = (m: string) => m.replace(/^#s\d+: /, "");
+  const culprit = new Map<string, string>();
+  for (const f of findings) {
+    if (f.rule !== "page_error" || culprit.has(bare(f.message))) continue;
+    const quoted = /"([^"]{4,})"/.exec(f.message)?.[1];
+    if (!quoted) continue;
+    const hits = Object.entries(candidates).filter(([, e]) =>
+      `${e.fragment.markup}\n${e.fragment.script}`.includes(quoted),
+    );
+    const sid = hits.length === 1 ? sidOf.get(hits[0]?.[0] as string) : undefined;
+    if (sid) culprit.set(bare(f.message), sid);
+  }
+  return findings.filter((f) => {
+    if (f.rule !== "page_error") return true;
+    const owner = culprit.get(bare(f.message));
+    return owner === undefined || f.message.startsWith(`#${owner}:`);
+  });
+}
+
 export function browserGate(deck: ProbeDeck): GateFn {
   const step = deck.onStep ?? (() => {});
   return async (candidates: BespokeMap, round) => {
@@ -85,9 +115,11 @@ export function browserGate(deck: ProbeDeck): GateFn {
       open: () => openDeck(dir, { watch: errors }),
       errors,
       keepFrames: true,
+      geometry: true,
     });
     const verdict = await verify(dir, { fidelity: true, scenes: false });
 
+    probe.findings = pinPageErrors(probe.findings, candidates, sidOf);
     const out = new Map<string, GateResult>();
     for (const w of windows) {
       const beat = w.beatId as string;
@@ -108,7 +140,11 @@ export function browserGate(deck: ProbeDeck): GateFn {
         .sort((a, b) => a.cue - b.cue)
         .map((c) => c.changed / c.total);
       out.set(beat, {
-        findings: [...motion, ...gates].map((f) => `${f.severity} ${f.rule}: ${f.message}`),
+        // `info` is a finding already accepted (a camera's clipped overflow): not
+        // the critique round's to act on, and it read as a reason to drop the camera.
+        findings: [...motion, ...gates]
+          .filter((f) => f.severity !== "info")
+          .map((f) => `${f.severity} ${f.rule}: ${f.message}`),
         failed: failing.length > 0,
         sheet,
         legend: frames.map((f) => `${f.key} = ${f.t.toFixed(2)}s`).join(", "),
@@ -120,6 +156,9 @@ export function browserGate(deck: ProbeDeck): GateFn {
           ...(end?.dimmed !== undefined ? { dimmed: end.dimmed } : {}),
           cueChange,
         },
+        // What the repair pass reads: every graded frame's geometry, in order.
+        layout: probe.layout.filter((l) => l.sid === w.sid),
+        sid: w.sid,
         // The scene's own warnings: not the storyboard's (a headline that
         // recites labels is the plan's), not lint's file-size note.
         warnings: [...motion, ...gates]

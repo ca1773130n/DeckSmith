@@ -26,6 +26,7 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyArt } from "./bespoke/art.js";
 import type { BespokeMap } from "./bespoke/scene.js";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
@@ -550,6 +551,8 @@ export async function buildDeck(
   if (opts.assetsFrom) {
     files.push(...(await copyAssets(opts.assetsFrom, out, source.figures, step)));
   }
+  // The illustrations the bespoke scenes place, under names of the build's own.
+  if (opts.bespoke) files.push(...(await copyArt(Object.values(opts.bespoke), out)));
   if (opts.narration && opts.audioFrom) {
     files.push(...(await copyAudio(opts.audioFrom, opts.narration, out, step)));
   }

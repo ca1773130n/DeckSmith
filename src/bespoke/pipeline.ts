@@ -32,17 +32,33 @@ import {
 } from "../emit/composition.js";
 import type { EmitContext } from "../emit/kit.js";
 import { deckLook } from "../emit/theme.js";
-import { leanCodexConfig, type Runner, type RunnerArgs, runCodex } from "../plan/codex.js";
+import {
+  artCodexConfig,
+  leanCodexConfig,
+  type Runner,
+  type RunnerArgs,
+  runCodex,
+} from "../plan/codex.js";
 import type { Prefs } from "../prefs.js";
 import { planTiming } from "../render/timing.js";
 import type { Beat, Format, Source, Storyboard } from "../types.js";
 import {
   GATES_VERSION,
   KEY_TYPE_PX,
+  type Layout,
   type SceneWindow,
   STAGE_FILL,
   sceneWindows,
 } from "../verify/scenes.js";
+import {
+  ART_EFFORT,
+  ART_VERSION,
+  type ArtBrief,
+  ArtCache,
+  type ArtRef,
+  artKey,
+  drawArt,
+} from "./art.js";
 import { cacheKey, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
 import { checkFragment, type Fragment, motionKinds } from "./contract.js";
 import {
@@ -54,7 +70,8 @@ import {
   PROMPT_VERSION,
   REPLY_SCHEMA,
 } from "./prompt.js";
-import { type BespokeMap, bespokeRegion } from "./scene.js";
+import { type RepairNote, repairable, repairScene } from "./repair.js";
+import { type BespokeEntry, type BespokeMap, bespokeRegion } from "./scene.js";
 import { type Skip, selectBespoke } from "./select.js";
 
 export type BespokePrefs = NonNullable<Prefs["bespoke"]>;
@@ -72,13 +89,17 @@ export interface GateResult {
   metrics?: Measured;
   /** Warnings about the scene itself (not the storyboard's), by rule. Any one sends it to critique. */
   warnings?: string[];
+  /** Every graded frame's layout with its repair geometry (src/bespoke/repair.ts reads it). */
+  layout?: Layout[];
+  /** The scene id the probe deck drew it at (to read ids in `layout` back to token form). */
+  sid?: string;
 }
 
+/** Which probe: the drafts, the final candidates, or a repair round's. */
+export type GateRound = "draft" | "final" | "repair";
+
 /** Builds a deck with these candidates, gates each, and says what it found — keyed by beat id. */
-export type GateFn = (
-  candidates: BespokeMap,
-  round: "draft" | "final",
-) => Promise<Map<string, GateResult>>;
+export type GateFn = (candidates: BespokeMap, round: GateRound) => Promise<Map<string, GateResult>>;
 
 export interface BespokeInput {
   storyboard: Storyboard;
@@ -97,6 +118,8 @@ export interface BespokeInput {
   now?: () => number;
   /** Scratch for prompts, replies and sheets. Default: a temp dir, removed at the end. */
   work?: string;
+  /** Where the image tool saves pictures. Default `$CODEX_HOME` or `~/.codex` (tests point it elsewhere). */
+  codexHome?: string;
 }
 
 export interface SceneReport {
@@ -119,6 +142,14 @@ export interface SceneReport {
   metrics?: Measured;
   /** Whether a critique call was made, skipped because the rubric probe was clean, or never reached. */
   critique?: "ran" | "skipped" | "none";
+  /** The illustration the scene was built around. */
+  art?: { key: string; depicts: string };
+  /** Why there is none, when one was wanted. */
+  artNote?: string;
+  /** What the deterministic repair did to the kept scene (src/bespoke/repair.ts). */
+  repair?: RepairNote & { rounds: number };
+  /** The kept scene passed only after a repair: without one, this beat fell back. */
+  savedByRepair?: boolean;
 }
 
 export interface BespokeReport {
@@ -132,6 +163,8 @@ export interface BespokeReport {
   tokens: number;
   seconds: number;
   quota: boolean;
+  /** Illustrations: the deck's cap, calls made, pictures used (drawn or cached). */
+  art: { cap: number; calls: number; used: number };
   scenes: SceneReport[];
   skipped: Skip[];
 }
@@ -154,9 +187,15 @@ const QUOTA = /usage limit|rate.?limit|quota|429|too many requests|exceeded|insu
 
 /** One Codex call's ceiling. A generation took 174-202s and a critique 238-329s in the spike. */
 const CALL_SECONDS = 900;
+/** An illustration call's ceiling: MEASURED 36-49s; a stuck image tool should not hold the deck. */
+const ART_SECONDS = 240;
+/** Repair rounds after the final gates, each one probe build of the repaired scenes only. */
+export const REPAIR_ROUNDS = 2;
 
 export class Budget {
   calls = 0;
+  /** Illustration calls, capped apart from `calls` (`prefs.art`). */
+  art = 0;
   tokens = 0;
   quota = false;
   constructor(
@@ -170,6 +209,15 @@ export class Budget {
     if (this.calls >= this.cap) return `the deck's cap of ${this.cap} Codex calls is spent`;
     if (this.deadline - this.now() < 60_000) return "the bespoke pass's wall-time cap is spent";
     this.calls++;
+    return undefined;
+  }
+  /** As `take`, for an illustration call against its own cap. */
+  takeArt(cap: number): string | undefined {
+    if (this.quota) return "the Codex quota said no earlier in this pass";
+    if (this.art >= cap) return `the deck's ${cap} illustrations are spent`;
+    if (this.deadline - this.now() < 120_000)
+      return "the bespoke pass's wall-time cap is too close";
+    this.art++;
     return undefined;
   }
   seconds(): number {
@@ -220,7 +268,11 @@ const EXPLAINING = ["flow", "camera", "counter", "morph"];
  * sentence?) it does not pretend to; that is the reason a clean scene is still
  * looked at by a person in the preview.
  */
-export function rubricProbe(m: Measured | undefined, warnings: readonly string[] = []): string[] {
+export function rubricProbe(
+  m: Measured | undefined,
+  warnings: readonly string[] = [],
+  art = false,
+): string[] {
   if (!m) return ["nothing was measured"];
   const out: string[] = [];
   for (const w of warnings) out.push(`warning: ${w}`);
@@ -237,6 +289,8 @@ export function rubricProbe(m: Measured | undefined, warnings: readonly string[]
   if (kinds.length < 3) out.push(`only ${kinds.length} kind(s) of motion`);
   if (!kinds.some((k) => EXPLAINING.includes(k)))
     out.push("no flow, camera, counter or morph — the motion is fades and draws");
+  // A scene built on an illustration explains it by pointing the camera at its parts.
+  if (art && !kinds.includes("camera")) out.push("no camera move into the illustration");
   (m.cueChange ?? []).forEach((c, i) => {
     if (c < RUBRIC_CUE_CHANGE) out.push(`cue ${i + 1} barely moves (${(100 * c).toFixed(2)}%)`);
   });
@@ -285,6 +339,11 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     tokens: budget.tokens,
     seconds: Math.round((now() - started) / 1000),
     quota: budget.quota,
+    art: {
+      cap: prefs.art,
+      calls: budget.art,
+      used: scenes.filter((sc) => sc.status === "bespoke" && sc.art).length,
+    },
     scenes,
     skipped,
   });
@@ -364,7 +423,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   await mkdir(work, { recursive: true });
   const schemaPath = join(work, "reply.schema.json");
   await writeFile(schemaPath, JSON.stringify(REPLY_SCHEMA));
-  const cache = new SceneCache(prefs.cache ?? defaultCacheDir());
+  const cacheDir = prefs.cache ?? defaultCacheDir();
+  const cache = new SceneCache(cacheDir);
+  const artCache = new ArtCache(join(cacheDir, "art"));
   const run = input.run ?? runCodex;
   // Tool-less, single-turn calls (see TOOL_FEATURES), at the configured effort.
   // Only for the production runner: a test's runner never spawns anything.
@@ -373,24 +434,40 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     ...(input.run ? [] : await leanCodexConfig(prefs.cli ?? "codex")),
     ...(effort === "default" ? [] : [`model_reasoning_effort="${effort}"`]),
   ];
+  // The illustration call keeps one tool, the image tool (`artCodexConfig`).
+  const artConfig = [
+    ...(input.run ? [] : await artCodexConfig(prefs.cli ?? "codex")),
+    `model_reasoning_effort="${ART_EFFORT}"`,
+  ];
+  const artCap = prefs.art;
 
   interface Beat1 {
     beat: Beat;
     brief: Brief;
+    keyInput: KeyInput;
     key: string;
     holds: number[];
+    window: SceneWindow;
     calls: number;
+    artBrief: ArtBrief;
+    art?: ArtRef;
+    /** Why the beat has no illustration, when one was wanted. */
+    artNote?: string;
     cached?: Fragment;
     draft?: Fragment;
     draftFindings: string[];
     draftPassed?: boolean;
     fixed?: Fragment;
+    /** Where `fixed` came from: the critique call, or the deterministic repair of the draft. */
+    fixedFrom?: "critique" | "draft";
     fixedFindings: string[];
+    /** The last gate verdict on `fixed`. */
+    fixedGate?: GateResult;
     /** The measures (with the script's motion kinds) of the draft and of the fix. */
     draftMetrics?: Measured;
     draftWarnings: string[];
-    fixedMetrics?: Measured;
     critique: "ran" | "skipped" | "none";
+    repair?: RepairNote & { rounds: number };
     stop?: string;
     /** A fallback the beat earned (gates), as opposed to one the budget imposed. */
     earned?: boolean;
@@ -452,9 +529,21 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     work1.push({
       beat,
       brief,
+      keyInput,
       key: cacheKey(keyInput),
       holds,
+      window: w,
       calls: 0,
+      artBrief: {
+        lang: storyboard.lang,
+        headline: params.headline,
+        intent: beat.intent,
+        ...(beat.claim ? { claim: beat.claim } : {}),
+        ...(beat.narration ? { narration: beat.narration } : {}),
+        context: brief.context,
+        theme,
+        pack: input.theme,
+      },
       draftFindings: [],
       fixedFindings: [],
       draftWarnings: [],
@@ -462,10 +551,82 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     });
   }
 
-  // Cache first: a hit costs nothing, and a cached rejection is a free fallback.
-  for (const b of work1) {
+  const entry = (b: Beat1, fragment: Fragment) => ({
+    fragment,
+    holds: b.holds,
+    ...(b.art ? { art: b.art } : {}),
+  });
+  const statics = (b: Beat1, f: Fragment) =>
+    checkFragment(f, { art: b.art !== undefined }).map((x) => `${x.rule}: ${x.message}`);
+  const quota = (msg: string) => {
+    if (QUOTA.test(msg)) budget.quota = true;
+  };
+
+  /**
+   * The beat's illustration: from the art cache, or one call to the account's
+   * image tool. A picture that cannot be had is not a failure — the beat is
+   * drawn without one, and the report says why.
+   */
+  const illustrate = async (b: Beat1) => {
+    if (artCap <= 0) return;
+    const key = artKey(b.artBrief, model);
+    const hit = await artCache.get(key);
+    if (hit) {
+      b.art = hit;
+      step(`bespoke: ${b.beat.id} illustration from cache`);
+      return;
+    }
+    const refused = budget.takeArt(artCap);
+    if (refused) {
+      b.artNote = refused;
+      return;
+    }
+    const tag = `${b.beat.id}.art`;
+    const t0 = now();
+    try {
+      const drawn = await drawArt(b.artBrief, {
+        run,
+        work,
+        tag,
+        model,
+        timeoutMs: Math.min(ART_SECONDS, budget.seconds()) * 1000,
+        config: artConfig,
+        ...(prefs.cli ? { bin: prefs.cli } : {}),
+        ...(input.codexHome ? { home: input.codexHome } : {}),
+        onUsage: (n) => {
+          budget.tokens += n;
+        },
+      });
+      b.art = await artCache.put(key, drawn.bytes, {
+        width: drawn.width,
+        height: drawn.height,
+        depicts: drawn.depicts,
+        model,
+        artVersion: ART_VERSION,
+      });
+      step(
+        `bespoke: ${tag} in ${Math.round((now() - t0) / 1000)}s (${drawn.width}x${drawn.height})`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      quota(msg);
+      b.artNote = `no illustration: ${msg.split("\n").slice(-2).join(" ").slice(0, 200)}`;
+      step(`bespoke: ${tag} failed — ${b.artNote}`);
+    }
+  };
+
+  /** Illustration first, then the scene cache under a key that names it. */
+  const prepare = async (b: Beat1) => {
+    await illustrate(b);
+    if (b.art)
+      b.brief = {
+        ...b.brief,
+        art: { depicts: b.art.depicts, width: b.art.width, height: b.art.height },
+      };
+    b.key = cacheKey({ ...b.keyInput, ...(b.art ? { art: b.art.key } : {}) });
+    // A hit costs nothing, and a cached rejection is a free fallback.
     const hit = await cache.get(b.key);
-    if (hit?.verdict === "accepted" && hit.fragment && checkFragment(hit.fragment).length === 0) {
+    if (hit?.verdict === "accepted" && hit.fragment && statics(b, hit.fragment).length === 0) {
       b.cached = hit.fragment;
       step(`bespoke: ${b.beat.id} from cache`);
     } else if (hit?.verdict === "rejected" && hit.gates === GATES_VERSION) {
@@ -473,7 +634,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       b.earned = true;
       step(`bespoke: ${b.beat.id} — cached rejection, keeping the archetype`);
     }
-  }
+  };
 
   const call = async (b: Beat1, kind: "draft" | "critique", prompt: string, images: string[]) => {
     const refused = budget.take();
@@ -508,31 +669,33 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       return { markup: reply.markup ?? "", css: reply.css ?? "", script: reply.script ?? "" };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (QUOTA.test(msg)) budget.quota = true;
+      quota(msg);
       b.stop = `${kind} call failed: ${msg.split("\n").slice(-2).join(" ").slice(0, 240)}`;
       step(`bespoke: ${tag} failed — ${b.stop}`);
       return undefined;
     }
   };
-  const statics = (f: Fragment) => checkFragment(f).map((x) => `${x.rule}: ${x.message}`);
 
-  // Round 1: drafts, in parallel up to the concurrency cap.
-  const fresh = work1.filter((b) => !b.cached && !b.stop);
-  await pool(fresh, prefs.concurrency, async (b) => {
-    const f = await call(b, "draft", generatePrompt(b.brief), []);
+  // Round 1, per beat in its own lane: the illustration, the cache, the draft.
+  // A lane per beat (up to the concurrency cap), so one beat's picture never
+  // waits on another beat's draft.
+  await pool(work1, prefs.concurrency, async (b) => {
+    await prepare(b);
+    if (b.cached || b.stop) return;
+    const f = await call(b, "draft", generatePrompt(b.brief), b.art ? [b.art.file] : []);
     if (!f) return;
     b.draft = f;
-    b.draftFindings = statics(f);
+    b.draftFindings = statics(b, f);
   });
+  const fresh = work1.filter((b) => b.draft !== undefined);
 
   // Gate the drafts that passed the static walk. Nothing that failed it is opened in a browser.
-  const draftMap: Record<string, { fragment: Fragment; holds: number[] }> = {};
+  const draftMap: Record<string, BespokeEntry> = {};
   for (const b of work1) {
-    if (b.cached) draftMap[b.beat.id] = { fragment: b.cached, holds: b.holds };
-    else if (b.draft && b.draftFindings.length === 0)
-      draftMap[b.beat.id] = { fragment: b.draft, holds: b.holds };
+    if (b.cached) draftMap[b.beat.id] = entry(b, b.cached);
+    else if (b.draft && b.draftFindings.length === 0) draftMap[b.beat.id] = entry(b, b.draft);
   }
-  const gate = async (m: BespokeMap, round: "draft" | "final") => {
+  const gate = async (m: BespokeMap, round: GateRound) => {
     if (Object.keys(m).length === 0) return new Map<string, GateResult>();
     try {
       return await input.gate(m, round);
@@ -547,9 +710,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   };
   // With no fresh draft there is nothing for a critique round to look at, and
   // the final round gates the cached scenes anyway: one probe build, not two.
-  const gateA = fresh.some((b) => b.draft)
-    ? await gate(draftMap, "draft")
-    : new Map<string, GateResult>();
+  const gateA = fresh.length ? await gate(draftMap, "draft") : new Map<string, GateResult>();
   for (const b of work1) {
     const g = gateA.get(b.beat.id);
     if (!g) continue;
@@ -567,19 +728,53 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     b.draftMetrics = withKinds(g.metrics, b.draft);
   }
 
+  /** Repair `f` from gate verdict `g`; on success it becomes the beat's candidate. */
+  const tryRepair = (
+    b: Beat1,
+    f: Fragment,
+    g: GateResult | undefined,
+    from: "critique" | "draft",
+  ) => {
+    if (!g) return false;
+    const fixed = repairScene(f, g, {
+      duration: b.window.duration,
+      lastCueStart: b.window.cues[b.window.cues.length - 1]?.t0 ?? 0,
+    });
+    if (!fixed) return false;
+    b.fixed = fixed.fragment;
+    b.fixedFrom = from;
+    b.fixedFindings = statics(b, fixed.fragment);
+    b.fixedGate = undefined;
+    b.repair = { ...fixed.note, rounds: (b.repair?.rounds ?? 0) + 1 };
+    step(
+      `bespoke: ${b.beat.id} — repaired ${fixed.note.rules.join(", ")} (${fixed.note.moved} label(s) moved, ${fixed.note.relit} relit${fixed.note.camera ? ", camera home" : ""}${fixed.note.untangled ? ", overlapping tweens untangled" : ""})`,
+    );
+    return true;
+  };
+
   // Round 2: one critique-and-fix per drafted beat that needs one, frames
   // attached. A draft that passed every gate AND is clean by the rubric probe
-  // is kept as it is: the call would cost minutes to restate a clean bill.
+  // is kept as it is: the call would cost minutes to restate a clean bill. A
+  // draft whose only failures a deterministic repair can fix (label
+  // collisions, a dimmed end, a camera left zoomed), and which is otherwise
+  // clean by the rubric, is repaired instead of critiqued: no call at all.
   const drafted = work1.filter((b) => b.draft && !b.stop);
   for (const b of drafted) {
-    if (!b.draftPassed) continue;
-    const issues = rubricProbe(b.draftMetrics, b.draftWarnings);
-    if (issues.length === 0) {
-      b.critique = "skipped";
-      step(
-        `bespoke: ${b.beat.id} — every gate passed and the rubric probe is clean; no critique call`,
-      );
-    } else step(`bespoke: ${b.beat.id} — to critique: ${issues.slice(0, 3).join("; ")}`);
+    const issues = rubricProbe(b.draftMetrics, b.draftWarnings, b.art !== undefined);
+    if (b.draftPassed) {
+      if (issues.length === 0) {
+        b.critique = "skipped";
+        step(
+          `bespoke: ${b.beat.id} — every gate passed and the rubric probe is clean; no critique call`,
+        );
+      } else step(`bespoke: ${b.beat.id} — to critique: ${issues.slice(0, 3).join("; ")}`);
+      continue;
+    }
+    // The repair relights the end, so the rubric's dimmed-end line is not a reason to critique.
+    const rest = issues.filter((i) => !i.startsWith("the end frame is mostly dimmed"));
+    if (rest.length === 0 && repairable(b.draftFindings)) {
+      if (tryRepair(b, b.draft as Fragment, gateA.get(b.beat.id), "draft")) b.critique = "skipped";
+    }
   }
   await pool(
     drafted.filter((b) => b.critique !== "skipped"),
@@ -601,19 +796,62 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       );
       if (!f) return;
       b.fixed = f;
-      b.fixedFindings = statics(f);
+      b.fixedFrom = "critique";
+      b.fixedFindings = statics(b, f);
     },
   );
 
-  const finalMap: Record<string, { fragment: Fragment; holds: number[] }> = {};
-  for (const b of work1) {
-    if (b.cached) finalMap[b.beat.id] = { fragment: b.cached, holds: b.holds };
-    else if (b.fixed && b.fixedFindings.length === 0)
-      finalMap[b.beat.id] = { fragment: b.fixed, holds: b.holds };
-  }
-  const gateB = await gate(finalMap, "final");
+  const candidates = (pick: (b: Beat1) => boolean) => {
+    const m: Record<string, BespokeEntry> = {};
+    for (const b of work1) {
+      if (!pick(b)) continue;
+      if (b.cached) m[b.beat.id] = entry(b, b.cached);
+      else if (b.fixed && b.fixedFindings.length === 0) m[b.beat.id] = entry(b, b.fixed);
+    }
+    return m;
+  };
+  const gateB = await gate(
+    candidates(() => true),
+    "final",
+  );
+  for (const b of work1) if (b.fixed && !b.cached) b.fixedGate = gateB.get(b.beat.id);
 
-  const map: Record<string, { fragment: Fragment; holds: number[] }> = {};
+  // Round 3, only where needed: the deterministic repair of a candidate the
+  // gates refused for collisions or its end state, re-gated. At most
+  // `REPAIR_ROUNDS`, each a probe build of only the repaired scenes, and only
+  // while the wall-time cap leaves room for one.
+  for (let round = 1; round <= REPAIR_ROUNDS; round++) {
+    const todo = work1.filter((b) => {
+      if (b.cached) return false;
+      if (b.fixed && b.fixedFindings.length === 0) {
+        const g = b.fixedGate;
+        return g?.failed === true && repairable(g.findings);
+      }
+      // No fix to repair (the critique call never came back): repair the draft.
+      return (
+        !b.fixed && b.draft !== undefined && b.draftPassed === false && repairable(b.draftFindings)
+      );
+    });
+    if (todo.length === 0) break;
+    if (budget.deadline - now() < 60_000) {
+      step("bespoke: no repair round — the wall-time cap is too close");
+      break;
+    }
+    const repaired = todo.filter((b) =>
+      b.fixed
+        ? tryRepair(b, b.fixed, b.fixedGate, b.fixedFrom ?? "critique")
+        : tryRepair(b, b.draft as Fragment, gateA.get(b.beat.id), "draft"),
+    );
+    if (repaired.length === 0) break;
+    const ids = new Set(repaired.map((b) => b.beat.id));
+    const gateC = await gate(
+      candidates((b) => ids.has(b.beat.id)),
+      "repair",
+    );
+    for (const b of repaired) b.fixedGate = gateC.get(b.beat.id);
+  }
+
+  const map: Record<string, BespokeEntry> = {};
   for (const b of work1) {
     const report1 = (status: "bespoke" | "fallback", extra: Partial<SceneReport>): SceneReport => ({
       beat: b.beat.id,
@@ -623,12 +861,15 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       findings: [],
       key: b.key,
       critique: b.critique,
+      ...(b.art ? { art: { key: b.art.key, depicts: b.art.depicts } } : {}),
+      ...(b.artNote ? { artNote: b.artNote } : {}),
+      ...(b.repair ? { repair: b.repair } : {}),
       ...extra,
     });
-    const gb = gateB.get(b.beat.id);
+    const gb = b.fixed ? b.fixedGate : gateB.get(b.beat.id);
     if (b.cached) {
       if (gb && !gb.failed) {
-        map[b.beat.id] = { fragment: b.cached, holds: b.holds };
+        map[b.beat.id] = entry(b, b.cached);
         const metrics = withKinds(gb.metrics, b.cached);
         scenes.push(
           report1("bespoke", {
@@ -653,8 +894,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     let metrics: Measured | undefined;
     if (b.fixed && b.fixedFindings.length === 0 && gb && !gb.failed) {
       fragment = b.fixed;
-      from = "critique";
+      from = b.fixedFrom ?? "critique";
       metrics = withKinds(gb.metrics, b.fixed);
+      if (b.repair) note = `kept the ${from} scene after ${b.repair.rounds} repair round(s)`;
     } else if (b.draft && b.draftPassed) {
       // The fix round broke a draft that had passed: keep the draft.
       fragment = b.draft;
@@ -665,9 +907,11 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         : b.critique === "skipped"
           ? "every gate passed and the rubric probe was clean; kept the draft without a critique call"
           : `no critique round (${b.stop ?? "no reply"}); kept the draft, which passed`;
+      // The repair was of the failing fix, not of what is kept.
+      if (b.repair) b.repair = undefined;
     }
     if (fragment) {
-      map[b.beat.id] = { fragment, holds: b.holds };
+      map[b.beat.id] = entry(b, fragment);
       await cache.put({
         version: 1,
         key: b.key,
@@ -678,6 +922,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         model,
         promptVersion: PROMPT_VERSION,
         gates: GATES_VERSION,
+        ...(b.art ? { art: b.art.key } : {}),
       });
       scenes.push(
         report1("bespoke", {
@@ -685,6 +930,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
           ...(note ? { reason: note } : {}),
           kinds: motionKinds(fragment.script),
           ...(metrics ? { metrics } : {}),
+          // Kept only because a repair cleared it: without one it fell back.
+          ...(b.repair ? { savedByRepair: true } : {}),
         }),
       );
       continue;
@@ -699,7 +946,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     const reason =
       b.stop && !b.fixed
         ? b.stop
-        : `failed the gates after the critique round: ${findings.slice(0, 3).join("; ") || "no finding recorded"}`;
+        : `failed the gates after the ${b.repair ? "repair" : "critique"} round: ${findings.slice(0, 3).join("; ") || "no finding recorded"}`;
     if (earned && !b.stop?.startsWith("cached rejection")) {
       await cache.put({
         version: 1,
@@ -719,7 +966,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   if (!input.work) await rm(work, { recursive: true, force: true });
   const r = report();
   step(
-    `bespoke: ${Object.keys(map).length} of ${selection.picked.length} beats drawn bespoke, ${r.calls} Codex call(s), ${r.tokens} tokens, ${r.seconds}s${r.quota ? " — the quota said no" : ""}`,
+    `bespoke: ${Object.keys(map).length} of ${selection.picked.length} beats drawn bespoke, ${r.calls} Codex call(s) + ${r.art.calls} illustration(s), ${r.tokens} tokens, ${r.seconds}s${r.quota ? " — the quota said no" : ""}`,
   );
   return { map, report: r };
 }

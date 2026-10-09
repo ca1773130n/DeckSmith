@@ -157,7 +157,9 @@ for (var n = 0; n < 6; n++) {
 tl.to("#SCENEID-saving", { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 13.5);
 tl.to("#SCENEID-count", { textContent: 50, snap: { textContent: 1 }, duration: 1.8, ease: "power2.inOut" }, 13.7);
 tl.to(["#SCENEID-box0", "#SCENEID-box2"], { stroke: "{{accent}}", fillOpacity: 0.32, duration: 0.5 }, 13.7);
-tl.to(["#SCENEID-bar0", "#SCENEID-bar2"], { opacity: 0.55, duration: 0.45, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.6);`,
+tl.to(["#SCENEID-bar0", "#SCENEID-bar2"], { opacity: 0.55, duration: 0.45, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.6);
+// The end frame is the summary: everything back at full strength; the winners keep their accent.
+tl.to(["#SCENEID-expert1", "#SCENEID-expert3", "#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 1, duration: 0.5 }, 16.6);`,
   },
 };
 
@@ -380,7 +382,9 @@ tl.to("#SCENEID-ours-area", { opacity: 1, duration: 0.8, ease: "power2.out" }, 1
 tl.to("#SCENEID-gap", { opacity: 1, duration: 0.5 }, 13.5);
 tl.to("#SCENEID-gap", { morphSVG: "#SCENEID-badge-shape", fillOpacity: 1, duration: 1.2, ease: "power3.inOut" }, 14.3);
 tl.to("#SCENEID-gain", { opacity: 1, duration: 0.4 }, 15.4);
-tl.to("#SCENEID-gain-n", { scale: 1.06, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);`,
+tl.to("#SCENEID-gain-n", { scale: 1.06, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);
+// The end frame is the summary: the baseline comes back beside the gain it lost to.
+tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau"], { opacity: 1, duration: 0.5 }, 16.4);`,
   },
 };
 
@@ -502,7 +506,152 @@ tl.to(dots, { scale: 1.12, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.in
   },
 };
 
-export const REFERENCES: readonly Reference[] = [route, zoom, growth, gather];
+/* ------------------------------------------------- 5. illustrated, camera */
+
+/**
+ * Round 3's reference: a scene BUILT AROUND THE BEAT'S ILLUSTRATION. The
+ * picture is revealed by a masked wipe, drifts under the overlays (parallax),
+ * and the shell's camera (`#SCENEID-cam`) pushes into one part while a callout
+ * draws on around it, pans to the next part where vector nodes and flowing
+ * links are drawn OVER the picture, and comes home for the summary. Every label
+ * sits on a plate. Shown only to a beat that has an illustration; it uses
+ * whatever picture that beat has, so its coordinates are a layout, not a map
+ * of any particular picture.
+ *
+ * Camera arithmetic, written out in the script: to frame the box region
+ * (x0, y0, w, h), scale s = min(W/w, H/h, 2.2), x = (W - w*s)/2 - x0*s,
+ * y = (H - h*s)/2 - y0*s, with the wrapper's transform-origin at 0 0.
+ */
+const illustrated: Reference = {
+  name: "illustrated",
+  shows:
+    "a scene built on the beat's ILLUSTRATION: a masked wipe reveals the picture, it drifts under the overlays (parallax), the CAMERA pushes into one part as a SPOTLIGHT (a shade with a soft hole) dims the rest and a callout ring draws around it, the hole and the camera pan to the next part where vector nodes and flowing links are drawn over the picture, and both return home for a counter that lands the point — every label on a plate, everything lit at the end",
+  fits: [],
+  cues: [
+    { t0: 1.0, t1: 4.6, text: "A robot looks around the room." },
+    { t0: 4.6, t1: 9.0, text: "Everything it sees" },
+    { t0: 9.0, t1: 13.4, text: "becomes a graph of objects and relations," },
+    { t0: 13.4, t1: 17.8, text: "which the language model reads in one pass." },
+  ],
+  duration: 19,
+  fragment: {
+    markup: `<svg id="SCENEID-svg" width="1700" height="732" viewBox="0 0 1700 732" style="position:absolute;left:0;top:0;overflow:hidden">
+  <defs>
+    <linearGradient id="SCENEID-fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.05" stop-color="#ffffff"/>
+      <stop offset="0.95" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="SCENEID-feather"><rect x="-40" y="-40" width="1780" height="812" fill="url(#SCENEID-fade)"/></mask>
+    <clipPath id="SCENEID-wipe"><rect id="SCENEID-wipe-bar" x="-40" y="-40" width="0" height="812"/></clipPath>
+    <radialGradient id="SCENEID-soft"><stop offset="0.7" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/></radialGradient>
+    <mask id="SCENEID-hole"><rect x="-40" y="-40" width="1780" height="812" fill="#ffffff"/><circle id="SCENEID-hole-c" cx="400" cy="420" r="230" fill="url(#SCENEID-soft)"/></mask>
+  </defs>
+  <g id="SCENEID-art" data-cue="1" clip-path="url(#SCENEID-wipe)" mask="url(#SCENEID-feather)">
+    <image id="SCENEID-pic" data-art="1" x="-30" y="-20" width="1760" height="772" preserveAspectRatio="xMidYMid slice"/>
+    <rect id="SCENEID-shade" x="-40" y="-40" width="1780" height="812" fill="{{bg}}" mask="url(#SCENEID-hole)"/>
+  </g>
+  <g id="SCENEID-fg">
+    <g id="SCENEID-spot" data-cue="2">
+      <circle id="SCENEID-ring" cx="400" cy="420" r="180" fill="none" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
+      <rect id="SCENEID-view-plate" x="435" y="82" width="320" height="96" rx="22" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
+      <text id="SCENEID-view" x="595" y="130" font-size="60" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">the view</text>
+    </g>
+    <g id="SCENEID-graph" data-cue="3">
+      <line id="SCENEID-e12" x1="1000" y1="290" x2="1460" y2="290" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+      <line id="SCENEID-e13" x1="1000" y1="290" x2="1230" y2="540" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+      <line id="SCENEID-e23" x1="1460" y1="290" x2="1230" y2="540" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+      <circle id="SCENEID-p12" cx="1000" cy="290" r="13" fill="{{fg}}"/>
+      <circle id="SCENEID-p13" cx="1000" cy="290" r="13" fill="{{fg}}"/>
+      <circle id="SCENEID-p23" cx="1460" cy="290" r="13" fill="{{fg}}"/>
+      <circle id="SCENEID-n1" cx="1000" cy="290" r="52" fill="{{a}}" stroke="{{bg}}" stroke-width="6"/>
+      <circle id="SCENEID-n2" cx="1460" cy="290" r="52" fill="{{b}}" stroke="{{bg}}" stroke-width="6"/>
+      <circle id="SCENEID-n3" cx="1230" cy="540" r="52" fill="{{c}}" stroke="{{bg}}" stroke-width="6"/>
+      <rect id="SCENEID-graph-plate" x="1040" y="88" width="370" height="84" rx="22" fill="{{panel}}" stroke="{{rule}}" stroke-width="5"/>
+      <text id="SCENEID-graph-label" x="1225" y="130" font-size="56" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">a graph</text>
+    </g>
+    <g id="SCENEID-sum" data-cue="4">
+      <rect id="SCENEID-sum-plate" x="640" y="598" width="590" height="128" rx="30" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
+      <text id="SCENEID-n" x="712" y="662" font-size="96" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
+      <text id="SCENEID-sum-label" x="770" y="662" font-size="52" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
+    </g>
+  </g>
+</svg>`,
+    css: "",
+    script: `// Layout (box 1700x732): the picture full-bleed under everything (masked edges) ·
+// "the view" plate x 435-755, y 82-178 over the callout ring (cx 400, cy 420, r 180:
+// x 220-580, y 240-600) · nodes at (1000,290) (1460,290) (1230,540), r 52, "a graph"
+// plate x 1040-1410, y 88-172 · summary plate x 640-1230, y 598-726 (the 96px count is 120px
+// tall: the plate is taller than that, and the pulse is the plate's, not the number's).
+// Camera (wrapper, origin 0 0): part 1 = region x 130-770, y 90-630 -> s = 732/540 =
+// 1.356, x = (1700 - 640*1.356)/2 - 130*1.356 = 240, y = -90*1.356 = -122. Part 2 =
+// region x 880-1640, y 90-650 -> s = 732/560 = 1.307, x = (1700 - 760*1.307)/2 - 880*1.307
+// = -797, y = -90*1.307 = -118. Home = scale 1, x 0, y 0.
+var nodes = ["#SCENEID-n1", "#SCENEID-n2", "#SCENEID-n3"];
+var edges = ["#SCENEID-e12", "#SCENEID-e13", "#SCENEID-e23"];
+var dots = ["#SCENEID-p12", "#SCENEID-p13", "#SCENEID-p23"];
+
+gsap.set("#SCENEID-cam", { scale: 1, x: 0, y: 0, transformOrigin: "0 0" });
+gsap.set("#SCENEID-wipe-bar", { attr: { width: 0 } });
+gsap.set("#SCENEID-pic", { opacity: 0, x: 0 });
+gsap.set("#SCENEID-fg", { x: 0 });
+gsap.set("#SCENEID-ring", { drawSVG: "0% 0%" });
+gsap.set(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 0 });
+gsap.set(nodes, { scale: 0, transformOrigin: "50% 50%" });
+gsap.set(edges, { drawSVG: "0% 0%" });
+gsap.set(dots, { opacity: 0 });
+gsap.set(["#SCENEID-graph-plate", "#SCENEID-graph-label"], { opacity: 0 });
+gsap.set(["#SCENEID-sum-plate", "#SCENEID-n", "#SCENEID-sum-label"], { opacity: 0 });
+gsap.set("#SCENEID-shade", { opacity: 0 });
+gsap.set("#SCENEID-hole-c", { attr: { cx: 400, cy: 420, r: 230 } });
+
+// C1 1.0-4.6 "A robot looks around the room." — the picture wipes in left to right, then drifts (parallax).
+tl.to("#SCENEID-pic", { opacity: 1, duration: 0.3 }, 1.0);
+tl.to("#SCENEID-wipe-bar", { attr: { width: 1780 }, duration: 1.4, ease: "power2.inOut" }, 1.05);
+tl.to("#SCENEID-pic", { x: -24, duration: 16.5, ease: "none" }, 1.0);
+tl.to("#SCENEID-fg", { x: -40, duration: 16.5, ease: "none" }, 1.0);
+
+// C2 4.6-9.0 "Everything it sees" — the camera pushes into part 1; the callout ring draws on; its label lands.
+tl.to("#SCENEID-cam", { scale: 1.356, x: 240, y: -122, duration: 1.3, ease: "power3.inOut" }, 4.65);
+// The SPOTLIGHT: a shade over the picture with a soft hole where the voice is — the
+// picture's other subjects step back without being cut out of it.
+tl.to("#SCENEID-shade", { opacity: 0.6, duration: 0.6 }, 5.0);
+tl.to("#SCENEID-ring", { drawSVG: "0% 100%", duration: 1.1, ease: "power2.out" }, 5.4);
+tl.to(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 1, duration: 0.4 }, 6.3);
+tl.to("#SCENEID-ring", { scale: 1.06, transformOrigin: "50% 50%", duration: 0.5, yoyo: true, repeat: 3, ease: "sine.inOut" }, 6.9);
+
+// C3 9.0-13.4 "becomes a graph of objects and relations," — pan to part 2; the spotlight follows;
+// nodes pop in a stagger, links draw, and dots flow along them.
+tl.to("#SCENEID-cam", { scale: 1.307, x: -797, y: -118, duration: 1.4, ease: "power3.inOut" }, 9.05);
+tl.to("#SCENEID-hole-c", { attr: { cx: 1230, cy: 400, r: 330 }, duration: 1.4, ease: "power3.inOut" }, 9.05);
+// A label the pan would crop at the box edge steps out for the move, and back with the pull-out.
+tl.to(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 0, duration: 0.3 }, 9.05);
+tl.to(nodes, { scale: 1, duration: 0.5, ease: "back.out(2)", stagger: 0.18 }, 9.7);
+tl.to(edges, { drawSVG: "0% 100%", duration: 0.7, ease: "power2.out", stagger: 0.15 }, 10.3);
+tl.to(["#SCENEID-graph-plate", "#SCENEID-graph-label"], { opacity: 1, duration: 0.4 }, 10.6);
+tl.to(dots, { opacity: 1, duration: 0.2 }, 11.0);
+tl.to("#SCENEID-p12", { attr: { cx: 1460 }, duration: 1.1, repeat: 5, ease: "none" }, 11.0);
+tl.to("#SCENEID-p13", { attr: { cx: 1230, cy: 540 }, duration: 1.1, repeat: 5, ease: "none" }, 11.15);
+tl.to("#SCENEID-p23", { attr: { cx: 1230, cy: 540 }, duration: 1.1, repeat: 5, ease: "none" }, 11.3);
+
+// C4 13.4-17.8 "which the language model reads in one pass." — home; the shade lifts;
+// the count lands on its plate. The end frame is the whole scene, lit.
+tl.to("#SCENEID-cam", { scale: 1, x: 0, y: 0, duration: 1.3, ease: "power3.inOut" }, 13.45);
+tl.to("#SCENEID-shade", { opacity: 0, duration: 0.6 }, 13.6);
+tl.to(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 1, duration: 0.4 }, 14.2);
+tl.to(["#SCENEID-sum-plate", "#SCENEID-n", "#SCENEID-sum-label"], { opacity: 1, duration: 0.4 }, 14.6);
+tl.to("#SCENEID-n", { textContent: 3, snap: { textContent: 1 }, duration: 1.0, ease: "power2.out" }, 14.7);
+tl.to("#SCENEID-sum-plate", { strokeWidth: 10, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.9);`,
+  },
+};
+
+export const REFERENCES: readonly Reference[] = [route, zoom, growth, gather, illustrated];
+
+/** Whether a reference places the beat's illustration (and so needs a beat that has one). */
+export function placesArt(r: Reference): boolean {
+  return /\sdata-art=/.test(r.fragment.markup);
+}
 
 /** The palette tokens a reference may use. */
 type PaintKey = "bg" | "fg" | "muted" | "dim" | "rule" | "panel" | "accent" | "a" | "b" | "c" | "d";
@@ -529,13 +678,16 @@ export function paint(f: Fragment, theme: Theme): Fragment {
  * then the best fit that teaches a DIFFERENT motion, so every prompt carries
  * at least two verbs beyond fade-and-draw.
  */
-export function pickReferences(archetype: string, n = 2): Reference[] {
+export function pickReferences(archetype: string, n = 2, art = false): Reference[] {
   const rank = (r: Reference) => {
     const i = r.fits.indexOf(archetype);
     return i < 0 ? 99 : i;
   };
-  const sorted = [...REFERENCES].sort(
-    (a, b) => rank(a) - rank(b) || REFERENCES.indexOf(a) - REFERENCES.indexOf(b),
+  const plain = REFERENCES.filter((r) => !placesArt(r));
+  const sorted = [...plain].sort(
+    (a, b) => rank(a) - rank(b) || plain.indexOf(a) - plain.indexOf(b),
   );
-  return sorted.slice(0, n);
+  // A beat with an illustration is shown how to build on one first.
+  const lead = art ? REFERENCES.filter(placesArt) : [];
+  return [...lead, ...sorted].slice(0, n);
 }

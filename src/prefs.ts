@@ -138,6 +138,7 @@ export function prefsFromFlags(flags: PrefFlags): PrefsPatch {
   if (flags.bespokeModel !== undefined) bespoke.model = flags.bespokeModel;
   if (flags.bespokeCli !== undefined) bespoke.cli = flags.bespokeCli;
   if (flags.bespokeCache !== undefined) bespoke.cache = flags.bespokeCache;
+  if (flags.bespokeArt !== undefined) bespoke.art = number("--bespoke-art", flags.bespokeArt);
   // Absent unless something was said, for the reason the block has no default.
   if (Object.keys(bespoke).length) patch.bespoke = bespoke;
 
@@ -191,6 +192,7 @@ export interface PrefFlags {
   bespokeModel?: string;
   bespokeCli?: string;
   bespokeCache?: string;
+  bespokeArt?: string | number;
 }
 
 /* ------------------------------------------------------------------ internals */

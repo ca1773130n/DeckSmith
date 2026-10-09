@@ -48,6 +48,8 @@ export interface KeyInput {
   region: { width: number; height: number };
   /** The pack: name, colours, faces. */
   pack: unknown;
+  /** The illustration's art key (src/bespoke/art.ts), when the scene was drawn around one. */
+  art?: string;
 }
 
 export interface CacheEntry {
@@ -67,6 +69,8 @@ export interface CacheEntry {
    * on every build anyway.
    */
   gates?: string;
+  /** The art key of the illustration the scene places, when it has one. */
+  art?: string;
 }
 
 /** JSON with sorted keys, so two equal objects hash equal whatever order they were built in. */

@@ -52,7 +52,7 @@ export const PIXEL_DELTA = 24;
  */
 export const SEEK_TOLERANCE_PX = 1500;
 /** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
-export const GATES_VERSION = "gates-3";
+export const GATES_VERSION = "gates-4";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
@@ -117,6 +117,44 @@ export const STAGE_FILL = 0.8;
 export const KEY_TYPE_PX = 64;
 /** A cue group may appear this long before its cue starts (the prompt's own sync window). */
 export const EARLY_SLACK = 0.5;
+/**
+ * At the settled frame, at most this share of a scene's parts may be ones it
+ * showed lit (>= `LIT`) earlier and has left dimmed (< `DIM`). Round 2 kept
+ * three scenes that ended on a frame of ghosts; the founder's rule is that the
+ * last cue ends with the whole scene lit. A part that was never lit — a halo, a
+ * translucent cone — is not counted: it is drawn that way, not dimmed.
+ */
+export const END_DIMMED = 0.1;
+export const LIT = 0.85;
+export const DIM = 0.6;
+
+/** A label as the repair pass sees it: its address, the unit a nudge moves, its box in body px. */
+export interface GeoLabel {
+  /** `tag:index` among the body's elements, in document order. */
+  a: string;
+  /** The unit a nudge would wrap (the text, or its plate group); null when it cannot move. */
+  u: string | null;
+  /** Document order (paint order). */
+  o: number;
+  /** x, y, w, h in body px. */
+  b: [number, number, number, number];
+  /** Screen px per unit of the unit's parent (a camera zoom makes it > 1). */
+  s: number;
+  fs: number;
+}
+
+/** What one frame of a bespoke scene looks like to the repair pass. */
+export interface Geo {
+  w: number;
+  h: number;
+  labels: GeoLabel[];
+  /** Filled shapes and pictures: address, owning label unit, paint order, box. */
+  boxes: Array<{ a: string; u: string | null; o: number; b: [number, number, number, number] }>;
+  /** Visible stroke samples, body px, with the label unit they belong to. */
+  points: Array<[number, number, string | null]>;
+  /** Each visible part's opacity and what dims it (`tag:index`, `#id` appended when it has one). */
+  parts: Array<{ a: string; al: number; dim: string[] }>;
+}
 
 /** What the page measured at one frame of one scene. */
 export interface Layout {
@@ -146,6 +184,14 @@ export interface Layout {
   revealed?: Array<{ id: string; cue: number }>;
   /** Scene seconds each cue starts at, so `early_reveal` can be graded off this row alone. */
   cueStarts?: number[];
+  /** Where the camera is when it is not home (bespoke scenes). Graded at the end only. */
+  camOff?: string;
+  /** Repair geometry, when the probe asked for it. */
+  geo?: Geo;
+  /** End row: the share of parts lit earlier and left dimmed (`END_DIMMED`). */
+  litDimmed?: number;
+  /** End row: the elements dimming those parts, as `tag:index[#id]`. */
+  relight?: string[];
 }
 
 export function gradeLayout(rows: readonly Layout[]): Finding[] {
@@ -178,6 +224,16 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
       "shown before the cue that introduces it —",
     );
     if (r.key !== "end" || r.fill === undefined) continue;
+    // The settled frame is the summary: the whole scene, lit, at full view.
+    if (r.camOff)
+      add("camera_end", r, [r.camOff], "the camera has not come back to the whole scene —");
+    if ((r.litDimmed ?? 0) > END_DIMMED)
+      add(
+        "end_dimmed",
+        r,
+        [`${Math.round(100 * (r.litDimmed ?? 0))}% of its parts`],
+        "the last frame leaves dimmed what the scene had lit —",
+      );
     // The settled frame: the stage, the hierarchy and the cue groups.
     if (r.fill < STAGE_FILL)
       add(
@@ -220,10 +276,20 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
  * or a CSP refusal names no scene, so it fails every scene probed with it —
  * none of them can be shown to be innocent from inside one page.
  */
+/**
+ * Console errors the MACHINE raises, not the page: no scene can cause or fix
+ * them. MEASURED 2026-10-09: "The AudioContext encountered an error from the
+ * audio device or the WebAudio renderer" appeared on one probe deck in three
+ * and failed all five of its scenes — five critique calls, two fallbacks.
+ * Round 1 saw the same line once on bytes that had passed an hour earlier.
+ */
+export const ENVIRONMENT_ERRORS = [/AudioContext encountered an error from the audio device/];
+
 export function gradeErrors(errors: readonly string[], sids: readonly string[]): Finding[] {
   const out: Finding[] = [];
   const loose: string[] = [];
   for (const e of new Set(errors)) {
+    if (ENVIRONMENT_ERRORS.some((re) => re.test(e))) continue;
     const named = sids.find((sid) => e.includes(`bespoke #${sid}:`));
     if (named)
       out.push({
@@ -413,6 +479,8 @@ export interface ProbeOptions {
   cold?: boolean;
   /** Photograph cue ends only (see `probeTimes`). */
   sparse?: boolean;
+  /** Measure the repair geometry at every graded frame (bespoke scenes). */
+  geometry?: boolean;
   /** Opens a fresh page; injected so the graders' wiring is testable. */
   open: () => Promise<DeckPage>;
   /** The array `open` hands to `openDeck({ watch })`; read once the probe ends. */
@@ -451,10 +519,9 @@ export async function probeScenes(
         shots.set(p.key, png);
         if (opts.keepFrames) frames.push({ sid: w.sid, key: p.key, t: p.t, png });
         if (gates.has("layout") && p.edge !== "s") {
-          const m = (await deck.page.evaluate(`(${MEASURE})(${JSON.stringify(w.sid)})`)) as Omit<
-            Layout,
-            "sid" | "key" | "t"
-          >;
+          const m = (await deck.page.evaluate(
+            `(${MEASURE})(${JSON.stringify(w.sid)}, ${opts.geometry === true})`,
+          )) as Omit<Layout, "sid" | "key" | "t">;
           const mass = p.key === "end" ? await paintedOf(deck, w.sid, png) : undefined;
           layout.push({
             sid: w.sid,
@@ -466,6 +533,7 @@ export async function probeScenes(
           });
         }
       }
+      if (opts.geometry) endState(layout.filter((l) => l.sid === w.sid));
       if (gates.has("motion")) {
         for (const [i, c] of w.cues.entries()) {
           // Three instants per cue, and the LARGEST pairwise change: a looping
@@ -550,6 +618,24 @@ export async function probeScenes(
 }
 
 /**
+ * The end row's `litDimmed` and `relight`, from every graded frame of one
+ * scene: a part lit (>= `LIT`) at some earlier frame and dimmed (< `DIM`, but
+ * visible) at the end, and the elements above it that dim it. A part that was
+ * never lit is drawn translucent on purpose and is left alone.
+ */
+export function endState(rows: Layout[]): void {
+  const end = rows.find((r) => r.key === "end");
+  if (!end?.geo) return;
+  const lit = new Set<string>();
+  for (const r of rows)
+    if (r !== end) for (const p of r.geo?.parts ?? []) if (p.al >= LIT) lit.add(p.a);
+  const parts = end.geo.parts;
+  const ghosts = parts.filter((p) => p.al < DIM && lit.has(p.a));
+  end.litDimmed = parts.length ? ghosts.length / parts.length : 0;
+  end.relight = [...new Set(ghosts.flatMap((p) => p.dim))];
+}
+
+/**
  * Lay the frame out, then wait for any face that layout asked for. A glyph a
  * scene uses first (KaTeX, a CJK fallback) starts loading when the scene first
  * paints — after `document.fonts.ready` resolved at load — and a frame shot
@@ -606,10 +692,20 @@ function round(n: number): number {
  * the instant just seeked. A string, so it carries no closure and no bundler
  * helper into the browser.
  */
-const MEASURE = `(sid) => {
+const MEASURE = `(sid, wantGeo) => {
   const root = document.getElementById(sid);
   if (!root) return { crossings: [], occlusions: [], overlaps: [], small: [], off: [], strays: [] };
   const W = window.innerWidth, H = window.innerHeight;
+  // A bespoke scene that moves the camera is clipped to its body box: what the
+  // push-in leaves outside it is not drawn, so it is neither off the frame nor
+  // crossing anything.
+  const bodyEl = document.getElementById(sid + "-g");
+  const bodyClip = bodyEl && getComputedStyle(bodyEl).overflow !== "visible" ? bodyEl.getBoundingClientRect() : null;
+  const meet = (a, b) => {
+    const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y);
+    const x1 = Math.min(a.x + a.width, b.x + b.width), y1 = Math.min(a.y + a.height, b.y + b.height);
+    return { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) };
+  };
   const alpha = (el) => {
     let o = 1;
     for (let e = el; e && e !== document.body; e = e.parentElement) {
@@ -625,8 +721,9 @@ const MEASURE = `(sid) => {
   // not drawn, so it is neither off the frame nor crossing anything.
   const clipOf = (el) => {
     const svg = el.ownerSVGElement || (el.closest && el.closest("svg"));
-    if (!svg || getComputedStyle(svg).overflow === "visible") return null;
-    return svg.getBoundingClientRect();
+    let c = svg && getComputedStyle(svg).overflow !== "visible" ? svg.getBoundingClientRect() : null;
+    if (bodyClip && bodyEl.contains(el)) c = c ? meet(c, bodyClip) : bodyClip;
+    return c;
   };
   const boxOf = (el) => {
     const r = el.getBoundingClientRect();
@@ -681,7 +778,10 @@ const MEASURE = `(sid) => {
   // Strokes and fills. Every shape that paints something at this instant is a
   // LEAF: what the stage-fill and early-reveal measures below are made of.
   const crossings = [], occlusions = [], off = [], strays = [], leaves = [];
-  const shapes = root.querySelectorAll("path, line, polyline, polygon, circle, ellipse, rect");
+  // <image> is a bespoke scene's illustration: it paints its whole box.
+  const shapes = root.querySelectorAll("path, line, polyline, polygon, circle, ellipse, rect, image");
+  // Repair geometry (bespoke scenes, on request): stroke points, filled boxes.
+  const geoPoints = [], geoBoxes = [];
   const inset = 4;
   const inside = (p, t) => p.x > t.x + inset && p.x < t.x + t.w - inset && p.y > t.y + inset && p.y < t.y + t.h - inset;
   for (const g of shapes) {
@@ -704,6 +804,7 @@ const MEASURE = `(sid) => {
     // to 0%, or half way — the "stray arrowhead" of an undrawn line.
     const markerStart = cs.markerStart && cs.markerStart !== "none";
     const markerEnd = cs.markerEnd && cs.markerEnd !== "none";
+    const picture = g.tagName.toLowerCase() === "image";
     let paints = filled;
     if (!stroked && (markerStart || markerEnd)) strays.push(name(g) + " (its arrowhead shows, its line does not)");
     if (stroked && typeof g.getTotalLength !== "function") paints = true;
@@ -730,12 +831,14 @@ const MEASURE = `(sid) => {
         const step = Math.max(4, len / 400);
         const hit = new Set();
         let drawn = 0;
+        let kept = -1e9;
         for (let d = 0; d <= len; d += step) {
           if (!visible(d)) continue;
           drawn += step;
           const q = g.getPointAtLength(d);
           const p = { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f };
           if (r.clip && (p.x < r.clip.x || p.y < r.clip.y || p.x > r.clip.x + r.clip.width || p.y > r.clip.y + r.clip.height)) continue;
+          if (wantGeo && d - kept >= 8 && geoPoints.length < 6000) { kept = d; geoPoints.push({ el: g, x: p.x, y: p.y }); }
           // No plate exemption here: a long curve's bounding box contains half
           // the labels on a chart, and its stroke still runs through them.
           for (const t of texts) if (!hit.has(t) && inside(p, t)) hit.add(t);
@@ -748,9 +851,11 @@ const MEASURE = `(sid) => {
       } else if (len > 0) paints = true;
     }
     if (paints) leaves.push({ el: g, x: r.x, y: r.y, w: r.width, h: r.height, o });
+    if (wantGeo && filled) geoBoxes.push({ el: g, x: r.x, y: r.y, w: r.width, h: r.height });
     if (filled) {
       for (const t of texts) {
-        if (plate(t)) continue;
+        // A picture over a label is never its plate: it covers it.
+        if (plate(t) && !picture) continue;
         // Only a shape painted AFTER the text can cover it.
         if (!(t.el.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
         const ix = Math.min(r.x + r.width, t.x + t.w) - Math.max(r.x, t.x);
@@ -771,7 +876,8 @@ const MEASURE = `(sid) => {
     const mine = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, x: t.x, y: t.y, w: t.w, h: t.h }))
       .concat(leaves.filter((l) => box.contains(l.el)));
     // A backdrop the size of the box fills it by being there; it is not content.
-    const content = mine.filter((l) => l.w * l.h < 0.85 * b.width * b.height);
+    // A picture is content however big it is: it is what the stage shows.
+    const content = mine.filter((l) => l.w * l.h < 0.85 * b.width * b.height || l.el.tagName.toLowerCase() === "image");
     const clip = (l) => {
       const x0 = Math.max(b.x, l.x), y0 = Math.max(b.y, l.y);
       const x1 = Math.min(b.x + b.width, l.x + l.w), y1 = Math.min(b.y + b.height, l.y + l.h);
@@ -803,5 +909,86 @@ const MEASURE = `(sid) => {
     const showing = (e) => texts.some((t) => e === t.el || e.contains(t.el)) || leaves.some((l) => e === l.el || e.contains(l.el));
     revealed = tagged.filter(showing).map((e) => ({ id: name(e), cue: Number(e.getAttribute("data-cue")) }));
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed };
+  // Where the camera is, for \`camera_end\`: the shell's wrapper, and a viewBox camera.
+  let camOff;
+  const cam = document.getElementById(sid + "-cam");
+  if (cam) {
+    const t = getComputedStyle(cam).transform;
+    if (t && t !== "none") {
+      const v = t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number);
+      if (v.length === 6 && (Math.abs(v[0] - 1) > 0.01 || Math.abs(v[4]) > 2 || Math.abs(v[5]) > 2))
+        camOff = "#" + sid + "-cam at scale " + v[0].toFixed(2) + ", x " + Math.round(v[4]) + ", y " + Math.round(v[5]);
+    }
+  }
+  const svg0 = document.getElementById(sid + "-svg");
+  if (svg0 && !camOff) {
+    // The contract's viewBox is "0 0 W H" with W, H the svg's own size.
+    const vb = (svg0.getAttribute("viewBox") || "").trim().split(/[ ,]+/).map(Number);
+    const w0 = Number(svg0.getAttribute("width")), h0 = Number(svg0.getAttribute("height"));
+    if (vb.length === 4 && w0 > 0 && h0 > 0 && (Math.abs(vb[0]) > 1 || Math.abs(vb[1]) > 1 || Math.abs(vb[2] - w0) > 1 || Math.abs(vb[3] - h0) > 1))
+      camOff = "#" + sid + "-svg viewBox " + vb.join(" ");
+  }
+
+  // What the repair pass needs (bespoke scenes only): every element of the body
+  // addressed as tag:index in document order — the markup's own order, which
+  // is how a fix finds it again in the fragment — the labels with the unit a
+  // nudge would move (the text, or the smallest <g> that holds it and its
+  // plate and no other label), what is painted, and each part's opacity.
+  let geo;
+  if (box && wantGeo) {
+    const index = new Map(), order = new Map();
+    const n = {};
+    let k = 0;
+    for (const e of box.querySelectorAll("*")) {
+      // Not the markup's: KaTeX's rendered spans, and the shell's camera wrapper.
+      if (e.closest(".katex") || e.id === sid + "-cam") continue;
+      const t = e.tagName.toLowerCase();
+      n[t] = n[t] || 0;
+      index.set(e, t + ":" + n[t]++);
+      order.set(e, k++);
+    }
+    const ob = box.getBoundingClientRect();
+    const rel = (x, y, w, h) => [x - ob.x, y - ob.y, w, h].map((v) => Math.round(v * 10) / 10);
+    const unitOf = (el) => {
+      let u = el;
+      const tb = el.getBoundingClientRect();
+      const area = Math.max(1, tb.width * tb.height);
+      for (let p = el.parentElement; p && p !== box && p.tagName.toLowerCase() === "g" && box.contains(p); p = p.parentElement) {
+        if (p.querySelectorAll("text").length !== 1) break;
+        const pb = p.getBoundingClientRect();
+        if (pb.width * pb.height > 4 * area) break;
+        u = p;
+      }
+      return u;
+    };
+    const scaleOf = (u) => {
+      const par = u.parentElement;
+      const m = par && par.getScreenCTM ? par.getScreenCTM() : null;
+      return m ? Math.hypot(m.a, m.b) || 1 : 1;
+    };
+    const units = [];
+    const labels = texts.filter((t) => box.contains(t.el)).map((t) => {
+      const movable = t.el.tagName.toLowerCase() === "text";
+      const u = movable ? unitOf(t.el) : null;
+      if (u) units.push(u);
+      return { a: index.get(t.el) || "", u: u ? index.get(u) : null, o: order.get(t.el) ?? -1, b: rel(t.x, t.y, t.w, t.h), s: u ? Math.round(scaleOf(u) * 1000) / 1000 : 1, fs: Math.round(t.fs) };
+    });
+    const ownerOf = (el) => { for (const u of units) if (u === el || u.contains(el)) return index.get(u); return null; };
+    const points = geoPoints.filter((p) => box.contains(p.el)).map((p) => [Math.round(p.x - ob.x), Math.round(p.y - ob.y), ownerOf(p.el)]);
+    const boxes = geoBoxes.filter((b) => box.contains(b.el)).map((b) => ({ a: index.get(b.el) || "", u: ownerOf(b.el), o: order.get(b.el) ?? -1, b: rel(b.x, b.y, b.w, b.h) }));
+    // Each visible part's opacity, and the elements above it (itself included)
+    // that dim it: what a relight would have to bring back.
+    const own = (e) => Number(getComputedStyle(e).opacity);
+    const parts = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, o: t.o }))
+      .concat(leaves.filter((l) => box.contains(l.el)).map((l) => ({ el: l.el, o: l.o })))
+      .map((p) => {
+        const dim = [];
+        if (p.o < 0.95)
+          for (let e = p.el; e && e !== box; e = e.parentElement)
+            if (index.has(e) && own(e) < 0.95) dim.push(index.get(e) + (e.id ? "#" + e.id : ""));
+        return { a: index.get(p.el) || "", al: Math.round(p.o * 100) / 100, dim };
+      });
+    geo = { w: Math.round(ob.width), h: Math.round(ob.height), labels, boxes, points, parts };
+  }
+  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo };
 }`;

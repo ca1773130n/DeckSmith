@@ -66,9 +66,9 @@ export function instantiate(f: Fragment, sid: string): Fragment {
 }
 
 /** Every reason this fragment may not be built. Empty means it may. */
-export function checkFragment(f: Fragment): StaticFinding[] {
+export function checkFragment(f: Fragment, ctx: FragmentContext = {}): StaticFinding[] {
   return [
-    ...checkMarkup(f.markup),
+    ...checkMarkup(f.markup, ctx),
     ...checkCueGroups(f.markup),
     ...checkCss(f.css),
     ...checkScript(f.script),
@@ -147,7 +147,19 @@ const TAGS = new Set([
   "br",
   "small",
   "p",
+  // Only as the beat's illustration: `<image data-art="1">` with NO href — the
+  // shell writes the href, to a file of its own naming (see `checkMarkup`).
+  "image",
 ]);
+
+/** What `checkFragment` needs to know about the beat beyond the fragment. */
+export interface FragmentContext {
+  /** Whether the beat has an illustration a scene may place (`<image data-art="1">`). */
+  art?: boolean;
+}
+
+/** Ids the shell owns inside a bespoke scene: the body box, eyebrow, headline, camera. */
+const SHELL_IDS = /^SCENEID-(g|e|h|cam)$/;
 
 /** `url(#SCENEID-…)` is a reference inside the scene; every other `url(` is a fetch. */
 const LOCAL_URL = new RegExp(`url\\(\\s*['"]?#${SID_TOKEN}-[\\w-]+['"]?\\s*\\)`, "g");
@@ -176,7 +188,7 @@ function badStyle(value: string): string | undefined {
   return undefined;
 }
 
-export function checkMarkup(markup: string): StaticFinding[] {
+export function checkMarkup(markup: string, ctx: FragmentContext = {}): StaticFinding[] {
   const out: StaticFinding[] = [];
   const bad = (rule: string, message: string) => out.push({ rule, message });
   if (markup.length > MAX_MARKUP) bad("markup_size", `markup is ${markup.length} bytes`);
@@ -199,6 +211,23 @@ export function checkMarkup(markup: string): StaticFinding[] {
     }
     if (m[0].startsWith("</")) continue;
     const attrs = m[2] ?? "";
+    if (name === "image") {
+      // The illustration, and only it: the shell supplies the href, so a model
+      // can neither name a file nor reach one, and a beat without a picture
+      // cannot show one.
+      if (!/\sdata-art\s*=\s*["']?1["']?(?=[\s/>]|$)/.test(` ${attrs}`))
+        bad(
+          "markup_art",
+          '<image> is only the beat\'s illustration: <image data-art="1" …> with no href',
+        );
+      else if (!ctx.art)
+        bad("markup_art", "<image data-art> places an illustration this beat does not have");
+      if (/\s(xlink:)?href\s*=/i.test(` ${attrs}`))
+        bad(
+          "markup_ref",
+          "<image href=…>: the shell writes the illustration's href, never the scene",
+        );
+    }
     for (const a of attrs.matchAll(/([^\s=/"']+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
       const attr = (a[1] ?? "").toLowerCase();
       const raw = a[2] ?? "";
@@ -215,14 +244,23 @@ export function checkMarkup(markup: string): StaticFinding[] {
       } else if (attr === "id") {
         if (!new RegExp(`^${SID_TOKEN}-[\\w-]+$`).test(value))
           bad("markup_id", `id "${value}" is not scoped — every id is ${SID_TOKEN}-<name>`);
-        else if (/^SCENEID-[geh]$/.test(value))
-          bad("markup_id", `id "${value}" is the shell's — the body box, eyebrow and headline`);
+        else if (SHELL_IDS.test(value))
+          bad(
+            "markup_id",
+            `id "${value}" is the shell's — the body box, eyebrow, headline or camera`,
+          );
         else if (ids.has(value)) bad("markup_id", `id "${value}" is used twice`);
         ids.add(value);
       } else if (attr === "data-cue") {
         // The cue a group arrives on: `early_reveal` holds the scene to it.
         if (!/^[1-9][0-9]?$/.test(value))
           bad("markup_cue", `data-cue="${value.slice(0, 20)}" is not a cue number (1, 2, 3 …)`);
+      } else if ((attr === "d" && name === "path") || (attr === "points" && name !== "svg")) {
+        // Geometry is numbers and path commands. Anything else is a console
+        // error in every scene of the page (MEASURED 2026-10-09: one draft's
+        // d="M 95 240 H  sixty" failed all five drafts of a deck as page_error).
+        if (!/^[\sMmLlHhVvCcSsQqTtAaZz0-9.,eE+-]*$/.test(value))
+          bad("markup_geometry", `<${name} ${attr}="${value.slice(0, 40)}"> is not path data`);
       } else if (foreignUrl(value)) bad("markup_ref", `<${name} ${attr}=…> uses url()`);
       if (/javascript:/i.test(value)) bad("markup_ref", `<${name} ${attr}=…> names javascript:`);
     }

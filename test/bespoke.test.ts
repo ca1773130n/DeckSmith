@@ -345,6 +345,7 @@ describe("the bespoke pass", () => {
     maxSeconds: 1800,
     concurrency: 2,
     effort: "medium" as const,
+    art: 0,
     cache: cacheDir,
     ...over,
   });

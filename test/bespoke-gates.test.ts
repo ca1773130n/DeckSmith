@@ -160,6 +160,17 @@ describe("the graders", () => {
     expect(f[0]?.severity).toBe("warning");
   });
 
+  it("does not blame any scene for the machine's audio device", () => {
+    expect(
+      gradeErrors(
+        [
+          "console error: The AudioContext encountered an error from the audio device or the WebAudio renderer.",
+        ],
+        ["s2", "s3"],
+      ),
+    ).toEqual([]);
+  });
+
   it("pins a script error to its scene, and a request to every scene probed", () => {
     const named = gradeErrors(
       ["console error: decksmith bespoke #s4: x is not defined"],
