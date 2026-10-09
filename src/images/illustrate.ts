@@ -21,6 +21,7 @@ import type { Prefs } from "../prefs.js";
 import { imageSize } from "../source/assets.js";
 import {
   type Figure,
+  GENERATED_FIGURE_PREFIX,
   type Illustration,
   type Source,
   type Storyboard,
@@ -185,7 +186,7 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
         out.push({
           label: beat.id,
           beatId: beat.id,
-          figureId: `gen-${beat.id}`,
+          figureId: `${GENERATED_FIGURE_PREFIX}${beat.id}`,
           aspect: "landscape",
           brief: p.illustration,
           assign: (id) => {
@@ -200,7 +201,7 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
           out.push({
             label: `${beat.id} ${side}`,
             beatId: beat.id,
-            figureId: `gen-${beat.id}-${side}`,
+            figureId: `${GENERATED_FIGURE_PREFIX}${beat.id}-${side}`,
             aspect: "square",
             brief: s.illustration,
             assign: (id) => {

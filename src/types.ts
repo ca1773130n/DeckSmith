@@ -176,6 +176,19 @@ export const illustrationSchema = z.object({
   caption: z.string(),
 });
 
+/**
+ * The id prefix `illustrate` gives every figure it draws (`gen-b03`,
+ * `gen-b04-left`). Such a figure is the DECK's, not the document's: it was
+ * drawn from a brief the planner wrote, so nothing that sizes a deck to what
+ * the document contains may count it (`sourcePoints`).
+ */
+export const GENERATED_FIGURE_PREFIX = "gen-";
+
+/** Whether `illustrate` drew this figure, rather than the document carrying it. */
+export function isGeneratedFigure(id: string): boolean {
+  return id.startsWith(GENERATED_FIGURE_PREFIX);
+}
+
 export const claimFigureParamsSchema = z
   .object({
     eyebrow: z.string().optional(),
