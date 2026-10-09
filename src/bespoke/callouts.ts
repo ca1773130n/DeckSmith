@@ -218,8 +218,10 @@ function place(label: Label, zone: Zone, theme: Theme, boxH: number): Placed | u
 /** When each subject's label enters: as the camera arrives on it, else at the reveal. */
 export function entrances(moves: readonly CamMove[], subjects: number): Map<number, number> {
   const out = new Map<number, number>();
+  // An opening shot (no duration, `close-open`) lands its label just after the scene starts.
   for (const m of moves)
-    if (m.subject > 0 && !out.has(m.subject)) out.set(m.subject, m.t + 0.6 * m.dur);
+    if (m.subject > 0 && !out.has(m.subject))
+      out.set(m.subject, m.dur === 0 ? m.t + 0.6 : m.t + 0.6 * m.dur);
   const reveal = moves.find((m, i) => m.subject === 0 && i === moves.length - 1);
   for (let k = 1; k <= subjects; k++) if (!out.has(k)) out.set(k, reveal ? reveal.t + 0.4 : 0.5);
   return out;

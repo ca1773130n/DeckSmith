@@ -114,7 +114,10 @@ export function stagingMeasures(
   return {
     subjects,
     shots: shotsOf(cams).close.length,
-    ...(early.length ? { establishing: early.every((c) => c.shot[0] < WIDE) } : {}),
+    // A `close-open` scene does not establish, by design: not measured.
+    ...(early.length && !cams.some((c) => c.open === "close")
+      ? { establishing: early.every((c) => c.shot[0] < WIDE) }
+      : {}),
     anchored: [...best.values()].filter((d) => d <= ANCHOR_PX).length,
     ...(best.size ? { anchorMax: Math.max(...best.values()) } : {}),
   };

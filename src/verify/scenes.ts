@@ -230,6 +230,8 @@ export interface CamSample {
   shot: [number, number, number, number, number];
   /** How many subjects the scene's illustration has. */
   subjects: number;
+  /** The scene opens close by design (the `close-open` grammar), not on the whole picture. */
+  open?: "close";
 }
 
 /** Where a shot points: the point at the centre of the view, as shares of the box. */
@@ -285,7 +287,10 @@ export function gradeShots(
     const { close } = shotsOf(list);
     const want = Math.min(2, n);
     const t0 = opens.get(sid) ?? 0;
-    const early = list.find((r) => r.t >= t0 && r.t <= t0 + 1 && r.shot[0] >= WIDE);
+    // A `close-open` scene opens close on purpose; only a tour must open wide.
+    const early = list.some((r) => r.open === "close")
+      ? undefined
+      : list.find((r) => r.t >= t0 && r.t <= t0 + 1 && r.shot[0] >= WIDE);
     const say: string[] = [];
     if (early)
       say.push(
@@ -883,6 +888,11 @@ export async function probeScenes(
           ...layout.filter((l) => l.sid === w.sid).map((l) => l.subjects ?? 0),
         );
         const sid = JSON.stringify(w.sid);
+        const opensClose =
+          subjects > 0 &&
+          (await deck.page.evaluate(
+            `document.getElementById(${JSON.stringify(`${w.sid}-cam`)})?.getAttribute("data-ds-open") === "close"`,
+          )) === true;
         // Not past the settled end frame: later instants overlap the next
         // scene's transition, and seeking there would be that scene's first
         // render — the history its own probe must be the first to make.
@@ -890,7 +900,14 @@ export async function probeScenes(
           await deck.seek(w.start + t);
           if (subjects > 0) {
             const shot = (await deck.page.evaluate(`(${CAM})(${sid})`)) as CamSample["shot"] | null;
-            if (shot) cams.push({ sid: w.sid, t: round(t), shot, subjects });
+            if (shot)
+              cams.push({
+                sid: w.sid,
+                t: round(t),
+                shot,
+                subjects,
+                ...(opensClose ? { open: "close" as const } : {}),
+              });
           }
           const cut = (await deck.page.evaluate(`(${CUT})(${sid})`)) as CutSample["cut"];
           cuts.push({ sid: w.sid, t: round(t), cut });

@@ -31,6 +31,7 @@ import {
   type CamMove,
   cameraScript,
   compileShots,
+  type Grammar,
   subjectsInBox,
 } from "./shots.js";
 
@@ -47,7 +48,12 @@ export interface BespokeEntry {
    * timing the cue windows came from: what the shell's camera is timed to
    * (src/bespoke/shots.ts). Present on an illustrated scene.
    */
-  stage?: { cues: ReadonlyArray<{ t0: number; t1: number }>; duration: number };
+  stage?: {
+    cues: ReadonlyArray<{ t0: number; t1: number }>;
+    duration: number;
+    /** The shot grammar (src/bespoke/shots.ts). Absent: `tour`. */
+    grammar?: Grammar;
+  };
 }
 
 /** The file `build` writes beside a deck with the bespoke pass's account of itself. */
@@ -151,6 +157,7 @@ export function staging(
     targets,
     box.width,
     box.height,
+    entry.stage.grammar ?? "tour",
   );
   return { subjects, zones, moves };
 }
@@ -189,7 +196,7 @@ export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry):
   return {
     html: `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format), face)}
 <div class="ds-bespoke" id="${sid}-g"${camera ? " data-ds-clip" : ""}>
-<div class="ds-cam" id="${sid}-cam">
+<div class="ds-cam" id="${sid}-cam"${moves[0]?.dur === 0 ? ' data-ds-open="close"' : ""}>
 ${withArt(f.markup, entry.art, subjects.length ? { width, height } : undefined)}
 ${subjectLayer(subjects, width, height)}
 ${callouts.markup}

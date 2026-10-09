@@ -57,6 +57,8 @@ export interface KeyInput {
    */
   device?: string;
   idea?: string;
+  /** The shot grammar of an illustrated scene: it is in the prompt (rule 10). */
+  grammar?: string;
 }
 
 export interface CacheEntry {

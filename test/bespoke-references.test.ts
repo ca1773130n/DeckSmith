@@ -130,6 +130,8 @@ const SLOT: Record<string, string> = {
   gather: "b13",
   illustrated: "b09",
 };
+/** The illustrated reference again, staged in the `close-open` grammar (on a beat whose body box is the reference's own size, 1700x732). */
+const CLOSE_SLOT = "b06";
 
 describe.skipIf(chrome === null)("the references, in the renderer's browser", () => {
   let dir = "";
@@ -161,7 +163,10 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
     for (const [i, beat] of demo.beats.entries()) {
       const ctx = { source, format: deck16, theme: ink, sid: `s${i + 1}`, start: 0 };
       const n = stopCount(emitScene(beat, ctx).holds);
-      const ref = REFERENCES.find((r) => SLOT[r.name] === beat.id);
+      const close = beat.id === CLOSE_SLOT;
+      const ref =
+        REFERENCES.find((r) => SLOT[r.name] === beat.id) ??
+        (close ? REFERENCES.find((r) => r.name === "illustrated") : undefined);
       if (!ref) {
         beats[beat.id] = Array.from({ length: n }, (_, stop) => ({
           stop,
@@ -207,6 +212,7 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
               stage: {
                 cues: ref.cues.map((c) => ({ t0: c.t0, t1: c.t1 })),
                 duration: ref.duration,
+                ...(close ? { grammar: "close-open" as const } : {}),
               },
             }
           : {}),
@@ -221,7 +227,9 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
     });
     for (const [i, b] of built.cut.kept.entries()) sidOf.set(b.id, `s${i + 1}`);
     const timing = (await readTimingFile(dir)) as Timing;
-    const wanted = new Set(Object.values(SLOT).map((id) => sidOf.get(id) as string));
+    const wanted = new Set(
+      [...Object.values(SLOT), CLOSE_SLOT].map((id) => sidOf.get(id) as string),
+    );
     const errors: string[] = [];
     probe = await probeScenes(sceneWindows(timing, wanted), {
       open: () => openDeck(dir, { watch: errors }),
@@ -264,4 +272,14 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
       ).toEqual([]);
     });
   }
+
+  it("the illustrated one, staged close-open, opens close and passes every gate", () => {
+    const sid = sidOf.get(CLOSE_SLOT) as string;
+    expect(probe.findings.filter((f) => f.message.startsWith(`#${sid}`))).toEqual([]);
+    const cams = probe.cams.filter((c) => c.sid === sid);
+    expect(cams[0]?.open).toBe("close");
+    expect(cams[0]?.shot[0]).toBeGreaterThanOrEqual(1.5);
+    const end = cams[cams.length - 1];
+    expect(end?.shot[0]).toBe(1);
+  });
 });

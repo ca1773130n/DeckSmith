@@ -772,6 +772,25 @@ describe("the staging graders (round 4)", () => {
     expect(f[0]?.message).toMatch(/holds 1 distinct push-in/);
   });
 
+  it("shot_variety: a close-open scene may open pushed in; a tour may not", () => {
+    const opening = (open?: "close"): CamSample[] =>
+      [1, 1.5, 2, 4.5, 5, 8, 8.5].map((t, i) => ({
+        sid: "s7",
+        t,
+        shot: (i < 3
+          ? [1.8, -200, -100, 1700, 700]
+          : i < 5
+            ? [1.8, -1400, -100, 1700, 700]
+            : [1, 0, 0, 1700, 700]) as CamSample["shot"],
+        subjects: 3,
+        ...(open ? { open } : {}),
+      }));
+    expect(gradeShots(opening(), new Map([["s7", 1]])).map((f) => f.message)).toEqual([
+      expect.stringMatching(/opens pushed in/),
+    ]);
+    expect(gradeShots(opening("close"), new Map([["s7", 1]]))).toEqual([]);
+  });
+
   it("shot_variety: a scene without an illustration is not graded on shots", () => {
     expect(gradeShots(cams([[0, 18, on(300, 300)]], { subjects: 0 }), opens)).toEqual([]);
   });

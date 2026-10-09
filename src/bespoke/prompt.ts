@@ -37,6 +37,7 @@ import {
   CAMERA_MAX_SCALE,
   CLOSE_MIN,
   ESTABLISH,
+  type Grammar,
   MIN_HOLD,
   MOVE,
 } from "./shots.js";
@@ -44,7 +45,7 @@ import {
 export { CAMERA_MAX_SCALE };
 
 /** Bump with any change to either prompt or to a reference: it is part of every cache key. */
-export const PROMPT_VERSION = "bespoke-8";
+export const PROMPT_VERSION = "bespoke-9";
 /** Bump with any change to what `checkFragment` accepts. Also part of every key. */
 export const CONTRACT_VERSION = "contract-4";
 
@@ -98,6 +99,8 @@ export interface Brief {
    * re-key every scene after it.
    */
   idea?: string;
+  /** How the shell stages an illustrated scene's shots (src/bespoke/shots.ts). Absent: `tour`. */
+  grammar?: Grammar;
 }
 
 /** One beat as the deck-order device pass sees it. */
@@ -376,9 +379,15 @@ function cameraRule(b: Brief): string {
 /** Rule 10's camera, for an illustrated scene: the scene names shots, the shell moves the camera. */
 function shotRule(b: Brief): string {
   const n = b.art?.subjects?.length ?? 0;
+  const opening =
+    b.grammar === "close-open"
+      ? `OPENING CLOSE — this scene's grammar: the camera starts CLOSE on the subject of your FIRST
+   shot (${CLOSE_MIN}-${CAMERA_MAX_SCALE}x) from t=0 and holds it at least ${ESTABLISH}s of C1; the whole picture is
+   seen only at the reveal, so it is discovered, not surveyed — name that first subject in C1;`
+      : `ESTABLISHING — the whole picture (scale 1) from t=0 and for at least ${ESTABLISH}s of C1;`;
   return `CAMERA = THE SHELL'S, driven by your "shots". NEVER tween, set or select "#${T}-cam" in the
-   script (a static check refuses it). The shell stages every illustrated scene in one grammar:
-   ESTABLISHING — the whole picture (scale 1) from t=0 and for at least ${ESTABLISH}s of C1;
+   script (a static check refuses it). The shell stages this illustrated scene so:
+   ${opening}
    PUSH IN — at each shot's time the camera moves (${MOVE}s, power3.inOut) to frame that subject
    at ${CLOSE_MIN}-${CAMERA_MAX_SCALE}x, then holds on it, creeping 3% closer; another subject = a move straight there;
    REVEAL — at the start of the last cue the camera pulls back to the whole picture (1.3s) and the
@@ -445,7 +454,7 @@ function digest(b: Brief): string {
 - Script = body of function (tl, root): gsap.set baselines, then tl.to/fromTo/set(target, {literal vars}, SECONDS). No callbacks, no function values, repeat a literal 0..60, nothing random, no window/document/new/timers/Date/getBBox/innerHTML/String/Object/JSON, no while.
 - drawSVG, morphSVG (path to path), keyframes, attr tweens, textContent+snap counters. ${
     b.art?.subjects?.length
-      ? `The CAMERA is the shell's: never touch "#${T}-cam"; return "shots" [{cue, at, subject}] (subject 1..${b.art.subjects.length}, 0 = whole picture) — establishing on C1, push in on at least ${Math.min(2, b.art.subjects.length)} subjects, the shell reveals at the last cue.`
+      ? `The CAMERA is the shell's: never touch "#${T}-cam"; return "shots" [{cue, at, subject}] (subject 1..${b.art.subjects.length}, 0 = whole picture) — ${b.grammar === "close-open" ? "opening close on the first shot's subject" : "establishing on C1"}, push in on at least ${Math.min(2, b.art.subjects.length)} subjects, the shell reveals at the last cue.`
       : `The shell's camera "#${T}-cam" (never declare it yourself; {scale,x,y}, origin 0 0; frame region x0,y0,w,h with s=min(${W}/w,${H}/h,${CAMERA_MAX_SCALE}), x=(${W}-w*s)/2-x0*s, y=(${H}-h*s)/2-y0*s; home {scale:1,x:0,y:0} before the last cue ends). "shots": [].`
   } No SVG markers.${
     b.art
@@ -570,7 +579,7 @@ It covers your box below a ${ART_BAND}px band kept for the labels (rule 13).${su
 Use it as the hero of the scene, the way an explainer video does:
 - reveal it with intent: a masked wipe (a clipPath rect or circle whose size tweens), or a
   subject-by-subject reveal (a clipPath per subject box), never a plain fade-in;
-- STAGE IT WITH SHOTS (rule 10): the opening is the whole picture; as each cue's words name a
+- STAGE IT WITH SHOTS (rule 10): the opening is ${b.grammar === "close-open" ? "a close shot on your first shot's subject" : "the whole picture"}; as each cue's words name a
   subject, the shell's camera pushes in on it — so at that moment its callout draws on around it
   (a drawSVG ring or bracket on ITS box) and its label lands ON it; the reveal at the last cue
   shows everything lit together;
@@ -658,7 +667,9 @@ function measuredLines(m: Measured | undefined, b: Brief): string {
     }  [a cue under 0.5% barely moves]`,
     ...(b.art?.subjects?.length
       ? [
-          `- shots: ${m.shots ?? "?"} distinct push-in(s) held at cue ends, ${m.establishing === false ? "NOT " : ""}opening on the whole picture  [bar: ${Math.min(2, b.art.subjects.length)}+ push-ins, opening wide]`,
+          b.grammar === "close-open"
+            ? `- shots: ${m.shots ?? "?"} distinct push-in(s) held, opening close on the first subject  [bar: ${Math.min(2, b.art.subjects.length)}+ push-ins]`
+            : `- shots: ${m.shots ?? "?"} distinct push-in(s) held at cue ends, ${m.establishing === false ? "NOT " : ""}opening on the whole picture  [bar: ${Math.min(2, b.art.subjects.length)}+ push-ins, opening wide]`,
           `- subjects named by a label within 96px: ${m.anchored ?? "?"} of ${b.art.subjects.length}; farthest subject label ${m.anchorMax ?? "?"}px  [bar: ${Math.min(2, b.art.subjects.length)}+, each within 96px]`,
         ]
       : []),

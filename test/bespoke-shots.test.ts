@@ -22,6 +22,7 @@ import {
   ESTABLISH,
   frameOn,
   MIN_HOLD,
+  shotSummary,
   subjectsInBox,
 } from "../src/bespoke/shots.js";
 import { resolveTheme } from "../src/emit/theme.js";
@@ -39,6 +40,31 @@ const subjects = [
   { x: 650, y: 120, w: 380, h: 460 },
   { x: 1200, y: 160, w: 400, h: 400 },
 ];
+
+describe("the close-open grammar", () => {
+  it("opens close on the first named subject from t=0, moves on, and reveals at the last cue", () => {
+    const shots = [
+      { cue: 1, at: 0, subject: 2 },
+      { cue: 3, at: 0, subject: 3 },
+    ];
+    const moves = compileShots(shots, cues, 19, subjects, W, H, "close-open");
+    expect(moves[0]).toMatchObject({ t: 0, dur: 0, subject: 2 });
+    expect(moves[0]?.s).toBeGreaterThanOrEqual(CLOSE_MIN);
+    expect(moves.map((m) => m.subject)).toEqual([2, 3, 0]);
+    // The opening is where the camera starts, not a tween from home.
+    const js = cameraScript("s5", moves, W, H);
+    const open = moves[0] as (typeof moves)[number];
+    expect(js).toContain(
+      `gsap.set("#s5-cam", { scale: ${open.s}, x: ${open.x}, y: ${open.y}, transformOrigin: "0 0" });`,
+    );
+    expect(js).not.toMatch(/tl\.fromTo\("#s5-cam", \{ scale: 1, x: 0, y: 0 \}/);
+    expect(shotSummary(moves).startsWith("S2@")).toBe(true);
+    // Its label lands just after the start.
+    expect(entrances(moves, 3).get(2)).toBeCloseTo(0.6, 5);
+    // The tour still establishes wide.
+    expect(compileShots(shots, cues, 19, subjects, W, H)[0]?.t).toBeGreaterThan(0);
+  });
+});
 
 describe("the subjects in the box", () => {
   it("maps shares of a picture that covers the box under the label band (slice), and drops a subject mostly cropped", () => {

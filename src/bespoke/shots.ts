@@ -21,7 +21,18 @@
  *
  * Shots closer than `MIN_HOLD` to the previous one are dropped: a shot the
  * audience cannot read is a shake.
+ *
+ * A SECOND GRAMMAR, `close-open` (2026-10-10): one grammar for every
+ * illustrated scene made every one of them move alike — r1's three illustrated
+ * scenes were the same tour of three subjects in a row, and read as a template.
+ * `close-open` OPENS CLOSE on the subject of the first shot, held from t=0, moves
+ * subject to subject, and opens out to the whole picture only at the reveal —
+ * the picture is discovered rather than surveyed. The pass alternates the two
+ * over a deck's illustrated beats in deck order.
  */
+
+/** How a scene's shots are staged: `tour` establishes wide first; `close-open` opens close. */
+export type Grammar = "tour" | "close-open";
 
 import type { UnitBox } from "./inspect.js";
 
@@ -187,6 +198,7 @@ export function compileShots(
   subjects: readonly Box[],
   W: number,
   H: number,
+  grammar: Grammar = "tour",
 ): CamMove[] {
   const n = cues.length;
   if (n === 0 || subjects.length === 0) return [];
@@ -220,6 +232,20 @@ export function compileShots(
   const moves: CamMove[] = [];
   let at = earliest;
   let current = 0;
+  if (grammar === "close-open") {
+    // The opening shot: close on the first subject a shot names, from t=0 (a
+    // move of no duration, which `cameraScript` writes as the camera's set).
+    const open = timed.find((s) => s.subject > 0)?.subject ?? 1;
+    moves.push({
+      t: 0,
+      dur: 0,
+      ...frameOn(subjects[open - 1] as Box, W, H),
+      ease: "none",
+      subject: open,
+    });
+    current = open;
+    at = first.t0 + Math.max(MIN_HOLD, ESTABLISH);
+  }
   for (const s of timed) {
     const t = Math.max(s.t, at);
     if (t > latest - MIN_HOLD) break;
@@ -249,19 +275,21 @@ export function compileShots(
  */
 export function cameraScript(sid: string, moves: readonly CamMove[], W: number, H: number): string {
   const cam = JSON.stringify(`#${sid}-cam`);
+  // `close-open`: the opening shot is where the camera starts, not a move.
+  const open = moves[0]?.dur === 0 ? moves[0] : undefined;
+  const v = (f: { s: number; x: number; y: number }) => `scale: ${f.s}, x: ${f.x}, y: ${f.y}`;
   const lines = [
     "// The shell's camera (src/bespoke/shots.ts): establishing, push in, reveal.",
-    `gsap.set(${cam}, { scale: 1, x: 0, y: 0, transformOrigin: "0 0" });`,
+    `gsap.set(${cam}, { ${v(open ?? { s: 1, x: 0, y: 0 })}, transformOrigin: "0 0" });`,
   ];
-  const v = (f: { s: number; x: number; y: number }) => `scale: ${f.s}, x: ${f.x}, y: ${f.y}`;
   const crept = (f: { s: number; x: number; y: number }) => ({
     s: Math.round(f.s * CREEP * 1000) / 1000,
     x: Math.round(W / 2 - (W / 2 - f.x) * CREEP),
     y: Math.round(H / 2 - (H / 2 - f.y) * CREEP),
   });
-  let from = { s: 1, x: 0, y: 0 };
+  let from = open ? { s: open.s, x: open.x, y: open.y } : { s: 1, x: 0, y: 0 };
   let free = 0;
-  for (const m of moves) {
+  for (const m of open ? moves.slice(1) : moves) {
     // The creep ENDS a beat before the move starts: two tweens on one property
     // that touch at an instant are an overlap the linter flags and a frame
     // whose value depends on which rendered last (MEASURED 2026-10-09: 1.5k-1.8k px
@@ -286,7 +314,6 @@ export function cameraScript(sid: string, moves: readonly CamMove[], W: number, 
 
 /** What a scene's camera does, for the report and the prompt: one word per move. */
 export function shotSummary(moves: readonly CamMove[]): string {
-  return ["wide", ...moves.map((m) => (m.subject === 0 ? "wide" : `S${m.subject}@${m.s}`))].join(
-    " → ",
-  );
+  const shot = (m: CamMove) => (m.subject === 0 ? "wide" : `S${m.subject}@${m.s}`);
+  return (moves[0]?.dur === 0 ? moves.map(shot) : ["wide", ...moves.map(shot)]).join(" → ");
 }

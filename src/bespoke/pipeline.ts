@@ -88,7 +88,7 @@ import { type RepairNote, repairable, repairScene } from "./repair.js";
 import { type BespokeEntry, type BespokeMap, bespokeRegion } from "./scene.js";
 import { type Skip, selectBespoke } from "./select.js";
 import { pictureCopies } from "./sheet.js";
-import { artPlacement, type Shot, subjectsInBox } from "./shots.js";
+import { artPlacement, type Grammar, type Shot, subjectsInBox } from "./shots.js";
 
 export type BespokePrefs = NonNullable<Prefs["bespoke"]>;
 export type { DeviceBeat };
@@ -969,6 +969,13 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   mark("devices");
   deviceReport = devices;
   const deviceOf = new Map(devices.beats.map((d) => [d.beatId, d]));
+  // The shot grammars, alternated over the illustrated beats in deck order, so
+  // no two illustrated scenes in a row are staged alike (src/bespoke/shots.ts).
+  const grammarOf = new Map<string, Grammar>(
+    devices.beats
+      .filter((d) => d.illustrate)
+      .map((d, i) => [d.beatId, i % 2 === 1 ? "close-open" : "tour"]),
+  );
   step(
     `bespoke: devices (${devices.from}) — ${devices.beats.map((d) => `${d.beatId} ${d.device}${d.illustrate ? "+art" : ""}`).join(", ")}${devices.note ? ` — ${devices.note}` : ""}`,
   );
@@ -1044,6 +1051,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       ...(isDataBeat(beat) ? { data: true } : {}),
       device: device.device,
       ...(device.idea ? { idea: device.idea } : {}),
+      ...(grammarOf.has(beat.id) ? { grammar: grammarOf.get(beat.id) } : {}),
     };
     const keyInput: KeyInput = {
       promptVersion: PROMPT_VERSION,
@@ -1066,6 +1074,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       pack: { name: input.theme, ...theme },
       device: device.device,
       ...(device.idea ? { idea: device.idea } : {}),
+      ...(grammarOf.has(beat.id) ? { grammar: grammarOf.get(beat.id) } : {}),
     };
     work1.push({
       beat,
@@ -1105,6 +1114,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
           stage: {
             cues: b.window.cues.map((c) => ({ t0: c.t0, t1: c.t1 })),
             duration: b.window.duration,
+            ...(b.brief.grammar ? { grammar: b.brief.grammar } : {}),
           },
         }
       : {}),

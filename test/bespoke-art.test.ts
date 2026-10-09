@@ -325,6 +325,22 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
       ]),
     );
 
+  it("alternates the shot grammar over the illustrated beats, and tells each scene its own", async () => {
+    const { calls, run } = fake(() => PICTURED);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs() });
+    const order = demo.beats.map((b) => b.id);
+    const staged = Object.entries(r.map)
+      .filter(([, e]) => e.stage)
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b));
+    expect(staged.length).toBeGreaterThan(2);
+    staged.forEach(([id, e], i) => {
+      expect(e.stage?.grammar, id).toBe(i % 2 === 1 ? "close-open" : "tour");
+      const draft = calls.find((c) => c.outPath.endsWith(`${id}.draft.json`));
+      if (i % 2 === 1) expect(draft?.prompt).toContain("OPENING CLOSE");
+      else expect(draft?.prompt).toContain("ESTABLISHING — the whole picture");
+    });
+  });
+
   it("draws one picture per beat first, attaches it to the scene call, and places it", async () => {
     const { calls, run } = fake(() => PICTURED);
     const seen: string[] = [];
