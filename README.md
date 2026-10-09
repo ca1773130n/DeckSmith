@@ -981,17 +981,45 @@ boxes are known in box px before the scene is written. It is read only from
 12 MB. `--bespoke-art <n>` (default 6; `bespoke.art`) caps pictures per deck, counted apart
 from `--bespoke-calls`; a beat whose picture cannot be had is drawn without one.
 
+Since round 5 a picture is TWO LAYERS from one art call: a backdrop of the setting (an
+environment with depth, no subjects, quiet in the top fifth), then the subjects drawn with
+the image tool's `transparent_background` and the backdrop as a reference image, so they
+stand in it. The subjects are inspected laid on the pack's ground; the backdrop is read for
+writing too. The shell draws the backdrop behind the camera's wrapper and moves it at half
+the camera's zoom (parallax). The deck's pictures are planned together in the up-front
+device pass — a different setting and different subjects per illustrated beat — and stock
+stand-ins (robots, mascots, brains, light bulbs, gears, screens) are forbidden unless the
+beat names one. A picture that draws one, shares a subject noun with another picture of the
+deck, or sits closer than `SIMILAR_MAX` to one by Vision's feature print is redrawn once,
+told what the deck already shows; `bespoke.json` reports the closest pair (`repetition`).
+
 **Data beats** (line-chart, bar-compare, data-table) get no picture: their scene is asked
 for the chart that builds with the voice — axes draw, bars grow with their counters, the
 line traces, the named value lights — from the beat's own numbers, never a table painted
-over an illustration (`data_over_picture`).
+over an illustration (`data_over_picture`). Since round 5 each data beat of a deck builds
+differently (`src/bespoke/databuild.ts`): a bar race that re-sorts, a line traced with a
+callout, the delta highlighted and counted, or small multiples lit in turn — declared on the
+chart (`data-build`), checked statically with its marks, and with the camera pushing in on the
+value the voice names. `verify` refuses two data scenes of a deck that build alike
+(`build_repeat`).
 
-**The camera** of an illustrated scene is the shell's, staged in one grammar
-(`src/bespoke/shots.ts`). The scene names its `shots` — on which cue, how far into it, which
-subject — and the shell compiles them: an ESTABLISHING shot of the whole picture for at
-least 1.6s, a PUSH IN (1.1s, power3.inOut) that frames the named subject and its label at
-1.6-2.2x, a move straight to the next subject, a 3% creep while a shot is held, and a
-REVEAL back to the whole picture at the last cue; shots closer than 1.6s are dropped. Every
+**The camera** of an illustrated scene is the shell's (`src/bespoke/shots.ts`), in one of
+seven GRAMMARS (`src/bespoke/grammar.ts`) picked per beat in the device pass from the
+narration's rhetorical role (compare, cause, process, reveal, quantify, define — read from
+the archetype and the narration's own words in en/ko/zh/ja), never the grammar of the
+illustrated beat before it: `tour` (establish, push in on each named subject, reveal),
+`follow` (push in, then track along the subjects at one scale), `rack` (A, whip to B, back to
+A, a two-shot), `zoom-out` (open close on the detail, pull back to the whole), `wipe` (the
+picture wiped on subject by subject, the camera wide), `cutaway` (hard cuts to close inserts
+and back) and `parallax` (a slow lateral truck at a medium scale). The scene names its
+`shots` — on which cue, how far into it, which subject — and the shell compiles them in the
+grammar; shots closer than 1.6s are dropped, and the end frame is always the whole picture.
+No push-in goes past the scale where a picture pixel spans more than 1/`EFF_MIN` output
+pixels (`sharpMax`): the image tool draws ~1.57 megapixels whatever it is asked.
+`shot_variety` reads the grammar back off the camera's samples (a follow must track, a rack
+come back or hold a two-shot, a cutaway cut, a zoom-out only pull back, a wipe wipe, a truck
+travel), and that the backdrop moves less than the subjects; `verify` refuses two
+consecutive illustrated scenes in one grammar (`grammar_repeat`). Every
 camera tween is a `fromTo` with explicit from-values, and no two touch. The scene's own
 script may not move `#sN-cam` (`script_camera`). A scene without a picture still moves the
 wrapper itself (`scale`/`x`/`y`, arithmetic in the prompt). A scene with a moving camera is
@@ -1001,11 +1029,16 @@ carries past the canvas edge as off-canvas.
 **The labels** of an illustrated scene are the shell's too (`src/bespoke/callouts.ts`). The
 scene says what each subject is called (`labels`); the shell gives each subject a zone just
 above it (or across its top when there is no room), as wide as half the gap to each
-neighbour, and sets the name there on a plate — 56px, shrinking to 44, then two lines —
+neighbour, and sets the name there on a plate — 64px, shrinking to 52, then two lines —
 with a leader line to a dot on the subject, entering as the camera first arrives on it (or
-at the reveal). The zones are in the draft prompt, which tells the scene to keep its own
-drawing out of them; a name that does not fit even on two lines at 44px is refused
-statically (`labels`). Round 4's first run, with the scene placing its own labels on the
+at the reveal). Since round 5 the top 120px of the box is the CAPTION BAND, where the scene
+draws its own words; a label goes above its subject only under the band, else below it,
+else across its top; and a label is held at 1/sqrt(s) of the camera's zoom, so on screen it
+grows by sqrt(s) in a push-in and is its own size in the whole view. `label_size` holds
+every label to 52px as rendered at every graded frame; `label_band` refuses a label in the
+band or the scene's own words within 24px of one. The zones are in the draft prompt, which
+tells the scene to keep its own drawing out of them; a name that does not fit even on two
+lines at 52px is refused statically (`labels`). Round 4's first run, with the scene placing its own labels on the
 subjects, put them there and then failed four scenes in five on their own plates and
 leader lines crossing their text.
 
@@ -1017,6 +1050,8 @@ every visible stroke sample by 10px and every shape painted over it, inside the 
 every frame the probe measured, camera scale included; it is written as a wrapping
 `<g transform="translate()">`. A label never moves farther than 0.8 of its own height
 (at least 32px): a collision that needs more is left to the critique round. On
+`label_band` the same nudge keeps the scene's own words 26px (camera-free) clear of the
+shell's labels, which never move. On
 `end_dimmed`, the elements dimming parts the scene had lit are tweened back to full
 strength just before the end; on `camera_end`, the camera is tweened home. On `seek_order`,
 two tweens on one target animating one property over overlapping time — which a timeline

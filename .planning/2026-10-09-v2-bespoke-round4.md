@@ -1,5 +1,7 @@
 # v2 bespoke scenes, round 4: staged shots, labels on subjects, flat pictures
 
+> Followed by [round 5](2026-10-10-v2-bespoke-round5.md): a camera grammar per beat, two-layer pictures planned per deck, labels sized for the whole view, data builds. The numbers below are round 4's.
+
 2026-10-09. Branch `feat/v2-bespoke` (PR #112), after
 [`2026-10-09-v2-bespoke-round3.md`](2026-10-09-v2-bespoke-round3.md). Round 3 built every
 kept scene on a real illustration, but its camera drifted at 1.1-1.4x, its labels were
