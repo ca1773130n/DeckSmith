@@ -11,6 +11,16 @@ import { THEMES } from "../src/emit/theme.js";
 import { PACKS } from "../src/emit/themes/packs.js";
 import { type Beat, FORMATS, type Format, type Source } from "../src/types.js";
 
+/** WCAG relative luminance of `#rrggbb`. */
+function lum(hex: string): number {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const lin = (s: number) => {
+    const x = ((n >> s) & 255) / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(16) + 0.7152 * lin(8) + 0.0722 * lin(0);
+}
+
 const source: Source = {
   id: "paper",
   title: "A paper",
@@ -122,21 +132,45 @@ describe("backdrop", () => {
   it("gives every pack and theme inks that clear 4.5:1 on the scrim over pure white", () => {
     for (const [name, theme] of Object.entries({ ...THEMES, ...PACKS })) {
       const g = glass(theme as Theme);
-      for (const ink of [g.fg, g.muted, g.dim, g.accent, ...Object.values(g.tones)]) {
+      for (const ink of [g.fg, g.muted, g.accent, ...Object.values(g.tones)]) {
         expect(onWorstGround(ink), `${name} ${ink}`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Dim is the step-back ink: large text's 3:1, which all audience text is.
+      expect(onWorstGround(g.dim), `${name} dim`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("keeps glass emphasis the right way round: dim is darker than every tone", () => {
+    // bar-compare paints every bar it is not pointing at in dim. Brighter than
+    // the tones, the background bars were the loudest marks on the slide.
+    for (const [name, theme] of Object.entries({ ...THEMES, ...PACKS })) {
+      const g = glass(theme as Theme);
+      for (const ink of [g.accent, ...Object.values(g.tones)]) {
+        expect(lum(g.dim), `${name} dim vs ${ink}`).toBeLessThan(lum(ink) - 0.1);
+      }
+    }
+  });
+
+  it("keeps a light pack's four tones apart once they are lifted onto glass", () => {
+    // Mixed toward white from the start, chalk's closest two tones were 22
+    // apart in RGB and folio's 13: four pastels a viewer cannot tell apart.
+    const rgb = (h: string) => [16, 8, 0].map((s) => (Number.parseInt(h.slice(1), 16) >> s) & 255);
+    for (const [name, theme] of Object.entries({ ...THEMES, ...PACKS })) {
+      const src = Object.values((theme as Theme).tones);
+      // A theme whose tones are greys (mono) has no hue to keep.
+      if (src.some((h) => Math.max(...rgb(h)) - Math.min(...rgb(h)) < 40)) continue;
+      const lifted = Object.values(glass(theme as Theme).tones);
+      for (let i = 0; i < lifted.length; i++) {
+        for (let j = i + 1; j < lifted.length; j++) {
+          const [a, b] = [rgb(lifted[i] as string), rgb(lifted[j] as string)];
+          const d = Math.hypot(...a.map((v, k) => v - (b[k] as number)));
+          expect(d, `${name} ${lifted[i]} ${lifted[j]}`).toBeGreaterThanOrEqual(40);
+        }
       }
     }
   });
 
   it("gives every pack and theme a field its glass inks clear 4.5:1 on, keeping the accent's hue", () => {
-    const lum = (hex: string) => {
-      const n = Number.parseInt(hex.slice(1), 16);
-      const lin = (s: number) => {
-        const x = ((n >> s) & 255) / 255;
-        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
-      };
-      return 0.2126 * lin(16) + 0.7152 * lin(8) + 0.0722 * lin(0);
-    };
     const contrast = (a: string, b: string) => {
       const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
       return (hi + 0.05) / (lo + 0.05);

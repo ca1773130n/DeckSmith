@@ -1061,8 +1061,10 @@ for and the command to run; `build` and `pack` refuse the file until they exist.
 A `pipeline`, `split-compare`, `callout`, `bar-compare`, `hero-number` or `kinetic` may
 also carry a `backdrop: { illustration }` — a scene the diagram is drawn over. The picture covers the
 frame and drifts slowly, a uniform black scrim (0.62) darkens it, and the archetype is
-drawn unchanged in a glass palette: dark translucent panels, light ink, tones lifted just
-far enough to clear 4.5:1 over a pure-white pixel. Geometry and holds are the
+drawn unchanged in a glass palette: dark translucent panels, light ink, tones brightened
+(then whitened only if they must be) just far enough to clear 4.5:1 over a pure-white
+pixel, and the step-back ink `dim` held below every tone at 3:1, the floor for large
+text. Geometry and holds are the
 archetype's own, so a backdrop changes colours and nothing else. With `--images` the
 planner is held to making most of a deck scenes (60% of beats, within `images.max`) — a
 stage, a backdrop, a pictured split-compare side, a hero-number or a kinetic claim; a

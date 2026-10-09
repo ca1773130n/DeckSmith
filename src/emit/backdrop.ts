@@ -27,6 +27,14 @@
  * `MUTED`, and each tone after `readable` lifts it — clears 4.5:1 on that, so
  * the contrast gate passes on any picture rather than on the one tried. Text on
  * a glass panel sits on the panel's own fill over that, darker still.
+ *
+ * `DIM` ALONE IS HELD TO 3:1, and on purpose. It is what an archetype steps
+ * back to — bar-compare paints every bar it is not pointing at in it — so it
+ * must be DARKER than every lifted tone, or the bars in the background are the
+ * brightest marks on the slide (round 1 of the 2026-10-09 ko e2e: dim at
+ * luminance 0.76 over tones at 0.71-0.74, in every pack). Tones sit at 4.5:1,
+ * so dim goes below that; 3:1 is the contrast audit's floor for large text,
+ * which all audience text is (invariant 5: never below 40px).
  */
 import type { Archetype, Backdrop, Beat, Figure } from "../types.js";
 import { BACKDROP_ARCHETYPES } from "../types.js";
@@ -43,7 +51,7 @@ const DRIFT_TO = 1.06;
 /** Glass inks. Light on the scrim's dark; `MUTED` is the floor the header measures. */
 const FG = "#f4f6fa";
 const MUTED = "#e1e6ee";
-const DIM = "#dde3ec";
+const DIM = "#b8bfcb";
 const RULE = "#8f9ab0";
 /** A panel: dark, but not opaque, so the scene still reads through it. */
 const PANEL = "rgba(8,12,20,0.66)";
@@ -96,21 +104,31 @@ export function onWorstGround(hex: string): number {
 }
 
 /**
- * The least lift toward white that makes `hex` clear 4.5:1 on the worst-case
- * ground — so a tone keeps as much of its hue as legibility allows, and a dark
- * pack's tones, already light, mostly stay as they are. Not `#rrggbb`: kept.
+ * The least lift that makes `hex` clear 4.5:1 on the worst-case ground, so a
+ * dark pack's tones, already light, mostly stay as they are. Not `#rrggbb`: kept.
+ *
+ * BRIGHTER FIRST, WHITER ONLY AFTER. The channels are scaled up together until
+ * the top one is full, which keeps hue and saturation; only then is the colour
+ * mixed toward white. Mixing toward white from the start left every light
+ * pack's four tones as near-identical pastels (chalk's closest pair 22 apart in
+ * RGB, folio's 13), so a toned bar barely differed from its neighbour.
  */
 function readable(hex: string): string {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return hex;
   const n = Number.parseInt(hex.slice(1), 16);
+  const rgb = [16, 8, 0].map((shift) => (n >> shift) & 255);
+  const out = (c: readonly number[]) =>
+    `#${c.map((v) => Math.round(Math.min(255, v)).toString(16).padStart(2, "0")).join("")}`;
+  const top = Math.max(...rgb);
+  if (top > 0) {
+    for (let k = 1; k <= 255 / top + 1e-9; k += 0.02) {
+      const c = out(rgb.map((v) => v * k));
+      if (onWorstGround(c) >= 4.5) return c;
+    }
+  }
+  const full = top > 0 ? rgb.map((v) => (v * 255) / top) : rgb;
   for (let t = 0; t <= 1.0001; t += 0.02) {
-    const ch = (shift: number) => {
-      const c = (n >> shift) & 255;
-      return Math.round(c + (255 - c) * t)
-        .toString(16)
-        .padStart(2, "0");
-    };
-    const c = `#${ch(16)}${ch(8)}${ch(0)}`;
+    const c = out(full.map((v) => v + (255 - v) * t));
     if (onWorstGround(c) >= 4.5) return c;
   }
   return "#ffffff";
