@@ -42,7 +42,7 @@ import {
   sourceSchema,
   storyboardSchema,
 } from "../src/types.js";
-import { scanNarration } from "../src/verify/index.js";
+import { scanDeterminism, scanNarration } from "../src/verify/index.js";
 import setupTmpdir, { removeRunDir } from "./setup-tmpdir.js";
 
 function format(id: string): Format {
@@ -158,6 +158,43 @@ describe("a deck that reshapes nothing", () => {
     expect(Buffer.byteLength(html, "utf8")).toBe(14226);
     expect(html).not.toContain("MorphSVGPlugin");
     expect(html).not.toContain("morphSVG");
+    expect(html).not.toContain("dsAnimate");
+  });
+});
+
+/* --------------------------------------------------------- the animate kit */
+
+/**
+ * THE VENDORED ANIMATE KIT IS UPSTREAM'S, BYTE FOR BYTE. src/build/animate/
+ * holds three files of cth9191/animate @7e5eb56 (MIT), and every piece a deck
+ * ships is assembled from them. The NOTICE beside them names the commit and
+ * these digests and says nothing is patched; this holds the files to it, so an
+ * edit to the kit is a decision recorded there rather than a drift.
+ */
+describe("the vendored animate kit", () => {
+  const kit = (name: string) =>
+    readFileSync(fileURLToPath(new URL(`../src/build/animate/${name}`, import.meta.url)));
+
+  it("is unmodified upstream, with its licence and notice beside it", () => {
+    const notice = kit("NOTICE").toString("utf8");
+    for (const [name, digest] of [
+      ["core.js", "d791e21cdc1396d20bd7f1507a34693c64be9220a0d996cc4688149554967fc9"],
+      ["cut-paper.js", "f5791c4b6481407d4eba0eab69eca35d227481816b384967f6adf86c1ccd1a1e"],
+      ["morph.js", "08d1427f6b2044dedcca4487d92cc6f67a176834b6e9d020aca146ef1813209d"],
+    ] as const) {
+      expect(createHash("sha256").update(kit(name)).digest("hex"), name).toBe(digest);
+      expect(notice).toContain(`${digest}  ${name}`);
+    }
+    expect(notice).toContain("7e5eb56feb2dd573f890e1b7b34748af43d58263");
+    expect(kit("LICENSE").toString("utf8")).toMatch(
+      /^MIT License\n\nCopyright \(c\) 2026 cth9191\n/,
+    );
+  });
+
+  it("reads no clock, no random and no network, so a piece can pass the determinism scan", () => {
+    for (const name of ["core.js", "cut-paper.js", "morph.js"]) {
+      expect(scanDeterminism(kit(name).toString("utf8"), name)).toEqual([]);
+    }
   });
 });
 
