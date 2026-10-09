@@ -790,3 +790,62 @@ describe("illustrate", () => {
     expect(mine[0]).toMatchObject({ width: 1536, height: 1024 });
   });
 });
+
+describe("illustrate: backdrops", () => {
+  const withBackdrop = storyboardSchema.parse({
+    sourceId: "paper",
+    title: "A paper",
+    beats: [
+      {
+        id: "b1",
+        intent: "i",
+        archetype: "pipeline",
+        params: {
+          headline: "H",
+          stages: [{ label: "A" }, { label: "B" }],
+          backdrop: { illustration: brief("a misty valley at dawn") },
+        },
+      },
+      {
+        id: "b2",
+        intent: "i",
+        archetype: "callout",
+        params: {
+          headline: "H",
+          panels: [{ label: "L", lines: ["x"] }],
+          backdrop: { figureId: "fig-real" },
+        },
+      },
+    ],
+  });
+
+  it("draws a pending backdrop as a landscape gen-<beat>-bd figure, and leaves a real one alone", async () => {
+    const a = fake("a");
+    // Pending until drawn: build refuses it by name, the planner may write it.
+    expect(() => assertRefsResolve(withBackdrop, source)).toThrow(/params\.backdrop\.figureId/);
+    expect(() => assertRefsResolve(withBackdrop, source, { pending: "allow" })).not.toThrow();
+
+    const out = await illustrate(withBackdrop, source, {
+      prefs: prefs(),
+      assetsDir: await dir(),
+      chain: [a.provider],
+    });
+    expect(a.calls).toEqual([
+      { prompt: "a misty valley at dawn", style: "flat vector illustration", aspect: "landscape" },
+    ]);
+    const b1 = out.storyboard.beats[0];
+    expect(b1?.archetype === "pipeline" && b1.params.backdrop?.figureId).toBe("gen-b1-bd");
+    expect(out.source.figures.map((f) => f.id)).toEqual(["fig-real", "gen-b1-bd"]);
+    expect(() => assertRefsResolve(out.storyboard, out.source)).not.toThrow();
+    expect(hasIllustrations(out.storyboard, out.source)).toBe(true);
+  });
+
+  it("refuses a backdrop that names a figure the source does not have", () => {
+    const bad = structuredClone(withBackdrop);
+    const b2 = bad.beats[1];
+    if (b2?.archetype === "callout") b2.params.backdrop = { figureId: "nope" };
+    expect(() => assertRefsResolve(bad, source, { pending: "allow" })).toThrow(
+      /params\.backdrop\.figureId: no figure "nope"/,
+    );
+  });
+});

@@ -9,6 +9,7 @@
  * storyboard that no planner ever touched.
  */
 import { emitScene } from "../emit/archetypes/index.js";
+import { backdropOf } from "../emit/backdrop.js";
 import { enterableIds, partLabelProblem } from "../emit/camera.js";
 import { ink } from "../emit/theme.js";
 import type { Beat, Format, Source, Storyboard } from "../types.js";
@@ -41,6 +42,10 @@ export function pendingIllustrations(storyboard: Storyboard): PendingIllustratio
         }
       }
     }
+    const bd = backdropOf(beat);
+    if (bd && bd.figureId === undefined && bd.illustration !== undefined) {
+      out.push({ beatId: beat.id, where: "params.backdrop.figureId" });
+    }
   }
   return out;
 }
@@ -58,6 +63,8 @@ export function hasIllustrations(storyboard: Storyboard, source: Source): boolea
     slot.illustration !== undefined && slot.figureId !== undefined && known.has(slot.figureId);
   return storyboard.beats.some((b) => {
     if (b.archetype === "claim-figure" || b.archetype === "stage") return drawn(b.params);
+    const bd = backdropOf(b);
+    if (bd && drawn(bd)) return true;
     if (b.archetype === "split-compare") return drawn(b.params.left) || drawn(b.params.right);
     return false;
   });
@@ -99,6 +106,8 @@ export function assertRefsResolve(
 
   for (const beat of storyboard.beats) {
     for (const ref of beat.evidence) check(beat, ref.kind, ref.id, "evidence");
+    const backdrop = backdropOf(beat)?.figureId;
+    if (backdrop !== undefined) check(beat, "figure", backdrop, "params.backdrop.figureId");
     switch (beat.archetype) {
       case "claim-figure":
       case "stage":

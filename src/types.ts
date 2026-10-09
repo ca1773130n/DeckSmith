@@ -177,6 +177,30 @@ export const illustrationSchema = z.object({
 });
 
 /**
+ * A picture BEHIND a diagram: the frame-filling scene a pipeline, a comparison
+ * or a callout is drawn over, so a deck reads as a sequence of scenes rather
+ * than as cards on one pale ground (the founder's bar, 2026-10-09).
+ *
+ * The same two fields stage takes, for the same reasons: `figureId` first, so
+ * a real figure is looked for before a brief is written; `illustration` when
+ * none fits, which `illustrate` turns into a `gen-<beat>-bd` figure. A backdrop
+ * with a brief and no figure is PENDING exactly as a stage is.
+ *
+ * Optional on every archetype that takes it, and absent means the archetype's
+ * own ground: every storyboard written before this parses and emits the bytes
+ * it did. The emitter draws the panels as dark glass over a scrim when it is
+ * present (`src/emit/backdrop.ts`), so the words' contrast never depends on the
+ * picture.
+ */
+export const backdropSchema = z.object({
+  figureId: z.string().optional(),
+  illustration: illustrationSchema.optional(),
+});
+
+/** The archetypes that take a `backdrop`. The diagrams and comparisons, drawn over a scene. */
+export const BACKDROP_ARCHETYPES = ["pipeline", "split-compare", "callout", "bar-compare"] as const;
+
+/**
  * The id prefix `illustrate` gives every figure it draws (`gen-b03`,
  * `gen-b04-left`). Such a figure is the DECK's, not the document's: it was
  * drawn from a brief the planner wrote, so nothing that sizes a deck to what
@@ -347,6 +371,8 @@ export const calloutParamsSchema = z.object({
     .min(1)
     .max(3),
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 /* --------------------------------------------------- Diagrammatic archetypes
@@ -387,6 +413,8 @@ export const pipelineParamsSchema = z.object({
     .object({ from: z.int().min(0).optional(), to: z.int().min(0), label: z.string() })
     .optional(),
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 export const annotatedFigureParamsSchema = z.object({
@@ -462,6 +490,8 @@ export const barCompareParamsSchema = z.object({
     .min(2)
     .max(8),
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 export const stackParamsSchema = z.object({
@@ -509,6 +539,8 @@ export const splitCompareParamsSchema = z.object({
   left: splitSideSchema,
   right: splitSideSchema,
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 /**
@@ -1582,6 +1614,7 @@ export type Section = z.infer<typeof sectionSchema>;
 export type Source = z.infer<typeof sourceSchema>;
 export type Term = z.infer<typeof termSchema>;
 export type Illustration = z.infer<typeof illustrationSchema>;
+export type Backdrop = z.infer<typeof backdropSchema>;
 /** The `images` block of the preferences, resolved. What `illustrate` reads. */
 export type ImagesPrefs = z.infer<typeof prefsSchema>["images"];
 export type Beat = z.infer<typeof beatSchema>;

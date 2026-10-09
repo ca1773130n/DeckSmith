@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { backdropOf } from "../emit/backdrop.js";
 import type { Prefs } from "../prefs.js";
 import { imageSize } from "../source/assets.js";
 import {
@@ -178,6 +179,22 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
   const done = (id: string | undefined) => id !== undefined && known.has(id);
   const out: Slot[] = [];
   for (const beat of storyboard.beats) {
+    // A backdrop first: it is the scene the beat is set in, and the picture a
+    // reader sees first. Landscape, because it covers the frame.
+    const bd = backdropOf(beat);
+    if (bd?.illustration && !done(bd.figureId)) {
+      const brief = bd.illustration;
+      out.push({
+        label: `${beat.id} backdrop`,
+        beatId: beat.id,
+        figureId: `${GENERATED_FIGURE_PREFIX}${beat.id}-bd`,
+        aspect: "landscape",
+        brief,
+        assign: (id) => {
+          bd.figureId = id;
+        },
+      });
+    }
     if (beat.archetype === "claim-figure" || beat.archetype === "stage") {
       // Landscape for a stage too: the format is not known here, and a stage
       // cover-fits whatever it is given, warning when the crop is hard.

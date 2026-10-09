@@ -6,6 +6,7 @@
  * `types.ts` honest.
  */
 import type { Archetype, Beat } from "../../types.js";
+import { backdropFigure, glass, overBackdrop } from "../backdrop.js";
 import type { EmitContext, Emitter, Scene } from "../kit.js";
 import { annotatedFigure } from "./annotated-figure.js";
 import { barCompare } from "./bar-compare.js";
@@ -44,11 +45,17 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
 };
 
 /**
- * Dispatch a beat to its emitter. The cast is the one place the pairing is taken
+ * Dispatch a beat to its emitter, over its backdrop when it has one. The cast is the one place the pairing is taken
  * on trust: `emitters[beat.archetype]` is a union of fourteen emitters and TypeScript
  * will not narrow the key and the beat together. The table above already proves
  * every archetype has exactly one emitter of the right shape.
  */
 export function emitScene(beat: Beat, ctx: EmitContext): Scene {
-  return (emitters[beat.archetype] as Emitter<Archetype>)(beat, ctx);
+  const emit = emitters[beat.archetype] as Emitter<Archetype>;
+  // A beat with a drawn backdrop is the same scene in glass colours, over its
+  // picture (src/emit/backdrop.ts). Here rather than in the shell so every
+  // pass that emits a beat — planCut, narrate, timing, the Director — sees it.
+  const fig = backdropFigure(beat, ctx);
+  if (!fig) return emit(beat, ctx);
+  return overBackdrop(emit(beat, { ...ctx, theme: glass(ctx.theme) }), fig, ctx, beat.seconds);
 }
