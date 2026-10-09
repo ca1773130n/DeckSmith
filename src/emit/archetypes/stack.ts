@@ -44,7 +44,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   chrome,
   chromeCss,
@@ -209,11 +209,11 @@ export function stackLayout(
   // (746 -> 669px) by reserving a bigger plane than it drew. Taken only when it
   // fits and is taller; otherwise the classic answer, so v2 refuses exactly
   // what classic refuses.
-  // Labels are body lines on v2's scale (`V2_TYPE`): 44px at most, not 46.
+  // Labels are body lines on v2's scale (`TYPE_SCALE`): 44px at most, not 46.
   if (grow) {
-    const classic = solveEither(p, format, face, 1, V2_TYPE.body);
+    const classic = solveEither(p, format, face, 1, TYPE_SCALE.body);
     if (!classic.fits) return classic;
-    const big = solveEither(p, format, face, GROWTH, V2_TYPE.body);
+    const big = solveEither(p, format, face, GROWTH, TYPE_SCALE.body);
     return big.fits && big.height > classic.height ? big : classic;
   }
   return solveEither(p, format, face, 1);

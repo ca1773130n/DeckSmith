@@ -417,7 +417,7 @@ export function rubricProbe(
     out.push(`the end frame is mostly dimmed (${Math.round(100 * m.dimmed)}% of its parts)`);
   if (m.cells !== undefined && m.cells < 0.6)
     out.push(`something is drawn in only ${Math.round(100 * m.cells)}% of the 6x4 grid`);
-  // The type is quiet (`V2_TYPE`): one label reaches the body size, none passes
+  // The type is quiet (`TYPE_SCALE`): one label reaches the body size, none passes
   // the headline's. The 88px focal word this asked for until 2026-10-10 is what
   // the founder called "too large".
   if (!art && (m.maxType ?? 0) < KEY_TYPE_PX) out.push(`no label reaches ${KEY_TYPE_PX}px`);

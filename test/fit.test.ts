@@ -38,7 +38,7 @@ import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
 import { contentW } from "../src/emit/kit.js";
 import { cutsWord, faceOf, textWidth, typeOf } from "../src/emit/svg.js";
 import { PACKS } from "../src/emit/themes/packs.js";
-import { V2_TYPE } from "../src/emit/type.js";
+import { TYPE_SCALE } from "../src/emit/type.js";
 import {
   type Beat,
   type BeatOf,
@@ -333,9 +333,9 @@ describe("pipeline under v2", () => {
     const c = pipeLayout(W, stages);
     const v = pipeLayout(W, stages, undefined, "latin", { budget: 700, region: 838 });
     expect(c.size).toBeLessThanOrEqual(52);
-    expect(v.size).toBeLessThanOrEqual(V2_TYPE.body);
-    expect(v.size).toBeGreaterThanOrEqual(V2_TYPE.floor);
-    expect(v.note).toBe(V2_TYPE.floor);
+    expect(v.size).toBeLessThanOrEqual(TYPE_SCALE.body);
+    expect(v.size).toBeGreaterThanOrEqual(TYPE_SCALE.floor);
+    expect(v.note).toBe(TYPE_SCALE.floor);
     expect(v.boxH).toBeGreaterThan(c.boxH);
   });
 
@@ -566,7 +566,7 @@ describe("claim-figure under v2", () => {
         Number(m[1]),
       );
       expect(sizes.length).toBeGreaterThan(0);
-      for (const n of sizes) expect(n).toBe(V2_TYPE.body);
+      for (const n of sizes) expect(n).toBe(TYPE_SCALE.body);
     }
   });
 
@@ -581,7 +581,7 @@ describe("claim-figure under v2", () => {
 });
 
 describe("equation-walk under v2", () => {
-  it("asks for a display no larger than V2_TYPE.math, and sets the legend as body lines", async () => {
+  it("asks for a display no larger than TYPE_SCALE.math, and sets the legend as body lines", async () => {
     // The display was grown to 1.3x classic's 68-108px and the legend to 60px;
     // the founder's verdict on that scale was "too large" (2026-10-10).
     const { storyboard, source } = await demo();
@@ -589,11 +589,11 @@ describe("equation-walk under v2", () => {
     const c = emitScene(walk, ctx(undefined, source));
     const v = emitScene(walk, ctx("v2", source));
     const size = (s: Scene) => Number(/id="s1-eq" style="font-size:(\d+)px/.exec(s.html)?.[1]);
-    expect(size(c)).toBeGreaterThan(V2_TYPE.math);
-    expect(size(v)).toBeLessThanOrEqual(V2_TYPE.math);
-    expect(size(v)).toBeGreaterThanOrEqual(V2_TYPE.floor);
+    expect(size(c)).toBeGreaterThan(TYPE_SCALE.math);
+    expect(size(v)).toBeLessThanOrEqual(TYPE_SCALE.math);
+    expect(size(v)).toBeGreaterThanOrEqual(TYPE_SCALE.floor);
     expect(c.css).toMatch(/\.leg\{[^}]*font-size:48px/);
-    expect(v.css).toMatch(new RegExp(`\\.leg\\{[^}]*font-size:${V2_TYPE.body}px`));
+    expect(v.css).toMatch(new RegExp(`\\.leg\\{[^}]*font-size:${TYPE_SCALE.body}px`));
     expect(v.fit?.fill).toBeGreaterThan(0);
   });
 });

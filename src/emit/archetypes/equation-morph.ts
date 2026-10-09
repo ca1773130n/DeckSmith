@@ -235,7 +235,7 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
       ...(["a", "b", "c", "d"] as const).map(
         (tone) => `.morph .t-${tone}{color:${theme.tones[tone]}}`,
       ),
-      // v2: the legend is a body line (`V2_TYPE`), not 48px.
+      // v2: the legend is a body line (`TYPE_SCALE`), not 48px.
       legendCss(theme, isV2(ctx)),
       ambient(sid, "-morph", BREATHE),
     ].join("\n"),

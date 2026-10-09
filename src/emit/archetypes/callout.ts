@@ -9,7 +9,7 @@ import { esc, lift, settle, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE, v2Text } from "../type.js";
+import { TYPE_SCALE, v2Text } from "../type.js";
 import {
   BODY_LH,
   BODY_SIZE,
@@ -100,7 +100,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const column = (box - PANEL_GAP * (cols - 1)) / cols;
   const inner = column - 2 * PANEL_PAD_X;
   /** The two type sizes at scale `k`, floored so the CSS and this arithmetic agree to the px. */
-  // v2 holds both inside the confirmed scale (`V2_TYPE`): the label is a body
+  // v2 holds both inside the confirmed scale (`TYPE_SCALE`): the label is a body
   // line set bold, not a second headline, and growth stops at 44px.
   const v2 = isV2(ctx);
   const sizes = (k: number) => ({
@@ -175,7 +175,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // the content is what gets bigger. Checked only after classic's own refusal,
   // so v2 refuses exactly the beats classic does.
   // Body copy grows from 40 to the scale's 44 at most; the label is already there.
-  const growth = V2_TYPE.body / BODY_SIZE;
+  const growth = TYPE_SCALE.body / BODY_SIZE;
   const k = v2 ? growToFit((x) => needAt(x, MEASURE_SLACK) * air, budget, 1, growth) : 1;
   const need = k === 1 ? need1 : needAt(k, MEASURE_SLACK);
   // A table's rows may take more air than a box's panels: the rules between them

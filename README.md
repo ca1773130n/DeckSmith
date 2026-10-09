@@ -111,7 +111,7 @@ decksmith unpack  talk.deck        -o reopened/
   accepted over a deck built with `--reserve-captions` — the layout is fixed at build
   time, so a deck that made no room cannot be given any an hour later, and the band would
   land on the slide's own text. `render` refuses that rather than shipping it. A burned
-  caption is a quiet lower third: 40-44px white type with a close dark halo, no box
+  caption is a quiet lower third: 40px white type with a close dark halo, no box
   (2026-10-10; it was 4% of the width — 71px at 1920 — on a 70% black bar).
 - **drift** — renders the deck twice and compares every frame. `--identical` fails on any
   differing byte, which is only honest for an image-free deck with no camera — the demo
@@ -923,8 +923,8 @@ built — with a grammar planned per deck (`src/emit/motion.ts`):
   boundary of that sentence inside the quiet stretch after its stop, and is back at rest
   before the next reveal — so every frame a gate captures at a stop is unchanged.
 
-**Type** (`V2_TYPE` in `src/emit/type.ts`, the founder's scale of 2026-10-10): headline
-and title slide 56px, kicker 40px, body, labels, notes and burned captions 40-44px, a
+**Type** (`TYPE_SCALE` in `src/emit/type.ts`, the founder's scale of 2026-10-10): headline
+and title slide 56px, kicker and burned captions 40px, body, labels and notes 40-44px, a
 display equation asked at 64px at most (its scripts then land at 44.8px), nothing under
 40px. Every v2 pack sets it; archetypes no longer grow their type into the region (their
 bars, boxes and figures still grow). `--design classic` keeps its own sizes.
@@ -1068,7 +1068,7 @@ through the static contract and is gated again (at most two repair rounds).
 
 **What the model is shown** (`src/bespoke/prompt.ts`): the beat, its cues, the paper's
 excerpts (fenced, untrusted), the contract, motion-design rules with numbers (one focal
-element per cue, type 40-44px with the focal label 56px at most (`V2_TYPE`), the rest dimmed but kept; fill the box; paint it with filled
+element per cue, type 40-44px with the focal label 56px at most (`TYPE_SCALE`), the rest dimmed but kept; fill the box; paint it with filled
 shapes; at least three kinds of motion, one of flow, camera, counter or morph; the end
 frame a summary), text widths measured in the pack's own font, and two of four hand-made
 reference scenes (`src/bespoke/references.ts`: a routing mechanism with particle flow and

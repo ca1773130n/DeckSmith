@@ -34,7 +34,7 @@
  *
  * UNDER v2 IT IS A STATEMENT, NOT A SPECTACLE. The founder (2026-10-10): the
  * fonts are too large, and UI elements doing moves are old-fashioned. So a v2
- * hero number is set at the headline's 56px (`V2_TYPE`) in the accent, with no
+ * hero number is set at the headline's 56px (`TYPE_SCALE`) in the accent, with no
  * reels; its label and comparison are body lines; bars are drawn at their
  * length; and every part simply fades in where it stands. What moves is the
  * picture under it — the backdrop's drift, the field. Classic keeps the
@@ -49,7 +49,7 @@ import type { Emitter, Tween, Vars } from "../kit.js";
 import { contentH, contentW, esc } from "../kit.js";
 import { displayFace, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE, v2Text } from "../type.js";
+import { TYPE_SCALE, v2Text } from "../type.js";
 import { holdsWithin, tween } from "./title.js";
 
 /**
@@ -238,12 +238,12 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
 
   // THE NUMBER: the largest size at which value and unit fit across, and the
   // whole block fits down.
-  const unitOf = (size: number) => v2Text(v2, Math.round(size * UNIT_SHARE), V2_TYPE.body);
+  const unitOf = (size: number) => v2Text(v2, Math.round(size * UNIT_SHARE), TYPE_SCALE.body);
   const across = (size: number) =>
     textWidth(p.value, size, 800, 0, true, dFace) +
     (p.unit ? size * UNIT_GAP + textWidth(p.unit, unitOf(size), 600, 0, false, face) : 0);
-  const numMin = v2 ? V2_TYPE.headline : NUM_MIN;
-  let size = v2 ? V2_TYPE.headline : NUM_MAX;
+  const numMin = v2 ? TYPE_SCALE.headline : NUM_MIN;
+  let size = v2 ? TYPE_SCALE.headline : NUM_MAX;
   while (
     size > numMin &&
     (across(size) > W * MEASURE_SLACK || Math.round(size * CELL_LH) + GAP + words > H)

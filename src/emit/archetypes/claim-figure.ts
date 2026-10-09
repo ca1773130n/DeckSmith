@@ -13,7 +13,7 @@ import { esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   BODY_LH,
   BODY_SIZE,
@@ -82,12 +82,12 @@ const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
 /* ------------------------------------------------------------------ v2 fit */
 
 /**
- * v2: the claim is a body line on the confirmed scale (`V2_TYPE`), in every
+ * v2: the claim is a body line on the confirmed scale (`TYPE_SCALE`), in every
  * arrangement. It used to grow to 72px to fill its column; the founder's
  * verdict on that was "the fonts are too large" (2026-10-10), so the FIGURE
  * takes the room now and the claim stays quiet.
  */
-const V2_CLAIM = V2_TYPE.body;
+const V2_CLAIM = TYPE_SCALE.body;
 /**
  * v2: a figure is drawn up to this many times its natural pixel size. The plate
  * used to be `width:auto;height:auto`, so a 632px figure stayed 632px in a

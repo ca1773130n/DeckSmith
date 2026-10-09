@@ -18,7 +18,7 @@
  */
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
-import { V2_TYPE } from "../emit/type.js";
+import { TYPE_SCALE } from "../emit/type.js";
 import type { Box, CamMove } from "./shots.js";
 
 /** One subject's label, as the scene names it. */
@@ -37,11 +37,11 @@ export interface Zone extends Box {
 
 /**
  * The label's size, and the floor it may shrink to to fit its zone: the v2
- * body scale (`V2_TYPE`, 44 down to 40). It was 56 down to 44, and the founder's
+ * body scale (`TYPE_SCALE`, 44 down to 40). It was 56 down to 44, and the founder's
  * verdict on that scale was "the fonts are too large" (2026-10-10).
  */
-export const LABEL_PX = V2_TYPE.body;
-export const LABEL_MIN_PX = V2_TYPE.floor;
+export const LABEL_PX = TYPE_SCALE.body;
+export const LABEL_MIN_PX = TYPE_SCALE.label;
 /** Zone height: the plate is 1.6 x the type. */
 const ZONE_H = Math.round(LABEL_PX * 1.7);
 /** Gap between the zone and the subject's top, and between zones. */

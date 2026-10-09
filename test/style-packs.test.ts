@@ -49,9 +49,9 @@ import {
   familyOf,
   lineBox,
   stackFor,
+  TYPE_SCALE,
   TYPES,
   typeForStack,
-  V2_TYPE,
 } from "../src/emit/type.js";
 import { loadPrefs, prefsFromFlags } from "../src/prefs.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
@@ -206,10 +206,10 @@ describe("type specs", () => {
       // part of a pack's voice; face, weight, tracking and case are.
       const t = TYPES[key];
       if (!t) throw new Error(key);
-      expect(V2_TYPE).toMatchObject({ headline: 56, kicker: 40, body: 44, floor: 40 });
-      expect(t.eyebrow.size).toBe(V2_TYPE.kicker);
-      expect(t.headline.size).toBe(V2_TYPE.headline);
-      expect([t.title.lo, t.title.hi]).toEqual([V2_TYPE.headline, V2_TYPE.headline]);
+      expect(TYPE_SCALE).toMatchObject({ headline: 56, kicker: 40, body: 44, floor: 40 });
+      expect(t.eyebrow.size).toBe(TYPE_SCALE.kicker);
+      expect(t.headline.size).toBe(TYPE_SCALE.headline);
+      expect([t.title.lo, t.title.hi]).toEqual([TYPE_SCALE.headline, TYPE_SCALE.headline]);
     },
   );
 
@@ -855,14 +855,14 @@ describe("the v2 type scale, on every archetype the demo draws", () => {
       const sizes = declared(html);
       expect(sizes.length).toBeGreaterThan(50);
       for (const { where, px } of sizes) {
-        expect(px, where).toBeGreaterThanOrEqual(V2_TYPE.floor);
-        // A KaTeX display may be asked at up to `V2_TYPE.math` so its scripts
+        expect(px, where).toBeGreaterThanOrEqual(TYPE_SCALE.floor);
+        // A KaTeX display may be asked at up to `TYPE_SCALE.math` so its scripts
         // land on the body scale; nothing else passes the headline's 56.
-        const cap = /class="(eq|morph)\b/.test(where) ? V2_TYPE.math : V2_TYPE.headline;
+        const cap = /class="(eq|morph)\b/.test(where) ? TYPE_SCALE.math : TYPE_SCALE.headline;
         expect(px, where).toBeLessThanOrEqual(cap);
       }
-      expect(html).toMatch(new RegExp(`\\.headline\\{[^}]*font-size:${V2_TYPE.headline}px`));
-      expect(html).toMatch(new RegExp(`\\.eyebrow\\{[^}]*font-size:${V2_TYPE.kicker}px`));
+      expect(html).toMatch(new RegExp(`\\.headline\\{[^}]*font-size:${TYPE_SCALE.headline}px`));
+      expect(html).toMatch(new RegExp(`\\.eyebrow\\{[^}]*font-size:${TYPE_SCALE.kicker}px`));
     },
   );
 });

@@ -35,7 +35,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { V2_TYPE } from "../emit/type.js";
+import { TYPE_SCALE } from "../emit/type.js";
 import type { DeckPage } from "../render/capture.js";
 import type { Timing } from "../render/timing.js";
 import type { Finding } from "../types.js";
@@ -117,15 +117,15 @@ export function gradeStillCues(rows: readonly CueChange[], min = MIN_CHANGE): Fi
 export const STAGE_FILL = 0.8;
 /**
  * The settled frame's largest label, px at 1080p: one label reaches the body
- * size (`V2_TYPE`), so something is read first…
+ * size (`TYPE_SCALE`), so something is read first…
  */
-export const KEY_TYPE_PX = V2_TYPE.body;
+export const KEY_TYPE_PX = TYPE_SCALE.body;
 /**
  * …and nothing passes the headline's size. The founder's verdict on the 88-120px
  * focal numbers this gate used to ASK for was "the fonts are too large"
  * (2026-10-10): the picture is the focus, the subtitles carry the words.
  */
-export const MAX_TYPE_PX = V2_TYPE.headline;
+export const MAX_TYPE_PX = TYPE_SCALE.headline;
 /** A cue group may appear this long before its cue starts (the prompt's own sync window). */
 export const EARLY_SLACK = 0.5;
 /**
@@ -563,7 +563,7 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         "type_ceiling",
         r,
         [`the largest is ${(r.maxDeclared ?? 0).toFixed(0)}px`],
-        `type over ${MAX_TYPE_PX}px — the picture is the focus, keep labels ${V2_TYPE.floor}-${V2_TYPE.body}px —`,
+        `type over ${MAX_TYPE_PX}px — the picture is the focus, keep labels ${TYPE_SCALE.floor}-${TYPE_SCALE.body}px —`,
       );
     const groups = r.groups ?? [];
     if (groups.length === 0)

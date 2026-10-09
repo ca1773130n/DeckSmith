@@ -38,7 +38,7 @@ import type { Emitter, Tween } from "../kit.js";
 import { contentW, esc, PAD_X, PAD_Y, refHeight, refWidth, reserveRef } from "../kit.js";
 import { displayFace, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import { pieceTimeline, plate } from "./claim-figure.js";
 import { holdsWithin, isPortrait, tween } from "./title.js";
 
@@ -234,8 +234,8 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
   const placement = p.placement === "none" ? undefined : p.placement;
   const face = faceOf(theme.fontStack);
   const type = typeOf(face);
-  // v2: the headline is the deck's headline size (`V2_TYPE`), picture or not.
-  const headSize = isV2(ctx) ? V2_TYPE.headline : HEAD_SIZE;
+  // v2: the headline is the deck's headline size (`TYPE_SCALE`), picture or not.
+  const headSize = isV2(ctx) ? TYPE_SCALE.headline : HEAD_SIZE;
   let col = 0;
   let textH = 0;
   let textW = 0;

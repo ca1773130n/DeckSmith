@@ -59,7 +59,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   chromeCss,
   chromeIn,
@@ -183,7 +183,7 @@ const V_LOOP_PAD = 18;
  * `budget` is the height the SVG may take (the region less the wrapper's margin
  * and the note); `region` is the whole body region, which bounds a box's height
  * at `GROWN_BOX_H` of it — the plan's `MAX_BOX_H = 0.8·region.h`. The label's
- * preferred size is `V2_TYPE.body` and `fitBoxes` still shrinks it to the width.
+ * preferred size is `TYPE_SCALE.body` and `fitBoxes` still shrinks it to the width.
  */
 export interface PipeGrow {
   budget: number;
@@ -233,10 +233,10 @@ function columnLayout(
   // `textWidth` is linear in size, so the size at which the widest label exactly
   // fills the box is a division. It is almost never binding at this width.
   const unit = Math.max(1, ...stages.map((s) => textWidth(s.label, 1, 600, 0, false, face)));
-  const preferred = grow ? V2_TYPE.body : LABEL;
+  const preferred = grow ? TYPE_SCALE.body : LABEL;
   const size = Math.max(MIN_FONT, Math.min(preferred, Math.floor(boxW / (unit + 2 * PAD_X_EM))));
   const innerW = Math.max(size, boxW - 2 * PAD_X_EM * size);
-  // The floor, always: labels stop at 44 (`V2_TYPE`), so a note is quieter by
+  // The floor, always: labels stop at 44 (`TYPE_SCALE`), so a note is quieter by
   // weight and colour, not size.
   const noteSize = NOTE;
 
@@ -499,7 +499,7 @@ function measureRow(
   const size = Math.max(MIN_FONT, Math.floor(fit.size));
   const boxes = fit.boxes;
   const innerW = Math.max(size, (boxes[0]?.w ?? width) - 2 * PAD_X_EM * size);
-  // The floor, always: labels stop at 44 (`V2_TYPE`), so a note is quieter by
+  // The floor, always: labels stop at 44 (`TYPE_SCALE`), so a note is quieter by
   // weight and colour, not size.
   const noteSize = NOTE;
 
@@ -559,7 +559,7 @@ function measureRow(
  * Classic asks one question — the fewest lines at which the labels fit at 52px —
  * and stops at one line, which is why the demo's stages sat at 52px in boxes
  * with 600px of width each. Here every line count from one to three is solved
- * at a preferred `V2_TYPE.body`, and the one that sets the label LARGEST wins,
+ * at a preferred `TYPE_SCALE.body`, and the one that sets the label LARGEST wins,
  * as long as the box it needs still fits the budget; ties go to fewer lines.
  *
  * The box is then grown, but only so far: to `GROWN_AIR` times what its text
@@ -577,9 +577,9 @@ function grownRow(
 ): PipeLayout {
   const width = stageW - 2 * M;
   const capped = Math.min(width, stages.length * GROWN_BOX_W + (stages.length - 1) * GAP);
-  // The label is a body line: the v2 scale's 44px at most (`V2_TYPE`). The
+  // The label is a body line: the v2 scale's 44px at most (`TYPE_SCALE`). The
   // BOXES grow into the region; the type no longer does.
-  const preferred = V2_TYPE.body;
+  const preferred = TYPE_SCALE.body;
   let best: ReturnType<typeof measureRow> | undefined;
   for (const span of capped < width ? [capped, width] : [width]) {
     for (let k = 1; k <= 3; k++) {
@@ -601,7 +601,7 @@ function grownRow(
     if (best) break;
   }
   // Nothing grown fits: draw the classic row, at v2's label size.
-  if (!best) return pipeLayout(stageW, stages, loop, face, undefined, V2_TYPE.body);
+  if (!best) return pipeLayout(stageW, stages, loop, face, undefined, TYPE_SCALE.body);
   const room = grow.budget - M - best.below;
   const ceiling = Math.min(best.text * GROWN_AIR, GROWN_BOX_H * grow.region, room);
   const shaped = Math.max(best.need, Math.floor(Math.min(ceiling, best.boxW * GROWN_BOX_ASPECT)));

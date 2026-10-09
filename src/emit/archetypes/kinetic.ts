@@ -37,17 +37,17 @@ import { contentH, contentW, esc, staggerFor, wordAtoms, words } from "../kit.js
 import { fnv1a } from "../motion.js";
 import { displayFace, faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import { holdsWithin, isPortrait, tween } from "./title.js";
 
 /** Type sizes tried in order, reference px. The smallest is still half again the floor. */
 const SIZES = [120, 108, 96, 88, 80, 72, 64] as const;
 /**
- * v2: the confirmed scale (`V2_TYPE`) — a phrase is a headline, 56px at most,
+ * v2: the confirmed scale (`TYPE_SCALE`) — a phrase is a headline, 56px at most,
  * and steps down to the body size before it is refused. "No 64px+ kinetic
  * type" (founder, 2026-10-10).
  */
-const SIZES_V2 = [V2_TYPE.headline, 52, 48, V2_TYPE.body] as const;
+const SIZES_V2 = [TYPE_SCALE.headline, 52, 48, TYPE_SCALE.body] as const;
 const LH = 1.1;
 const MAX_LINES = 2;
 /** Space between phrases, as a share of the size. */

@@ -47,7 +47,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   chromeCss,
   chromeIn,
@@ -178,13 +178,13 @@ const CLASSIC: Caps = {
 };
 /**
  * v2: the BARS grow; the type does not. Labels and values are body lines on
- * the confirmed scale (`V2_TYPE`, 44px at most): grown to 74px they were the
+ * the confirmed scale (`TYPE_SCALE`, 44px at most): grown to 74px they were the
  * "fonts are too large" the founder named (2026-10-10).
  */
 const GROWN: Caps = {
   bar: BAR_MAX * GROWTH,
-  label: V2_TYPE.body,
-  value: V2_TYPE.body,
+  label: TYPE_SCALE.body,
+  value: TYPE_SCALE.body,
   spread: true,
   labelFit: 0.78,
   valueFit: 0.78,
@@ -433,7 +433,7 @@ export const barCompare: Emitter<"bar-compare"> = (beat, ctx) => {
   // v2's fallback is classic's geometry at v2's type.
   L ??= barLayout({
     ...args,
-    caps: v2 ? { ...CLASSIC, label: V2_TYPE.body, value: V2_TYPE.body } : CLASSIC,
+    caps: v2 ? { ...CLASSIC, label: TYPE_SCALE.body, value: TYPE_SCALE.body } : CLASSIC,
   });
   const { bar, pitch, labelSize, head, valueSize, barsH, H, gutter, gutterInner, metrics } = L;
   /** v2's headroom over the first row; 0 in classic, where `0 + y` is `y` to the bit. */
@@ -762,7 +762,7 @@ function columns(
   const labelW = slot - 24;
   // Largest label size at which every label sets in three lines of its slot.
   // Variants are v2's (`variantOf`), so they start on v2's scale.
-  let labelSize: number = V2_TYPE.body;
+  let labelSize: number = TYPE_SCALE.body;
   const linesAt = (s: number) => p.bars.map((b) => wrap(b.label, s, labelW, LABEL_WEIGHT, 0, face));
   /** Too big: more than three lines, or a word cut letter by letter to fit its slot. */
   const over = (s: number) =>
@@ -781,7 +781,7 @@ function columns(
   const labelBand = COL_LABEL_TOP + Math.max(...lines.map((l) => l.length)) * lead;
 
   const printed = p.bars.map((b) => String(b.value));
-  let valueSize: number = V2_TYPE.body;
+  let valueSize: number = TYPE_SCALE.body;
   while (
     valueSize > MIN_FONT &&
     printed.some((t) => textWidth(t, valueSize, 700, 0, false, face) > slot - 8)
@@ -980,13 +980,13 @@ ${svg(id(sid, "chart"), W, H, body)}
 /* ---------------------------------------------------- variant: `versus` */
 
 /**
- * The largest a `versus` figure is set: the headline's size (`V2_TYPE`). It was
+ * The largest a `versus` figure is set: the headline's size (`TYPE_SCALE`). It was
  * 200px, "exempt from the headline cap" — the giant numeral the founder ruled
  * out on 2026-10-10. Accent and weight say it is the stat now, not size.
  */
-const VS_VALUE_MAX = V2_TYPE.headline;
+const VS_VALUE_MAX = TYPE_SCALE.headline;
 /** Never smaller than a body line. */
-const VS_VALUE_MIN = V2_TYPE.body;
+const VS_VALUE_MIN = TYPE_SCALE.body;
 const VS_BAR = 22;
 const VS_GAP = 30;
 /** Inside each half, either side of its content. */
@@ -1027,8 +1027,8 @@ function versus(
   const inner = slot - 2 * VS_PAD;
   const printed = p.bars.map((b) => String(b.value));
 
-  // On v2's scale (`V2_TYPE`): a versus label is a body line, not a 74px heading.
-  let labelSize: number = V2_TYPE.body;
+  // On v2's scale (`TYPE_SCALE`): a versus label is a body line, not a 74px heading.
+  let labelSize: number = TYPE_SCALE.body;
   const linesAt = (s: number) => p.bars.map((b) => wrap(b.label, s, inner, LABEL_WEIGHT, 0, face));
   const over = (s: number) =>
     linesAt(s).some((l) => l.length > VS_LABEL_LINES) ||

@@ -29,7 +29,7 @@
  */
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
-import { V2_TYPE } from "../emit/type.js";
+import { TYPE_SCALE } from "../emit/type.js";
 import { SID_TOKEN } from "./contract.js";
 import { paint, pickReferences, REFERENCE_BOX } from "./references.js";
 import {
@@ -347,14 +347,14 @@ ${anchors(W, H)}
    Put this layout table in a comment at the top of the script: id -> bbox.
 7. STAGE. The settled frame's drawing spans >= 80% of the box's AREA (its bounding box
    over ${W}x${H}): reach column F, row 4, and the A1 corner region. Gate: stage_fill.
-8. TYPE — SMALL AND QUIET; the subtitles carry the words. Labels ${V2_TYPE.floor}-${V2_TYPE.body}px;
-   the cue's focal label or number ${V2_TYPE.headline}px at most; NOTHING above ${V2_TYPE.headline}px and nothing
-   under ${V2_TYPE.floor}px (gates: type_hierarchy, type_ceiling). The picture is the focus, not the type:
+8. TYPE — SMALL AND QUIET; the subtitles carry the words. Labels ${TYPE_SCALE.floor}-${TYPE_SCALE.body}px;
+   the cue's focal label or number ${TYPE_SCALE.headline}px at most; NOTHING above ${TYPE_SCALE.headline}px and nothing
+   under ${TYPE_SCALE.floor}px (gates: type_hierarchy, type_ceiling). The picture is the focus, not the type:
    no giant numerals, no headline-sized captions. Labels <= 4 words, as few as the
    picture needs; no sentences — the narration speaks, the picture shows. Language: ${b.lang}
    (Latin technical terms as the source writes them). SVG text: text-anchor and
    dominant-baseline="middle". Math: <span class="ds-tex">TeX</span> in an HTML div,
-   font-size ${V2_TYPE.headline}-${V2_TYPE.math}px; never TeX in SVG <text>.
+   font-size ${TYPE_SCALE.headline}-${TYPE_SCALE.math}px; never TeX in SVG <text>.
 9. PACK "${b.pack}": ${palette(b.theme)}. Font: inherit. Main strokes 5-8px, round caps.
    ${b.art ? "No images but the beat's illustration (rule 13), no" : "No images, no"} external URLs, no web fonts.
 10. LIBRARIES: gsap 3.14, DrawSVGPlugin (drawSVG:"0% 0%" -> "0% 100%") and MorphSVGPlugin
@@ -470,7 +470,7 @@ function digest(b: Brief): string {
       ? `\n- "labels" [{subject, text}] for at least ${Math.min(2, b.art.subjects.length)} subjects (1-3 words; the shell draws them in their zones — keep your drawing out); no table or rows of numbers on the picture. Subjects and zones:\n${subjectLines(b.art.subjects)}\n${(b.art.zones ?? []).map((z) => `   S${z.subject} zone: x ${z.x}-${z.x + z.w}, y ${z.y}-${z.y + z.h} (<= ~${z.chars} chars)`).join("\n")}`
       : ""
   }
-- Inside x 0..${W}, y 0..${H}; no stroke through a label, no shape over one; font-size ${V2_TYPE.floor}-${V2_TYPE.headline}px (labels ${V2_TYPE.floor}-${V2_TYPE.body}, focal ${V2_TYPE.headline} at most); drawing >= 80% of the box area at the end.
+- Inside x 0..${W}, y 0..${H}; no stroke through a label, no shape over one; font-size ${TYPE_SCALE.floor}-${TYPE_SCALE.headline}px (labels ${TYPE_SCALE.floor}-${TYPE_SCALE.body}, focal ${TYPE_SCALE.headline} at most); drawing >= 80% of the box area at the end.
 - Pack "${b.pack}": ${palette(b.theme)}. All motion settles by t=${Math.max(0, b.duration - 0.3).toFixed(2)}s.`;
 }
 
@@ -650,7 +650,7 @@ export const RUBRIC = [
   "FILLS THE STAGE: the drawing uses the whole box (>= 80% of its area, no empty third or band) with visual mass — filled shapes, not hairlines",
   "ONE FOCUS PER CUE: in every cue one element is clearly what to look at; the rest is dimmed",
   "MOTION EXPLAINS: the moves are the idea (flow, transform, morph, camera, counter), at least three kinds, nothing decorative, nothing still while the voice speaks; the camera goes where the voice is",
-  `QUIET, LEGIBLE TYPE: focal label/number ${V2_TYPE.headline}px at most, labels ${V2_TYPE.floor}-${V2_TYPE.body}px, nothing under ${V2_TYPE.floor}px or over ${V2_TYPE.headline}px, few words, high contrast, no collisions or clipping`,
+  `QUIET, LEGIBLE TYPE: focal label/number ${TYPE_SCALE.headline}px at most, labels ${TYPE_SCALE.floor}-${TYPE_SCALE.body}px, nothing under ${TYPE_SCALE.floor}px or over ${TYPE_SCALE.headline}px, few words, high contrast, no collisions or clipping`,
   "CONSISTENT WITH THE PACK: only the pack's colours, big flat shapes, strokes 5-8px, the deck's font",
   "IN SYNC: each cue's change starts within 0.5s of its words and nothing appears before the cue that names it",
 ] as const;
@@ -663,7 +663,7 @@ function measuredLines(m: Measured | undefined, b: Brief): string {
     `- grid cells drawn in (6x4): ${pct(m.cells)}`,
     `- share of the box painted at the end: ${pct(m.mass)}  [bar: 15%+; round 1's thin diagrams painted 4-16%]`,
     `- parts still dimmed at the end: ${pct(m.dimmed)}  [bar: everything lit — the end frame is the summary]`,
-    `- largest label at the end: ${m.maxDeclared === undefined ? "?" : `${Math.round(m.maxDeclared)}px`}  [bar: ${V2_TYPE.body}-${V2_TYPE.headline}px; nothing over ${V2_TYPE.headline}px]`,
+    `- largest label at the end: ${m.maxDeclared === undefined ? "?" : `${Math.round(m.maxDeclared)}px`}  [bar: ${TYPE_SCALE.body}-${TYPE_SCALE.headline}px; nothing over ${TYPE_SCALE.headline}px]`,
     `- motion kinds in the script: ${m.kinds?.length ? m.kinds.join(", ") : "(none detected)"}  [bar: 3+, one of flow/camera/counter/morph]`,
     `- per-cue change (share of frame): ${
       m.cueChange?.length
@@ -709,7 +709,7 @@ ${look}${art}
 # RUBRIC — score each 1-5 in "review" (one line each, with the frame and anchor A1..F4 where it fails)
 ${RUBRIC.map((r, i) => `${i + 1}. ${r}`).join("\n")}
 Anything under 4 must be fixed. Common fixes: enlarge and re-place to fill the box; make the
-focal element the brightest (never bigger than ${V2_TYPE.headline}px) and dim the rest to 0.3; replace a fade with the motion that IS the
+focal element the brightest (never bigger than ${TYPE_SCALE.headline}px) and dim the rest to 0.3; replace a fade with the motion that IS the
 idea (particles along the route, the camera into the part, a counter, a morph); move a group
 whose cue has not come yet back to opacity 0.
 

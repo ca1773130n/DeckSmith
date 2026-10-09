@@ -20,20 +20,6 @@
  */
 import type { MeasuredFace } from "./faces.js";
 
-/**
- * The v2 type scale in px at 1920x1080, chosen by the founder on 2026-10-10
- * ("the fonts are too large"): subtitles carry the words, on-slide text stays
- * quiet. `floor` is AGENTS.md invariant 5. src/bespoke reads this too.
- */
-export const TYPE_SCALE = {
-  headline: 56,
-  body: 44,
-  label: 40,
-  kicker: 40,
-  caption: 40,
-  floor: 40,
-} as const;
-
 /** A Latin face a deck can be measured in. `inter` is svg.ts's own table. */
 export type LatinFace = "inter" | MeasuredFace;
 
@@ -93,25 +79,31 @@ export function stackFor(body: LatinFace, display: LatinFace): string {
 }
 
 /**
- * THE V2 TYPE SCALE — the founder's, confirmed 2026-10-10, after "the fonts are
- * too large": a 56px headline, 40-44px body and labels, a 40px kicker. No
- * 160-560px hero numeral and no 64px+ kinetic type; the narration and its
- * subtitles carry the words, so what is ON the slide is minimal and quiet.
+ * THE V2 TYPE SCALE in px at 1920x1080 — the founder's, confirmed 2026-10-10,
+ * after "the fonts are too large": a 56px headline, 40-44px body and labels, a
+ * 40px kicker. No 160-560px hero numeral and no 64px+ kinetic type; the
+ * narration and its subtitles carry the words, so what is ON the slide is
+ * minimal and quiet.
  *
  * One table, read by every v2 emitter (the chrome through `TYPES` below, each
- * archetype through `v2Text`) and by the bespoke prompt and gates, so a size
- * cannot be lowered in one place and left large in another. Never under
- * `floor`: AGENTS.md invariant 5. Classic never reads it — `--design classic`
- * is still the complete rollback, byte for byte.
+ * archetype through `v2Text`), by src/bespoke's prompt, labels and gates, and —
+ * restated, because that file may import nothing from here — by the burned
+ * caption in src/types.ts, so a size cannot be lowered in one place and left
+ * large in another. Never under `floor`: AGENTS.md invariant 5. Classic never
+ * reads it — `--design classic` is still the complete rollback.
  */
-export const V2_TYPE = {
+export const TYPE_SCALE = {
   /** The line that says the slide: headline, title slide, a hero statement. */
   headline: 56,
+  /** Body copy and the largest a label is set: labels run `label`..`body`. */
+  body: 44,
+  /** The smallest a label is set; with `body`, the 40-44px label band. */
+  label: 40,
   /** Eyebrow / kicker. */
   kicker: 40,
-  /** Body copy, notes, captions and labels: at most this… */
-  body: 44,
-  /** …and never under this (invariant 5). */
+  /** A burned subtitle (src/types.ts `captionFontSize` restates it). */
+  caption: 40,
+  /** Never under this (invariant 5). */
   floor: 40,
   /**
    * The largest a display equation is asked at. Not the headline's 56: KaTeX
@@ -124,10 +116,10 @@ export const V2_TYPE = {
 /**
  * A text size as v2 sets it: `px` held inside `[floor, cap]`. Classic passes
  * through untouched. `cap` defaults to body/label size; a role that IS the
- * headline passes `V2_TYPE.headline`.
+ * headline passes `TYPE_SCALE.headline`.
  */
-export function v2Text(v2: boolean, px: number, cap: number = V2_TYPE.body): number {
-  return v2 ? Math.max(V2_TYPE.floor, Math.min(px, cap)) : px;
+export function v2Text(v2: boolean, px: number, cap: number = TYPE_SCALE.body): number {
+  return v2 ? Math.max(TYPE_SCALE.floor, Math.min(px, cap)) : px;
 }
 
 /** Today's chrome, exactly. `title.ts` exported these numbers before specs existed. */
@@ -169,8 +161,8 @@ function spec(
  * - `grotesk-plex`: Space Grotesk headline over a Plex body.
  * - `plex-serif`: a Plex headline over a serif body, the inverse of `serif-inter`.
  *
- * SIZE IS NOT A VOICE ANY MORE. Every spec sets the eyebrow at `V2_TYPE.kicker`
- * and the headline — the title slide's included — at `V2_TYPE.headline`; the
+ * SIZE IS NOT A VOICE ANY MORE. Every spec sets the eyebrow at `TYPE_SCALE.kicker`
+ * and the headline — the title slide's included — at `TYPE_SCALE.headline`; the
  * pairs differ in face, weight, tracking, case and leading. They used to differ
  * in size too (60-70px headlines, 144-168px titles), and the founder's verdict
  * on those was "the fonts are too large".
@@ -184,7 +176,7 @@ function spec(
 export const TYPES: Readonly<Record<string, TypeSpec>> = {
   "grotesk-inter": spec("grotesk-inter", "inter", "space-grotesk", {
     eyebrow: {
-      size: V2_TYPE.kicker,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.2,
       upper: true,
@@ -192,12 +184,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 24,
       color: "accent",
     },
-    headline: { size: V2_TYPE.headline, weight: 700, tracking: -0.03, lh: 1.06 },
-    title: { lo: V2_TYPE.headline, hi: V2_TYPE.headline, weight: 700, tracking: -0.04 },
+    headline: { size: TYPE_SCALE.headline, weight: 700, tracking: -0.03, lh: 1.06 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 700, tracking: -0.04 },
   }),
   plex: spec("plex", "ibm-plex-sans", "ibm-plex-sans", {
     eyebrow: {
-      size: V2_TYPE.kicker,
+      size: TYPE_SCALE.kicker,
       weight: 500,
       tracking: 0.22,
       upper: true,
@@ -205,12 +197,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 20,
       color: "accent",
     },
-    headline: { size: V2_TYPE.headline, weight: 600, tracking: -0.005, lh: 1.16 },
-    title: { lo: V2_TYPE.headline, hi: V2_TYPE.headline, weight: 600, tracking: -0.015 },
+    headline: { size: TYPE_SCALE.headline, weight: 600, tracking: -0.005, lh: 1.16 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 600, tracking: -0.015 },
   }),
   "serif-inter": spec("serif-inter", "inter", "source-serif-4", {
     eyebrow: {
-      size: V2_TYPE.kicker,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.16,
       upper: true,
@@ -218,12 +210,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 20,
       color: "accent",
     },
-    headline: { size: V2_TYPE.headline, weight: 600, tracking: -0.01, lh: 1.12 },
-    title: { lo: V2_TYPE.headline, hi: V2_TYPE.headline, weight: 600, tracking: -0.02 },
+    headline: { size: TYPE_SCALE.headline, weight: 600, tracking: -0.01, lh: 1.12 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 600, tracking: -0.02 },
   }),
   serif: spec("serif", "source-serif-4", "source-serif-4", {
     eyebrow: {
-      size: V2_TYPE.kicker,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.01,
       upper: false,
@@ -231,12 +223,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 18,
       color: "accent",
     },
-    headline: { size: V2_TYPE.headline, weight: 700, tracking: -0.012, lh: 1.08 },
-    title: { lo: V2_TYPE.headline, hi: V2_TYPE.headline, weight: 700, tracking: -0.02 },
+    headline: { size: TYPE_SCALE.headline, weight: 700, tracking: -0.012, lh: 1.08 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 700, tracking: -0.02 },
   }),
   "grotesk-plex": spec("grotesk-plex", "ibm-plex-sans", "space-grotesk", {
     eyebrow: {
-      size: V2_TYPE.kicker,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.12,
       upper: true,
@@ -244,12 +236,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 22,
       color: "accent",
     },
-    headline: { size: V2_TYPE.headline, weight: 700, tracking: -0.025, lh: 1.1 },
-    title: { lo: V2_TYPE.headline, hi: V2_TYPE.headline, weight: 700, tracking: -0.035 },
+    headline: { size: TYPE_SCALE.headline, weight: 700, tracking: -0.025, lh: 1.1 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 700, tracking: -0.035 },
   }),
   "plex-serif": spec("plex-serif", "source-serif-4", "ibm-plex-sans", {
     eyebrow: {
-      size: V2_TYPE.kicker,
+      size: TYPE_SCALE.kicker,
       weight: 500,
       tracking: 0.18,
       upper: true,
@@ -257,8 +249,8 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 22,
       color: "muted",
     },
-    headline: { size: V2_TYPE.headline, weight: 600, tracking: -0.01, lh: 1.15 },
-    title: { lo: V2_TYPE.headline, hi: V2_TYPE.headline, weight: 600, tracking: -0.02 },
+    headline: { size: TYPE_SCALE.headline, weight: 600, tracking: -0.01, lh: 1.15 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 600, tracking: -0.02 },
   }),
 };
 

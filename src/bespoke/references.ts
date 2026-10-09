@@ -13,7 +13,7 @@
  * motion-design habits round 1 lacked:
  *
  *  - THE STAGE IS FILLED: every reference spans >= 85% of its box at the end.
- *  - QUIET TYPE (the v2 scale, `V2_TYPE`, since 2026-10-10): one focal
+ *  - QUIET TYPE (the v2 scale, `TYPE_SCALE`, since 2026-10-10): one focal
  *    label or number per cue at 56px at most; labels 40-44px; nothing under
  *    40px. They were 88-120px focal and 48-60px labels, and the founder's
  *    verdict on that was "the fonts are too large".

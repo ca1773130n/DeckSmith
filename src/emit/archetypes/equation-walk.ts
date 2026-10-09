@@ -14,7 +14,7 @@ import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
 import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   bodyBudget,
   chrome,
@@ -25,8 +25,8 @@ import {
   tween,
 } from "./title.js";
 
-/** v2: the legend's type — a body line (`V2_TYPE`) — and the air between its rows. Classic is 48 and 30. */
-const LEG_SIZE_V2 = V2_TYPE.body;
+/** v2: the legend's type — a body line (`TYPE_SCALE`) — and the air between its rows. Classic is 48 and 30. */
+const LEG_SIZE_V2 = TYPE_SCALE.body;
 const LEG_GAP_V2 = 36;
 /** `.eqslide`'s minimum gap between the equation and its legend. */
 const EQ_GAP = 64;
@@ -390,8 +390,8 @@ export function chipSetup(sid: string, term: Term): string {
  */
 export function equationSize(tex: string, v2 = false): number {
   const size = tex.length > 120 ? 68 : tex.length > 90 ? 80 : tex.length > 55 ? 92 : 108;
-  // v2: at most `V2_TYPE.math` — see there for why it is not the headline's 56.
-  return v2 ? Math.min(size, V2_TYPE.math) : size;
+  // v2: at most `TYPE_SCALE.math` — see there for why it is not the headline's 56.
+  return v2 ? Math.min(size, TYPE_SCALE.math) : size;
 }
 
 /**
@@ -444,7 +444,7 @@ function statements(tex: string, stacked: boolean): string[] {
 
 /** The size an equation shown as plain source is set at: the legend's own size. */
 const PLAIN_FONT = 48;
-const PLAIN_FONT_V2 = V2_TYPE.body;
+const PLAIN_FONT_V2 = TYPE_SCALE.body;
 
 /**
  * Fit the rendered display to its box, measured — SEAM B, after fonts.

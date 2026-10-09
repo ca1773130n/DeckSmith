@@ -45,7 +45,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { V2_TYPE } from "../type.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   chromeCss,
   chromeIn,
@@ -206,11 +206,11 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // svg's bottom edge: the 2026-10-09 ko deck's b08 (rows, chalk) drew its
   // third card to 830.5 in an 820px svg, a `container_overflow` that shipped.
   const tail = (size: number) => (form === "card" ? size * 0.3 : 0);
-  // v2 sets headings and items on the confirmed scale (`V2_TYPE`): 44px at
+  // v2 sets headings and items on the confirmed scale (`TYPE_SCALE`): 44px at
   // most, never grown. They used to grow by `GROWTH` to fill the region (90px
   // headings, 60px items), which is the "fonts are too large" the founder named.
   const v2 = isV2(ctx);
-  const items = v2 ? ITEM_SIZES.filter((size) => size <= V2_TYPE.body) : ITEM_SIZES;
+  const items = v2 ? ITEM_SIZES.filter((size) => size <= TYPE_SCALE.body) : ITEM_SIZES;
   /** The headings at the largest size up to `cap` that clears the gutter, and one item size under them. */
   const solve = (cap: number) => {
     // The labels are the one thing that can collide with the divider, so solve the
@@ -246,7 +246,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     return { labelSize, labelLh, hairY, contentY, contentH, itemSize };
   };
   const { labelSize, labelLh, hairY, contentY, contentH, itemSize } = solve(
-    v2 ? V2_TYPE.body : LABEL_MAX,
+    v2 ? TYPE_SCALE.body : LABEL_MAX,
   );
   if (itemSize === undefined) {
     throw new Error(
