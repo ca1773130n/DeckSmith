@@ -14,12 +14,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cacheKey, canonical, type KeyInput, SceneCache } from "../src/bespoke/cache.js";
 import type { Fragment } from "../src/bespoke/contract.js";
 import {
+  assignDevices,
   Budget,
   bespokePass,
+  deviceName,
   type GateFn,
   type GateResult,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
+import { critiquePrompt, type DeviceBeat, generatePrompt } from "../src/bespoke/prompt.js";
 import { bespokeHolds } from "../src/bespoke/scene.js";
 import { selectBespoke, target } from "../src/bespoke/select.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
@@ -329,6 +332,12 @@ describe("the bespoke pass", () => {
   function fake(reply: (args: RunnerArgs, n: number) => Fragment | Error) {
     const calls: RunnerArgs[] = [];
     const run = async (args: RunnerArgs) => {
+      // The deck's one device call is answered with nothing: every beat takes
+      // the rule catalogue's device, and the scene calls are what is counted.
+      if (args.schemaPath.endsWith("devices.schema.json")) {
+        await writeFile(args.outPath, JSON.stringify({ beats: [] }));
+        return;
+      }
       calls.push(args);
       const r = reply(args, calls.length);
       if (r instanceof Error) throw r;
@@ -384,6 +393,21 @@ describe("the bespoke pass", () => {
     expect(rounds).toEqual(["final"]);
     expect(Object.keys(second.map)).toEqual(Object.keys(first.map));
     expect(second.report.scenes.every((s) => s.from === "cache")).toBe(true);
+  });
+
+  it("names every scene's device before the first draft, and tells each the ones before it", async () => {
+    const { calls, run } = fake(() => SCENE);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs() });
+    const drafts = calls.filter((c) => c.outPath.endsWith(".draft.json"));
+    expect(drafts.length).toBeGreaterThan(1);
+    const devices = r.report.scenes.map((sc) => sc.device);
+    expect(new Set(devices).size).toBe(devices.length);
+    for (const [i, sc] of r.report.scenes.entries()) {
+      const prompt = drafts.find((c) => c.outPath.endsWith(`${sc.beat}.draft.json`))?.prompt ?? "";
+      expect(prompt).toContain(`THE VISUAL DEVICE: "${sc.device}"`);
+      for (const before of devices.slice(0, i)) expect(prompt).toContain(`"${before}"`);
+    }
+    expect(r.report.devices?.from).toBe("codex");
   });
 
   it("the budget refuses past its call cap, its deadline, and a quota answer", () => {
@@ -578,6 +602,161 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
     expect(calls[0]?.config).toContain('model_reasoning_effort="low"');
   });
 });
+
+/* --------------------------------------------------------------- devices */
+
+describe("the deck-order device pass", () => {
+  let work = "";
+  beforeEach(async () => {
+    work = await mkdtemp(join(tmpdir(), "decksmith-devices-"));
+  });
+  afterEach(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+  const beat = (id: string, over: Partial<DeviceBeat> = {}): DeviceBeat => ({
+    id,
+    archetype: "pipeline",
+    headline: `h ${id}`,
+    intent: `i ${id}`,
+    cues: 3,
+    data: false,
+    ...over,
+  });
+  const deck = [
+    beat("b1", { archetype: "title", cues: 1 }),
+    beat("b2"),
+    beat("b3"),
+    beat("b4", { archetype: "bar-compare", data: true }),
+    beat("b5"),
+    beat("b6", { archetype: "callout" }),
+  ];
+  const answer =
+    (beats: unknown[]) =>
+    async (args: RunnerArgs): Promise<void> => {
+      await writeFile(args.outPath, JSON.stringify({ beats }));
+    };
+
+  it("gives every beat a device, none repeated, each with the ones before it in deck order", async () => {
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
+    expect(r.from).toBe("rule");
+    const names = r.beats.map((b) => b.device);
+    expect(new Set(names).size).toBe(deck.length);
+    for (const n of names) expect(n).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    r.beats.forEach((b, i) => {
+      expect(b.beatId).toBe(deck[i]?.id);
+      expect(b.priorDevices).toEqual(names.slice(0, i));
+    });
+  });
+
+  it("never illustrates a data beat or a one-cue beat, holds to the cap, and leaves some beats as motion graphics", async () => {
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(all) });
+    const pictured = r.beats.filter((b) => b.illustrate).map((b) => b.beatId);
+    expect(pictured).toEqual(["b2", "b3"]);
+    const ruled = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
+    const ruledPictures = ruled.beats.filter((b) => b.illustrate).map((b) => b.beatId);
+    expect(ruledPictures).not.toContain("b1");
+    expect(ruledPictures).not.toContain("b4");
+    expect(ruledPictures.length).toBeGreaterThan(0);
+    expect(ruledPictures.length).toBeLessThan(deck.length - 2);
+  });
+
+  it("takes the model's names, kebab-cased, and replaces a repeat or a blank from the catalogue", async () => {
+    const run = answer([
+      { id: "b1", device: "Kinetic Title!", illustrate: false, idea: "type lands" },
+      { id: "b2", device: "spike train", illustrate: true, idea: "spikes fire" },
+      { id: "b3", device: "spike-train", illustrate: true, idea: "again" },
+      { id: "b5", device: "", illustrate: false, idea: "" },
+      { id: "b6", device: "fog_lift", illustrate: false, idea: "fog lifts" },
+    ]);
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run });
+    expect(r.from).toBe("codex");
+    const by = new Map(r.beats.map((b) => [b.beatId, b]));
+    expect(by.get("b1")?.device).toBe("kinetic-title");
+    expect(by.get("b2")?.device).toBe("spike-train");
+    expect(by.get("b3")?.device).not.toBe("spike-train");
+    expect(by.get("b6")?.device).toBe("fog-lift");
+    expect(new Set(r.beats.map((b) => b.device)).size).toBe(deck.length);
+    expect(r.note).toMatch(/b3: "spike-train" repeated/);
+    expect(r.note).toMatch(/b5: no usable name/);
+    expect(deviceName("  Edge   Sweep  ")).toBe("edge-sweep");
+  });
+
+  it("survives a failed call, and a rerun reads the decided names back without a call", async () => {
+    const failed = await assignDevices(deck, {
+      artCap: 6,
+      work,
+      timeoutMs: 1000,
+      run: async () => {
+        throw new Error("codex exec exited 1");
+      },
+    });
+    expect(failed.from).toBe("rule");
+    expect(failed.note).toMatch(/device call failed/);
+
+    const cacheDir = join(work, "cache");
+    const names = deck.map((b, i) => ({
+      id: b.id,
+      device: `device-${i}`,
+      illustrate: false,
+      idea: "",
+    }));
+    let calls = 0;
+    const run = async (args: RunnerArgs) => {
+      calls++;
+      await answer(names)(args);
+    };
+    const first = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    const second = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    expect(calls).toBe(1);
+    expect(second.from).toBe("cache");
+    expect(second.beats).toEqual(first.beats);
+  });
+
+  it("asks nothing when the budget refuses", async () => {
+    let calls = 0;
+    const r = await assignDevices(deck, {
+      artCap: 6,
+      work,
+      timeoutMs: 1000,
+      take: () => "the Codex quota said no earlier in this pass",
+      run: async () => {
+        calls++;
+      },
+    });
+    expect(calls).toBe(0);
+    expect(r.note).toMatch(/quota/);
+    expect(new Set(r.beats.map((b) => b.device)).size).toBe(deck.length);
+  });
+
+  it("is rendered into the scene prompts: this device, and the ones not to reuse", () => {
+    const brief = {
+      lang: "en",
+      headline: "h",
+      intent: "i",
+      archetype: "pipeline",
+      params: {},
+      context: "",
+      cues: [{ t0: 1, t1: 3, text: "a" }],
+      duration: 6,
+      region: { width: 1700, height: 658 },
+      theme: resolveTheme("ink"),
+      pack: "ink",
+      device: "fog-lift",
+      priorDevices: ["spike-train", "edge-sweep"],
+    };
+    const p = generatePrompt(brief);
+    expect(p).toContain('THE VISUAL DEVICE: "fog-lift"');
+    expect(p).toMatch(/already used: "spike-train", "edge-sweep"\. Do NOT reuse/);
+    expect(p).toMatch(/FORBIDDEN AS THE MAIN VISUAL[\s\S]*row of rounded cards/);
+    expect(generatePrompt({ ...brief, priorDevices: [] })).toContain("the deck's first scene");
+    const c = critiquePrompt(brief, SCENE, [], undefined);
+    expect(c).toContain('visual device: "fog-lift"');
+    expect(c).toContain('never one of "spike-train", "edge-sweep"');
+  });
+});
+
+/* ------------------------------------------------------------ rubric probe */
 
 describe("the rubric probe", () => {
   const kinds = ["flow", "counter", "focus"];

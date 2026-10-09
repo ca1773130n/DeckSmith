@@ -50,6 +50,9 @@ export interface KeyInput {
   pack: unknown;
   /** The illustration's art key (src/bespoke/art.ts), when the scene was drawn around one. */
   art?: string;
+  /** The scene's visual device and the deck's earlier ones (`assignDevices`): both are in its prompt. */
+  device?: string;
+  priorDevices?: readonly string[];
 }
 
 export interface CacheEntry {
