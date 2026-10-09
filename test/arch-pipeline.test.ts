@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pipeLayout, pipeline } from "../src/emit/archetypes/pipeline.js";
+import { pipeLayout, pipeline, splitEven } from "../src/emit/archetypes/pipeline.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { contentW, tweenText } from "../src/emit/kit.js";
 import { MIN_FONT, n, textWidth, wrap } from "../src/emit/svg.js";
@@ -507,5 +507,18 @@ describe("pipeline in portrait", () => {
       expect(here.y).toBeCloseTo(prev.y, 6);
       expect(here.x).toBeGreaterThan(prev.x + prev.w);
     }
+  });
+});
+
+describe("splitEven", () => {
+  // Round 2 of the 2026-10-09 ko e2e: a grown five-stage row set "구조 / 맵 /
+  // 정규화", because three one-word lines made the biggest type.
+  it("never leaves a line an orphan of the label's widest, taking fewer lines instead", () => {
+    const three = splitEven("구조 맵 정규화", 3, "hangul");
+    expect(three).not.toContain("맵");
+    expect(three).toEqual(["구조 맵", "정규화"]);
+    // A label whose lines can be even keeps its lines.
+    expect(splitEven("Split attributes", 2, "latin")).toEqual(["Split", "attributes"]);
+    expect(splitEven("채널 평균", 2, "hangul")).toEqual(["채널", "평균"]);
   });
 });

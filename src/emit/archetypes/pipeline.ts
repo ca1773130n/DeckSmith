@@ -337,7 +337,16 @@ function notesFit(stages: readonly Stage[], size: number, innerW: number, face: 
 }
 
 /**
- * The split of `label` into at most `k` lines whose WIDEST line is narrowest.
+ * A label line narrower than this share of its widest line is an orphan: "맵"
+ * alone between "구조" and "정규화", which round 2 of the 2026-10-09 ko e2e
+ * set in a grown pipeline because three one-word lines made the biggest type.
+ */
+const ORPHAN_SHARE = 0.4;
+
+/**
+ * The split of `label` into at most `k` lines whose WIDEST line is narrowest,
+ * with no line an orphan (`ORPHAN_SHARE`) — fewer lines when every split into
+ * `k` leaves one, so the grown row takes the bigger type only when it reads.
  *
  * `balance` breaks once a line has taken its share, which never breaks a
  * two-word label whose first word is the shorter: "Split attributes" stays one
@@ -345,24 +354,26 @@ function notesFit(stages: readonly Stage[], size: number, innerW: number, face: 
  * every label at the one-line size (46px, in 545px boxes). Labels are a handful
  * of words, so every placement of the `k - 1` breaks is simply tried.
  */
-function splitEven(label: string, k: number, face: Face): string[] {
+export function splitEven(label: string, k: number, face: Face): string[] {
   const words = label.split(/\s+/).filter(Boolean);
   if (k <= 1 || words.length <= 1) return [label];
   const width = (from: number, to: number) =>
     textWidth(words.slice(from, to).join(" "), 1, 600, 0, false, face);
   let best: number[] = [];
   let bestW = Number.POSITIVE_INFINITY;
-  const breaks = Math.min(k, words.length) - 1;
   const walk = (start: number, left: number, cuts: number[]) => {
     if (left === 0) {
       const ends = [...cuts, words.length];
       let from = 0;
       let w = 0;
+      let narrow = Number.POSITIVE_INFINITY;
       for (const end of ends) {
-        w = Math.max(w, width(from, end));
+        const lw = width(from, end);
+        w = Math.max(w, lw);
+        narrow = Math.min(narrow, lw);
         from = end;
       }
-      if (w < bestW) {
+      if (narrow >= ORPHAN_SHARE * w && w < bestW) {
         bestW = w;
         best = cuts;
       }
@@ -370,7 +381,14 @@ function splitEven(label: string, k: number, face: Face): string[] {
     }
     for (let at = start + 1; at <= words.length - left; at++) walk(at, left - 1, [...cuts, at]);
   };
-  walk(0, breaks, []);
+  // One line never orphans, so this always ends with a split.
+  for (
+    let breaks = Math.min(k, words.length) - 1;
+    breaks >= 0 && bestW === Number.POSITIVE_INFINITY;
+    breaks--
+  ) {
+    walk(0, breaks, []);
+  }
   const lines: string[] = [];
   let from = 0;
   for (const end of [...best, words.length]) {
