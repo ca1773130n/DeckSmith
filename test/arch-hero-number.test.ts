@@ -146,6 +146,27 @@ describe("hero-number", () => {
     expect(plainNumber("1/4")).toBeUndefined();
   });
 
+  it("widens the bar labels' column for a long label rather than refusing the slide", () => {
+    // The ko e2e of 2026-10-09 lost two slides to a fixed 30% column.
+    const col = (label: string) =>
+      Number(
+        /grid-template-columns:(\d+)px/.exec(
+          heroNumber(beat({ label, compare: { value: "29.73", label: "DehazeFormer-b" } }), ctx())
+            .css ?? "",
+        )?.[1],
+      );
+    expect(col("EM-SNN의 LHID PSNR")).toBeGreaterThan(col("ours"));
+    expect(() =>
+      heroNumber(
+        beat({
+          label: "a bar label that goes on for far longer than any row of a chart should",
+          compare: { value: "1", label: "b" },
+        }),
+        ctx(),
+      ),
+    ).toThrow(/bar label .* sets on \d+ lines/);
+  });
+
   it("holds once, after the sentence has landed", () => {
     const scene = heroNumber(beat({ compare: { value: "175.21", label: "SFRDP-Net" } }), ctx());
     const head = scene.tl.find((t) => t.target === "#s3-h");

@@ -62,7 +62,15 @@ const ROW_LH = 1.2;
 const BAR_H = 26;
 const ROW_GAP = 22;
 const BARS_TOP = 44;
-const LABEL_COL = 0.3;
+/**
+ * The bar labels' column: as wide as the longer label needs, between these
+ * shares of the frame, and two lines at most. A fixed 30% column refused
+ * "EM-SNN의 LHID PSNR" and cost the deck its slide (ko e2e, 2026-10-09).
+ */
+const LABEL_COL_MIN = 0.22;
+const LABEL_COL_MAX = 0.42;
+const LABEL_GUTTER = 32;
+const ROW_MAX_LINES = 2;
 const VALUE_COL = 0.24;
 /** A figure-only comparison line. */
 const VERSUS_SIZE = 56;
@@ -143,16 +151,22 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   }
   const label = wrap(p.label, LABEL_SIZE, W * MEASURE_SLACK, 500, 0, face);
   const rowLine = Math.round(ROW_SIZE * ROW_LH);
-  const labelColW = Math.round(W * LABEL_COL);
   const valueColW = Math.round(W * VALUE_COL);
   const rowLabels = bars && p.compare ? [p.compare.label, p.label] : [];
-  for (const l of rowLabels) {
-    if (textWidth(l, ROW_SIZE, 500, 0, false, face) > labelColW * MEASURE_SLACK) {
+  const widest = Math.max(0, ...rowLabels.map((l) => textWidth(l, ROW_SIZE, 500, 0, false, face)));
+  const labelColW = Math.round(
+    Math.min(W * LABEL_COL_MAX, Math.max(W * LABEL_COL_MIN, widest / MEASURE_SLACK + LABEL_GUTTER)),
+  );
+  const rowLines = rowLabels.map(
+    (l) => wrap(l, ROW_SIZE, (labelColW - LABEL_GUTTER) * MEASURE_SLACK, 500, 0, face).length,
+  );
+  rowLabels.forEach((l, k) => {
+    if ((rowLines[k] ?? 0) > ROW_MAX_LINES) {
       throw new Error(
-        `${who}: the bar label "${l}" is wider than its ${labelColW}px column at ${ROW_SIZE}px — shorten it`,
+        `${who}: the bar label "${l}" sets on ${rowLines[k]} lines in a ${labelColW}px column at ${ROW_SIZE}px — shorten it`,
       );
     }
-  }
+  });
   const versus =
     p.compare && !bars
       ? wrap(
@@ -172,7 +186,9 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   const words =
     (p.eyebrow ? Math.round(eb.size * eb.lh) + GAP : 0) +
     (bars ? 0 : GAP + label.length * Math.round(LABEL_SIZE * LABEL_LH)) +
-    (bars ? BARS_TOP + 2 * Math.max(rowLine, BAR_H) + ROW_GAP : 0) +
+    (bars
+      ? BARS_TOP + rowLines.reduce((h, n) => h + Math.max(n * rowLine, BAR_H), 0) + ROW_GAP
+      : 0) +
     (versus.length ? GAP + Math.round(VERSUS_SIZE * 1.2) : 0) +
     HEAD_GAP +
     head.length * Math.round(HEAD_SIZE * HEAD_LH);
@@ -344,7 +360,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
       `.hn-bars{width:100%;margin-top:${BARS_TOP}px;display:flex;flex-direction:column;gap:${ROW_GAP}px}`,
       `.hn-row{display:grid;align-items:center;font-size:${ROW_SIZE}px;line-height:${ROW_LH}}`,
       `#${ctx.sid} .hn-row{grid-template-columns:${labelColW}px 1fr ${valueColW}px}`,
-      `.hn-rl{font-weight:500;color:${theme.muted}}`,
+      `.hn-rl{font-weight:500;color:${theme.muted};padding-right:${LABEL_GUTTER}px}`,
       `.hn-tr{height:${BAR_H}px}`,
       `.hn-b{height:100%;border-radius:${BAR_H / 2}px;transform-origin:left center}`,
       `.hn-b0{background:${theme.rule}}`,
