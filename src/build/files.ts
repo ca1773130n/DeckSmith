@@ -33,6 +33,7 @@ import { deckLook } from "../emit/theme.js";
 import { familyOf, type LatinFace } from "../emit/type.js";
 import { bundleFont, familyFor } from "../source/fonts.js";
 import type { Source, Storyboard } from "../types.js";
+import { assemblePiece } from "./piece.js";
 
 /** Progress, for a caller that has somewhere to put it. */
 type Step = (message: string) => void;
@@ -127,16 +128,14 @@ export async function vendorScripts(out: string, composition: string): Promise<s
     await cp(from, join(out, "vendor", name));
     written.push(join(out, "vendor", name));
   }
-  // Ours, not a package's: the morph runtime is built beside dist/cli.js by
-  // scripts/build.mjs, exactly as the step layer is. `import.meta.url` is the
-  // bundle's own — this module is compiled INTO dist/cli.js and dist/index.js,
-  // and dist/ds-morph.js is a sibling of both.
-  if (wanted("ds-morph.js")) {
-    await cp(
-      fileURLToPath(new URL("./ds-morph.js", import.meta.url)),
-      join(out, "vendor", "ds-morph.js"),
-    );
-    written.push(join(out, "vendor", "ds-morph.js"));
+  // Ours, not a package's: the morph and piece runtimes are built beside
+  // dist/cli.js by scripts/build.mjs, exactly as the step layer is.
+  // `import.meta.url` is the bundle's own — this module is compiled INTO
+  // dist/cli.js and dist/index.js, and both runtimes are siblings of both.
+  for (const name of ["ds-morph.js", "ds-animate.js"]) {
+    if (!wanted(name)) continue;
+    await cp(fileURLToPath(new URL(`./${name}`, import.meta.url)), join(out, "vendor", name));
+    written.push(join(out, "vendor", name));
   }
   return written;
 }
@@ -162,11 +161,16 @@ export async function vendorScripts(out: string, composition: string): Promise<s
  * downloadable file at all. Named here because this set is the ONLY thing that
  * reaches the built deck — a poster left out is simply absent, and the deck's
  * own runtime reports it as `http_error 404`, a long way from this line.
+ *
+ * A PIECE IS WRITTEN, NOT COPIED. Its `src` is the author's animate scene file,
+ * and what the deck loads under the same name is that file assembled with the
+ * vendored kit (`assemblePiece`, src/build/piece.ts) — the containment proof
+ * below applies to it exactly as to an image.
  */
 export async function copyAssets(
   sourceDir: string,
   out: string,
-  figures: readonly { src: string; poster?: string }[],
+  figures: readonly { id?: string; kind?: string; src: string; poster?: string }[],
   step: Step,
 ): Promise<string[]> {
   const from = join(resolve(sourceDir), "assets");
@@ -180,6 +184,11 @@ export async function copyAssets(
       .filter((n) => n !== undefined)
       .map((n) => n.replace(/^\.?\//, "")),
   );
+  const pieces = new Map(
+    figures
+      .filter((f) => f.kind === "piece" && f.id !== undefined)
+      .map((f) => [f.src.replace(/^\.?\//, ""), f.id as string]),
+  );
   await mkdir(join(out, "assets"), { recursive: true });
   const written: string[] = [];
   let copied = 0;
@@ -190,7 +199,13 @@ export async function copyAssets(
     if (!src.startsWith(`${from}/`)) continue;
     if (!(await stat(src).catch(() => null))) continue;
     await mkdir(dirname(join(out, "assets", name)), { recursive: true });
-    await cp(src, join(out, "assets", name));
+    const piece = pieces.get(name);
+    if (piece === undefined) await cp(src, join(out, "assets", name));
+    else
+      await writeFile(
+        join(out, "assets", name),
+        await assemblePiece(piece, name, await readFile(src, "utf8")),
+      );
     written.push(join(out, "assets", name));
     copied++;
   }

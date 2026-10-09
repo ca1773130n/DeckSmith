@@ -1,0 +1,141 @@
+/**
+ * The runtime an animate PIECE runs on: a registry the piece's script fills,
+ * a `mount` the scene's `measure` calls, and the `dsAnimate` GSAP plugin that
+ * draws the piece as part of being seeked.
+ *
+ * A piece is a figure (`kind: "piece"`, src/types.ts) whose asset is a script:
+ * an animate scene file, assembled by src/build/piece.ts with the vendored kit
+ * (src/build/animate/) into ONE factory registered here under the figure's id.
+ * `claim-figure` draws it on a `<canvas>`. See
+ * .planning/2026-10-09-animate-piece-design.md and the spike that measured it.
+ *
+ * SEEK, NOT PLAY (invariant 1). animate's `renderFrame(t, canvas)` is a pure
+ * function of `t` — it repaints from a clean sheet every call — so the plugin's
+ * `render` is the only thing that ever draws, and it runs as part of the seek.
+ * Nothing here runs on a callback (invariant 11).
+ *
+ * THE TWEEN VALUE IS THE PIECE'S OWN TIME, IN SECONDS. One convention, chosen
+ * because it is the one the spike rendered and watched:
+ *
+ *   tl.fromTo("#s2-pc", { dsAnimate: 0 }, { dsAnimate: S, duration: S, ease: "none" }, at)
+ *
+ * where `S` is the figure's `seconds`. The tween's value at ratio `r` is
+ * `r * S`, a piece-local second, and the tween runs at 1:1 with the deck's
+ * clock. A 0-to-1 value would work too (design A wrote it), but two conventions
+ * in one codebase is how one of them gets the other's arithmetic.
+ *
+ * THE LAST-FRAME CLAMP. morph.js picks its frame as
+ * `round(t * FPS) % NFRAMES`, so the tween's end, `t = S`, is frame NFRAMES —
+ * which wraps to frame 0. The piece would snap back to its first pose for the
+ * whole hold after it. `pieceTime` stops at `(n - 1) / fps`, the last frame
+ * that exists.
+ *
+ * Bundled to an IIFE by `scripts/build.mjs` as `dist/ds-animate.js` and loaded
+ * by a deck only when some scene names `dsAnimate` (PLUGINS in
+ * composition.ts). The pure halves are exported for the tests, which is why the
+ * window registration at the bottom is guarded.
+ */
+
+/** What the scene's `measure` passes `mount`: the numbers the factory's head needs. */
+export interface PieceConfig {
+  /** The piece's length — the figure's `seconds`. */
+  seconds: number;
+  /** Frames per second the piece is baked at. */
+  fps: number;
+  /** The deck's font stack, for the kit's `HAND`. No text is drawn; see `mount`. */
+  hand: string;
+}
+
+/** What a piece's factory hands back: animate's seekable draw, and its frame count. */
+export interface Piece {
+  rf: (t: number, canvas: HTMLCanvasElement) => unknown;
+  n: number;
+  fps: number;
+}
+
+/** A piece's script registers one of these under its figure id. */
+export type PieceFactory = (cfg: PieceConfig & { width: number; height: number }) => Piece;
+
+/** Filled by each piece's script as the document parses. */
+export const pieces: Record<string, PieceFactory> = {};
+
+const HOSTS = new WeakMap<object, Piece>();
+
+/**
+ * The piece-local second to draw at tween value `t`: `t`, but never past the
+ * last frame — see THE LAST-FRAME CLAMP above.
+ */
+export function pieceTime(t: number, piece: { n: number; fps: number }): number {
+  return Math.min(t, (piece.n - 1) / piece.fps);
+}
+
+/**
+ * Build piece `id` against `canvas`. Called from the scene's `measure`, inside
+ * the ready gate, so it runs once, before the timeline that tweens it exists.
+ *
+ * THE CONTEXT IS TAKEN HERE, FIRST, with `willReadFrequently`, so the raster
+ * mode is fixed from frame 0 rather than flipped by whatever reads it back
+ * later (.planning/2026-09-06-canvas-seek-purity.md).
+ *
+ * NO TEXT ON A PIECE (invariant 5). Canvas text cannot be seen by the type
+ * floor, so `fillText` and `strokeText` on the mounted canvas throw. The claim
+ * and the caption are DOM text beside the canvas, which the gates do read.
+ * KNOWN GAP, from the spike: morph.js draws each era on an offscreen layer
+ * first, and text drawn there is not trapped — only the overlays drawn on the
+ * mounted canvas are.
+ */
+export function mount(canvas: HTMLCanvasElement | null, id: string, cfg: PieceConfig): void {
+  if (!canvas) throw new Error(`DSAnimate.mount: no canvas for piece "${id}"`);
+  const factory = Object.hasOwn(pieces, id) ? pieces[id] : undefined;
+  if (!factory) {
+    throw new Error(
+      `DSAnimate.mount: no piece registered as "${id}" — its <script src> did not run`,
+    );
+  }
+  const c2d = canvas.getContext("2d", { willReadFrequently: true });
+  if (!c2d) throw new Error(`DSAnimate.mount: piece "${id}" got no 2D context`);
+  const refuse = (name: string) => () => {
+    throw new Error(
+      `dsAnimate: piece "${id}" called ${name} — no text on a piece canvas (invariant 5)`,
+    );
+  };
+  c2d.fillText = refuse("fillText");
+  c2d.strokeText = refuse("strokeText");
+  HOSTS.set(canvas, factory({ ...cfg, width: canvas.width, height: canvas.height }));
+}
+
+interface PluginState {
+  piece: Piece;
+  canvas: HTMLCanvasElement;
+  end: number;
+}
+
+/**
+ * `dsAnimate` as a GSAP property. The tween's ease must be "none": the value is
+ * a clock, and an ease would play the piece at a varying speed.
+ */
+export const DSAnimatePlugin = {
+  name: "dsAnimate",
+  init(this: PluginState, target: HTMLCanvasElement, value: unknown): void {
+    const piece = HOSTS.get(target);
+    // Loud, not silent: a tween on a canvas nothing mounted would otherwise
+    // draw nothing with every gate green.
+    if (!piece) {
+      throw new Error(
+        `dsAnimate: nothing mounted on #${target.id}; DSAnimate.mount must run in measure`,
+      );
+    }
+    this.piece = piece;
+    this.canvas = target;
+    this.end = Number(value);
+  },
+  render(ratio: number, d: PluginState): void {
+    d.piece.rf(pieceTime(ratio * d.end, d.piece), d.canvas);
+  },
+};
+
+if (typeof window !== "undefined") {
+  const w = window as unknown as { DSAnimate: unknown; DSAnimatePlugin: unknown };
+  w.DSAnimate = { pieces, mount };
+  w.DSAnimatePlugin = DSAnimatePlugin;
+}
