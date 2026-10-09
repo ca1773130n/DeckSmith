@@ -20,8 +20,17 @@
  * It must NOT define what the head below does — `W`, `H`, `FPS`, `DURATION`,
  * `NFRAMES`, `LOOP_T`, `SAFE`, `HAND`, `CX` — nor `TIMELINE`, which is built
  * here from its `SHOTS`. A redeclaration is a SyntaxError when the deck loads,
- * which `check` and `verify` report as a page error. It must draw no text: see
- * `mount`.
+ * which `check` and `verify` report as a page error.
+ *
+ * IT MUST DRAW NO TEXT (invariant 5; `withoutText` in the runtime). So these
+ * cut-paper primitives are unusable in a piece — each reaches `fillText`, which
+ * throws on any canvas while the piece runs, and fails `verify`:
+ *   `handText`, `tag`, `yearTag`, `capStrip` (cut-paper.js) and `monoText`
+ *   (core.js) draw text; `cat` draws its "z"s with `handText`.
+ * `handW` only measures and is fine. `handwrite` (core.js) is NOT caught: it
+ * draws letterforms as `ink` strokes, which no text trap can tell from a line,
+ * so a piece using it puts words on the canvas the type floor never reads. Do
+ * not use it; nothing refuses it.
  *
  * Deterministic by construction: the same author file and id assemble to the
  * same bytes, which is what keeps two builds of one deck identical.

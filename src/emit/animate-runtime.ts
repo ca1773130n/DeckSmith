@@ -30,6 +30,23 @@
  * whole hold after it. `pieceTime` stops at `(n - 1) / fps`, the last frame
  * that exists.
  *
+ * A DRAWING ERROR IS A PAGE ERROR. The hyperframes runtime runs every seek
+ * inside a `catch` that reports only to a hook the page must install, so an
+ * error thrown from `render` vanished: lint, check, verify and render all
+ * exited 0 over a canvas frozen on its last good pose (the spike's Q2). So
+ * `render` hands the error to `reportError` — the browser's own "uncaught
+ * exception" path, synchronous, which `hyperframes check` records as a
+ * `page_error` and so fails `decksmith verify` — and then rethrows it for any
+ * caller that does not swallow. `render` still exits 0; verify is the gate.
+ *
+ * ONE DRAW PER FRAME. hyperframes' transport seek moves the timeline three
+ * times per captured frame (`N`, `N + .001`, `N`), and each one used to repaint
+ * the whole piece. morph.js draws a pure function of `round(t * FPS)` (with
+ * `sub` unset), so a second draw of the same frame on the same canvas paints
+ * the same pixels: `render` skips it. The memo is per canvas, cleared before a
+ * draw and set only after it returns: a draw that throws leaves the canvas
+ * half-painted, so it must not be remembered as holding any frame.
+ *
  * Bundled to an IIFE by `scripts/build.mjs` as `dist/ds-animate.js` and loaded
  * by a deck only when some scene names `dsAnimate` (PLUGINS in
  * composition.ts). The pure halves are exported for the tests, which is why the
@@ -59,7 +76,14 @@ export type PieceFactory = (cfg: PieceConfig & { width: number; height: number }
 /** Filled by each piece's script as the document parses. */
 export const pieces: Record<string, PieceFactory> = {};
 
-const HOSTS = new WeakMap<object, Piece>();
+/** A mounted piece: what draws it, and the frame its canvas last finished drawing. */
+interface Host {
+  id: string;
+  piece: Piece;
+  drawn: number;
+}
+
+const HOSTS = new WeakMap<object, Host>();
 
 /**
  * The piece-local second to draw at tween value `t`: `t`, but never past the
@@ -70,19 +94,54 @@ export function pieceTime(t: number, piece: { n: number; fps: number }): number 
 }
 
 /**
+ * NO TEXT FROM A PIECE (invariant 5). Canvas text cannot be seen by the type
+ * floor, so while piece `id` runs — its factory, and every draw — `fillText`
+ * and `strokeText` throw on EVERY 2D context, not only the mounted canvas's:
+ * morph.js draws each era on an offscreen layer it creates itself
+ * (`layer(0)`), and an author's file can create more. Swapped on the
+ * prototypes for exactly the length of the call and restored in `finally`, so
+ * no other canvas on the page is ever affected. A throw from the trap is a
+ * drawing error like any other: see A DRAWING ERROR IS A PAGE ERROR above.
+ *
+ * In node there are no canvas prototypes and so nothing to swap; the browser
+ * test in test/animate-piece.test.ts is what measures this.
+ */
+function withoutText<T>(id: string, run: () => T): T {
+  const g = globalThis as {
+    CanvasRenderingContext2D?: { prototype: CanvasText };
+    OffscreenCanvasRenderingContext2D?: { prototype: CanvasText };
+  };
+  const protos = [g.CanvasRenderingContext2D, g.OffscreenCanvasRenderingContext2D].flatMap((c) =>
+    c ? [c.prototype] : [],
+  );
+  const saved = protos.map((p) => [p.fillText, p.strokeText] as const);
+  const refuse = (name: string) => () => {
+    throw new Error(
+      `dsAnimate: piece "${id}" called ${name} — a piece draws no text (invariant 5)`,
+    );
+  };
+  for (const p of protos) {
+    p.fillText = refuse("fillText");
+    p.strokeText = refuse("strokeText");
+  }
+  try {
+    return run();
+  } finally {
+    protos.forEach((p, i) => {
+      [p.fillText, p.strokeText] = saved[i] as (typeof saved)[number];
+    });
+  }
+}
+
+/**
  * Build piece `id` against `canvas`. Called from the scene's `measure`, inside
  * the ready gate, so it runs once, before the timeline that tweens it exists.
+ * A throw from the factory — the author's file runs here, not at script load —
+ * leaves the scene's timeline unregistered, which `check` already reports.
  *
  * THE CONTEXT IS TAKEN HERE, FIRST, with `willReadFrequently`, so the raster
  * mode is fixed from frame 0 rather than flipped by whatever reads it back
  * later (.planning/2026-09-06-canvas-seek-purity.md).
- *
- * NO TEXT ON A PIECE (invariant 5). Canvas text cannot be seen by the type
- * floor, so `fillText` and `strokeText` on the mounted canvas throw. The claim
- * and the caption are DOM text beside the canvas, which the gates do read.
- * KNOWN GAP, from the spike: morph.js draws each era on an offscreen layer
- * first, and text drawn there is not trapped — only the overlays drawn on the
- * mounted canvas are.
  */
 export function mount(canvas: HTMLCanvasElement | null, id: string, cfg: PieceConfig): void {
   if (!canvas) throw new Error(`DSAnimate.mount: no canvas for piece "${id}"`);
@@ -92,20 +151,17 @@ export function mount(canvas: HTMLCanvasElement | null, id: string, cfg: PieceCo
       `DSAnimate.mount: no piece registered as "${id}" — its <script src> did not run`,
     );
   }
-  const c2d = canvas.getContext("2d", { willReadFrequently: true });
-  if (!c2d) throw new Error(`DSAnimate.mount: piece "${id}" got no 2D context`);
-  const refuse = (name: string) => () => {
-    throw new Error(
-      `dsAnimate: piece "${id}" called ${name} — no text on a piece canvas (invariant 5)`,
-    );
-  };
-  c2d.fillText = refuse("fillText");
-  c2d.strokeText = refuse("strokeText");
-  HOSTS.set(canvas, factory({ ...cfg, width: canvas.width, height: canvas.height }));
+  if (!canvas.getContext("2d", { willReadFrequently: true })) {
+    throw new Error(`DSAnimate.mount: piece "${id}" got no 2D context`);
+  }
+  const piece = withoutText(id, () =>
+    factory({ ...cfg, width: canvas.width, height: canvas.height }),
+  );
+  HOSTS.set(canvas, { id, piece, drawn: Number.NaN });
 }
 
 interface PluginState {
-  piece: Piece;
+  host: Host;
   canvas: HTMLCanvasElement;
   end: number;
 }
@@ -117,20 +173,32 @@ interface PluginState {
 export const DSAnimatePlugin = {
   name: "dsAnimate",
   init(this: PluginState, target: HTMLCanvasElement, value: unknown): void {
-    const piece = HOSTS.get(target);
+    const host = HOSTS.get(target);
     // Loud, not silent: a tween on a canvas nothing mounted would otherwise
     // draw nothing with every gate green.
-    if (!piece) {
+    if (!host) {
       throw new Error(
         `dsAnimate: nothing mounted on #${target.id}; DSAnimate.mount must run in measure`,
       );
     }
-    this.piece = piece;
+    this.host = host;
     this.canvas = target;
     this.end = Number(value);
   },
   render(ratio: number, d: PluginState): void {
-    d.piece.rf(pieceTime(ratio * d.end, d.piece), d.canvas);
+    const { host } = d;
+    const t = pieceTime(ratio * d.end, host.piece);
+    // The frame morph.js will draw for `t` — see ONE DRAW PER FRAME above.
+    const frame = Math.round(t * host.piece.fps);
+    if (frame === host.drawn) return;
+    host.drawn = Number.NaN;
+    try {
+      withoutText(host.id, () => host.piece.rf(t, d.canvas));
+    } catch (err) {
+      reportError(err);
+      throw err;
+    }
+    host.drawn = frame;
   },
 };
 

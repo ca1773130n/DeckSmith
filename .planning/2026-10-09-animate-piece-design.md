@@ -63,11 +63,12 @@ Only cut-paper ships in v1. It and `core.js` call `getImageData` zero times (cou
 - `DSAnimate.mount(canvas, id)`, called from `measure`:
   - calls `getContext('2d',{willReadFrequently:true})` once
   - asserts `document.fonts.check(...)` for nothing, because the canvas has no text
-  - wraps `fillText` and `strokeText` on that context so they **throw**
+  - runs the piece's factory with `fillText` and `strokeText` throwing on every 2D context (as implemented: `withoutText`, below)
   - stores `{rf, n, fps}` in a `WeakMap` keyed by the canvas
 - `DSAnimatePlugin`, `name:"dsAnimate"`:
   - `init` throws if the host was never mounted, the same check as `morph-runtime.ts:619-623`
   - `render(r,d)` calls `d.rf(Math.min(r*d.end, (d.n-1)/d.fps), d.canvas)`. The clamp prevents the `% NFRAMES` wrap (`morph.js:81`) from snapping the last frame back to frame 0.
+  - As implemented (spike conditions 1, 2, 6): the draw runs inside `withoutText`, which swaps `fillText`/`strokeText` on the `CanvasRenderingContext2D` and `OffscreenCanvasRenderingContext2D` prototypes for the length of the call, so morph's offscreen `layer(0)` is covered too; an error is passed to `reportError` (a `page_error` in `hyperframes check`, so `verify` exits 1) and rethrown; and a draw is skipped when `round(t·fps)` equals the frame the canvas last finished drawing. Tested in `test/animate-piece.test.ts`, including `decksmith verify` on each failure.
 
 **Changed:**
 
@@ -115,7 +116,7 @@ DeckSmith keeps its own narration, timing and render path.
 2. **fromTo.** One `tween()` → `tweenText`, typed (`kit.ts:336-370`).
 3. **Scoped.** The target is `#${sid}-pc`. All piece globals live inside the IIFE, and `getElementById('c')` is patched out.
 4. **No clock, random or network.** The kit is clean (seeded mulberry32, `core.js:10-36`). The assembled file is scanned by the extended `scanDeterminism`. The script is a local relative path, as `vendor/` already is.
-5. **≥40px.** The canvas carries **no text**, and `fillText`/`strokeText` throw at runtime. That covers `core.js:415` and cut-paper's `handText` (:21). The claim stays DOM text, so `scanTypeFloor` and `apparent.ts` still apply. This is the condition the WebGL spike already set (no text in canvas).
+5. **≥40px.** The canvas carries **no text**, and `fillText`/`strokeText` throw at runtime on any canvas while the piece runs. That covers `core.js:415` and cut-paper's `handText` (:21), and so `monoText`, `tag`, `yearTag`, `capStrip` and `cat`. It does NOT cover `handwrite` (`core.js:433`), which draws letterforms as `ink` strokes; nothing refuses it. The claim stays DOM text, so `scanTypeFloor` and `apparent.ts` still apply. This is the condition the WebGL spike already set (no text in canvas).
 6. **Ambient.** The canvas changes only inside the tween window. Holds and slide edges are static frames. No CSS animation is added.
 7. **deck.html.** Untouched. `emitDeckPage` never sees the piece.
 8. **Holds in window.** `holdsWithin` plus the emitter's throw when the piece does not fit. `emitIsland` (:39) stays the backstop.
@@ -142,10 +143,10 @@ DeckSmith keeps its own narration, timing and render path.
 
 ## 6. Risks and limits
 
-- **No text on the canvas.** animate's captions, tags and DEFER overlays (`cut-paper/kit.js:179-180`) are unusable. Labels go in claim-figure's DOM. A canvas type-floor probe could lift this later (animate `textcheck.mjs:15-30`). Not in v1.
+- **No text on the canvas.** animate's captions, tags and DEFER overlays (`cut-paper/kit.js:179-180`) are unusable: `handText`, `tag`, `yearTag`, `capStrip`, `monoText` and `cat` fail `verify`; `handwrite` is not caught and must not be used. Labels go in claim-figure's DOM. A canvas type-floor probe could lift this later (animate `textcheck.mjs:15-30`). Not in v1.
 - **One style.** Riso and pixel do readbacks, so the raster flip is unmeasured for them. Others need font patches.
 - **Bytes.** About 56 KB of kit per piece, because each IIFE inlines it. Two pieces cost about 112 KB.
-- **Draw cost is unmeasured.** A fresh page makes three draw passes per seek (webgl spike :161). Cut-paper stipple runs up to 4,500 points per call.
+- **Draw cost.** The spike measured three draw passes per render frame, from hyperframes' transport seek. The frame memo makes that one (browser-tested: 5 draws on a fresh page's first seek without it, 1 with it); render time with the memo is not measured. Cut-paper stipple runs up to 4,500 points per call.
 - **`hyperframes check` cannot see into a canvas** (`sweep_static`, ARCHITECTURE-CANVAS §5). Layout and contrast gates cover only the DOM around it.
 - **`capture.ts:265-279` refuses any `<canvas>` when the checker has no WebGL**, even a 2D one. That is a false refusal on GL-less checkers. Out of scope; narrowing it is a separate change.
 - **`render --fps 24`** brings the judder back, because the piece is baked at 30.
