@@ -158,6 +158,23 @@ export function designFor(prefs: Pick<Prefs, "design">, recorded?: Design): Desi
   return prefs.design ?? recorded ?? "classic";
 }
 
+/**
+ * The bespoke pass a build runs, with every default filled in, or undefined.
+ * ON BY DEFAULT UNDER V2: every beat is drawn by a generated scene and the
+ * archetype is only its fallback. `--no-bespoke` (`"bespoke": {"enabled":
+ * false}`) turns it off; classic never runs it, so a classic deck keeps its
+ * bytes. `asked` is whether it was asked for in so many words — `build` says
+ * why it does nothing only then, or when v2 would have run it.
+ */
+export function bespokeFor(
+  prefs: Pick<Prefs, "bespoke">,
+  design: Design,
+): { prefs: NonNullable<Prefs["bespoke"]>; asked: boolean } | undefined {
+  const asked = prefs.bespoke?.enabled === true;
+  if (prefs.bespoke?.enabled === false || design !== "v2") return undefined;
+  return { prefs: prefsSchema.shape.bespoke.unwrap().parse(prefs.bespoke ?? {}), asked };
+}
+
 /** The flag surface the CLI exposes. Every one optional: absent means unstated. */
 export interface PrefFlags {
   slides?: string | number;
@@ -185,7 +202,7 @@ export interface PrefFlags {
   imageModel?: string;
   imageStyle?: string;
   imageMax?: string | number;
-  /** `--bespoke`: generated scenes for a few mechanism beats (v2 only). */
+  /** `--bespoke` / `--no-bespoke`: generated scenes for every beat (v2 only; on by default there). */
   bespoke?: boolean;
   bespokeCalls?: string | number;
   bespokeSeconds?: string | number;

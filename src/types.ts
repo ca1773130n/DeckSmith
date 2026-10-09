@@ -1152,19 +1152,37 @@ export const prefsSchema = z.object({
 
   /* --- bespoke scenes --- */
   /**
-   * `--design v2` only: a few beats per deck drawn by a model-written GSAP+SVG
-   * scene instead of their archetype (src/bespoke/). OPTIONAL WITH NO DEFAULT,
+   * `--design v2` only: every beat drawn by a model-written GSAP+SVG scene, the
+   * archetype only where a scene fails its gates (src/bespoke/). ON UNDER V2
+   * UNLESS `enabled` IS false (`--no-bespoke`) — `bespokeFor` (src/prefs.ts)
+   * decides. The block is still OPTIONAL WITH NO DEFAULT,
    * unlike the two blocks above, and that is deliberate: a resolved prefs
    * object travels into `.deck` manifests, and a defaulted block would move the
    * bytes of every pack built without it.
    */
   bespoke: z
     .object({
-      enabled: z.boolean().default(false),
-      /** Hard cap on Codex calls for one deck. Each bespoke beat costs two. */
-      maxCalls: z.int().min(0).max(40).default(12),
-      /** Hard cap on the bespoke pass's wall time, seconds. */
-      maxSeconds: z.int().min(60).max(7200).default(1800),
+      /** Absent: on under v2. `false` (`--no-bespoke`) keeps every archetype. */
+      enabled: z.boolean().optional(),
+      /**
+       * Hard cap on scene calls for one deck: a draft and at most one critique
+       * per beat, so 40 pays for a 14-beat deck with room to spare. The device
+       * call and the pictures are counted apart.
+       */
+      maxCalls: z.int().min(0).max(80).default(40),
+      /**
+       * Hard cap on the bespoke pass's wall time, seconds. A 14-beat deck at two
+       * calls in flight is ~14 pictures-or-not, 14 drafts at 135-371s each and
+       * up to 14 critiques: an hour is the budget, and what is left falls back.
+       */
+      maxSeconds: z.int().min(60).max(14400).default(3600),
+      /**
+       * One scene call's ceiling, seconds: the per-scene timeout. MEASURED
+       * 2026-10-08..09 at medium effort, tools off: drafts 135-371s, critiques
+       * ~100-300s. A call past this is killed and its beat keeps its draft or
+       * its archetype.
+       */
+      callSeconds: z.int().min(60).max(1800).default(600),
       /** Passed to `codex exec --model`. Absent: whatever the account is configured for. */
       model: z.string().optional(),
       /** The Codex CLI to run. Absent: `codex` on PATH. */
@@ -1172,12 +1190,12 @@ export const prefsSchema = z.object({
       /** Where generated scenes are cached. Absent: the user cache directory. */
       cache: z.string().optional(),
       /**
-       * Codex calls in flight at once. Five: MEASURED 2026-10-08, a deck's
-       * five drafts at three in flight took two waves (252s) where one wave is
-       * ~150s, and the second wave alone put the pass over ten minutes. Still
-       * bounded by `maxCalls` per deck.
+       * Codex calls in flight at once — pictures, the device call and scenes
+       * alike. Two: every beat is drawn now, and each call is a Codex process on
+       * a machine that measured 8-23% memory free through this work; five in
+       * flight was measured faster (2026-10-08) for a five-beat deck only.
        */
-      concurrency: z.int().min(1).max(8).default(5),
+      concurrency: z.int().min(1).max(8).default(2),
       /**
        * `model_reasoning_effort` for the bespoke calls. MEASURED 2026-10-08, one
        * draft prompt, tools off: medium 166s and 24k tokens, high 371s and 50k.

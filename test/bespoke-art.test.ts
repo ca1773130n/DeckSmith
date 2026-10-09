@@ -281,6 +281,7 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
     enabled: true,
     maxCalls: 12,
     maxSeconds: 1800,
+    callSeconds: 600,
     concurrency: 2,
     effort: "medium" as const,
     art: 6,
@@ -327,10 +328,16 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
       return passing(m, round);
     };
     const r = await bespokePass({ ...input({ run, gate }), prefs: prefs() });
-    const n = Object.keys(r.map).length;
+    // Every beat but a data beat (its chart is its picture) is illustrated.
+    const n = r.report.scenes.filter((s) => !s.data).length;
     expect(n).toBeGreaterThan(0);
+    expect(r.report.scenes.filter((s) => s.art)).toHaveLength(n);
     const arts = calls.filter((c) => c.prompt.startsWith("You are the illustrator"));
-    const drafts = calls.filter((c) => c.prompt.includes("You are a senior motion designer"));
+    const drafts = calls.filter(
+      (c) =>
+        c.prompt.includes("You are a senior motion designer") &&
+        !c.prompt.includes("THIS IS A DATA BEAT"),
+    );
     expect(arts).toHaveLength(n);
     expect(r.report.art).toEqual({
       cap: 6,
@@ -349,9 +356,15 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
     }
     // The illustration call keeps its image tool; the scene call has none.
     expect(arts[0]?.config).toContain('model_reasoning_effort="low"');
-    expect(Object.values(r.map).every((e) => e.art?.name.endsWith(".png"))).toBe(true);
+    expect(
+      Object.values(r.map)
+        .filter((e) => e.art)
+        .every((e) => e.art?.name.endsWith(".png")),
+    ).toBe(true);
     expect(seen.length).toBeGreaterThan(0);
-    expect(r.report.scenes.every((s) => s.art?.depicts === "a robot, a cup")).toBe(true);
+    expect(
+      r.report.scenes.filter((s) => !s.data).every((s) => s.art?.depicts === "a robot, a cup"),
+    ).toBe(true);
 
     // A rebuild draws nothing: the pictures and the scenes are both cached.
     const again = fake(() => PICTURED);

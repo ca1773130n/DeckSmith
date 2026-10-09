@@ -64,6 +64,7 @@ import {
 } from "./art.js";
 import { cacheKey, canonical, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
 import { calloutZones, fitLabel, type Label, longestFit } from "./callouts.js";
+import { cardRow } from "./cards.js";
 import { checkFragment, type Fragment, motionKinds } from "./contract.js";
 import { FLAT_MIN, flatEnough, type Inspection, inspectPicture } from "./inspect.js";
 import {
@@ -231,8 +232,8 @@ interface Reply {
 /** Codex's own words for "no more today" — any of these stops every remaining call. */
 const QUOTA = /usage limit|rate.?limit|quota|429|too many requests|exceeded|insufficient/i;
 
-/** One Codex call's ceiling. A generation took 174-202s and a critique 238-329s in the spike. */
-const CALL_SECONDS = 900;
+/** One scene call's ceiling when the prefs name none (`bespoke.callSeconds`). */
+const CALL_SECONDS = 600;
 /** An illustration call's ceiling: MEASURED 36-49s; a stuck image tool should not hold the deck. */
 const ART_SECONDS = 240;
 /** Repair rounds after the final gates, each one probe build of the repaired scenes only. */
@@ -255,6 +256,8 @@ export class Budget {
     readonly cap: number,
     readonly deadline: number,
     readonly now: () => number,
+    /** The per-call ceiling, seconds: the per-scene timeout. */
+    readonly callSeconds = CALL_SECONDS,
   ) {}
   /** Undefined if a call may go ahead (and is counted), else why not. */
   take(): string | undefined {
@@ -290,8 +293,36 @@ export class Budget {
     return undefined;
   }
   seconds(): number {
-    return Math.max(30, Math.min(CALL_SECONDS, Math.floor((this.deadline - this.now()) / 1000)));
+    return Math.max(
+      30,
+      Math.min(this.callSeconds, Math.floor((this.deadline - this.now()) / 1000)),
+    );
   }
+}
+
+/**
+ * `run`, with at most `n` calls in flight across every kind — pictures, the
+ * device call and scenes alike. The lanes of `pool` bound the scene calls only;
+ * every beat's picture starts at once, and with every beat of a deck now drawn
+ * that would put a dozen Codex processes on the machine together.
+ */
+export function lanes(run: Runner, n: number): Runner {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active--;
+  };
+  return async (args) => {
+    if (active < Math.max(1, n)) active++;
+    else await new Promise<void>((go) => waiting.push(go));
+    try {
+      await run(args);
+    } finally {
+      release();
+    }
+  };
 }
 
 /** Run `fn` over `items`, at most `n` at once, in order of completion. */
@@ -666,7 +697,12 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   const step = input.onStep ?? (() => {});
   const now = input.now ?? Date.now;
   const started = now();
-  const budget = new Budget(prefs.maxCalls, started + prefs.maxSeconds * 1000, now);
+  const budget = new Budget(
+    prefs.maxCalls,
+    started + prefs.maxSeconds * 1000,
+    now,
+    prefs.callSeconds ?? CALL_SECONDS,
+  );
   const model = prefs.model ?? "default";
   const scenes: SceneReport[] = [];
   const report = (): BespokeReport => ({
@@ -728,10 +764,12 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   };
   const cut = planCut(storyboard, source, format, base);
   const kept = cut.kept;
+  // Every beat that can have a scene, as many as the call cap pays two calls
+  // for; the clock may still stop some, and those keep their archetype.
   const selection = selectBespoke(kept, {
     seed: storyboard.sourceId,
     narration: narration.beats,
-    max: Math.min(6, Math.floor(prefs.maxCalls / 2)),
+    max: Math.floor(prefs.maxCalls / 2),
   });
   skipped = selection.skipped;
   if (selection.picked.length === 0) {
@@ -786,7 +824,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   const cacheDir = prefs.cache ?? defaultCacheDir();
   const cache = new SceneCache(cacheDir);
   const artCache = new ArtCache(join(cacheDir, "art"));
-  const run = input.run ?? runCodex;
+  const run = lanes(input.run ?? runCodex, prefs.concurrency);
   // Tool-less, single-turn calls (see TOOL_FEATURES), at the configured effort.
   // Only for the production runner: a test's runner never spawns anything.
   const effort = prefs.effort ?? "medium";
@@ -1257,10 +1295,21 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     if (b.cached) draftMap[b.beat.id] = entry(b, b.cached);
     else if (b.draft && b.draftFindings.length === 0) draftMap[b.beat.id] = entry(b, b.draft);
   }
+  const regionOf = new Map(work1.map((b) => [b.beat.id, b.brief.region]));
   const gate = async (m: BespokeMap, round: GateRound) => {
     if (Object.keys(m).length === 0) return new Map<string, GateResult>();
     try {
-      return await input.gate(m, round);
+      const out = await input.gate(m, round);
+      // `card_row` (src/bespoke/cards.ts): read off the markup, judged with the
+      // browser's gates so a draft it flags still goes to its critique with frames.
+      for (const [id, e] of Object.entries(m)) {
+        const region = regionOf.get(id);
+        const why = region ? cardRow(e.fragment.markup, region) : undefined;
+        if (!why) continue;
+        const g = out.get(id) ?? { findings: [], failed: false };
+        out.set(id, { ...g, findings: [...g.findings, `error card_row: ${why}`], failed: true });
+      }
+      return out;
     } catch (err) {
       // No browser, a build that threw: nothing can be shown to pass, so nothing is used.
       const why = `the ${round} gates could not run: ${err instanceof Error ? err.message.split("\n")[0] : err}`;
@@ -1547,8 +1596,15 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
 
   if (!input.work) await rm(work, { recursive: true, force: true });
   const r = report();
+  // Per beat, in deck order: what it got and, on a fallback, why.
+  const order = new Map(kept.map((b, i) => [b.id, i]));
+  for (const sc of [...scenes].sort((a, b) => (order.get(a.beat) ?? 0) - (order.get(b.beat) ?? 0)))
+    step(
+      `bespoke: ${sc.beat} (${sc.archetype}) ${sc.status === "bespoke" ? `bespoke from ${sc.from}` : "FALLBACK"} · device ${sc.device ?? "-"} · ${sc.art ? "illustrated" : "motion graphics"}${sc.status === "fallback" ? ` — ${(sc.reason ?? "").slice(0, 200)}` : ""}`,
+    );
+  const drawn = Object.keys(map).length;
   step(
-    `bespoke: ${Object.keys(map).length} of ${selection.picked.length} beats drawn bespoke, ${r.calls} Codex call(s) + ${r.art.calls} illustration(s), ${r.tokens} tokens, ${r.seconds}s${r.quota ? " — the quota said no" : ""}`,
+    `bespoke: ${drawn} of ${kept.length} beats drawn bespoke (${Math.round((100 * drawn) / Math.max(1, kept.length))}%; ${scenes.length - drawn} fell back, ${skipped.length} not eligible), ${r.calls} scene call(s) + ${budget.devices} device call + ${r.art.calls} illustration(s), ${r.tokens} tokens, ${r.seconds}s${r.quota ? " — the quota said no" : ""}`,
   );
   return { map, report: r };
 }

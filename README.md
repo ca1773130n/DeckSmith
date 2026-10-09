@@ -924,29 +924,43 @@ already built) and, while a stop's audio plays, seeks the scene through that sto
 stretch on the audio clock so the emphasis lands on the same word as in the video. Both
 are off under `prefers-reduced-motion`.
 
-## v2 bespoke scenes (`--bespoke`)
+## v2 bespoke scenes (on by default under v2; `--no-bespoke`)
 
-The archetypes finish building in about five seconds and then hold still while the voice
-keeps talking. `build --design v2 --bespoke` hands four to six beats per deck to Codex
-instead: for each, a GSAP + SVG scene written for that beat, keyed to its narration cues,
-that keeps explaining for as long as the sentence runs. Everything else stays v2. It is off
-unless asked for; v2 without it, and classic, emit the bytes they did.
+The archetypes are the same handful of layouts on every slide, and they finish building in
+about five seconds and then hold still while the voice keeps talking. A narrated
+`build --design v2` hands EVERY beat to Codex instead — title, numbers, comparisons and
+closing claims as well as mechanisms: for each, a GSAP + SVG scene written for that beat,
+keyed to its narration cues, built on its own visual device. The archetype is only the
+fallback for a scene that fails its gates. `--no-bespoke` (or `"bespoke": {"enabled":
+false}`) keeps every archetype and makes no call; classic never runs it and emits the bytes
+it did. A v2 build without narration has no cues to key a scene to, and says so.
 
 ```bash
-decksmith build storyboard.json --source source.json -o deck --design v2 --bespoke
-# bespoke: b03-action-loop.draft in 121s …
+decksmith build storyboard.json --source source.json -o deck --design v2
+# bespoke: devices (codex) — b01 kinetic-title, b02 fog-lift+art, b03 edge-sweep, …
 # bespoke: b05-backbone — every gate passed and the rubric probe is clean; no critique call
-# bespoke: 4 of 5 beats drawn bespoke, 7 Codex call(s), 190985 tokens, 343s
+# bespoke: b07 (bar-compare) FALLBACK · device draining-light-bars · motion graphics — failed the gates after the critique round: error card_row: …
+# bespoke: 12 of 14 beats drawn bespoke (86%; 2 fell back, 0 not eligible), 19 scene call(s) + 1 device call + 6 illustration(s), …
 ```
 
-**Which beats.** A deterministic rule (`src/bespoke/select.ts`): mechanism archetypes
-(pipeline, equation-walk/-morph, line-chart, stack, grid, split-/bar-compare, and figures
-last), mechanism words in en/ko/ja/zh, a cited equation, and the beat's weight; ties
-broken by a hash. Never a title, callout or table, a beat with no narration, or a beat a
-camera dives through. `plan --bespoke` lets the planner mark beats `bespoke: true|false`;
-`false` is obeyed, `true` is a strong hint.
+**Which beats** (`src/bespoke/select.ts`): every beat with a narration cue, except one a
+camera dives into or out of (the dive is aimed at a part the archetype drew) and one the
+planner marked `bespoke: false` (`plan --bespoke`). When `--bespoke-calls` cannot pay two
+calls a beat, the most mechanical win (mechanism archetypes and words in en/ko/ja/zh, a cited
+equation, weight; ties by a hash) and the rest keep their archetype.
 
-**Per beat:** illustration → draft → static contract → probe deck (a real build with every
+**The device pass** (`assignDevices`, `src/bespoke/pipeline.ts`), once per deck before any
+picture or scene is asked for: one Codex call names, for every beat from its content, the
+visual device its scene is built on (`spike-train`, `fog-lift`, `edge-sweep`,
+`draining-light-bars`, `track-race` …) — never a layout — and which beats get an
+illustration (never a data beat or a one-cue beat, at most `--bespoke-art`; the rest are pure
+motion graphics, so the deck varies). A name the model repeats, garbles or leaves out, and
+every name when there is no call, comes from a rule catalogue; no two beats of a deck share
+one. Each scene prompt is told its device and every earlier beat's (`priorDevices`), and that
+a row of cards, boxes and arrows, bullet columns or a tile grid is not a main visual. The
+answer is cached by the beats' words.
+
+**Per beat:** device → illustration (or none) → draft → static contract → probe deck (a real build with every
 `verify` gate plus the motion gates, photographed at every cue) → the rubric probe → at most
 one critique-and-fix call with the contact sheet and the measures attached (`codex exec -i`)
 → static contract → probe again → repair rounds. A draft that passed every gate and is clean
@@ -1052,10 +1066,12 @@ open wide, or names fewer than two subjects on them, a cue whose picture changes
 is told the measures and every finding with the colliding labels' coordinates, and returns
 the fixed scene.
 
-**Caps**, checked before every call: `--bespoke-calls` (default 12; two per beat) and
-`--bespoke-seconds` (default 1800). A quota or rate-limit answer stops every further call.
-Codex runs only through the account's own CLI (`--bespoke-cli`, `--bespoke-model`), never
-an API key, five calls in flight (`bespoke.concurrency` in the config file), at
+**Caps**, checked before every call: `--bespoke-calls` (default 40 scene calls; two per
+beat), `--bespoke-seconds` (default 3600 for the pass) and `bespoke.callSeconds` (default
+600: one call's ceiling, the per-scene timeout). A quota or rate-limit answer stops every
+further call. Codex runs only through the account's own CLI (`--bespoke-cli`,
+`--bespoke-model`), never an API key, two calls in flight across pictures, the device call
+and scenes alike (`bespoke.concurrency` in the config file), at
 `bespoke.effort` reasoning (default `medium`; `default` keeps the account's), from the
 scratch directory, and with its tools off: shell, apps, plugins, browser, image
 generation (the illustration call alone keeps it), web search and every MCP server the
@@ -1106,7 +1122,10 @@ subjects; round 3's 1.1-1.4x pans are not push-ins), `label_anchor` (a label tha
 subject sits within 96px of its box and covers no other subject by more than a quarter of
 itself, and at the end at least two subjects are named that way), `data_over_picture`
 (five or more numbers on the illustration),
-`cue_groups` (no such groups, or one naming a cue the scene does not have), `end_dimmed`
+`cue_groups` (no such groups, or one naming a cue the scene does not have), `card_row`
+(`src/bespoke/cards.ts`, read off the markup: three or more alike rectangles in a row or a
+column, or four in a grid, covering 12% of the box — cards, panels or tiles as the main
+visual; such a scene goes to its one critique call and falls back if it is still cards), `end_dimmed`
 (at the settled frame, more than 10% of the parts the scene had shown lit are left under
 0.6 opacity — a part drawn translucent from the start is not counted) and `camera_end` (the
 camera, or a viewBox, not home at the settled frame). Content
@@ -1133,8 +1152,11 @@ an illustration takes 60-120s, a draft 90-220s and a critique 70-120s; a deck's 
 the whole `build` 466-812s on a Mac with 9-23% memory free — three builds of eight under ten
 minutes. The pictures add 128-348 KB of WebP to a deck (round 3: 6-7 MB of PNG). Round 3
 took 593-742s and 214-325k tokens; round 1 13-31 minutes and 540-705k. A rebuild from the
-cache makes 0 calls. None of that fits a 300-second build timeout: a host running this has
-to give `build` that long, or run it off the request path.
+cache makes 0 calls. Those are 4-6-beat passes at five calls in flight; drawing every beat
+of a deck at two in flight costs several times that.
+None of it fits a 300-second build timeout: a host that builds v2 decks on its request path
+— HypePaper's build step — must pass `--no-bespoke`, or give `build` that long off the
+request path.
 
 ## Themes
 

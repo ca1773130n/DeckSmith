@@ -20,11 +20,12 @@ import {
   deviceName,
   type GateFn,
   type GateResult,
+  lanes,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
 import { critiquePrompt, type DeviceBeat, generatePrompt } from "../src/bespoke/prompt.js";
 import { bespokeHolds } from "../src/bespoke/scene.js";
-import { selectBespoke, target } from "../src/bespoke/select.js";
+import { selectBespoke } from "../src/bespoke/select.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import {
   BESPOKE_CSP,
@@ -91,77 +92,64 @@ tl.to("#SCENEID-dot", { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }
 /* ----------------------------------------------------------------- selection */
 
 describe("selection", () => {
-  it("is deterministic, picks mechanisms, and never a title or a callout", () => {
+  it("picks every narrated beat — title, callout and table too — in deck order", () => {
     const a = selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats });
-    const b = selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats });
-    expect(a).toEqual(b);
-    expect(a.picked.length).toBe(target(demo.beats.length));
-    const kinds = new Map(demo.beats.map((x) => [x.id, x.archetype]));
-    for (const p of a.picked)
-      expect(["title", "callout", "data-table"]).not.toContain(kinds.get(p.beatId));
+    expect(a).toEqual(
+      selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats }),
+    );
+    const camera = new Set(
+      demo.beats.flatMap((b, i) =>
+        b.inside !== undefined ? [b.id, demo.beats[i - 1]?.id as string] : [],
+      ),
+    );
+    expect(a.picked.map((p) => p.beatId)).toEqual(
+      demo.beats.filter((b) => !camera.has(b.id)).map((b) => b.id),
+    );
+    const kinds = new Set(
+      a.picked.map((p) => demo.beats.find((b) => b.id === p.beatId)?.archetype),
+    );
+    for (const k of ["title", "callout"])
+      if (demo.beats.some((b) => b.archetype === k)) expect(kinds).toContain(k);
     expect(a.picked.length + a.skipped.length).toBe(demo.beats.length);
   });
 
-  it("aims for a third of the deck, held to four to six", () => {
-    expect(target(6)).toBe(4);
-    expect(target(15)).toBe(5);
-    expect(target(40)).toBe(6);
-  });
-
-  it("refuses a beat with no narration, and one a camera moves through", () => {
+  it("refuses a beat with no narration cue, and one a camera moves through", () => {
     const silent = selectBespoke(demo.beats, { seed: "x", narration: {} });
     expect(silent.picked).toEqual([]);
-    expect(silent.skipped.some((s) => /no narration/.test(s.reason))).toBe(true);
+    expect(silent.skipped.some((s) => /no narration cue/.test(s.reason))).toBe(true);
 
     const camera = demo.beats.findIndex((b) => b.inside !== undefined);
     if (camera > 0) {
-      const sel = selectBespoke(demo.beats, {
+      const ids = selectBespoke(demo.beats, {
         seed: demo.sourceId,
         narration: narration.beats,
-        max: 40,
-        min: 40,
-      });
-      const ids = sel.picked.map((p) => p.beatId);
+      }).picked.map((p) => p.beatId);
       expect(ids).not.toContain(demo.beats[camera]?.id);
       expect(ids).not.toContain(demo.beats[camera - 1]?.id);
     }
   });
 
-  it("obeys the planner's false and favours its true", () => {
-    const candidate = selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats })
-      .picked[0]?.beatId as string;
-    const vetoed = demo.beats.map((b) =>
-      b.id === candidate ? ({ ...b, bespoke: false } as Beat) : b,
-    );
-    expect(
-      selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats }).picked.map(
-        (p) => p.beatId,
-      ),
-    ).not.toContain(candidate);
-
-    const loser = selectBespoke(demo.beats, {
-      seed: demo.sourceId,
-      narration: narration.beats,
-    }).skipped.find((s) => s.reason.startsWith("scored"))?.beatId;
-    if (loser) {
-      const hinted = demo.beats.map((b) =>
-        b.id === loser ? ({ ...b, bespoke: true } as Beat) : b,
-      );
-      expect(
-        selectBespoke(hinted, { seed: demo.sourceId, narration: narration.beats }).picked.map(
-          (p) => p.beatId,
-        ),
-      ).toContain(loser);
-    }
+  it("obeys the planner's false", () => {
+    const first = demo.beats[0]?.id as string;
+    const vetoed = demo.beats.map((b) => (b.id === first ? ({ ...b, bespoke: false } as Beat) : b));
+    const sel = selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats });
+    expect(sel.picked.map((p) => p.beatId)).not.toContain(first);
+    expect(sel.skipped.find((s) => s.beatId === first)?.reason).toMatch(/bespoke:false/);
   });
 
-  it("lowers its count to what the call cap can pay for", () => {
+  it("when the call cap cannot pay for every beat, draws the most mechanical, in deck order", () => {
     const sel = selectBespoke(demo.beats, {
       seed: demo.sourceId,
       narration: narration.beats,
       max: 2,
     });
-    expect(sel.picked.length).toBe(2);
+    expect(sel.picked).toHaveLength(2);
+    const kinds = sel.picked.map((p) => demo.beats.find((b) => b.id === p.beatId)?.archetype);
+    for (const k of kinds) expect(["title", "callout"]).not.toContain(k);
+    const order = demo.beats.map((b) => b.id);
+    const at = sel.picked.map((p) => order.indexOf(p.beatId));
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(sel.skipped.some((s) => /call cap pays for 2/.test(s.reason))).toBe(true);
   });
 });
 
@@ -352,6 +340,7 @@ describe("the bespoke pass", () => {
     enabled: true,
     maxCalls: 12,
     maxSeconds: 1800,
+    callSeconds: 600,
     concurrency: 2,
     effort: "medium" as const,
     art: 0,
@@ -372,9 +361,13 @@ describe("the bespoke pass", () => {
 
   it("draws the picks, two calls each, and a rebuild costs nothing", async () => {
     const { calls, run } = fake(() => SCENE);
-    const first = await bespokePass({ ...input({ run }), prefs: prefs() });
+    const first = await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 40 }) });
     const n = Object.keys(first.map).length;
-    expect(n).toBe(target(demo.beats.length));
+    // Every eligible beat, not a handful of mechanisms.
+    expect(n).toBe(
+      selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats }).picked.length,
+    );
+    expect(n).toBeGreaterThan(6);
     expect(calls.length).toBe(2 * n);
     expect(first.report.tokens).toBe(2000 * n);
     expect(calls.some((c) => c.prompt.includes("UNTRUSTED DATA"))).toBe(true);
@@ -387,7 +380,7 @@ describe("the bespoke pass", () => {
     };
     const second = await bespokePass({
       ...input({ run: again.run, gate: counting }),
-      prefs: prefs(),
+      prefs: prefs({ maxCalls: 40 }),
     });
     expect(again.calls.length).toBe(0);
     expect(rounds).toEqual(["final"]);
@@ -408,6 +401,85 @@ describe("the bespoke pass", () => {
       for (const before of devices.slice(0, i)) expect(prompt).toContain(`"${before}"`);
     }
     expect(r.report.devices?.from).toBe("codex");
+  });
+
+  it("sends a card-row scene back once, keeps the redraw, and falls back if the redraw is cards too", async () => {
+    const cards: Fragment = {
+      ...SCENE,
+      markup: SCENE.markup.replace(
+        '<g id="SCENEID-b" data-cue="2"></g>',
+        `<g id="SCENEID-b" data-cue="2">${[0, 1, 2, 3]
+          .map(
+            (i) =>
+              `<rect x="${40 + i * 420}" y="120" width="380" height="320" rx="28" fill="#333"/>`,
+          )
+          .join("")}</g>`,
+      ),
+    };
+    const clean: GateFn = async (m) =>
+      new Map(
+        Object.keys(m).map((id) => [
+          id,
+          {
+            findings: [],
+            failed: false,
+            metrics: {
+              fill: 0.9,
+              cells: 0.8,
+              maxType: 96,
+              mass: 0.3,
+              cueChange: [0.02, 0.03],
+              kinds: [],
+            },
+          } satisfies GateResult,
+        ]),
+      );
+    // Draft: cards. Critique: the content itself. Kept, from the critique.
+    const once = fake((args) => (args.outPath.endsWith(".draft.json") ? cards : SCENE));
+    const r1 = await bespokePass({
+      ...input({ run: once.run, gate: clean }),
+      prefs: prefs({ maxCalls: 4 }),
+    });
+    const critiques = once.calls.filter((c) => c.outPath.endsWith(".critique.json"));
+    expect(critiques.length).toBeGreaterThan(0);
+    expect(critiques[0]?.prompt).toMatch(/error card_row: the main visual is a row of 4/);
+    expect(
+      r1.report.scenes.filter((s) => s.status === "bespoke").every((s) => s.from === "critique"),
+    ).toBe(true);
+    expect(Object.keys(r1.map).length).toBeGreaterThan(0);
+
+    // Cards both times: one critique each, then the archetype, and the reason says so.
+    const twice = fake(() => cards);
+    const r2 = await bespokePass({
+      ...input({ run: twice.run, gate: clean }),
+      prefs: prefs({ maxCalls: 4, cache: join(cacheDir, "b") }),
+    });
+    expect(Object.keys(r2.map)).toEqual([]);
+    for (const s of r2.report.scenes) {
+      expect(s.status).toBe("fallback");
+      expect(s.reason).toMatch(/card_row/);
+      expect(s.calls).toBe(2);
+    }
+  });
+
+  it("never has more Codex calls in flight than its lanes, pictures and scenes alike, and frees a lane on a failure", async () => {
+    let live = 0;
+    let most = 0;
+    const slow = async (args: RunnerArgs) => {
+      live++;
+      most = Math.max(most, live);
+      await new Promise((r) => setTimeout(r, 5));
+      live--;
+      if (args.prompt === "fail") throw new Error("boom");
+    };
+    const limited = lanes(slow, 2);
+    const args = (prompt: string) => ({ prompt, schemaPath: "s", outPath: "o", timeoutMs: 1 });
+    const all = await Promise.allSettled(
+      ["a", "fail", "b", "c", "d", "e"].map((p) => limited(args(p))),
+    );
+    expect(most).toBe(2);
+    expect(all.filter((r) => r.status === "rejected")).toHaveLength(1);
+    await limited(args("after"));
   });
 
   it("the budget refuses past its call cap, its deadline, and a quota answer", () => {

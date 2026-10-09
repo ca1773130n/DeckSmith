@@ -52,7 +52,14 @@ import {
   pendingIllustrations,
 } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
-import { designFor, loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
+import {
+  bespokeFor,
+  designFor,
+  loadPrefs,
+  type PrefFlags,
+  type Prefs,
+  prefsFromFlags,
+} from "./prefs.js";
 import { captureFrames } from "./render/capture.js";
 import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
@@ -65,6 +72,7 @@ import {
   type Beat,
   bandReserve,
   canvasWarnings,
+  type Design,
   FORMATS,
   type Format,
   MAX_EDGE,
@@ -213,17 +221,19 @@ function lookFlags(cmd: Command): Command {
 }
 
 /**
- * `--bespoke`: a few mechanism beats per deck drawn by a Codex-written scene
- * (src/bespoke/). `--design v2` only, and off unless asked for.
+ * Bespoke scenes: under `--design v2`, every beat drawn by a Codex-written
+ * scene (src/bespoke/), the archetype only where one fails its gates. On by
+ * default under v2; `--no-bespoke` keeps every archetype.
  */
 function bespokeFlags(cmd: Command): Command {
   return cmd
     .option(
       "--bespoke",
-      "v2: generated scenes for 4-6 mechanism beats (Codex; falls back per beat)",
+      "v2: generated scenes for every beat (the v2 default; falls back per beat)",
     )
-    .option("--bespoke-calls <n>", "hard cap on Codex calls for this deck (default 12; 2 per beat)")
-    .option("--bespoke-seconds <s>", "hard cap on the bespoke pass's wall time (default 1800)")
+    .option("--no-bespoke", "v2: keep every beat's archetype — no Codex calls")
+    .option("--bespoke-calls <n>", "hard cap on scene calls for this deck (default 40; 2 per beat)")
+    .option("--bespoke-seconds <s>", "hard cap on the bespoke pass's wall time (default 3600)")
     .option("--bespoke-model <id>", "codex exec --model for the scenes (default: the account's)")
     .option("--bespoke-cli <path>", "the Codex CLI to run (default: codex on PATH)")
     .option(
@@ -303,7 +313,7 @@ function flags(o: Record<string, unknown>): PrefFlags {
   }
   if (o.subtitles === false) patch.subtitles = false;
   if (o.images === true) patch.images = true;
-  if (o.bespoke === true) patch.bespoke = true;
+  if (o.bespoke !== undefined) patch.bespoke = o.bespoke === true;
   return patch;
 }
 
@@ -1407,8 +1417,9 @@ function wrapScript(text: string, width: number): string[] {
  * guess.
  */
 /**
- * `build --bespoke`, or nothing. Says why when it does nothing, because a flag
- * that was asked for and silently ignored looks exactly like a flag that works.
+ * The bespoke pass — on by default under v2 (`bespokeFor`) — or nothing. Says
+ * why when it does nothing, because a pass that was expected and silently
+ * skipped looks exactly like one that ran and drew nothing.
  */
 async function runBespoke(
   prefs: Prefs,
@@ -1423,15 +1434,16 @@ async function runBespoke(
     assetsFrom: string;
   },
 ): Promise<BespokeResult | undefined> {
-  const want = prefs.bespoke;
-  if (!want?.enabled) return undefined;
-  if (deck.design !== "v2") {
-    step("build: --bespoke needs --design v2, so every beat keeps its archetype");
+  const on = bespokeFor(prefs, deck.design as Design);
+  if (!on) {
+    if (prefs.bespoke?.enabled === true)
+      step("build: --bespoke needs --design v2, so every beat keeps its archetype");
     return undefined;
   }
+  const want = on.prefs;
   if (!deck.narration) {
     step(
-      "build: --bespoke needs narration — its cues are the keyframes — so every beat keeps its archetype",
+      "build: bespoke scenes need narration — its cues are the keyframes — so every beat keeps its archetype",
     );
     return undefined;
   }

@@ -1,23 +1,22 @@
 /**
- * Which beats get a bespoke scene. A deterministic rule, so the same storyboard
- * always asks the model about the same beats, and a cache hit is a cache hit.
+ * Which beats get a bespoke scene: under `--design v2`, every beat that can
+ * have one — title, numbers, comparisons and closing claims as well as
+ * mechanisms. Until 2026-10-10 this picked 4-6 "mechanism" beats and left the
+ * rest to the archetype templates; the founder's verdict on those ("why do I
+ * need to see those hardcoded same UI blocks in every slide") is why the
+ * templates are now only the fallback for a scene that fails its gates.
  *
- * WHAT IS WORTH A MODEL CALL. A bespoke scene earns its cost where the fixed
- * vocabulary is weakest: a beat that explains a MECHANISM — a process, an
- * equation, a curve, a comparison — and that the narration talks over for many
- * seconds while the v2 archetype has finished building after five (measured in
- * the spike: v2's s3 and s7 froze for 15-20s of speech). Title cards, callouts
- * and tables say a thing rather than show one, so they never qualify.
- *
- * WHAT NEVER QUALIFIES, whatever it scores:
- *  - a beat with no narration: its cues are the keyframes, and without them a
- *    generated scene has nothing to stay in step with;
+ * WHAT NEVER QUALIFIES:
+ *  - a beat with no narration cue: its cues are the keyframes, and without them
+ *    a generated scene has nothing to stay in step with;
  *  - a beat a camera enters or leaves (`inside`): the dive is aimed at a part
  *    the archetype drew, which a bespoke scene does not draw;
  *  - a beat the planner marked `bespoke: false`.
  *
- * The planner's `bespoke: true` is a strong hint, not an order: it adds a large
- * bonus, so it wins a tie with anything, but an ineligible beat stays ineligible.
+ * Deterministic, so the same storyboard always asks about the same beats and a
+ * cache hit is a cache hit. When the call cap cannot pay two calls for every
+ * beat (`max`), the most mechanical beats are drawn and the rest keep their
+ * archetype. Picks come back in deck order.
  */
 
 import type { z } from "zod";
@@ -26,7 +25,10 @@ import type { Archetype, Beat, segmentSchema } from "../types.js";
 
 type Segment = z.infer<typeof segmentSchema>;
 
-/** How mechanical each archetype's subject usually is. Absent = never bespoke. */
+/**
+ * How mechanical each archetype's subject usually is: the order beats are
+ * picked in when the call cap cannot pay for all of them. Absent = 0.
+ */
 const BASE: Readonly<Partial<Record<Archetype, number>>> = {
   pipeline: 3,
   "equation-walk": 3,
@@ -133,6 +135,7 @@ const MECHANISM = [
 
 export interface Pick {
   beatId: string;
+  /** Priority when the cap cannot pay for every beat. */
   score: number;
   /** Why it scored what it did, for `bespoke.json`. */
   why: string[];
@@ -151,56 +154,36 @@ export interface Selection {
 export interface SelectOptions {
   /** Hashed with each beat id to break ties, so two decks tie differently. */
   seed: string;
-  /** Narration, by beat id. A beat without segments is ineligible. */
+  /** Narration, by beat id. A beat without a cue is ineligible. */
   narration?: Readonly<Record<string, readonly Segment[]>>;
-  /** Fewest beats to aim for when that many are eligible. Default 4. */
-  min?: number;
-  /** Most beats. Default 6; the call cap may lower it further. */
+  /**
+   * Most beats: what the call cap pays for at two calls a beat. When fewer
+   * than the eligible, the most mechanical win (a mechanism gains most from a
+   * scene that moves with the voice); the rest keep their archetype.
+   */
   max?: number;
 }
 
-/** The number of beats a deck of `n` kept beats aims for: a third, held to [min, max]. */
-export function target(n: number, min = 4, max = 6): number {
-  return Math.max(min, Math.min(max, Math.round(n / 3)));
-}
-
 export function selectBespoke(beats: readonly Beat[], opts: SelectOptions): Selection {
-  const min = opts.min ?? 4;
-  const max = opts.max ?? 6;
-  const skipped: Skip[] = [];
   const scored: Pick[] = [];
-
+  const skipped: Skip[] = [];
   for (const [i, beat] of beats.entries()) {
-    const base = BASE[beat.archetype];
     const segments = opts.narration?.[beat.id] ?? [];
     const cues = segments.reduce((n, s) => n + s.cues.length, 0);
     const camera = beat.inside !== undefined || beats[i + 1]?.inside?.beat === beat.id;
-    const hint = beat.bespoke;
-
-    if (hint === false) {
+    if (beat.bespoke === false) {
       skipped.push({ beatId: beat.id, reason: "the planner marked it bespoke:false" });
-      continue;
-    }
-    if (base === undefined) {
-      skipped.push({ beatId: beat.id, reason: `${beat.archetype} says rather than shows` });
       continue;
     }
     if (camera) {
       skipped.push({ beatId: beat.id, reason: "a camera move enters or leaves it" });
       continue;
     }
-    if (segments.length === 0) {
-      skipped.push({
-        beatId: beat.id,
-        reason: "no narration — nothing to keep in step with",
-      });
+    if (cues === 0) {
+      skipped.push({ beatId: beat.id, reason: "no narration cue — nothing to keep in step with" });
       continue;
     }
-    if (cues < 2) {
-      skipped.push({ beatId: beat.id, reason: "one narration cue — nothing to build over" });
-      continue;
-    }
-
+    const base = BASE[beat.archetype] ?? 0;
     const why = [`${beat.archetype} +${base}`];
     let score = base;
     const text = [
@@ -223,22 +206,24 @@ export function selectBespoke(beats: readonly Beat[], opts: SelectOptions): Sele
     }
     score += beat.weight;
     why.push(`weight +${beat.weight}`);
-    if (hint === true) {
+    if (beat.bespoke === true) {
       score += 10;
       why.push("planner hint +10");
     }
     scored.push({ beatId: beat.id, score: Math.round(score * 1000) / 1000, why });
   }
 
-  // Highest score first; a tie goes to the hash, never to position, so the rule
-  // does not quietly prefer the front of the deck.
+  // Highest score first; a tie goes to the hash, never to position.
   const tie = (id: string) => fnv1a(`${opts.seed}:${id}`);
   const ranked = [...scored].sort((a, b) => b.score - a.score || tie(a.beatId) - tie(b.beatId));
-  const want = Math.min(target(beats.length, min, max), max);
+  const want = Math.max(0, opts.max ?? ranked.length);
   const picked = ranked.slice(0, want);
   for (const p of ranked.slice(want))
-    skipped.push({ beatId: p.beatId, reason: `scored ${p.score}, below the ${want} chosen` });
-  // In deck order, which is the order a reader of `bespoke.json` expects.
+    skipped.push({
+      beatId: p.beatId,
+      reason: `scored ${p.score}; the call cap pays for ${want} beat(s)`,
+    });
+  // In deck order: the device pass and the budget spend in it.
   const order = new Map(beats.map((b, i) => [b.id, i]));
   picked.sort((a, b) => (order.get(a.beatId) ?? 0) - (order.get(b.beatId) ?? 0));
   return { picked, skipped };
