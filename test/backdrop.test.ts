@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
-import { fieldColour, glass, onWorstGround, scopeCss } from "../src/emit/backdrop.js";
-import type { EmitContext, Theme } from "../src/emit/kit.js";
+import { fieldColour, glass, onWorstGround, overField, scopeCss } from "../src/emit/backdrop.js";
+import { type EmitContext, reserveRef, type Theme } from "../src/emit/kit.js";
 import { THEMES } from "../src/emit/theme.js";
 import { PACKS } from "../src/emit/themes/packs.js";
 import { type Beat, FORMATS, type Format, type Source } from "../src/types.js";
@@ -95,6 +95,20 @@ describe("backdrop", () => {
     expect(over.tl.some((t) => "onUpdate" in t.to)).toBe(false);
     // No fill prediction: a full-bleed picture has no modal ground to measure against.
     expect(over.fit).toBeUndefined();
+  });
+
+  it("stops the picture and the field above a caption reserve, as a stage does", () => {
+    // A deck with burned captions keeps its strip clear: neither layer runs under it.
+    const format = { ...(FORMATS["deck-16x9"] as Format), captionReserve: 120 };
+    const c = { ...ctx(), format };
+    const bottom = reserveRef(format);
+    expect(bottom).toBeGreaterThan(0);
+    const over = emitScene(callout({ figureId: "gen-b1-bd" }), c);
+    expect(over.css).toContain(
+      `#s1 .bd-m,#s1 .bd-sc{position:absolute;left:0;top:0;right:0;bottom:${bottom}px;z-index:-1}`,
+    );
+    const field = overField(emitScene(callout(), c), c, 8);
+    expect(field.css).toMatch(new RegExp(`#s1 \\.fd\\{[^}]*bottom:${bottom}px;`));
   });
 
   it("paints glass panels in rules scoped to its scene, so no other callout is repainted", () => {

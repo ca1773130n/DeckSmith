@@ -122,6 +122,26 @@ describe("kinetic", () => {
     expect(long).toBeGreaterThan(MIN_FONT);
   });
 
+  it("scopes its size to its own scene, and makes every word a box a transform moves", () => {
+    // An unscoped `.kn-p{font-size}` from one beat sets every kinetic beat in
+    // the deck at the last size emitted; an inline `.kn-w` takes no transform,
+    // so every per-word move would be a fade in place.
+    const a = kinetic(beat([{ text: "Sparse" }, { text: "and fast" }]), ctx());
+    const b = kinetic(
+      beat([
+        { text: "Spiking networks stay sparse at inference time" },
+        { text: "even when the haze thickens over the whole scene" },
+      ]),
+      ctx(),
+    );
+    const lines = (s: { css?: string }) => new Set((s.css ?? "").split("\n"));
+    const [la, lb] = [lines(a), lines(b)];
+    const moved = [...la].filter((l) => !lb.has(l)).concat([...lb].filter((l) => !la.has(l)));
+    expect(moved.some((l) => /\.kn-p\{font-size/.test(l))).toBe(true);
+    for (const l of moved) expect(l).toMatch(/^#s2[ .{,:-]|^@/);
+    for (const s of [a, b]) expect(s.css).toMatch(/(^|\n)\.kn-w\{display:inline-block\}/);
+  });
+
   it("sets the same phrases in a portrait frame, flush left, above the floor", () => {
     const scene = kinetic(beat(three), ctx(FORMATS["short-9x16"] as Format));
     expect(scene.html).not.toContain("margin-left");

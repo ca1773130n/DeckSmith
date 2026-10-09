@@ -127,6 +127,23 @@ describe("hero-number", () => {
       for (const n of sizes(s.css ?? "")) expect(n).toBeGreaterThanOrEqual(MIN_FONT);
   });
 
+  it("scopes every rule that changes with the beat to its own scene", () => {
+    // The shell emits each distinct rule once for the whole deck. An unscoped
+    // `.hn-r{height:…}` from one beat would set every hero-number's cells to the
+    // last height emitted, and the reels would land between digits.
+    const a = heroNumber(beat({ value: "1", unit: undefined }), ctx());
+    const b = heroNumber(
+      beat({ value: "175.21", compare: { value: "29.73", label: "DehazeFormer-b" } }),
+      ctx(),
+    );
+    const lines = (s: { css?: string }) => new Set((s.css ?? "").split("\n"));
+    const [la, lb] = [lines(a), lines(b)];
+    const moved = [...la].filter((l) => !lb.has(l)).concat([...lb].filter((l) => !la.has(l)));
+    expect(moved.some((l) => /\.hn-r\{height/.test(l))).toBe(true);
+    expect(moved.some((l) => /\.hn-s>span\{height/.test(l))).toBe(true);
+    for (const l of moved) expect(l).toMatch(/^#s3[ .{,:-]|^@/);
+  });
+
   it("draws the comparison as two bars to one scale only when both numbers are plain", () => {
     const bars = heroNumber(beat({ compare: { value: "175.21", label: "SFRDP-Net" } }), ctx());
     expect(bars.html).toContain('id="s3-b0" style="width:100%"');

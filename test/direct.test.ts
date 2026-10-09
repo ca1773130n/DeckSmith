@@ -98,6 +98,41 @@ describe("direct", () => {
     expect(d.summary.distinct).toBe(2);
   });
 
+  it("gives hero-number and kinetic no chrome either: they set their own words", () => {
+    const full: Beat[] = [
+      {
+        id: "hn1",
+        archetype: "hero-number",
+        intent: "Land it.",
+        evidence: [],
+        weight: 0.8,
+        seconds: 8,
+        params: { headline: "A quarter of the energy", value: "43.63", unit: "mJ", label: "ours" },
+      },
+      {
+        id: "kn1",
+        archetype: "kinetic",
+        intent: "Say it.",
+        evidence: [],
+        weight: 0.8,
+        seconds: 8,
+        params: {
+          headline: "Spikes stay sparse",
+          phrases: [{ text: "Haze lowers contrast", key: "contrast" }, { text: "edges fade" }],
+        },
+      },
+    ] as Beat[];
+    const leaning = { ...opts, theme: { ...ink, forms: { affinity: { placement: { top: 1 } } } } };
+    expect(direct(full, leaning).summary.modalChrome).toBe(0);
+    const drawn = demo.beats.filter((b) => b.archetype !== "title" && b.archetype !== "stage");
+    const moved = drawn.filter(
+      (b) =>
+        beatSignature(b, direct([...full, b], leaning).looks[2]) !==
+        beatSignature(b, direct([b], leaning).looks[0]),
+    );
+    expect(moved.map((b) => b.id)).toEqual([]);
+  });
+
   it("keeps the chrome off the top of all but about half the slides", () => {
     // The 92.7% mode the founder called "always the same" is chrome on top.
     // 0.5 until 2026-10-09; 8 of 15 since a beat may no longer repeat the
