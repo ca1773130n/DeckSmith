@@ -18,6 +18,7 @@ import {
   assignDevices,
   Budget,
   bespokePass,
+  deadlineAdmit,
   deviceName,
   GATE_STAMP,
   type GateFn,
@@ -602,6 +603,29 @@ describe("the bespoke pass", () => {
     t = 9 * 60_000;
     expect(late.takeDevice()).toMatch(/wall-time/);
     expect(late.devices).toBe(0);
+  });
+
+  it("decides a call's timeout when it starts, not when it queued, and never runs one past the cap", async () => {
+    let t = 0;
+    const seen: number[] = [];
+    // Each call takes 4 minutes of the clock; the cap is 10 minutes away.
+    const slow = async (args: RunnerArgs) => {
+      seen.push(args.timeoutMs);
+      t += 4 * 60_000;
+    };
+    const one = lanes(
+      slow,
+      1,
+      deadlineAdmit(10 * 60_000, () => t),
+    );
+    const args = { prompt: "p", schemaPath: "s", outPath: "o", timeoutMs: 600_000 };
+    const all = await Promise.allSettled([one(args), one(args), one(args)]);
+    // Queued together at t=0 with 600s each: the second starts at 4 min (6 min left),
+    // the third at 8 min, two minutes from the cap.
+    expect(seen).toEqual([600_000, 360_000, 120_000]);
+    t = 9.75 * 60_000;
+    await expect(one(args)).rejects.toThrow(/wall-time cap/);
+    expect(all.every((r) => r.status === "fulfilled")).toBe(true);
   });
 
   it("the budget refuses past its call cap, its deadline, and a quota answer", () => {

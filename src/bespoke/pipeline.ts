@@ -311,8 +311,13 @@ export class Budget {
  * device call and scenes alike. The lanes of `pool` bound the scene calls only;
  * every beat's picture starts at once, and with every beat of a deck now drawn
  * that would put a dozen Codex processes on the machine together.
+ *
+ * `admit` is asked once a lane is free, just before the call starts: a call
+ * can wait minutes for one (drafts queue behind 240s pictures), so a budget or
+ * timeout decided when it was queued is stale by then. It returns the args to
+ * run with, or throws to refuse.
  */
-export function lanes(run: Runner, n: number): Runner {
+export function lanes(run: Runner, n: number, admit?: (args: RunnerArgs) => RunnerArgs): Runner {
   let active = 0;
   const waiting: Array<() => void> = [];
   const release = () => {
@@ -324,10 +329,25 @@ export function lanes(run: Runner, n: number): Runner {
     if (active < Math.max(1, n)) active++;
     else await new Promise<void>((go) => waiting.push(go));
     try {
-      await run(args);
+      await run(admit ? admit(args) : args);
     } finally {
       release();
     }
+  };
+}
+
+/**
+ * The wall-time cap, applied when a call actually starts (`lanes`' admit): a
+ * call that waited past the deadline is refused, and none may run past it.
+ */
+export function deadlineAdmit(deadline: number, now: () => number) {
+  return (args: RunnerArgs): RunnerArgs => {
+    const left = deadline - now();
+    if (left < 30_000)
+      throw new Error(
+        "the bespoke pass's wall-time cap is too close: this call waited for a lane past it",
+      );
+    return { ...args, timeoutMs: Math.min(args.timeoutMs, left) };
   };
 }
 
@@ -892,7 +912,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   const cacheDir = prefs.cache ?? defaultCacheDir();
   const cache = new SceneCache(cacheDir);
   const artCache = new ArtCache(join(cacheDir, "art"));
-  const run = lanes(input.run ?? runCodex, prefs.concurrency);
+  const run = lanes(input.run ?? runCodex, prefs.concurrency, deadlineAdmit(budget.deadline, now));
   // Tool-less, single-turn calls (see TOOL_FEATURES), at the configured effort.
   // Only for the production runner: a test's runner never spawns anything.
   const effort = prefs.effort ?? "medium";
