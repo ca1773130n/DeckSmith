@@ -121,6 +121,21 @@ describe("assemblePiece", () => {
   it("passes the determinism scan: the kit seeds its own RNG and reads no clock", async () => {
     expect(scanDeterminism(await assemblePiece("p", "p.js", AUTHOR), "assets/p.js")).toEqual([]);
   });
+
+  /**
+   * `handwrite` draws letters as ink strokes, which no runtime trap can tell
+   * from a line, so the type floor never sees them. The author file is in hand
+   * here, so a call by name is refused at build.
+   */
+  it("refuses a piece that calls handwrite, naming the line", async () => {
+    const texty = AUTHOR.replace(
+      "const BRIDGES = [];",
+      "const BRIDGES = [];\nhandwrite('hi', 10, 10, 30);",
+    );
+    await expect(assemblePiece("p", "pieces/p.js", texty)).rejects.toThrow(
+      /pieces\/p.js:6 calls handwrite — it draws text as strokes the 40px type floor never reads/,
+    );
+  });
 });
 
 describe("the dsAnimate plugin", () => {
@@ -233,6 +248,25 @@ describe("the dsAnimate plugin", () => {
     expect(() => ctx.fillText()).not.toThrow();
     expect(Ctx2D.prototype.fillText).toBe(own);
     expect(Object.hasOwn(ctx, "fillText")).toBe(false);
+  });
+
+  /**
+   * A literal end shorter than the figure's `seconds`: morph.js's `eraAt` finds
+   * no era past 3s and falls back to era 0, so the rest of the tween and the
+   * whole hold would replay the opening scene with no error anywhere.
+   */
+  it.each([
+    ["ERA_LIST", AUTHOR.replace("[[0, DURATION, () =>", "[[0, 3, () =>"), "ERA_LIST ends at 3s"],
+    [
+      "SHOTS",
+      AUTHOR.replace("0.0, DURATION, 'one shot'", "0.0, 3, 'one shot'"),
+      "SHOTS ends at 3s",
+    ],
+  ])("refuses a piece whose %s ends before the figure does", async (_list, author, said) => {
+    load(await assemblePiece("ends", "ends.js", author));
+    expect(() =>
+      mount(fakeCanvas("ends-pc"), "ends", { seconds: 4, fps: 30, hand: "serif" }),
+    ).toThrow(`piece "ends": ${said} and the figure plays 4s — end its last entry at DURATION`);
   });
 
   it("refuses, by name, a piece whose script never ran and a canvas nothing mounted", () => {

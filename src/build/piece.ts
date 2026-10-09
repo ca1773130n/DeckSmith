@@ -27,10 +27,15 @@
  * throws on any canvas while the piece runs, and fails `verify`:
  *   `handText`, `tag`, `yearTag`, `capStrip` (cut-paper.js) and `monoText`
  *   (core.js) draw text; `cat` draws its "z"s with `handText`.
- * `handW` only measures and is fine. `handwrite` (core.js) is NOT caught: it
- * draws letterforms as `ink` strokes, which no text trap can tell from a line,
- * so a piece using it puts words on the canvas the type floor never reads. Do
- * not use it; nothing refuses it.
+ * `handW` only measures and is fine. `handwrite` (core.js) draws letterforms as
+ * `ink` strokes, which no runtime trap can tell from a line, so a call to it by
+ * name is refused HERE, at build (`HANDWRITE`). An alias of it is not seen.
+ *
+ * ITS LAST ERA AND LAST SHOT END AT `DURATION`. morph.js picks era 0 for any
+ * time past the last era's end, so a file with a literal end shorter than the
+ * figure's `seconds` replays its opening scene for the rest of the tween and
+ * the whole hold — every frame a valid paint, every gate green. The factory
+ * throws instead (`ENDS`), which fails `verify` as a page error.
  *
  * Deterministic by construction: the same author file and id assemble to the
  * same bytes, which is what keeps two builds of one deck identical.
@@ -65,6 +70,23 @@ const TIMELINE =
   "const TIMELINE = { shots: SHOTS.map(([key, era, t0, t1, title], i) => ({ id: i + 1, key, era, t0, t1, title })) };";
 
 /**
+ * The author's last era and last shot must end where the figure does — see ITS
+ * LAST ERA AND LAST SHOT END AT `DURATION` above. `!(… <= 1e-6)` so that a
+ * missing end, which is NaN, is refused too.
+ */
+const ENDS = (id: string) =>
+  [
+    `for (const [list, end] of [["ERA_LIST", ERA_LIST.at(-1)?.[1]], ["SHOTS", SHOTS.at(-1)?.[3]]]) {`,
+    "  if (!(Math.abs(end - DURATION) <= 1e-6)) {",
+    `    throw new Error(${JSON.stringify(`piece "${id}": `)} + list + " ends at " + end + "s and the figure plays " + DURATION + "s — end its last entry at DURATION");`,
+    "  }",
+    "}",
+  ].join("\n");
+
+/** A call to core.js's `handwrite` — text drawn as strokes, which no trap sees. */
+const HANDWRITE = /\bhandwrite\s*\(/;
+
+/**
  * The script for piece `id`, whose author file `name` (the figure's `src`)
  * holds `author`.
  *
@@ -72,6 +94,12 @@ const TIMELINE =
  * copy of the kit, shipped inside someone else's deck.
  */
 export async function assemblePiece(id: string, name: string, author: string): Promise<string> {
+  const line = author.split("\n").findIndex((l) => HANDWRITE.test(l));
+  if (line >= 0) {
+    throw new Error(
+      `${name}:${line + 1} calls handwrite — it draws text as strokes the 40px type floor never reads (invariant 5); put the words in the claim`,
+    );
+  }
   const license = await kit("LICENSE");
   const part = async (file: string) => `// ==== animate kit/${file}\n${await kit(file)}`;
   return [
@@ -87,6 +115,7 @@ export async function assemblePiece(id: string, name: string, author: string): P
     ...(await Promise.all(KIT_BEFORE.map(part))),
     `// ==== ${name}\n${author}`,
     TIMELINE,
+    ENDS(id),
     ...(await Promise.all(KIT_AFTER.map(part))),
     "return { rf: renderFrame, n: NFRAMES, fps: FPS };",
     "};",

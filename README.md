@@ -1170,8 +1170,14 @@ entered, so a piece shorter than 1.1s holds there instead.
   piece runs, the kit's offscreen layers included. That is a page error, so `verify` and
   `build` fail. `handText`, `tag`, `yearTag`, `capStrip`, `monoText` and `cat` all draw
   text, so none of them can be used. Labels belong in the claim, which is DOM text and
-  is held to the 40px floor. The one gap is `handwrite`: it draws letters as ink strokes,
-  which no trap can tell from lines. Nothing refuses it, so do not use it.
+  is held to the 40px floor. `handwrite` draws letters as ink strokes, which no runtime
+  trap can tell from lines, so `build` refuses a file that calls it by name
+  (`pieces/garden.js:12 calls handwrite — …`). An alias of it is not caught.
+- **A last era or last shot that ends before the piece does.** morph.js draws era 0 for
+  any time past the last era, so `[[0, 3, …]]` in a 6s piece would replay the opening
+  scene for 3s and the whole hold. The piece throws when it mounts (`piece "fig-garden":
+  ERA_LIST ends at 3s and the figure plays 6s — end its last entry at DURATION`), which
+  fails `verify`. End the last entry of `ERA_LIST` and of `SHOTS` at `DURATION`.
 - **More than one piece per deck.** `build` stops with ``claim-figure b3: figure
   "fig-garden-2" is a second animate piece in this deck — b2 already draws "fig-garden"``.
   The vendored `morph.js` is unpatched and writes `window.renderFrame`, so two pieces
