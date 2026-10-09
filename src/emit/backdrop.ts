@@ -244,6 +244,17 @@ export function overBackdrop(scene: Scene, fig: Figure, ctx: EmitContext, second
         { opacity: 1, duration: MEDIA_IN, ease: "power2.out" },
         0,
       ),
+      // The scrim arrives WITH the picture, never before it. Painted from the
+      // first frame, it dropped 62% black over the outgoing scene the instant
+      // the seam began — a visible snap, and `text_occluded` on the outgoing
+      // headline whenever a layout sample lands on the seam (r3 of the
+      // 2026-10-09 ko e2e, stage s7 into this scene at t=69s).
+      tween(
+        `#${sid}-bdsc`,
+        { opacity: 0 },
+        { opacity: 1, duration: MEDIA_IN, ease: "power2.out" },
+        0,
+      ),
       // Slow and linear across the whole beat: a camera drifting over a scene,
       // which is ambient life the frames can seek to, not a CSS loop.
       tween(

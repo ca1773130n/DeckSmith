@@ -104,6 +104,14 @@ describe("backdrop", () => {
     expect(over.fit).toBeUndefined();
   });
 
+  it("brings the scrim in with the picture, so nothing opaque paints over the outgoing scene at the seam", () => {
+    const over = emitScene(callout({ figureId: "gen-b1-bd" }), ctx());
+    const pic = over.tl.find((t) => t.target === "#s1-bd");
+    const scrim = over.tl.find((t) => t.target === "#s1-bdsc");
+    expect(scrim?.from).toEqual({ opacity: 0 });
+    expect({ at: scrim?.at, to: scrim?.to }).toEqual({ at: pic?.at, to: pic?.to });
+  });
+
   it("steps the field through the pack's colours, so field beats near each other differ", () => {
     // Round 2 of the ko e2e: five field beats on one identical blue, and two
     // hero numbers 19 s apart that read as the same slide with new digits.
