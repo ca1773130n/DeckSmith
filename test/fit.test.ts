@@ -377,12 +377,19 @@ describe("pipeline under v2", () => {
     const face = faceOf('"Noto Sans KR", "IBM Plex Sans", "Inter", system-ui, sans-serif');
     const region = 698;
     const v = pipeLayout(1700, five, undefined, face, { budget: region, region });
-    expect(v.svgH / region).toBeGreaterThanOrEqual(EMPTY_BELOW);
-    expect(v.boxH).toBeLessThanOrEqual(0.8 * region);
+    const fill = v.svgH / region;
+    expect(fill).toBeGreaterThanOrEqual(EMPTY_BELOW);
+    // ...and no further: the target is EMPTY_BELOW + 0.05, not the region caps.
+    expect(fill).toBeLessThanOrEqual(EMPTY_BELOW + 0.05);
+    expect(v.boxH).toBeGreaterThan(v.boxW * 1.2);
     for (const s of five) expect(cutsWord(s.label, v.size, v.innerW, 600, face)).toBe(false);
-    // A row already out of the band keeps its shape: the three-stage row above.
-    const three = pipeLayout(W, stages, undefined, "latin", { budget: 700, region: 838 });
-    expect(three.boxH).toBeLessThanOrEqual(three.boxW * 1.2);
+    // A row the aspect cap already lands in the band (four stages in 680px:
+    // 0.71 fill with the box at exactly 1.2 x its width) keeps its shape. Only
+    // a row under EMPTY_BELOW may pass the cap.
+    const four = pipeLayout(1700, five.slice(0, 4), undefined, face, { budget: 680, region: 680 });
+    expect(four.svgH / 680).toBeGreaterThanOrEqual(EMPTY_BELOW);
+    expect(four.svgH / 680).toBeLessThan(EMPTY_BELOW + 0.05);
+    expect(four.boxH).toBeLessThanOrEqual(four.boxW * 1.2);
   });
 
   it("predicts a filled region for a three-stage row with a note", () => {
