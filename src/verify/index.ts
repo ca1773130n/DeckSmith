@@ -164,7 +164,9 @@ export async function verify(
   source?: Source,
 ): Promise<Verdict> {
   const html = await readCompositions(dir);
-  const determinism = html.flatMap(([file, text]) => scanDeterminism(text, file));
+  const determinism = [...html, ...(await readAssetScripts(dir))].flatMap(([file, text]) =>
+    scanDeterminism(text, file),
+  );
   const narration = scanNarration(
     await readFile(join(dir, DECK_PAGE), "utf8").catch(() => ""),
     await listFiles(dir),
@@ -1052,6 +1054,24 @@ export function scanDeterminism(html: string, file: string): Finding[] {
     });
   }
   return findings;
+}
+
+/**
+ * Every script under the deck's `assets/` — which is where an animate piece's
+ * assembled script lives (src/build/piece.ts), and the only file holding code
+ * an AUTHOR wrote. It runs at render time like the composition does, so the
+ * determinism scan reads it; the type and budget gates, which read markup, do
+ * not.
+ */
+export async function readAssetScripts(dir: string): Promise<Array<[string, string]>> {
+  const root = join(dir, "assets");
+  const entries = await readdir(root, { recursive: true, withFileTypes: true }).catch(() => []);
+  const files = entries
+    .filter((e) => e.isFile() && e.name.endsWith(".js"))
+    .map((e) => join(e.parentPath, e.name));
+  return Promise.all(
+    files.map(async (f) => [relative(dir, f), await readFile(f, "utf8")] as [string, string]),
+  );
 }
 
 async function readCompositions(dir: string): Promise<Array<[string, string]>> {

@@ -3,7 +3,10 @@
  * `experiments/hf-thinksr`, the fail case a deck deliberately broken with an
  * oversized headline and near-invisible body text. Both were captured from 0.7.71.
  */
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   FORMATS,
@@ -16,6 +19,7 @@ import {
 import { profilesFor, readCanvas, scanBudget } from "../src/verify/budget.js";
 import { check, parseCheckReport, sampleTimes } from "../src/verify/check.js";
 import {
+  readAssetScripts,
   scanBeatCount,
   scanDeterminism,
   scanDiagrammatic,
@@ -622,6 +626,35 @@ describe("scanDeterminism", () => {
         "index.html",
       ),
     ).toEqual([]);
+  });
+
+  /**
+   * An animate piece is the one file in a deck holding code an AUTHOR wrote,
+   * and it is a script under `assets/`, not a composition — so `verify` reads
+   * those too (`readAssetScripts`), or the scan is blind exactly where it is
+   * most needed. Only scripts: a figure or a font is not code.
+   */
+  it("reads the scripts under assets/, where an animate piece lives", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "verify-assets-"));
+    mkdirSync(join(dir, "assets", "pieces"), { recursive: true });
+    writeFileSync(
+      join(dir, "assets", "pieces", "loop.js"),
+      "const a = 1;\nconst jitter = Math.random();\n",
+    );
+    writeFileSync(join(dir, "assets", "figure.svg"), "<svg>Math.random()</svg>");
+    writeFileSync(join(dir, "index.html"), "<p>Math.random()</p>");
+
+    const scripts = await readAssetScripts(dir);
+    expect(scripts.map(([file]) => file)).toEqual([join("assets", "pieces", "loop.js")]);
+    expect(scripts.flatMap(([file, text]) => scanDeterminism(text, file))).toEqual([
+      {
+        severity: "error",
+        gate: "determinism",
+        rule: "math_random",
+        message:
+          "assets/pieces/loop.js:2 calls `Math.random(` at render time, so two renders of this deck will not be identical.",
+      },
+    ]);
   });
 });
 
