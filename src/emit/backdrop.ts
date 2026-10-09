@@ -289,6 +289,31 @@ export function fieldColour(accent: string): string {
 /** How far the field's shadow travels across a beat, as a share of the frame. */
 const FIELD_DRIFT = 8;
 
+/** Where the field's light pools, one per colour step: the shadow is not one stock vignette. */
+const FIELD_FOCUS = ["42% 46%", "64% 38%", "36% 62%", "60% 60%"] as const;
+
+/**
+ * Which of the pack's colours a field takes, by the scene's place in the deck:
+ * the accent and each tone that is not the accent, in turn. Round 2 of the
+ * 2026-10-09 ko e2e set five field beats on one identical blue, and two hero
+ * numbers 19 s apart read as the same slide with new digits. Neighbours differ
+ * whenever the pack has two colours, and beats two apart whenever it has three
+ * — the variety rule never lets two of one archetype touch, so two apart is the
+ * nearest the same layout comes. By the scene id, not a counter, so every pass
+ * that emits one beat (planCut, narrate, the Director) agrees with the build.
+ */
+export function fieldStep(theme: Theme, sid: string): { colour: string; focus: string } {
+  const hues = [
+    ...new Set([theme.accent, theme.tones.a, theme.tones.b, theme.tones.c, theme.tones.d]),
+  ];
+  const n = Number(/(\d+)$/.exec(sid)?.[1] ?? 0);
+  const i = n % hues.length;
+  return {
+    colour: fieldColour(hues[i] as string),
+    focus: FIELD_FOCUS[n % FIELD_FOCUS.length] as string,
+  };
+}
+
 /**
  * `scene`, emitted with the `glass` theme, set over a field of the pack's
  * accent (`fieldColour`) — what `hero-number` and `kinetic` stand on without a
@@ -300,6 +325,7 @@ const FIELD_DRIFT = 8;
  */
 export function overField(scene: Scene, ctx: EmitContext, seconds: number): Scene {
   const { sid, theme } = ctx;
+  const field = fieldStep(theme, sid);
   return under(
     scene,
     ctx,
@@ -322,8 +348,8 @@ export function overField(scene: Scene, ctx: EmitContext, seconds: number): Scen
       ),
     ],
     [
-      `#${sid} .fd{position:absolute;left:0;top:0;right:0;bottom:${reserveRef(ctx.format)}px;z-index:-1;overflow:hidden;background:${fieldColour(theme.accent)}}`,
-      `#${sid} .fd-v{position:absolute;left:-20%;top:-20%;width:140%;height:140%;background:radial-gradient(ellipse 55% 50% at 42% 46%,rgba(0,0,0,0) 0%,rgba(0,0,0,0.18) 55%,rgba(0,0,0,0.5) 100%)}`,
+      `#${sid} .fd{position:absolute;left:0;top:0;right:0;bottom:${reserveRef(ctx.format)}px;z-index:-1;overflow:hidden;background:${field.colour}}`,
+      `#${sid} .fd-v{position:absolute;left:-20%;top:-20%;width:140%;height:140%;background:radial-gradient(ellipse 55% 50% at ${field.focus},rgba(0,0,0,0) 0%,rgba(0,0,0,0.18) 55%,rgba(0,0,0,0.5) 100%)}`,
     ],
   );
 }

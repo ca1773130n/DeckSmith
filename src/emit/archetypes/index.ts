@@ -66,7 +66,7 @@ export function emitScene(beat: Beat, ctx: EmitContext): Scene {
     return overBackdrop(emit(beat, { ...ctx, theme: glass(ctx.theme) }), fig, ctx, beat.seconds);
   }
   // The full-bleed archetypes never fall back to the pack's ground: with no
-  // picture they stand on a field of its accent, in the same glass colours.
+  // picture they stand on a field of one of its colours (`fieldStep`), in glass.
   if ((FIELD_ARCHETYPES as readonly Archetype[]).includes(beat.archetype)) {
     return overField(emit(beat, { ...ctx, theme: glass(ctx.theme) }), ctx, beat.seconds);
   }

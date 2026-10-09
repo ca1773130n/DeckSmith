@@ -1353,7 +1353,9 @@ above the caption strip. The planner is told to reach for it when a visual shoul
 screen, and, under RULE 1's variety rule, to give consecutive stages different placements.
 
 `hero-number` and `kinetic` are full-bleed too, and need no picture. Without a
-`backdrop` they stand on a field of the pack's accent, darkened until it is no lighter
+`backdrop` they stand on a field of one of the pack's colours — the accent and each tone in
+turn, by the beat's place in the deck, so field beats near each other differ — darkened
+until it is no lighter
 than half the backdrop scrim's worst-case ground, so the same glass inks clear 4.5:1 on
 it; with one they go over the picture as the diagrams do. `hero-number` sets `value` as
 large as the frame holds (160–560px) and rolls each digit in on a reel — a strip of

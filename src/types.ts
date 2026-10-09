@@ -213,7 +213,7 @@ export const BACKDROP_ARCHETYPES = [
 
 /**
  * The archetypes that never sit on the pack's pale ground: with no `backdrop`
- * they are drawn over a deep field of the pack's accent instead
+ * they are drawn over a deep field of one of the pack's colours instead
  * (src/emit/backdrop.ts, `overField`).
  */
 export const FIELD_ARCHETYPES = ["hero-number", "kinetic"] as const;
@@ -610,7 +610,7 @@ export const stageParamsSchema = z
  * measures; `headline` is the sentence the number says, set under it.
  *
  * Full-bleed like `stage`: over a `backdrop` picture when it has one, else over
- * a deep field of the pack's accent (src/emit/backdrop.ts), never on the pale
+ * a deep field of one of the pack's colours (src/emit/backdrop.ts), never on the pale
  * ground a deck of cards sits on.
  */
 export const heroNumberParamsSchema = z.object({

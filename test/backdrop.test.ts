@@ -5,7 +5,14 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
-import { fieldColour, glass, onWorstGround, overField, scopeCss } from "../src/emit/backdrop.js";
+import {
+  fieldColour,
+  fieldStep,
+  glass,
+  onWorstGround,
+  overField,
+  scopeCss,
+} from "../src/emit/backdrop.js";
 import { type EmitContext, reserveRef, type Theme } from "../src/emit/kit.js";
 import { THEMES } from "../src/emit/theme.js";
 import { PACKS } from "../src/emit/themes/packs.js";
@@ -95,6 +102,24 @@ describe("backdrop", () => {
     expect(over.tl.some((t) => "onUpdate" in t.to)).toBe(false);
     // No fill prediction: a full-bleed picture has no modal ground to measure against.
     expect(over.fit).toBeUndefined();
+  });
+
+  it("steps the field through the pack's colours, so field beats near each other differ", () => {
+    // Round 2 of the ko e2e: five field beats on one identical blue, and two
+    // hero numbers 19 s apart that read as the same slide with new digits.
+    for (const [name, theme] of Object.entries(PACKS)) {
+      const t = theme as Theme;
+      for (let n = 1; n <= 14; n++) {
+        const here = fieldStep(t, `s${n}`);
+        for (const k of [1, 2]) {
+          const there = fieldStep(t, `s${n + k}`);
+          expect(there.colour, `${name} s${n} vs s${n + k}`).not.toBe(here.colour);
+        }
+      }
+    }
+    const field = overField(emitScene(callout(), ctx()), ctx(), 8);
+    expect(field.css).toContain(`background:${fieldStep(PACKS.chalk as Theme, "s1").colour}`);
+    expect(field.css).toContain(`at ${fieldStep(PACKS.chalk as Theme, "s1").focus},`);
   });
 
   it("stops the picture and the field above a caption reserve, as a stage does", () => {
@@ -193,8 +218,12 @@ describe("backdrop", () => {
       const t = theme as Theme;
       const field = fieldColour(t.accent);
       const g = glass(t);
-      for (const ink of [g.fg, g.muted, g.dim, g.accent, ...Object.values(g.tones)]) {
-        expect(contrast(ink, field), `${name} ${ink} on ${field}`).toBeGreaterThanOrEqual(4.5);
+      // Every field a deck's scenes step through, not only the accent's.
+      for (const sid of ["s1", "s2", "s3", "s4", "s5"]) {
+        const f = fieldStep(t, sid).colour;
+        for (const ink of [g.fg, g.muted, g.dim, g.accent, ...Object.values(g.tones)]) {
+          expect(contrast(ink, f), `${name} ${ink} on ${f}`).toBeGreaterThanOrEqual(4.5);
+        }
       }
       // A key struck on the accent chip, in the glass ground's ink.
       expect(contrast(g.bg, g.accent), `${name} chip`).toBeGreaterThanOrEqual(4.5);

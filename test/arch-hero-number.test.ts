@@ -17,7 +17,7 @@ import {
   turnsOf,
 } from "../src/emit/archetypes/hero-number.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
-import { fieldColour, glass } from "../src/emit/backdrop.js";
+import { fieldStep, glass } from "../src/emit/backdrop.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { tweenText } from "../src/emit/kit.js";
 import { MIN_FONT } from "../src/emit/svg.js";
@@ -250,11 +250,11 @@ describe("hero-number", () => {
     ).toThrow(/headline sets on \d+ lines/);
   });
 
-  it("stands on the accent field without a backdrop, and on its picture with one", () => {
+  it("stands on a field of the pack's colours without a backdrop, and on its picture with one", () => {
     const theme = PACKS.chalk as Theme;
     const plain = emitScene(beat(), { ...ctx(), theme });
     expect(plain.html).toMatch(/^<div class="fd" id="s3-fd"/);
-    expect(plain.css).toContain(`background:${fieldColour(theme.accent)}`);
+    expect(plain.css).toContain(`background:${fieldStep(theme, "s3").colour}`);
     // Drawn in glass inks either way: white digits, not the pack's dark ink.
     expect(plain.css).toContain("color:#f4f6fa");
 
