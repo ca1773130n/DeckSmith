@@ -92,6 +92,8 @@ export interface ArtBrief {
   context: string;
   theme: Theme;
   pack: string;
+  /** The scene's visual device (`assignDevices`): the picture shows what that device acts on. */
+  device?: string;
 }
 
 /** The illustrator's reply. `--output-schema` holds it to this. */
@@ -122,6 +124,7 @@ export function artKey(brief: ArtBrief, model: string): string {
         narration: brief.narration,
         context: brief.context,
         pack: brief.pack,
+        device: brief.device,
         colours: [t.bg, t.fg, t.muted, t.accent, t.tones.a, t.tones.b, t.tones.c, t.tones.d],
       }),
     )
@@ -158,7 +161,7 @@ export function artPrompt(b: ArtBrief, retry?: string): string {
 ${retry ? `\nTHIS IS A SECOND ATTEMPT: the first picture was rejected because ${retry}. Fix exactly that.\n` : ""}
 WHAT TO DRAW. The idea of this beat shown IN ACTION, as things: the method doing its work on concrete subjects (a robot arm looking at a cup through a cone of vision; parcels sorted onto conveyor belts; a lens focusing scattered dots into a sharp image), or one strong visual metaphor a smart non-expert gets in a second. Not a diagram, not a chart, not a slide, not boxes and arrows, not a screen with UI. THREE or FOUR distinct subjects (never more than four), arranged left to right across the middle so an animator can point at each in turn. Draw them BIG: together they fill the middle band, each about a fifth to a quarter of the picture's width and half its height. Each subject is a little scene with character and detail made of flat shapes (a robot mid-gesture holding the thing it works on, a machine with its parts visible), not a small icon. Clear empty background between every two of them — no subject touches or overlaps another, nothing (no ground line, no shadow, no table, no beam) links them.
 
-${ART_STYLE}
+${b.device ? `THE SCENE'S DEVICE is "${b.device}": draw the concrete subjects that device acts on — the animation over the picture adds the motion.\n\n` : ""}${ART_STYLE}
 
 PALETTE. The background is EXACTLY ${t.bg}, flat and plain from edge to edge (no vignette, no frame, no border, no floor, no horizon line); subjects in ${t.tones.a}, ${t.tones.b}, ${t.tones.c}, ${t.tones.d}, with ${t.accent} for the one thing that matters most; details in ${t.fg} and ${t.muted}. Eight colours at most in the whole picture. Wide landscape, 16:9. Keep every subject inside the central 85% of the width and the middle 60% of the height: the top and bottom edges will be cropped.
 

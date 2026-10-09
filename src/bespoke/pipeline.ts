@@ -21,6 +21,7 @@
  * Codex only through the CLI the account already has (`codex exec`), never an
  * API key; the binary and model are preferences.
  */
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,7 +62,7 @@ import {
   artKey,
   drawArt,
 } from "./art.js";
-import { cacheKey, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
+import { cacheKey, canonical, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
 import { calloutZones, fitLabel, type Label, longestFit } from "./callouts.js";
 import { checkFragment, type Fragment, motionKinds } from "./contract.js";
 import { FLAT_MIN, flatEnough, type Inspection, inspectPicture } from "./inspect.js";
@@ -69,6 +70,9 @@ import {
   type Brief,
   CONTRACT_VERSION,
   critiquePrompt,
+  DEVICE_SCHEMA,
+  type DeviceBeat,
+  devicePrompt,
   generatePrompt,
   type Measured,
   PROMPT_VERSION,
@@ -81,6 +85,7 @@ import { pictureCopies } from "./sheet.js";
 import { artPlacement, type Shot, subjectsInBox } from "./shots.js";
 
 export type BespokePrefs = NonNullable<Prefs["bespoke"]>;
+export type { DeviceBeat };
 
 /** What a gate round says about one beat's candidate scene. */
 export interface GateResult {
@@ -160,6 +165,8 @@ export interface SceneReport {
   art?: { key: string; depicts: string; subjects?: number; check?: ArtCheck };
   /** A data beat: drawn as a chart, never on a picture. */
   data?: boolean;
+  /** The scene's visual device (`assignDevices`). */
+  device?: string;
   /** Why there is none, when one was wanted. */
   artNote?: string;
   /** What the deterministic repair did to the kept scene (src/bespoke/repair.ts). */
@@ -200,6 +207,8 @@ export interface BespokeReport {
   };
   /** Wall seconds of the pass's stages, for profiling (`build` adds its own). */
   stages?: Record<string, number>;
+  /** The deck-order device pass: where its names came from, and why any were replaced. */
+  devices?: { from: DeviceAssignment["from"]; note?: string };
   scenes: SceneReport[];
   skipped: Skip[];
 }
@@ -238,6 +247,8 @@ export class Budget {
   rejectedText = 0;
   rejectedStyle = 0;
   rejectedSubjects = 0;
+  /** Device-pass calls (one a deck at most). */
+  devices = 0;
   tokens = 0;
   quota = false;
   constructor(
@@ -260,6 +271,14 @@ export class Budget {
     if (this.deadline - this.now() < 120_000)
       return "the bespoke pass's wall-time cap is too close";
     this.art++;
+    return undefined;
+  }
+  /** The deck's one device call: apart from the scene cap, but not past the quota or the clock. */
+  takeDevice(): string | undefined {
+    if (this.quota) return "the Codex quota said no earlier in this pass";
+    if (this.deadline - this.now() < 120_000)
+      return "the bespoke pass's wall-time cap is too close";
+    this.devices++;
     return undefined;
   }
   /** One redraw of a rejected picture: not against the art cap, but against the clock and the quota. */
@@ -419,6 +438,223 @@ export function contextFor(beat: Beat, source: Source): string {
   return parts.join("\n\n").slice(0, 6000) || "(no excerpt cited)";
 }
 
+/* -------------------------------------------------------------- devices */
+
+/** One beat's device, as the deck-order pass decided it. */
+export interface BeatDevice {
+  beatId: string;
+  /** Kebab-case name of the scene's main visual device. Unique in the deck. */
+  device: string;
+  /** Every earlier beat's device, in deck order (what the scene must not reuse). */
+  priorDevices: readonly string[];
+  /** Whether the beat gets an illustration; otherwise its scene is pure motion graphics. */
+  illustrate: boolean;
+  /** One line on what the scene shows, when the model gave one. */
+  idea?: string;
+  /** Where the name came from: the model, or the rule catalogue (no call, a bad or repeated name). */
+  from: "codex" | "rule";
+}
+
+/** What `assignDevices` returns: one entry per beat, in deck order. */
+export interface DeviceAssignment {
+  beats: BeatDevice[];
+  /** `cache`: read back from a previous run, no call. */
+  from: "codex" | "cache" | "rule";
+  /** Why the model's answer was not used, or was used only in part. */
+  note?: string;
+}
+
+export interface DeviceOptions {
+  /** The model runner. Absent: the rule catalogue only, no call. */
+  run?: Runner;
+  /** Asked before the call: undefined lets it go ahead (src/bespoke/pipeline.ts `Budget`). */
+  take?: () => string | undefined;
+  /** Illustrations the deck may draw. */
+  artCap: number;
+  model?: string;
+  bin?: string;
+  config?: readonly string[];
+  /** Scratch for the prompt, schema and reply. */
+  work: string;
+  timeoutMs: number;
+  /** Where a decided assignment is kept, so a rerun asks nothing. */
+  cacheDir?: string;
+  onUsage?: (tokens: number) => void;
+}
+
+/** Bump with any change to the device prompt or the rules applied to its answer. */
+export const DEVICE_VERSION = "devices-1";
+
+/**
+ * Devices for a beat the model gave none for (no call, a failed call, a name
+ * repeated or not a name). By archetype first, then a shared pool; each used
+ * once per deck. None is a layout: the catalogue is the prompt's own rule.
+ */
+const RULE_DEVICES: Readonly<Record<string, readonly string[]>> = {
+  title: ["kinetic-title", "particle-assembly", "light-sweep"],
+  "claim-figure": ["lens-focus", "stamp-seal"],
+  "equation-walk": ["term-spotlight", "balance-scale"],
+  "equation-morph": ["term-morph", "shape-shift"],
+  "data-table": ["track-race", "heat-strip"],
+  "line-chart": ["traced-curve", "rising-tide"],
+  "bar-compare": ["draining-light-bars", "fill-gauges"],
+  "hero-number": ["counter-burst", "odometer-roll"],
+  callout: ["spotlight-word", "ink-stamp"],
+  pipeline: ["conveyor-flow", "relay-baton"],
+  "annotated-figure": ["magnifier-sweep", "x-ray-scan"],
+  grid: ["constellation", "mosaic-assemble"],
+  stack: ["layer-peel", "stacking-tower"],
+  "split-compare": ["tug-of-war", "split-wipe"],
+  stage: ["orbit-system", "ripple-wave"],
+  kinetic: ["kinetic-type", "word-cascade"],
+};
+const POOL = [
+  "particle-swarm",
+  "ripple-wave",
+  "orbit-system",
+  "pendulum-swing",
+  "domino-chain",
+  "growing-tree",
+  "tide-gauge",
+  "signal-pulse",
+  "prism-split",
+  "magnet-pull",
+  "sand-timer",
+  "beam-scan",
+];
+
+/** A model's name made a kebab-case device name, or "" when nothing is left of it. */
+export function deviceName(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .slice(0, 4)
+    .join("-")
+    .slice(0, 32)
+    .replace(/-+$/, "");
+}
+
+/**
+ * THE DECK-ORDER DEVICE PASS. Runs once, before any picture or scene is asked
+ * for — scenes generate two at a time, so their devices cannot come from
+ * finished scenes — and gives every bespoke beat one visual device, no two
+ * alike, with the list of the ones before it. One Codex call names them from
+ * the beats' content; whatever it does not name well (or at all, or twice), and
+ * every beat when there is no call, takes the next unused name from the rule
+ * catalogue. Illustration is decided here too, so the deck mixes pictures with
+ * pure motion graphics: never a data beat, never a beat with under two cues,
+ * at most `artCap`. It never throws for want of an answer.
+ *
+ * Round 5 adds a camera grammar to this same pass: keep it one function, one
+ * typed result.
+ */
+export async function assignDevices(
+  beats: readonly DeviceBeat[],
+  opts: DeviceOptions,
+): Promise<DeviceAssignment> {
+  type Answer = { id: string; device: string; illustrate: boolean; idea: string };
+  const key = createHash("sha256")
+    .update(
+      canonical({ v: DEVICE_VERSION, model: opts.model ?? "default", art: opts.artCap, beats }),
+    )
+    .digest("hex")
+    .slice(0, 32);
+  const cached = opts.cacheDir ? join(opts.cacheDir, "devices", `${key}.json`) : undefined;
+  let answers: Answer[] | undefined;
+  let from: DeviceAssignment["from"] = "rule";
+  let note: string | undefined;
+
+  if (cached) {
+    try {
+      const hit = JSON.parse(await readFile(cached, "utf8")) as { answers?: Answer[] };
+      if (Array.isArray(hit.answers)) {
+        answers = hit.answers;
+        from = "cache";
+      }
+    } catch {
+      // A miss, or a file another version wrote: ask again.
+    }
+  }
+  if (!answers && opts.run && beats.length) {
+    const refused = opts.take?.();
+    if (refused) note = `no device call: ${refused}`;
+    else {
+      const schemaPath = join(opts.work, "devices.schema.json");
+      const outPath = join(opts.work, "devices.json");
+      const prompt = devicePrompt(beats, opts.artCap);
+      try {
+        await writeFile(schemaPath, JSON.stringify(DEVICE_SCHEMA));
+        await writeFile(join(opts.work, "devices.prompt.md"), prompt);
+        await opts.run({
+          prompt,
+          schemaPath,
+          outPath,
+          timeoutMs: opts.timeoutMs,
+          cwd: opts.work,
+          ...(opts.config ? { config: opts.config } : {}),
+          ...(opts.model ? { model: opts.model } : {}),
+          ...(opts.bin ? { bin: opts.bin } : {}),
+          ...(opts.onUsage ? { onUsage: opts.onUsage } : {}),
+        });
+        const reply = JSON.parse(await readFile(outPath, "utf8")) as { beats?: unknown };
+        if (!Array.isArray(reply.beats)) throw new Error("the reply has no beats list");
+        answers = reply.beats.filter(
+          (a): a is Answer => typeof a === "object" && a !== null && typeof a.id === "string",
+        );
+        from = "codex";
+      } catch (err) {
+        note = `the device call failed (${err instanceof Error ? err.message.split("\n").slice(-1)[0]?.slice(0, 200) : err}); rule catalogue used`;
+      }
+    }
+  }
+
+  const byId = new Map((answers ?? []).map((a) => [a.id, a]));
+  const used = new Set<string>();
+  const ruled: string[] = [];
+  const nextRule = (archetype: string): string => {
+    for (const d of [...(RULE_DEVICES[archetype] ?? []), ...POOL]) if (!used.has(d)) return d;
+    let n = 2;
+    while (used.has(`${POOL[0]}-${n}`)) n++;
+    return `${POOL[0]}-${n}`;
+  };
+  let pictures = 0;
+  const out: BeatDevice[] = [];
+  for (const b of beats) {
+    const a = byId.get(b.id);
+    let device = deviceName(a?.device);
+    let origin: BeatDevice["from"] = "codex";
+    if (!device || used.has(device)) {
+      if (a) ruled.push(`${b.id}: ${device ? `"${device}" repeated` : "no usable name"}`);
+      device = nextRule(b.archetype);
+      origin = "rule";
+    }
+    used.add(device);
+    // The model's choice where it gave one; else every other eligible beat.
+    const eligible = !b.data && b.cues >= 2;
+    const wants = a ? a.illustrate === true : out.length % 2 === 0;
+    const illustrate = eligible && wants && pictures < opts.artCap;
+    if (illustrate) pictures++;
+    out.push({
+      beatId: b.id,
+      device,
+      priorDevices: out.map((o) => o.device),
+      illustrate,
+      ...(a && typeof a.idea === "string" && a.idea ? { idea: a.idea.slice(0, 240) } : {}),
+      from: answers ? origin : "rule",
+    });
+  }
+  if (ruled.length)
+    note = [note, `rule catalogue for ${ruled.join(", ")}`].filter(Boolean).join("; ");
+  if (cached && from === "codex" && answers) {
+    await mkdir(join(opts.cacheDir as string, "devices"), { recursive: true });
+    await writeFile(cached, JSON.stringify({ version: DEVICE_VERSION, answers }));
+  }
+  return { beats: out, from, ...(note ? { note } : {}) };
+}
+
 /** A gate's measures with the candidate's motion kinds added. */
 function withKinds(m: Measured | undefined, f: Fragment | undefined): Measured | undefined {
   if (!m) return undefined;
@@ -454,9 +690,18 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       rejectedSubjects: budget.rejectedSubjects,
     },
     stages,
+    ...(deviceReport
+      ? {
+          devices: {
+            from: deviceReport.from,
+            ...(deviceReport.note ? { note: deviceReport.note } : {}),
+          },
+        }
+      : {}),
     scenes,
     skipped,
   });
+  let deviceReport: DeviceAssignment | undefined;
   let skipped: Skip[] = [];
   // Wall seconds from the pass's start at which each stage ended (profiling).
   const stages: Record<string, number> = {};
@@ -556,6 +801,43 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   ];
   const artCap = prefs.art;
 
+  // THE DEVICE PASS, before any picture or scene is asked for (see `assignDevices`).
+  const deviceBeats: DeviceBeat[] = [];
+  for (const p of selection.picked) {
+    const beat = kept.find((b) => b.id === p.beatId) as Beat;
+    const params = beat.params as { headline: string };
+    deviceBeats.push({
+      id: beat.id,
+      archetype: beat.archetype,
+      headline: params.headline,
+      intent: beat.intent,
+      ...(beat.claim ? { claim: beat.claim } : {}),
+      ...(beat.narration ? { narration: beat.narration } : {}),
+      cues: windows.get(beat.id)?.cues.length ?? 0,
+      data: isDataBeat(beat),
+    });
+  }
+  const devices = await assignDevices(deviceBeats, {
+    run,
+    take: () => budget.takeDevice(),
+    artCap,
+    ...(prefs.model ? { model: prefs.model } : {}),
+    ...(prefs.cli ? { bin: prefs.cli } : {}),
+    config,
+    work,
+    timeoutMs: budget.seconds() * 1000,
+    cacheDir,
+    onUsage: (n) => {
+      budget.tokens += n;
+    },
+  });
+  mark("devices");
+  deviceReport = devices;
+  const deviceOf = new Map(devices.beats.map((d) => [d.beatId, d]));
+  step(
+    `bespoke: devices (${devices.from}) — ${devices.beats.map((d) => `${d.beatId} ${d.device}${d.illustrate ? "+art" : ""}`).join(", ")}${devices.note ? ` — ${devices.note}` : ""}`,
+  );
+
   interface Beat1 {
     beat: Beat;
     brief: Brief;
@@ -564,6 +846,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     holds: number[];
     window: SceneWindow;
     calls: number;
+    device: BeatDevice;
     artBrief: ArtBrief;
     art?: ArtRef;
     /** Why the beat has no illustration, when one was wanted. */
@@ -605,6 +888,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     }
     const params = beat.params as { eyebrow?: string; headline: string };
     const region = bespokeRegion(beat, { format, theme });
+    const device = deviceOf.get(beat.id) as BeatDevice;
     const brief: Brief = {
       lang: storyboard.lang,
       ...(params.eyebrow ? { eyebrow: params.eyebrow } : {}),
@@ -621,6 +905,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       theme,
       pack: input.theme,
       ...(isDataBeat(beat) ? { data: true } : {}),
+      device: device.device,
+      priorDevices: device.priorDevices,
     };
     const keyInput: KeyInput = {
       promptVersion: PROMPT_VERSION,
@@ -641,6 +927,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       holds,
       region,
       pack: { name: input.theme, ...theme },
+      device: device.device,
+      priorDevices: device.priorDevices,
     };
     work1.push({
       beat,
@@ -650,6 +938,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       holds,
       window: w,
       calls: 0,
+      device,
       artBrief: {
         lang: storyboard.lang,
         headline: params.headline,
@@ -659,6 +948,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         context: brief.context,
         theme,
         pack: input.theme,
+        device: device.device,
       },
       draftFindings: [],
       fixedFindings: [],
@@ -763,6 +1053,10 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     if (artCap <= 0) return;
     if (b.brief.data) {
       b.artNote = "a data beat: its chart is the picture";
+      return;
+    }
+    if (!b.device.illustrate) {
+      b.artNote = "pure motion graphics (the device pass gave it no picture)";
       return;
     }
     const key = artKey(b.artBrief, model);
@@ -1144,6 +1438,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
           }
         : {}),
       ...(b.brief.data ? { data: true } : {}),
+      device: b.device.device,
       ...(b.artNote ? { artNote: b.artNote } : {}),
       ...(b.repair ? { repair: b.repair } : {}),
       ...extra,

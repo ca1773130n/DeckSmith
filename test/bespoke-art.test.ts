@@ -245,6 +245,18 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
     const calls: RunnerArgs[] = [];
     let n = 0;
     const run = async (args: RunnerArgs) => {
+      // The deck's device call: every beat asks for a picture, so the art cap
+      // and the data-beat rule are what decide. Not counted with the others.
+      if (args.schemaPath.endsWith("devices.schema.json")) {
+        const ids = [...args.prompt.matchAll(/ id=(\S+) /g)].map((m) => m[1]);
+        await writeFile(
+          args.outPath,
+          JSON.stringify({
+            beats: ids.map((id) => ({ id, device: `d-${id}`, illustrate: true, idea: "" })),
+          }),
+        );
+        return;
+      }
       calls.push(args);
       if (args.prompt.startsWith("You are the illustrator")) {
         if (art === "fail") throw new Error("codex exec exited 1.\nimage tool unavailable");
@@ -462,8 +474,9 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
     const r = await bespokePass({ ...input({ run, gate: passing }), prefs: prefs({ art: 1 }) });
     expect(calls.filter((c) => c.prompt.startsWith("You are the illustrator"))).toHaveLength(1);
     expect(r.report.scenes.filter((s) => s.art)).toHaveLength(1);
+    // The cap is spent up front, by the device pass: the rest are motion graphics.
     expect(
-      r.report.scenes.filter((s) => /illustrations are spent/.test(s.artNote ?? "")),
+      r.report.scenes.filter((s) => /pure motion graphics/.test(s.artNote ?? "")),
     ).not.toHaveLength(0);
     expect(Object.keys(r.map).length).toBe(r.report.scenes.length);
   });
