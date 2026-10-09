@@ -1324,13 +1324,13 @@ generator already makes.
 are optional. `placement` is one of `none`, `bottom-left`, `top-left`, `center` or
 `right`; under anything but `none` the `headline` (72px) and an optional `line` (44px)
 are set in white over a black scrim. The scrim's solid part is sized from the text's
-measured height and its column's width, bounded on both axes so the rest of the picture is
-left alone, and is 66% black, which white text clears at about 7:1 even over a pure white
+measured height and width, bounded on both axes so the rest of the picture is left
+alone, and is 66% black, which white text clears at about 7:1 even over a pure white
 picture, so the contrast gate passes on whatever the picture is. Text is never shrunk: words
 that need more than three headline lines or two of `line` in their placement's column take
 a wider column (and `build` warns), and only words that will not fit across the whole
-content width are refused by name. In a portrait frame every placement is full width, and
-`right` aligns the words right. The picture fades and settles in first, the words after; one stop lands
+content width are refused by name. `right` sets the words flush right; in a portrait
+frame every placement is full width. The picture fades and settles in first, the words after; one stop lands
 once both are in, or after a piece's last frame. A still or clip drifts 4% over the beat.
 `build` warns (it does not refuse) when a raster figure is upscaled more than 1.5x or
 cropped by more than 30% to fill the frame. With `--reserve-captions` the picture stops

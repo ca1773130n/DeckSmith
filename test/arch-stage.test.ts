@@ -22,7 +22,7 @@ import { emitComposition } from "../src/emit/composition.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { PAD_X, PAD_Y, refHeight, refWidth, reserveRef, tweenText } from "../src/emit/kit.js";
 import { ENTRANCES, restyleEntrance } from "../src/emit/motion.js";
-import { MIN_FONT } from "../src/emit/svg.js";
+import { displayFace, faceOf, MIN_FONT, textWidth, typeOf } from "../src/emit/svg.js";
 import { chromePath } from "../src/render/capture.js";
 import {
   type BeatOf,
@@ -236,7 +236,7 @@ describe("stage", () => {
     ]);
     // Words that fit keep their placement's own column, unwarned.
     const fits = stage(beat({ placement: "right", headline: "The editor is it" }), ctx());
-    expect(fits.css).toContain("#s4 .stg-t{max-width:714px;align-self:flex-end}");
+    expect(fits.css).toContain("#s4 .stg-t{max-width:714px;align-self:flex-end;text-align:right}");
     expect(fits.warnings).toBeUndefined();
   });
 
@@ -293,7 +293,7 @@ describe("stage", () => {
       "bottom-left": "margin-top:auto;align-self:flex-start",
       "top-left": "margin-bottom:auto;align-self:flex-start",
       center: "align-self:center;text-align:center",
-      right: "align-self:flex-end",
+      right: "align-self:flex-end;text-align:right",
     } as const;
     const cases = Object.keys(FORMATS).flatMap((id) =>
       (Object.keys(BLOCKS) as (keyof typeof BLOCKS)[]).map((p) => [id, p] as const),
@@ -308,16 +308,18 @@ describe("stage", () => {
       const alpha = (x: number, y: number) =>
         along(bg, offset(bg, x, y, w, h)) * along(mask, offset(mask, x, y, w, h));
 
-      // The block the scrim must be under: one 72px line, its column's extent.
+      // The words the scrim must be under: one 72px line, as wide as it measures.
       const col = Number(/#s4 \.stg-t\{max-width:(\d+)px/.exec(css)?.[1]);
+      const face = faceOf(theme.fontStack);
+      const tw = textWidth("Short", 72, typeOf(face).headline.weight, 0, false, displayFace(face));
       const textH = Math.round(72 * 1.12);
       const portrait = format.height > format.width;
       const [x0, x1] =
         placement === "right"
-          ? [w - PAD_X - col, w - PAD_X]
+          ? [w - PAD_X - tw, w - PAD_X]
           : placement === "center"
-            ? [w / 2 - col / 2, w / 2 + col / 2]
-            : [PAD_X, PAD_X + col];
+            ? [w / 2 - tw / 2, w / 2 + tw / 2]
+            : [PAD_X, PAD_X + tw];
       const [y0, y1] =
         placement === "bottom-left"
           ? [h - PAD_Y - textH, h - PAD_Y]
@@ -339,17 +341,22 @@ describe("stage", () => {
       if (placement === "bottom-left") clear.push([x0, 0]);
       if (placement === "top-left") clear.push([x0, h - 1]);
       if (placement === "right" || placement === "center") clear.push([x1, 0], [x1, h - 1]);
-      if (!portrait && (placement === "bottom-left" || placement === "top-left")) {
-        clear.push([w - 1, mid]);
+      // Across, too — clear a fade past the WORDS, not past their column: the
+      // picture beside a short headline is the picture's, at every format.
+      // The words' width with the wrap's 0.92 slack, then the 56px margin and
+      // the 360px fade: one pixel past that is picture.
+      const words = Math.ceil(tw / 0.92);
+      const past = 56 + 360 + 1;
+      if (placement === "bottom-left" || placement === "top-left") {
+        clear.push([PAD_X + words + past, mid]);
       }
-      if (!portrait && placement === "right") clear.push([0, mid]);
+      if (placement === "right") clear.push([w - PAD_X - words - past, mid]);
+      if (placement === "center") clear.push([w / 2 + words / 2 + past, mid]);
       for (const [x, y] of clear) expect(alpha(x, y), `clear at (${x}, ${y})`).toBe(0);
 
       // And the block sits where all of the above assumed it does.
       const block = /#s4 \.stg-t\{max-width:\d+px;([^}]*)\}/.exec(css)?.[1];
-      expect(block).toBe(
-        placement === "right" && portrait ? `${BLOCKS.right};text-align:right` : BLOCKS[placement],
-      );
+      expect(block).toBe(BLOCKS[placement]);
       if (portrait) expect(col).toBe(w - 2 * PAD_X);
     });
   });

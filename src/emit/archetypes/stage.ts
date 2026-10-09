@@ -13,7 +13,7 @@
  * `SCRIM` alpha. At 0.66 black over a pure-white pixel the background is
  * 87/255, which white text clears at about 7:1, so the contrast gate passes on
  * any picture rather than on the one it was tried with. The solid extent is
- * DERIVED from the text block's measured height and its column's width, and is
+ * DERIVED from the text block's measured height and width, and is
  * bounded on BOTH axes (`scrimFor`): a scrim that ran the whole width dimmed
  * the picture's subject wherever it shared the words' rows.
  *
@@ -34,7 +34,7 @@ import type { Figure, STAGE_PLACEMENTS } from "../../types.js";
 import { MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween } from "../kit.js";
 import { contentW, esc, PAD_X, PAD_Y, refHeight, refWidth, reserveRef } from "../kit.js";
-import { displayFace, faceOf, typeOf, wrap } from "../svg.js";
+import { displayFace, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import { pieceTimeline, plate } from "./claim-figure.js";
 import { holdsWithin, isPortrait, tween } from "./title.js";
@@ -93,12 +93,16 @@ const BLOCK: Readonly<Record<Placed, string>> = {
   "bottom-left": "margin-top:auto;align-self:flex-start",
   "top-left": "margin-bottom:auto;align-self:flex-start",
   center: "align-self:center;text-align:center",
-  right: "align-self:flex-end",
+  // Flush right, so the words hug the edge their scrim is measured from even
+  // when a wrapped block is as wide as its column.
+  right: "align-self:flex-end;text-align:right",
 };
 
 /**
- * The scrim for a text block `textH` tall and `col` wide, in reference px of a
- * scrim box `boxW` x `boxH`. Solid over the block and `SCRIM_MARGIN` past it,
+ * The scrim for a text block `textH` tall whose longest line is `textW` wide,
+ * in reference px of a scrim box `boxW` x `boxH`. The words' own width, not
+ * their column's: a one-line headline in a 62% column left the scrim solid over
+ * picture the words never reach. Solid over the block and `SCRIM_MARGIN` past it,
  * then a `SCRIM_FADE` to clear — so the picture is untouched away from the
  * words, on both axes.
  *
@@ -111,7 +115,7 @@ const BLOCK: Readonly<Record<Placed, string>> = {
 export function scrimFor(
   placement: Placed,
   textH: number,
-  col: number,
+  textW: number,
   boxW: number,
   boxH: number,
 ): { background: string; mask: string } {
@@ -128,8 +132,9 @@ export function scrimFor(
   // The block is centred in the content box, whose centre is the scrim box's:
   // the padding is symmetric once the reserve is out of both.
   const rows = (ink: string) => band(ink, "to bottom", boxH / 2, textH / 2);
-  // The left-hand placements' block starts at the padding and is at most `col` wide.
-  const fromLeft = (ink: string) => ramp(ink, "to right", PAD_X + col + SCRIM_MARGIN);
+  // The left-hand placements' lines start at the padding, `right`'s end there
+  // (`BLOCK`), and `center`'s are centred on the frame.
+  const fromLeft = (ink: string) => ramp(ink, "to right", PAD_X + textW + SCRIM_MARGIN);
   switch (placement) {
     case "bottom-left":
       return {
@@ -142,9 +147,12 @@ export function scrimFor(
         mask: fromLeft(opaque),
       };
     case "right":
-      return { background: ramp(dark, "to left", PAD_X + col + SCRIM_MARGIN), mask: rows(opaque) };
+      return {
+        background: ramp(dark, "to left", PAD_X + textW + SCRIM_MARGIN),
+        mask: rows(opaque),
+      };
     case "center":
-      return { background: rows(dark), mask: band(opaque, "to right", boxW / 2, col / 2) };
+      return { background: rows(dark), mask: band(opaque, "to right", boxW / 2, textW / 2) };
   }
 }
 
@@ -199,6 +207,7 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
   const type = typeOf(face);
   let col = 0;
   let textH = 0;
+  let textW = 0;
   if (placement) {
     const full = contentW(format);
     // A portrait frame has no room for a side column: every placement is the
@@ -232,16 +241,19 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
           `so they take a ${Math.round((100 * col) / full)}% column and cover more of the picture — shorten them to keep it`,
       );
     }
+    // Widened by the slack the wrap allowed for (the measure is an estimate),
+    // and never past the column the browser sets the lines in.
+    const widest = Math.max(
+      ...head.map((l) =>
+        textWidth(l, HEAD_SIZE, type.headline.weight, 0, false, displayFace(face)),
+      ),
+      ...lines.map((l) => textWidth(l, LINE_SIZE, 400, 0, false, face)),
+    );
+    textW = Math.min(col, Math.ceil(widest / MEASURE_SLACK));
     textH = head.length * Math.round(HEAD_SIZE * HEAD_LH);
     if (lines.length) textH += LINE_GAP + lines.length * Math.round(LINE_SIZE * LINE_LH);
   }
-  // `right` across the whole width would be the left-hand block again: its
-  // lines fill the column, so only the alignment can still put them right.
-  const block =
-    placement === "right" && col === contentW(format)
-      ? `${BLOCK.right};text-align:right`
-      : placement && BLOCK[placement];
-  const scrim = placement && scrimFor(placement, textH, col, refWidth(format), boxH);
+  const scrim = placement && scrimFor(placement, textH, textW, refWidth(format), boxH);
 
   const line = placement && p.line ? `\n<p class="stg-l" id="${sid}-l">${esc(p.line)}</p>` : "";
   const html = [
@@ -323,7 +335,7 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
             // In the scene's flex column, the one child in flow: the placement
             // is where the column's free space goes.
             `.stg-t{position:relative;display:flex;flex-direction:column}`,
-            `#${sid} .stg-t{max-width:${col}px;${block}}`,
+            `#${sid} .stg-t{max-width:${col}px;${BLOCK[placement]}}`,
             `.stg-h{${family}font-size:${HEAD_SIZE}px;line-height:${HEAD_LH};font-weight:${type.headline.weight};color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45)}`,
             `.stg-l{font-size:${LINE_SIZE}px;line-height:${LINE_LH};color:#ececec;margin-top:${LINE_GAP}px;text-shadow:0 2px 10px rgba(0,0,0,.45)}`,
           ]
