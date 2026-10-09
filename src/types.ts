@@ -1445,9 +1445,21 @@ export const CAPTION_LINE_RATIO = 1.6;
  */
 export const CAPTION_MAX_LINES = 2;
 
-/** The burned band's font size at this canvas width. */
+/**
+ * The burned caption's size band, reference px: the v2 body scale (`V2_TYPE` in
+ * src/emit/type.ts — restated here because this file may import nothing from
+ * `src/emit`). A quiet lower third, the founder's ask on 2026-10-10: 4% of a
+ * 1920 canvas was a 71px caption, larger than the slide's own headline.
+ */
+export const CAPTION_FONT_MIN = 40;
+export const CAPTION_FONT_MAX = 44;
+
+/** The burned band's font size at this canvas width: the ratio, held to 40-44px. */
 export function captionFontSize(width: number): number {
-  return Math.round(width * CAPTION_FONT_RATIO);
+  return Math.min(
+    CAPTION_FONT_MAX,
+    Math.max(CAPTION_FONT_MIN, Math.round(width * CAPTION_FONT_RATIO)),
+  );
 }
 
 /**

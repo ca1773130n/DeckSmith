@@ -1134,7 +1134,7 @@ describe("captions", () => {
     { start: 2.5, end: 4, text: "three" },
   ];
 
-  it("gives the burn-in generous type and its own scrim", () => {
+  it("gives the burn-in quiet 40-44px type with a halo, not a box", () => {
     // Sized so the widest line an 84-character cue can produce still fits on
     // ONE line. See the measurement in `burnStyle`.
     expect(style.fontSize).toBe(40);
@@ -1143,9 +1143,13 @@ describe("captions", () => {
     expect(widest).toBeLessThan(style.width - 2 * style.marginX - 16);
 
     const page = captionPage(cues, style, null);
-    expect(page).toContain("background: rgba(0, 0, 0, 0.7)");
-    // Per LINE, as ASS's BorderStyle=4 was. One box round a block whose second
-    // line is two words wide is a letterbox, not a caption.
+    // A quiet lower third (founder, 2026-10-10): no 70% black bar per line, a
+    // close dark halo instead. Landscape was 71px; it is 44 now.
+    expect(page).not.toMatch(/background:\s*rgba\(0,\s*0,\s*0/);
+    expect(page).toContain("text-shadow: 0 0 3px rgba(0, 0, 0, 0.9)");
+    expect(burnStyle(1920, 1080).fontSize).toBe(44);
+    expect(captionPage(cues, burnStyle(1920, 1080), null)).toContain("font-size: 44px");
+    // Per LINE, so each line's halo lies inside the rectangle that is captured.
     expect(page).toContain("box-decoration-break: clone");
     expect(page).toContain("bottom: 173px");
     expect(page).toContain("font-size: 40px");

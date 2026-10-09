@@ -77,11 +77,10 @@ function escapeHtml(text: string): string {
  * cues. Hidden by default and revealed one at a time, so what is measured is
  * exactly what is captured.
  *
- * The scrim is `box-decoration-break: clone`, which gives each LINE its own box
- * — the same treatment ASS's `BorderStyle=4` produces, and the only one that
- * reads as a caption rather than as a letterbox: a single box around a block
- * whose second line is two words wide is a wide black bar with a short line
- * floating in it.
+ * There is no scrim (2026-10-10): the founder asked for a quiet lower third,
+ * not a box, so each line is white type with a close dark halo. The span keeps
+ * `box-decoration-break: clone` and its padding so every line's halo lies
+ * inside the rectangle `measure` reports and the band is captured with it.
  *
  * `line-height` is set from a measurement, not from a ratio. The inline box is
  * as tall as the font's content area plus the padding, and that is a number only
@@ -139,7 +138,7 @@ ${link}
     text-align: center;
     font-family: ${stack.join(", ")};
     font-size: ${style.fontSize}px;
-    font-weight: 700;
+    font-weight: 600;
     line-height: var(--line, ${Math.round(style.fontSize * 1.6)}px);
   }
   .cue.on { visibility: visible; }
@@ -147,10 +146,12 @@ ${link}
     display: inline;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
-    /* 70% OPAQUE. Measured against both a dark and a light slide: 50% loses the
-       text over a light figure, 100% reads as a hole cut in the picture. */
-    background: rgba(0, 0, 0, 0.7);
+    /* NO BOX: a quiet lower third (founder, 2026-10-10). The 70% black scrim
+       per line read as a caption bar over the picture. A close dark halo keeps
+       white text legible over a light slide without one; the padding below is
+       kept so the halo is inside the captured rect. */
     color: #fff;
+    text-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 0 10px rgba(0, 0, 0, 0.75), 0 2px 4px rgba(0, 0, 0, 0.8);
     padding: ${padY}px ${padX}px;
     white-space: pre-wrap;
   }
