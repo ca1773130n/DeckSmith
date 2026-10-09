@@ -1161,7 +1161,8 @@ none of the kit's names reach the page. The piece starts 1.0s into its beat and 
 its `seconds`, with a 0.3s hold after its last frame. Before the tween the canvas shows
 frame 0. After it, the canvas holds the last frame; it does not wrap back to frame 0. The
 beat must be at least `1 + seconds + 0.3` long. A shorter beat is refused by name rather
-than clamped.
+than clamped. The hold is never before 2.4s, when the claim, plate and caption have all
+entered, so a piece shorter than 1.1s holds there instead.
 
 **What is refused**, and where:
 
@@ -1179,8 +1180,9 @@ than clamped.
   primitive is simply undefined: a piece that calls riso's `plates()` fails `verify` with
   `page_error plates is not defined`. Riso and pixel read pixels back from the canvas,
   and that has not been measured under capture.
-- A piece in any archetype but `claim-figure`, a piece with no `seconds`, and an `id`
-  containing anything other than letters, digits, `.`, `_` and `-`.
+- A piece in any archetype but `claim-figure`, a piece with no `seconds`, a `src` that
+  does not end in `.js` (the determinism scan reads only those), and an `id` containing
+  anything other than letters, digits, `.`, `_` and `-`.
 
 **What the gates see.** A piece that throws while it draws fails `verify`, because the
 runtime reports the error before rethrowing it. Before that fix, hyperframes swallowed

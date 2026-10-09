@@ -120,6 +120,12 @@ const PIECE_TAIL = 0.3;
 const PIECE_FPS = 30;
 /** A piece's id is written into a script; nothing that needs escaping gets there. */
 const PIECE_ID = /^[A-Za-z0-9_.-]+$/;
+/**
+ * The last of the classic holds: by 2.4s the claim, the plate (1.0–1.8s) and
+ * the caption (1.7–2.3s) have all entered. A piece's own hold is never earlier,
+ * or a short piece would stop the deck on a half-built slide.
+ */
+const SETTLED = 2.4;
 /** Invariant 10 at the piece's clock. */
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -409,7 +415,8 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
  * and the kit's `measureText` should still never name a family the deck does
  * not declare (invariant 9).
  *
- * REFUSED BY NAME rather than clamped: a piece with no length has no clock, and
+ * REFUSED BY NAME rather than clamped: a piece with no length has no clock, a
+ * `src` not ending in `.js` is a script verify never scans, and
  * a beat too short for the piece would end it mid-motion with the hold clamped
  * on top of a moving frame.
  */
@@ -428,6 +435,13 @@ function pieceTimeline(
   if (!PIECE_ID.test(fig.id)) {
     throw new Error(
       `claim-figure ${beatId}: piece "${fig.id}" has an id a script cannot carry as written — use letters, digits, ".", "_" and "-"`,
+    );
+  }
+  // `verify`'s determinism scan reads `assets/**/*.js` (`readAssetScripts`);
+  // a `.mjs` loads just the same through `<script src>` and is never read.
+  if (!fig.src.endsWith(".js")) {
+    throw new Error(
+      `claim-figure ${beatId}: piece "${fig.id}" has src "${fig.src}" — a piece's script must end in ".js", the only scripts verify's determinism scan reads`,
     );
   }
   const run = r3(fig.seconds);
@@ -644,7 +658,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   return {
     html: F.compose(body),
     tl,
-    holds: holdsWithin(piece ? [piece.hold] : [1.4, 2.4], beat.seconds),
+    holds: holdsWithin(piece ? [Math.max(piece.hold, SETTLED)] : [1.4, SETTLED], beat.seconds),
     ...(piece ? { measure: [piece.mount], plugins: ["dsAnimate"] } : {}),
     ...(chosen ? { fit: chosen.fit } : {}),
     figureArea,

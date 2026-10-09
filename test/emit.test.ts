@@ -1210,6 +1210,20 @@ describe("pieces", () => {
     expect(scene.tl.filter((t) => "dsAnimate" in t.to)).toHaveLength(1);
   });
 
+  it("never holds a short piece before the slide has finished entering", () => {
+    const beat = beatSchema.parse({ id: "b1", intent: "Show it.", ...claimOn("f-piece") });
+    const scene = emitScene(beat, {
+      source: pieceSource(piece("f-piece", { seconds: 0.5 })),
+      format: deck16,
+      theme: resolveTheme("ink"),
+      sid: "s2",
+      start: 0,
+    });
+
+    // 1 + 0.5 + 0.3 = 1.8 would stop on the caption (1.7–2.3s) a sixth in.
+    expect(scene.holds).toEqual([2.4]);
+  });
+
   it("loads no piece runtime on a deck without a piece", () => {
     const doc = emitComposition(beats(claimOn("f-still")), pieceSource(piece("f-piece")), deck16);
     expect(doc).not.toContain("ds-animate");
@@ -1233,6 +1247,18 @@ describe("pieces", () => {
     expect(() =>
       emitComposition(beats(claimOn("f piece")), pieceSource(piece("f piece")), deck16),
     ).toThrow(/piece "f piece" has an id a script cannot carry/);
+  });
+
+  it("refuses a piece whose script does not end in .js, which verify would never scan", () => {
+    expect(() =>
+      emitComposition(
+        beats(claimOn("f-piece")),
+        pieceSource(piece("f-piece", { src: "pieces/loop.mjs" })),
+        deck16,
+      ),
+    ).toThrow(
+      /piece "f-piece" has src "pieces\/loop.mjs" — a piece's script must end in ".js", the only scripts verify's determinism scan reads/,
+    );
   });
 
   it("refuses a second piece in one deck, naming both", () => {
