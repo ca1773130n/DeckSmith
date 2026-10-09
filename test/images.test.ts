@@ -110,6 +110,18 @@ describe("openaiImages", () => {
     expect(out.bytes.equals(png(1536, 1024))).toBe(true);
   });
 
+  it("asks a full-bleed picture to run off every edge instead of sitting on white", async () => {
+    // ko e2e, 2026-10-09: backdrops asked for "on a plain white background"
+    // came back as rooms cut out on white, shown as grey bands at cover fit.
+    const { fetch, calls } = fakeFetch(() =>
+      json(200, { data: [{ b64_json: png(1, 1).toString("base64") }] }),
+    );
+    await openaiImages({ apiKey: "k", fetch }).generate({ ...req, bleed: true });
+    const { prompt } = JSON.parse(String(calls[0]?.init?.body)) as { prompt: string };
+    expect(prompt).toContain("runs off every edge");
+    expect(prompt).not.toContain("white background");
+  });
+
   it("sizes by aspect, trims a trailing period, and lets the request's model beat the configured one", async () => {
     const { fetch, calls } = fakeFetch(() =>
       json(200, { data: [{ b64_json: png(1, 1).toString("base64") }] }),
@@ -620,6 +632,8 @@ describe("illustrate", () => {
         prompt: "a wide valley of wind turbines at dawn",
         style: "flat vector illustration",
         aspect: "landscape",
+        // A stage covers the frame, so it is not asked to sit on white.
+        bleed: true,
       },
     ]);
     const beat = out.storyboard.beats[0];
@@ -831,7 +845,12 @@ describe("illustrate: backdrops", () => {
       chain: [a.provider],
     });
     expect(a.calls).toEqual([
-      { prompt: "a misty valley at dawn", style: "flat vector illustration", aspect: "landscape" },
+      {
+        prompt: "a misty valley at dawn",
+        style: "flat vector illustration",
+        aspect: "landscape",
+        bleed: true,
+      },
     ]);
     const b1 = out.storyboard.beats[0];
     expect(b1?.archetype === "pipeline" && b1.params.backdrop?.figureId).toBe("gen-b1-bd");
