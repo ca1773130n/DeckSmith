@@ -767,6 +767,30 @@ describe("the player-page video", () => {
     expect(page).not.toContain("youtube.com/watch");
   });
 
+  it("offers the same player on a stage, which draws the clip's poster full-bleed", () => {
+    // `stage` draws a clip through the same `plate()`, so an href clip there is
+    // a poster too, and the viewer is owed the same click-to-play.
+    const staged = storyboardSchema.parse({
+      sourceId: "src-v",
+      title: "The method, running",
+      beats: [
+        { id: "b0", intent: "Open.", archetype: "title", params: { headline: "A title beat" } },
+        {
+          id: "b1",
+          intent: "Show the method running.",
+          archetype: "stage",
+          params: { headline: "The method runs", figureId: "f-tube", placement: "bottom-left" },
+        },
+      ],
+    });
+    const built = emitDeck(staged, source, FORMATS["deck-16x9"] as Format, "/*runtime*/");
+    const island = JSON.parse(
+      /decksmith-video\+json">\s*([\s\S]*?)\s*<\/script>/.exec(built.page ?? "")?.[1] ?? "{}",
+    ) as { scenes?: Record<string, { url: string }> };
+    expect(island.scenes?.s2?.url).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(built.composition).not.toContain("youtube");
+  });
+
   it("says nothing at all about a host it cannot convert", () => {
     // The clip keeps its poster and the deck keeps quiet, which is the honest
     // degradation — better than a frame that 404s into a black rectangle.

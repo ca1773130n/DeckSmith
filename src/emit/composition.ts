@@ -1258,12 +1258,12 @@ interface VideoEmbed {
  * The player-page video this beat draws, in the form a frame can load — or
  * nothing, which is the answer for every beat in almost every deck.
  *
- * `claim-figure` is the only archetype that draws a clip at all: every other one
- * refuses a `kind: "clip"` figure by name (see src/emit/archetypes). And a clip
- * carries `href` exactly when its bytes were unavailable — src/types.ts calls it
- * "Absent for a clip we hold the file for" — so this is precisely the case where
- * `claim-figure` emits the poster and nothing else. A clip we HOLD is already a
- * `<video>` in the composition and needs no third party.
+ * `claim-figure` and `stage` are the archetypes that draw a clip — both through
+ * `plate()`; every other one refuses a `kind: "clip"` figure by name (see
+ * src/emit/archetypes). And a clip carries `href` exactly when its bytes were
+ * unavailable — src/types.ts calls it "Absent for a clip we hold the file for" —
+ * so this is precisely the case where either emits the poster and nothing else.
+ * A clip we HOLD is already a `<video>` in the composition and needs no third party.
  *
  * Asking `embedUrl` here rather than storing an embed URL on the figure keeps
  * `Source` a description of the document: the host table is one thing, in
@@ -1271,7 +1271,7 @@ interface VideoEmbed {
  * way a source written after does.
  */
 function playerEmbed(beat: Beat, source: Source): VideoEmbed | undefined {
-  if (beat.archetype !== "claim-figure") return undefined;
+  if (beat.archetype !== "claim-figure" && beat.archetype !== "stage") return undefined;
   const fig = source.figures.find((f) => f.id === beat.params.figureId);
   if (fig?.kind !== "clip" || fig.href === undefined) return undefined;
   const url = embedUrl(fig.href);
