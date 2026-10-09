@@ -1,5 +1,7 @@
 # v2 bespoke scenes, round 3: illustration, camera, repair
 
+> Followed by [round 4](2026-10-09-v2-bespoke-round4.md): staged shots, labels on their subjects, flat pictures checked for style and text, WebP, data beats as charts. The numbers below are round 3's.
+
 2026-10-09. Branch `feat/v2-bespoke` (PR #112), after
 [`2026-10-08-v2-bespoke-round2.md`](2026-10-08-v2-bespoke-round2.md). Round 2 filled the
 frame but still spoke in labelled cards and connectors; real illustration appeared once,
