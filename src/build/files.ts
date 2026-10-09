@@ -189,6 +189,20 @@ export async function copyAssets(
       .filter((f) => f.kind === "piece" && f.id !== undefined)
       .map((f) => [f.src.replace(/^\.?\//, ""), f.id as string]),
   );
+  // A PIECE OWNS ITS FILE: what is written under its name is a script
+  // registered under ONE id. A second figure on the same file would get the
+  // other's registration — `mount` then blames the `<script src>` — or, as an
+  // image or a poster, load JavaScript as a picture. Refused here, by name.
+  for (const f of figures) {
+    for (const n of [f.src, f.poster]) {
+      const owner = n === undefined ? undefined : pieces.get(n.replace(/^\.?\//, ""));
+      if (owner !== undefined && owner !== f.id) {
+        throw new Error(
+          `build: figures "${owner}" and "${f.id}" both use "${n}" — a piece's src is assembled into that piece's own script, so no other figure can share the file`,
+        );
+      }
+    }
+  }
   await mkdir(join(out, "assets"), { recursive: true });
   const written: string[] = [];
   let copied = 0;

@@ -305,6 +305,30 @@ describe("copyAssets", () => {
     );
     expect(readFileSync(join(out, "assets", "still.png"), "utf8")).toBe("png bytes");
   });
+
+  /**
+   * The file a piece names is written as THAT piece's script. Two pieces on one
+   * file used to register only the last, and `mount` blamed the `<script src>`;
+   * an image on it drew JavaScript as a picture.
+   */
+  it.each([
+    ["another piece", { id: "fig-b", kind: "piece", src: "./pieces/loop.js" }],
+    ["an image", { id: "fig-b", kind: "image", src: "pieces/loop.js" }],
+    ["a clip's poster", { id: "fig-b", kind: "clip", src: "c.mp4", poster: "pieces/loop.js" }],
+  ])("refuses a piece's file shared with %s, naming both figures", async (_what, other) => {
+    const root = mkdtempSync(join(tmpdir(), "piece-shared-"));
+    mkdirSync(join(root, "src", "assets", "pieces"), { recursive: true });
+    writeFileSync(join(root, "src", "assets", "pieces", "loop.js"), AUTHOR);
+
+    await expect(
+      copyAssets(
+        join(root, "src"),
+        join(root, "deck"),
+        [{ id: "fig-a", kind: "piece", src: "pieces/loop.js" }, other],
+        () => {},
+      ),
+    ).rejects.toThrow(/build: figures "fig-[ab]" and "fig-[ab]" both use "\.?\/?pieces\/loop.js"/);
+  });
 });
 
 /**
