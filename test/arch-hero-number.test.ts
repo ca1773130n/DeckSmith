@@ -193,6 +193,17 @@ describe("hero-number", () => {
     for (const t of scene.tl) expect(t.at).toBeLessThan(scene.holds[0] as number);
   });
 
+  it("says so when the beat is too short for the sentence to land before its stop", () => {
+    // With bars the sentence lands at 3.2s; a 3s beat clamps the hold to 2.85.
+    const short = heroNumber(
+      { ...beat({ compare: { value: "175.21", label: "SFRDP-Net" } }), seconds: 3 },
+      ctx(),
+    );
+    expect(short.holds).toEqual([2.85]);
+    expect(short.warnings?.[0]).toMatch(/needs? 3\.2s to land and the beat is 3s/);
+    expect(heroNumber(beat(), ctx()).warnings).toBeUndefined();
+  });
+
   it("fits a portrait and a square frame, number and bars, above the floor", () => {
     for (const id of ["short-9x16", "post-1x1"] as const) {
       const scene = heroNumber(

@@ -338,10 +338,21 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
 
   const family =
     typeof face === "string" ? "" : `font-family:${theme.displayStack ?? theme.fontStack};`;
+  const said = Math.round((headAt + HEAD_IN) * 100) / 100;
+  const holds = holdsWithin([said], beat.seconds);
   return {
     html,
     tl,
-    holds: holdsWithin([headAt + HEAD_IN], beat.seconds),
+    holds,
+    // Clamped into a short beat, the hold stops the deck before the sentence
+    // (and the bar it explains) has landed. Say so, as kinetic does.
+    ...((holds[0] ?? 0) < said
+      ? {
+          warnings: [
+            `the number and its sentence need ${said}s to land and the beat is ${beat.seconds}s, so it stops mid-reveal — give it more seconds`,
+          ],
+        }
+      : {}),
     css: [
       `.hn{display:flex;flex-direction:column;align-items:flex-start;width:100%}`,
       // The deck's own eyebrow, as the chrome sets it (`chromeCss`), in glass ink.
