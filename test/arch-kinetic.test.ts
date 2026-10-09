@@ -97,6 +97,9 @@ describe("kinetic", () => {
     const chip = scene.tl.find((t) => t.target === "#s2-hl0");
     expect(chip?.from).toEqual({ scaleX: 0 });
     expect(chip?.to.scaleX).toBe(1);
+    // Rendered shut from the start: a chip left at its CSS width until the
+    // strike showed a full highlight fading in with the words (ko e2e).
+    expect(chip?.to.immediateRender).toBeUndefined();
     const ink = scene.tl.find((t) => t.target === "#s2-kt0");
     expect(ink?.to.color).toBe(ctx().theme.bg);
     // The unstruck phrase has no chip.

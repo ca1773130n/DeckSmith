@@ -136,18 +136,22 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
     let stop = Math.round((at + WORD_IN + stagger * (atoms - 1)) * 100) / 100;
     if (ph.key !== undefined) {
       const strike = Math.round((stop + KEY_AFTER) * 100) / 100;
-      // `immediateRender: false` on all three: each part's entrance above owns
-      // its first frame, and these must not paint over it at build time.
       tl.push(
+        // The chip's only tween, so it renders its `from` at build: swept shut
+        // until the strike. With `immediateRender: false` it sat at its CSS
+        // width, a full chip fading in with the words before anything struck.
         tween(
           `#${sid}-hl${i}`,
           { scaleX: 0 },
-          { scaleX: 1, duration: KEY_IN, ease: "power2.out", immediateRender: false },
+          { scaleX: 1, duration: KEY_IN, ease: "power2.out" },
           strike,
         ),
         // The ink turns while the chip is under most of the word, and fast:
         // light ink on the pale chip, or dark ink on the field, is the one
         // moment the key is hard to read.
+        // `immediateRender: false` on the ink and the lift: the ink's first
+        // frame is its CSS colour, and the key's scale belongs to the word
+        // entrance above until the strike.
         tween(
           `#${sid}-kt${i}`,
           { color: theme.fg },
@@ -199,8 +203,8 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
       // Its own stacking context, so the chip sits under the word and over the field.
       // A little air either side, so a key set inside a word (a Korean stem
       // before its particle) does not butt its chip against the letters.
-      `.kn-k{position:relative;isolation:isolate;transform-origin:50% 60%;margin:0 0.1em}`,
-      `.kn-hl{position:absolute;left:-0.12em;right:-0.12em;top:0.06em;bottom:0.02em;z-index:-1;border-radius:0.12em;background:${theme.accent};transform-origin:left center}`,
+      `.kn-k{position:relative;isolation:isolate;transform-origin:50% 60%;margin:0 0.14em}`,
+      `.kn-hl{position:absolute;left:-0.08em;right:-0.08em;top:0.06em;bottom:0.02em;z-index:-1;border-radius:0.12em;background:${theme.accent};transform-origin:left center}`,
       // The phrase's ink until the strike tweens it to the chip's.
       `.kn-kt{color:${theme.fg}}`,
       // The last struck word is what the beat lands on; with none, the last phrase.
