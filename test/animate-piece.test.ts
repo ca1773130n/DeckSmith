@@ -35,7 +35,10 @@ import {
   pieceTime,
   sweep,
 } from "../src/emit/animate-runtime.js";
+import { emitScene } from "../src/emit/archetypes/index.js";
+import { resolveTheme } from "../src/emit/theme.js";
 import { captureFrames, chromePath, type DeckPage, openDeck } from "../src/render/capture.js";
+import { beatSchema, FORMATS, type Format, sourceSchema } from "../src/types.js";
 import { fidelity } from "../src/verify/fidelity.js";
 import { scanDeterminism } from "../src/verify/index.js";
 
@@ -310,6 +313,55 @@ describe("the dsAnimate plugin", () => {
     expect(() => DSAnimatePlugin.init.call({} as never, fakeCanvas("s9-pc"), 1)).toThrow(
       /nothing mounted on #s9-pc; DSAnimate.mount must run in measure/,
     );
+  });
+});
+
+/**
+ * THE SWEEP HOLDS A PIECE. Design §5 makes `npm run sweep` the receipt for this
+ * src/ change, and the sweep takes its figures from demo/, which has no piece:
+ * its receipt never built a canvas, a plate cap or a `dsAnimate` hold. The
+ * corpus brings its own.
+ */
+describe("the perturbation sweep's corpus", () => {
+  it("builds a piece on claim-figure at every level of its axis, one per deck", async () => {
+    type Cell = { beatId: string; level: number };
+    type Fig = { id: string; kind?: string };
+    const corpus = (await import(
+      new URL("../scripts/sweep-perturbations.mjs", import.meta.url).href
+    )) as {
+      CELLS: Cell[];
+      deckBeat: (cell: Cell, src: { figures: Fig[] }, core: object) => Record<string, unknown>;
+      PIECE_SRC: string;
+      PIECE_AUTHOR: string;
+    };
+    const demo = readFileSync(new URL("../demo/source.json", import.meta.url), "utf8");
+    const core = { intent: "the perturbation sweep", evidence: [], weight: 1, seconds: 9 };
+
+    const levels: number[] = [];
+    for (const cell of corpus.CELLS) {
+      const src = JSON.parse(demo) as { figures: Fig[] };
+      const beat = corpus.deckBeat(cell, src, core);
+      const pieceIds = src.figures.filter((f) => f.kind === "piece").map((f) => f.id);
+      if (pieceIds.length === 0) continue;
+      expect(pieceIds).toHaveLength(1);
+      levels.push(cell.level);
+      const scene = emitScene(beatSchema.parse(beat), {
+        source: sourceSchema.parse(src),
+        format: FORMATS["deck-16x9"] as Format,
+        theme: resolveTheme("ink"),
+        sid: "s2",
+        start: 0,
+      });
+      expect(scene.html).toContain(`<canvas id="s2-pc" ${PIECE_ATTR}`);
+      expect(scene.plugins).toEqual(["dsAnimate"]);
+    }
+    expect(levels).toEqual([0, 1, 2]);
+
+    // The file the sweep writes passes the build's own refusals and mounts.
+    load(await assemblePiece("fig-piece", corpus.PIECE_SRC, corpus.PIECE_AUTHOR));
+    expect(() =>
+      mount(fakeCanvas("s2-pc"), "fig-piece", { seconds: 4, fps: 30, hand: "serif" }),
+    ).not.toThrow();
   });
 });
 
