@@ -1,5 +1,6 @@
 > Paths under `~/.blackhole/DeckSmith/2026-10-09/` are disposable scratch from the spike session and may no longer exist. Upstream: cth9191/animate @ 7e5eb56 (MIT).
 > Amended by `2026-10-09-animate-piece-spike.md`: its seven conditions override this design wherever they disagree.
+> Corrected after review to match what was built: the kit lives in `src/build/animate/` and is NOT patched (one piece per deck instead), the tween value is seconds, `assets/**/*.js` is what verify scans, and nothing pins a `dist/ds-animate.js` hash. Where a line below says otherwise it was the plan, not the code.
 
 # Design: an animate piece as a figure kind, `kind: "piece"`, drawn by `claim-figure`
 
@@ -47,14 +48,12 @@ It must **not** define `FPS/W/H/HAND/DURATION/NFRAMES/TIMELINE`; DeckSmith injec
 
 ## 2. Files
 
-**Vendored, MIT** (`LICENSE` copyright 2026 cth9191) into `src/emit/animate/`:
+**Vendored, MIT** (`LICENSE` copyright 2026 cth9191) into `src/build/animate/`:
 - `core.js` (28,964 B)
 - `morph.js` (9,520 B)
 - `cut-paper.js` (17,537 B)
 - `LICENSE`, copied verbatim
-- `NOTICE`: upstream URL, SHA `7e5eb56`, and the patch list:
-  - `morph.js:79`: drop the `getElementById('c')` fallback
-  - `morph.js:130-131`: drop the `window.renderFrame` and `window.anchorAt` writes
+- `NOTICE`: upstream URL, SHA `7e5eb56`, each file's sha256, and "NOT PATCHED". The plan was to drop `morph.js:79`'s `getElementById('c')` fallback and the `window.renderFrame`/`window.anchorAt` writes at :130-131; spike condition 4 offered "one piece per deck OR patch", and the implementation took the limit (`composition.ts` refuses a second piece). Those lines are still there, so lifting the limit needs the patch first.
 
 Only cut-paper ships in v1. It and `core.js` call `getImageData` zero times (counted), so the GPU-to-CPU raster flip (`.planning/2026-09-06-canvas-seek-purity.md`) cannot happen. Riso and pixel read back pixels and are deferred. Isometric's `SANS` (`kit.js:18`) would need a patch.
 
@@ -76,17 +75,17 @@ Only cut-paper ships in v1. It and `core.js` call `getImageData` zero times (cou
 |---|---|
 | `types.ts:44` | `z.enum(["image","clip","piece"])`; doc comment on `seconds` :82 says "clip or piece" |
 | `composition.ts:117-120` | `PLUGINS.dsAnimate = {src:"./vendor/ds-animate.js", global:"DSAnimatePlugin"}`. The door check at :632 already enforces it. |
-| `scripts/build.mjs:87-96` | a second esbuild entry, `animate-runtime.ts` → `dist/ds-animate.js`; also copy `src/emit/animate/*` → `dist/animate/` |
+| `scripts/build.mjs:87-96` | a second esbuild entry, `animate-runtime.ts` → `dist/ds-animate.js`; also copy `src/build/animate/*` → `dist/animate/` |
 | `build/files.ts:131-139` | `wanted("ds-animate.js")` branch, like the ds-morph one |
 | `build/files.ts:166-196` `copyAssets` | for a `piece` figure, write the **assembled** `out/assets/<src>` instead of a raw copy (below). The containment check at :191 is unchanged. |
 | `claim-figure.ts:297` `plate()` | piece branch: `<canvas id="${sid}-pc" width=W height=H>`, `el:"canvas"` |
-| `claim-figure.ts:~549` return | for a piece, add:<br>`measure:["DSAnimate.mount(document.getElementById('${sid}-pc'),'${id}')"]`<br>`plugins:["dsAnimate"]`<br>one tween `tween('#${sid}-pc',{dsAnimate:0},{dsAnimate:1,duration:dur,ease:"none"},at)`<br>holds `holdsWithin([at+dur+0.3], beat.seconds)`<br>Throws by name if `at+dur+tail > beat.seconds` |
+| `claim-figure.ts:~549` return | for a piece, add:<br>`measure:["DSAnimate.mount(document.getElementById('${sid}-pc'),'${id}')"]`<br>`plugins:["dsAnimate"]`<br>one tween `tween('#${sid}-pc',{dsAnimate:0},{dsAnimate:dur,duration:dur,ease:"none"},at)` (the value is the piece's own second, spike condition 5)<br>holds `holdsWithin([max(at+dur+0.3, 2.4)], beat.seconds)`, never before the slide has entered<br>Throws by name if `at+dur+tail > beat.seconds` |
 | `<script src="assets/<src>">` | emitted by the piece branch in `html` |
-| `verify/index.ts:1057-1075` | `readCompositions`, or a sibling feeding only `scanDeterminism`, also reads `assets/**/*.piece.js`. Otherwise the scan at :116 is blind to the only file holding author code. |
+| `verify/index.ts:1057-1075` | `readAssetScripts`, a sibling feeding only `scanDeterminism`, reads `assets/**/*.js`. Otherwise the scan at :116 is blind to the only file holding author code. claim-figure refuses a piece `src` not ending in `.js`, which the scan would skip. |
 | the five guards in §0 | refuse `piece` by name, as clips are refused |
 | `plan/prompt.ts:809-837` | inventory line: "piece: claim-figure only" |
 
-**Assembled piece file.** Each piece becomes one IIFE, so pieces cannot collide in global scope (invariant 3):
+**Assembled piece file.** As planned below; as built (`src/build/piece.ts`) it is the body of a factory registered as `DSAnimate.pieces[id] = function (cfg) {…}`, called by `mount`, which also throws when the author's last `ERA_LIST`/`SHOTS` entry does not end at `DURATION`. Each piece is one function scope, so pieces cannot collide in global scope (invariant 3):
 
 ```
 (function(){"use strict";
@@ -112,17 +111,17 @@ DeckSmith keeps its own narration, timing and render path.
 
 ## 4. Invariants
 
-1. **Seek.** `renderFrame` is pure in t (`morph.js:81-88`) and repaints from a clean sheet (:65). It is called only from the plugin's `render`, which runs during the seek. With no `?export` there is no rAF, because score-head is not assembled.
+1. **Seek.** `renderFrame` is pure in t (`morph.js:81-88`) and repaints from a clean sheet (:65). It is called only from the plugin's `render`, which runs during the seek. With no `?export` there is no rAF, because score-head is not assembled; an author file that schedules its own (`requestAnimationFrame`, `setTimeout`, `setInterval`) or loads a `new Image()` fails the determinism scan.
 2. **fromTo.** One `tween()` → `tweenText`, typed (`kit.ts:336-370`).
-3. **Scoped.** The target is `#${sid}-pc`. All piece globals live inside the IIFE, and `getElementById('c')` is patched out.
+3. **Scoped.** The target is `#${sid}-pc`. All piece globals live inside the factory. `getElementById('c')` and the `window.renderFrame` write are NOT patched out (see §2): a deck holds one piece, which is what makes them harmless.
 4. **No clock, random or network.** The kit is clean (seeded mulberry32, `core.js:10-36`). The assembled file is scanned by the extended `scanDeterminism`. The script is a local relative path, as `vendor/` already is.
-5. **≥40px.** The canvas carries **no text**, and `fillText`/`strokeText` throw at runtime on any canvas while the piece runs. That covers `core.js:415` and cut-paper's `handText` (:21), and so `monoText`, `tag`, `yearTag`, `capStrip` and `cat`. It does NOT cover `handwrite` (`core.js:433`), which draws letterforms as `ink` strokes; nothing refuses it. The claim stays DOM text, so `scanTypeFloor` and `apparent.ts` still apply. This is the condition the WebGL spike already set (no text in canvas).
+5. **≥40px.** The canvas carries **no text**, and `fillText`/`strokeText` throw at runtime on any canvas while the piece runs. That covers `core.js:415` and cut-paper's `handText` (:21), and so `monoText`, `tag`, `yearTag`, `capStrip` and `cat`. It does NOT cover `handwrite` (`core.js:433`), which draws letterforms as `ink` strokes; `assemblePiece` refuses a call to it by name at build, and an alias slips through. The claim stays DOM text, so `scanTypeFloor` and `apparent.ts` still apply. This is the condition the WebGL spike already set (no text in canvas).
 6. **Ambient.** The canvas changes only inside the tween window. Holds and slide edges are static frames. No CSS animation is added.
 7. **deck.html.** Untouched. `emitDeckPage` never sees the piece.
 8. **Holds in window.** `holdsWithin` plus the emitter's throw when the piece does not fit. `emitIsland` (:39) stays the backstop.
 9. **Fonts.** No canvas text means no canvas font. `HAND` is injected as the theme family only so that `handW`'s `measureText` (cut-paper :29) cannot reach an undeclared family.
 10. **3dp.** `at` and `dur` are rounded with `Math.round(x*1000)/1000` before `tween()`.
-11. **No callbacks.** Plugin `render` only. A test asserts the substrings `onUpdate` and `onComplete` never appear in the piece branch's output.
+11. **No callbacks.** Plugin `render` only. `test/emit.test.ts` ("pieces") asserts `onUpdate`, `onStart` and `onComplete` never appear in a piece deck's composition.
 
 ## 5. Gates and tests
 
@@ -132,18 +131,18 @@ DeckSmith keeps its own narration, timing and render path.
   - throws when there is no `seconds`
 - Refusal tests in `split-compare` and `annotated-figure` for `kind:"piece"`.
 - `test/wiring.test.ts`:
-  - pin the `dist/ds-animate.js` hash
+  - pin the `dist/ds-animate.js` hash (NOT done: what is pinned is each vendored kit file's sha256, against NOTICE)
   - a deck with no piece is byte-identical (no `ds-animate` tag, nothing in `vendor/`)
   - the vendored kit passes `NONDETERMINISM`
   - `LICENSE` and `NOTICE` exist in `dist/animate`
 - Verify test: an author piece containing `Math.random(` fails `scanDeterminism`.
 - Browser test, in the style of `capture-parity`: on a fixture piece, screenshots after a forward seek and after a reverse seek match (animate's `tile.mjs` idea, using screenshots, not `toDataURL`); and a piece that calls `fillText` makes the page error.
-- `scripts/sweep-perturbations.mjs`: add `b11-claim-figure-piece`, then `npm run sweep` and commit `ledger.json`. This is mandatory for any `src/` change.
+- `scripts/sweep-perturbations.mjs`: add a piece cell (built as `b13-claim-figure-piece`: a cell's beat id is its first three characters, so a `b11-…` cell would collide with `b11-claim-figure`), then `npm run sweep` and commit `ledger.json`. This is mandatory for any `src/` change.
 - **Human gate.** Render the fixture deck, run `drift` (PSNR floor 40 dB), and **watch the mp4**. Per AGENTS.md, a green gate is not evidence. Done 2026-10-09 on a two-era piece built through `decksmith build` (README, "Animated pieces"): `verify` PASS, `render -w 1` 360 frames, ten stills looked at (night, bridge, morning, last frame held), `drift --workers 1` 360/360 byte-identical, a second render the same md5.
 
 ## 6. Risks and limits
 
-- **No text on the canvas.** animate's captions, tags and DEFER overlays (`cut-paper/kit.js:179-180`) are unusable: `handText`, `tag`, `yearTag`, `capStrip`, `monoText` and `cat` fail `verify`; `handwrite` is not caught and must not be used. Labels go in claim-figure's DOM. A canvas type-floor probe could lift this later (animate `textcheck.mjs:15-30`). Not in v1.
+- **No text on the canvas.** animate's captions, tags and DEFER overlays (`cut-paper/kit.js:179-180`) are unusable: `handText`, `tag`, `yearTag`, `capStrip`, `monoText` and `cat` fail `verify`; `handwrite` is refused at build when called by name. Labels go in claim-figure's DOM. A canvas type-floor probe could lift this later (animate `textcheck.mjs:15-30`). Not in v1.
 - **One style.** Riso and pixel do readbacks, so the raster flip is unmeasured for them. Others need font patches.
 - **Bytes.** About 56 KB of kit per piece, because each IIFE inlines it (61,216 B assembled for the two-era end-to-end deck, MIT header included).
 - **Draw cost.** The spike measured three draw passes per render frame, from hyperframes' transport seek. The frame memo makes that one (browser-tested: 5 draws on a fresh page's first seek without it, 1 with it); render time with the memo is not measured. Cut-paper stipple runs up to 4,500 points per call.
