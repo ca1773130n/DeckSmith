@@ -12,12 +12,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cacheKey, canonical, type KeyInput, SceneCache } from "../src/bespoke/cache.js";
+import { CARDS_VERSION } from "../src/bespoke/cards.js";
 import type { Fragment } from "../src/bespoke/contract.js";
 import {
   assignDevices,
   Budget,
   bespokePass,
   deviceName,
+  GATE_STAMP,
   type GateFn,
   type GateResult,
   lanes,
@@ -460,6 +462,47 @@ describe("the bespoke pass", () => {
       expect(s.reason).toMatch(/card_row/);
       expect(s.calls).toBe(2);
     }
+  });
+
+  it("never asks card_row about a data beat, whose bars of close values are alike by design", async () => {
+    const bars: Fragment = {
+      ...SCENE,
+      markup: SCENE.markup.replace(
+        '<g id="SCENEID-b" data-cue="2"></g>',
+        `<g id="SCENEID-b" data-cue="2">${[0.82, 0.86, 0.9, 0.94]
+          .map(
+            (v, i) =>
+              `<rect x="${100 + i * 400}" y="${600 - 560 * v}" width="180" height="${560 * v}" fill="#4a7"/>`,
+          )
+          .join("")}</g>`,
+      ),
+    };
+    const { run } = fake(() => bars);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 40 }) });
+    const data = r.report.scenes.filter((s) => s.data);
+    expect(data.length).toBeGreaterThan(0);
+    for (const s of data) expect(s.status).toBe("bespoke");
+    // The same bars on a beat that is not a chart are still a row of cards.
+    const other = r.report.scenes.filter((s) => !s.data);
+    expect(other.length).toBeGreaterThan(0);
+    for (const s of other) expect(s.reason).toMatch(/card_row/);
+  });
+
+  it("stamps a cached rejection with card_row's version, so loosening it asks again", async () => {
+    const cards: Fragment = {
+      ...SCENE,
+      markup: SCENE.markup.replace(
+        '<g id="SCENEID-b" data-cue="2"></g>',
+        `<g id="SCENEID-b" data-cue="2">${[0, 1, 2, 3].map((i) => `<rect x="${40 + i * 420}" y="120" width="380" height="320" fill="#333"/>`).join("")}</g>`,
+      ),
+    };
+    const { run } = fake(() => cards);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 4 }) });
+    const rejected = r.report.scenes.find((s) => s.status === "fallback");
+    const hit = await new SceneCache(cacheDir).get(rejected?.key ?? "");
+    expect(hit?.verdict).toBe("rejected");
+    expect(GATE_STAMP).toContain(CARDS_VERSION);
+    expect(hit?.gates).toBe(GATE_STAMP);
   });
 
   it("never has more Codex calls in flight than its lanes, pictures and scenes alike, and frees a lane on a failure", async () => {

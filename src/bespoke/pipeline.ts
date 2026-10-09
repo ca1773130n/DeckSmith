@@ -64,7 +64,7 @@ import {
 } from "./art.js";
 import { cacheKey, canonical, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
 import { calloutZones, fitLabel, type Label, longestFit } from "./callouts.js";
-import { cardRow } from "./cards.js";
+import { CARDS_VERSION, cardRow } from "./cards.js";
 import { checkFragment, type Fragment, motionKinds } from "./contract.js";
 import { FLAT_MIN, flatEnough, type Inspection, inspectPicture } from "./inspect.js";
 import {
@@ -231,6 +231,12 @@ interface Reply {
 
 /** Codex's own words for "no more today" — any of these stops every remaining call. */
 const QUOTA = /usage limit|rate.?limit|quota|429|too many requests|exceeded|insufficient/i;
+
+/**
+ * What a cached verdict was reached under: the browser's gates and the static
+ * `card_row`. A rejection stamped otherwise is asked about again.
+ */
+export const GATE_STAMP = `${GATES_VERSION}+${CARDS_VERSION}`;
 
 /** One scene call's ceiling when the prefs name none (`bespoke.callSeconds`). */
 const CALL_SECONDS = 600;
@@ -709,7 +715,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     version: 1,
     model,
     promptVersion: PROMPT_VERSION,
-    gates: GATES_VERSION,
+    gates: GATE_STAMP,
     contractVersion: CONTRACT_VERSION,
     caps: { calls: prefs.maxCalls, seconds: prefs.maxSeconds },
     calls: budget.calls,
@@ -1217,7 +1223,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     if (hit?.verdict === "accepted" && hit.fragment && statics(b, hit.fragment).length === 0) {
       b.cached = hit.fragment;
       step(`bespoke: ${b.beat.id} from cache`);
-    } else if (hit?.verdict === "rejected" && hit.gates === GATES_VERSION) {
+    } else if (hit?.verdict === "rejected" && hit.gates === GATE_STAMP) {
       b.stop = `cached rejection: ${hit.note}`;
       b.earned = true;
       step(`bespoke: ${b.beat.id} — cached rejection, keeping the archetype`);
@@ -1296,15 +1302,19 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     else if (b.draft && b.draftFindings.length === 0) draftMap[b.beat.id] = entry(b, b.draft);
   }
   const regionOf = new Map(work1.map((b) => [b.beat.id, b.brief.region]));
+  const dataBeats = new Set(work1.filter((b) => b.brief.data).map((b) => b.beat.id));
   const gate = async (m: BespokeMap, round: GateRound) => {
     if (Object.keys(m).length === 0) return new Map<string, GateResult>();
     try {
       const out = await input.gate(m, round);
       // `card_row` (src/bespoke/cards.ts): read off the markup, judged with the
       // browser's gates so a draft it flags still goes to its critique with frames.
+      // Never on a data beat: its prompt asks for bars, and bars of close values
+      // are alike rectangles in a row (a 0.82-0.94 chart was flagged and cached).
       for (const [id, e] of Object.entries(m)) {
+        if (dataBeats.has(id)) continue;
         const region = regionOf.get(id);
-        const why = region ? cardRow(e.fragment.markup, region) : undefined;
+        const why = region ? cardRow(e.fragment.markup, region, e.fragment.css) : undefined;
         if (!why) continue;
         const g = out.get(id) ?? { findings: [], failed: false };
         out.set(id, { ...g, findings: [...g.findings, `error card_row: ${why}`], failed: true });
@@ -1551,7 +1561,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         calls: b.calls,
         model,
         promptVersion: PROMPT_VERSION,
-        gates: GATES_VERSION,
+        gates: GATE_STAMP,
         ...(b.art ? { art: b.art.key } : {}),
       });
       scenes.push(
@@ -1587,7 +1597,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         calls: b.calls,
         model,
         promptVersion: PROMPT_VERSION,
-        gates: GATES_VERSION,
+        gates: GATE_STAMP,
       });
     }
     const last = b.fixed ? withKinds(gb?.metrics, b.fixed) : b.draftMetrics;

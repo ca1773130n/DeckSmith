@@ -431,4 +431,78 @@ describe("card_row: cards, panels or tiles as the main visual", () => {
     // Two cards are a comparison, not a template row.
     expect(cardRow(svg(card(100, 150, 600, 300) + card(900, 150, 600, 300)), box)).toBeUndefined();
   });
+
+  it("counts a card drawn twice in one place (a fill and its outline) once", () => {
+    const twice = (x: number) =>
+      card(x, 150, 600, 300) +
+      `<rect x="${x}" y="150" width="600" height="300" rx="24" fill="none" stroke="#fff"/>`;
+    expect(cardRow(svg(twice(100) + twice(900)), box)).toBeUndefined();
+  });
+
+  it("sees cards placed by a nested <svg>, a rotate(0) or an axis-aligned matrix", () => {
+    const nested = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<svg x="${60 + i * 540}" y="140" width="400" height="320">${card(0, 0, 400, 320)}</svg>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(nested, box)).toMatch(/row of 3/);
+    // A nested viewBox scales what it holds: 4000 units drawn into 400px.
+    const zoomed = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<svg x="${60 + i * 540}" y="140" width="400" height="320" viewBox="0 0 4000 3200">${card(0, 0, 4000, 3200)}</svg>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(zoomed, box)).toMatch(/row of 3/);
+    const rotated = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<g transform="translate(${60 + i * 540} 140) rotate(0)">${card(0, 0, 400, 320)}</g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(rotated, box)).toMatch(/row of 3/);
+    const matrix = svg(
+      [0, 1, 2]
+        .map(
+          (i) => `<g transform="matrix(1 0 0 1 ${60 + i * 540} 140)">${card(0, 0, 400, 320)}</g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(matrix, box)).toMatch(/row of 3/);
+    // A real rotation is not read: no claim either way.
+    const turned = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<g transform="translate(${60 + i * 540} 140) rotate(30)">${card(0, 0, 400, 320)}</g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(turned, box)).toBeUndefined();
+  });
+
+  it("sees <div> cards placed in px, inline or by their #id rule, and not an unpainted wrapper", () => {
+    const div = (i: number, style = "") =>
+      `<div id="SCENEID-c${i}" style="position:absolute;left:${60 + i * 540}px;top:140px;width:400px;height:320px;${style}"></div>`;
+    const inline = `<div id="SCENEID-row">${[0, 1, 2].map((i) => div(i, "background:#223;border-radius:24px")).join("")}</div>`;
+    expect(cardRow(inline, box)).toMatch(/row of 3/);
+    // Unpainted, the same boxes are layout, not cards.
+    expect(cardRow(`<div>${[0, 1, 2].map((i) => div(i)).join("")}</div>`, box)).toBeUndefined();
+    const byRule = `<div>${[0, 1, 2].map((i) => `<div id="SCENEID-k${i}"></div>`).join("")}</div>`;
+    const css = [0, 1, 2]
+      .map(
+        (i) =>
+          `#SCENEID-k${i} { position: absolute; left: ${60 + i * 540}px; top: 140px; width: 400px; height: 320px; background-color: #223; }`,
+      )
+      .join("\n");
+    expect(cardRow(byRule, box, css)).toMatch(/row of 3/);
+    expect(cardRow(byRule, box)).toBeUndefined();
+  });
 });
