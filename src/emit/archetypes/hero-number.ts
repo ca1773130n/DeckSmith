@@ -20,6 +20,13 @@
  * rather than two figures it has to divide. Otherwise the baseline is a second,
  * smaller figure.
  *
+ * NOT BARS WHEN BARS SAY "EQUAL". On one zero-based scale 29.73 against 30.56
+ * is two bars 20px apart in 730 (ko e2e round 2, b09 and b11): the one visual
+ * argument of the slide read as "the same". Past `NEAR` the baseline is the
+ * smaller figure instead, with the signed difference after it in the accent —
+ * the difference is the claim, so it is what the viewer is given. A truncated
+ * axis would show the gap and lie about the scale; this does neither.
+ *
  * Never on the pack's pale ground: `emitScene` sets it over its `backdrop`, or
  * over the accent field (src/emit/backdrop.ts), and emits it in the glass theme
  * either way — so every ink here is light, and its contrast is that module's
@@ -74,6 +81,8 @@ const ROW_MAX_LINES = 2;
 const VALUE_COL = 0.24;
 /** A figure-only comparison line. */
 const VERSUS_SIZE = 56;
+/** Bars only when the shorter is at most this share of the longer — see the header. */
+export const NEAR = 0.85;
 /** Vertical rhythm between blocks, and the larger step before the sentence. */
 const GAP = 28;
 const HEAD_GAP = 52;
@@ -120,6 +129,19 @@ export function plainNumber(s: string): number | undefined {
   return Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
+/**
+ * `value - compare`, signed, at the finer of the two's decimal places, with the
+ * unit: "+0.83 dB". Only called when both are plain numbers.
+ */
+export function signedDelta(value: string, compare: string, unit?: string): string {
+  const places = (s: string) => /\.(\d+)/.exec(s.replace(/[,\s]/g, ""))?.[1]?.length ?? 0;
+  const dp = Math.max(places(value), places(compare));
+  const d = (plainNumber(value) ?? 0) - (plainNumber(compare) ?? 0);
+  const mag = Math.abs(d).toFixed(dp);
+  const sign = Number(mag) === 0 ? "±" : d > 0 ? "+" : "−";
+  return `${sign}${mag}${unit ? ` ${unit}` : ""}`;
+}
+
 export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   const { sid, theme, format } = ctx;
   const p = beat.params;
@@ -140,7 +162,10 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
 
   const a = p.compare ? plainNumber(p.compare.value) : undefined;
   const b = plainNumber(p.value);
-  const bars = p.compare !== undefined && a !== undefined && b !== undefined;
+  const plain = p.compare !== undefined && a !== undefined && b !== undefined;
+  const bars = plain && Math.min(a, b) / Math.max(a, b) <= NEAR;
+  // Too close for bars: the signed difference, in the value's own precision.
+  const delta = plain && !bars ? signedDelta(p.value, p.compare?.value ?? "", p.unit) : "";
 
   // THE WORDS FIRST: their height does not depend on the number's size.
   const head = wrap(p.headline, HEAD_SIZE, W * MEASURE_SLACK, weight, 0, dFace);
@@ -170,7 +195,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   const versus =
     p.compare && !bars
       ? wrap(
-          `${p.compare.value}${p.unit ? ` ${p.unit}` : ""} · ${p.compare.label}`,
+          `${p.compare.value}${p.unit ? ` ${p.unit}` : ""} · ${p.compare.label}${delta ? ` · ${delta}` : ""}`,
           VERSUS_SIZE,
           W * MEASURE_SLACK,
           500,
@@ -265,7 +290,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
     bars && p.compare
       ? `<div class="hn-bars">${row(0, p.compare.label, p.compare.value, a as number)}${row(1, p.label, p.value, b as number)}</div>`
       : versus.length
-        ? `<div class="hn-vs" id="${sid}-vs">${esc(versus[0] ?? "")}</div>`
+        ? `<div class="hn-vs" id="${sid}-vs">${esc(`${p.compare?.value}${p.unit ? ` ${p.unit}` : ""} · ${p.compare?.label}`)}${delta ? ` · <span class="hn-d">${esc(delta)}</span>` : ""}</div>`
         : "";
 
   const html = [
@@ -368,6 +393,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
       `#${ctx.sid} .hn-u{font-size:${unitSize}px;line-height:1;margin-left:${Math.round(size * UNIT_GAP)}px;margin-bottom:${Math.round(cell * 0.16)}px;font-weight:600;color:${theme.accent}}`,
       `.hn-l{font-size:${LABEL_SIZE}px;line-height:${LABEL_LH};font-weight:500;color:${theme.muted};margin-top:${GAP}px}`,
       `.hn-vs{font-size:${VERSUS_SIZE}px;line-height:1.2;font-weight:500;color:${theme.muted};margin-top:${GAP}px}`,
+      `.hn-d{font-weight:700;color:${theme.accent}}`,
       `.hn-bars{width:100%;margin-top:${BARS_TOP}px;display:flex;flex-direction:column;gap:${ROW_GAP}px}`,
       `.hn-row{display:grid;align-items:center;font-size:${ROW_SIZE}px;line-height:${ROW_LH}}`,
       `#${ctx.sid} .hn-row{grid-template-columns:${labelColW}px 1fr ${valueColW}px}`,

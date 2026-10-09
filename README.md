@@ -1360,7 +1360,9 @@ large as the frame holds (160–560px) and rolls each digit in on a reel — a s
 0-9 clipped to one cell with `clip-path`, its `y` tweened a whole number of cells, the
 right-hand reels turning most and every reel landing left to right. No counter is
 written from a callback (invariant 11). A `compare` whose value and `value` are both
-plain numbers is drawn as two bars to one scale, the baseline first; otherwise as a
+plain numbers is drawn as two bars to one scale, the baseline first — unless the
+shorter would be over 85% of the longer, when bars read as "equal" and the baseline
+is a second figure followed by the signed difference ("+0.83 dB"); otherwise as a
 second figure. One stop, after the `headline` under it. `kinetic` sets two to four
 `phrases` as large as two lines each allow (64–120px), down a slight stair; each
 arrives word by word with its own move (rise, slide, drop or zoom, the first seeded by

@@ -10,7 +10,12 @@
  * the frames' business, and is not claimed here.
  */
 import { describe, expect, it } from "vitest";
-import { heroNumber, plainNumber, turnsOf } from "../src/emit/archetypes/hero-number.js";
+import {
+  heroNumber,
+  plainNumber,
+  signedDelta,
+  turnsOf,
+} from "../src/emit/archetypes/hero-number.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { fieldColour, glass } from "../src/emit/backdrop.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
@@ -161,6 +166,27 @@ describe("hero-number", () => {
     expect(plainNumber("1,024")).toBe(1024);
     expect(plainNumber("75.1%")).toBeUndefined();
     expect(plainNumber("1/4")).toBeUndefined();
+  });
+
+  it("gives the signed difference instead of two bars that would read as equal", () => {
+    // ko e2e round 2, b09: 30.56 against 29.73 on one zero-based scale drew two
+    // bars 20px apart in 730, and the slide's one argument read as "the same".
+    const near = heroNumber(
+      beat({ value: "30.56", unit: "dB", compare: { value: "29.73", label: "DehazeFormer-b" } }),
+      ctx(),
+    );
+    expect(near.html).not.toContain("hn-bars");
+    expect(near.html).toContain(
+      '<div class="hn-vs" id="s3-vs">29.73 dB · DehazeFormer-b · <span class="hn-d">+0.83 dB</span></div>',
+    );
+    // The label goes back under the number, where the bars' row had carried it.
+    expect(near.html).toContain('id="s3-l"');
+    expect(signedDelta("0.9106", "0.92")).toBe("−0.0094");
+    expect(signedDelta("1,024", "1024")).toBe("±0");
+    // Far enough apart, the bars stay: a quarter is a length the eye takes in.
+    expect(heroNumber(beat({ compare: { value: "175.21", label: "b" } }), ctx()).html).toContain(
+      "hn-bars",
+    );
   });
 
   it("widens the bar labels' column for a long label rather than refusing the slide", () => {
