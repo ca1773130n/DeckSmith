@@ -20,6 +20,20 @@
  */
 import type { MeasuredFace } from "./faces.js";
 
+/**
+ * The v2 type scale in px at 1920x1080, chosen by the founder on 2026-10-10
+ * ("the fonts are too large"): subtitles carry the words, on-slide text stays
+ * quiet. `floor` is AGENTS.md invariant 5. src/bespoke reads this too.
+ */
+export const TYPE_SCALE = {
+  headline: 56,
+  body: 44,
+  label: 40,
+  kicker: 40,
+  caption: 40,
+  floor: 40,
+} as const;
+
 /** A Latin face a deck can be measured in. `inter` is svg.ts's own table. */
 export type LatinFace = "inter" | MeasuredFace;
 
