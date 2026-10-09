@@ -35,6 +35,11 @@
  *
  *   An adjacent identical signature is excluded outright whenever any other
  *   candidate survived; the −1.0 only decides between beats with no alternative.
+ *   So is a candidate whose chrome sits where the previous beat's did, whenever
+ *   one that moves it survived: a pair is already a run. Scoring only three in a
+ *   row let the 2026-10-09 ko deck (chalk, whose affinity leans to the foot)
+ *   set its headline at the foot under a rule on b09 then b10 and b13 then b14,
+ *   7 of 11 chromed beats, which reads as one layout whatever the archetype.
  *
  * `fit` is `FIT_WEIGHT · Scene.fill`: the share of its body box the candidate's
  * body fills along the axis it grows on, as the emitter computed it while laying
@@ -171,7 +176,11 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
 
     const prev = sigs[i - 1];
     const notRepeat = viable.filter((v) => beatSignature(beat, v.look) !== prev);
-    const pool = notRepeat.length > 0 ? notRepeat : viable;
+    const lastPlaced = placed[i - 1];
+    const moved = notRepeat.filter(
+      (v) => lastPlaced === undefined || v.look.placement !== lastPlaced,
+    );
+    const pool = moved.length > 0 ? moved : notRepeat.length > 0 ? notRepeat : viable;
     let best: Look = classic;
     let bestFill: number | undefined;
     let bestScore = Number.NEGATIVE_INFINITY;

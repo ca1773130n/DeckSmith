@@ -98,9 +98,28 @@ describe("direct", () => {
     expect(d.summary.distinct).toBe(2);
   });
 
-  it("moves the chrome off the top of most slides", () => {
+  it("keeps the chrome off the top of all but about half the slides", () => {
     // The 92.7% mode the founder called "always the same" is chrome on top.
-    expect(direct(demo.beats, opts).summary.modalChrome).toBeLessThanOrEqual(0.5);
+    // 0.5 until 2026-10-09; 8 of 15 since a beat may no longer repeat the
+    // previous beat's placement: two of the demo's foot/foot pairs now move to
+    // the top, the only other place their archetypes offer. Alternating is the
+    // less "same" deck of the two.
+    expect(direct(demo.beats, opts).summary.modalChrome).toBeLessThanOrEqual(8 / 15);
+  });
+
+  it("never sets two neighbours' chrome in the same place when it can move it", () => {
+    // ko deck review, 2026-10-09: foot under a rule on b09 then b10, b13 then
+    // b14. Only `top` repeats in the demo, and only where an archetype has no
+    // other look (annotated-figure, grid, stack, data-table, line-chart).
+    const d = direct(demo.beats, opts).beats;
+    for (let i = 1; i < d.length; i++) {
+      const [a, b] = [d[i - 1], d[i]];
+      if (a?.placement === b?.placement)
+        expect(`${a?.beat}/${b?.beat}@${b?.placement}`).toMatch(/@top$/);
+    }
+    expect(
+      d.filter((b, i) => i > 0 && b.placement === "foot" && d[i - 1]?.placement === "foot"),
+    ).toEqual([]);
   });
 
   it("gives two papers with the same beats different decks", () => {
@@ -275,8 +294,13 @@ describe("design: the switch", () => {
     // rows of s14's table share its height and no row is lifted out of line.
     // Then s9's claim stops growing into its strip figure's classic height, so
     // the foot look keeps the figure at 1383x384 (classic draws it 1373x381).
+    // Then the 2026-10-09 ko-deck round, re-pinned after reading the demo's
+    // hold frames: no beat repeats the previous beat's placement (s3 row@foot
+    // → row@top, s14 panels@foot → rows@top), split-compare s13 grows its list
+    // and stops its divider at the lists, callout panels centre their content
+    // with balanced lines, and the stage headline is balanced.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "2d5091720ac3050ffe0db34fe303e17bff25c4f63799c36341d9fa8dac44a4d0",
+      "aea9805f916a64516c51cf04841a66bb2a46d27250fbf38e027433a3e3a61ad1",
     );
   });
 
