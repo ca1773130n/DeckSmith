@@ -259,11 +259,17 @@ DRAWING ARCHETYPES — reach here first
                  \`compare\` is the number it is read against — the baseline,
                  the before — with its own short \`label\` ("SFRDP-Net"); when
                  both are plain numbers in the one unit they are drawn as two
-                 bars to one scale, the baseline first. \`headline\` is one
-                 sentence of up to two lines saying what the number means.
-                 Several named things measured in one unit is bar-compare; one
-                 number that is the point is this. The number must be in the
-                 source, and \`evidence\` cites where.
+                 bars to one scale, the baseline first (or, when the two are
+                 within 15%, as the baseline and the signed difference).
+                 \`headline\` is one sentence of up to two lines saying what
+                 THIS number means, and claims nothing the screen does not
+                 show: a headline that says "both metrics" over one PSNR
+                 figure is contradicted by its own slide. A claim over two
+                 metrics is one hero-number per metric, or a bar-compare or
+                 data-table that shows both. Several named things measured in
+                 one unit is bar-compare; one number that is the point is
+                 this. The number must be in the source, and \`evidence\`
+                 cites where.
 
 DESCRIBING ARCHETYPES — the fallbacks
 
@@ -711,7 +717,10 @@ already has is not worth a slide of its own here.`
 `;
 }
 
-function illustrations(images: Prefs["images"]): string {
+function illustrations(images: Prefs["images"], design?: Prefs["design"]): string {
+  // In v2 an un-pictured bar-compare stands on the field too (V2_FIELD_ARCHETYPES).
+  const fielded =
+    design === "v2" ? "hero-number, kinetic or bar-compare" : "hero-number or kinetic";
   return `
 
 ILLUSTRATIONS
@@ -747,12 +756,11 @@ bar-compare, hero-number or kinetic beat may carry
 picture covers the whole frame behind the diagram, darkened, and the boxes,
 panels and bars are drawn over it as dark glass — the diagram keeps its shape
 and its words, and the slide becomes a scene instead of cards on a plain
-ground. A hero-number or kinetic beat WITHOUT a backdrop is still a scene: it
-fills the frame with a deep field of the deck's colour, and spends no picture.
+ground. A ${fielded} beat WITHOUT a backdrop is still a scene: it
+fills the frame with a deep field of the deck's colours, and spends no picture.
 Use them: a deck of ${STAGE_MIN_BEATS} beats or more has at least ${Math.round(SCENE_SHARE * 100)}% of its beats as
-scenes (a stage, a picture on a split-compare side, a backdrop, a hero-number
-or a kinetic claim — NOT a claim-figure or annotated-figure, which sit on the
-plain ground; a
+scenes (a stage, a picture on a split-compare side, a backdrop, a ${fielded}
+beat — NOT a claim-figure or annotated-figure, which sit on the plain ground; a
 ${2 * STAGE_EVERY + 6}-beat deck, ${scenesRequired(2 * STAGE_EVERY + 6, images)}), within the picture cap.
 
   - The brief is the WORLD the beat's point happens in, specific to that point:
@@ -783,8 +791,11 @@ no figure that can own the frame — no figures at all, or only plots — those
 stages carry \`illustration\` briefs: the scene the point is about, full-bleed,
 with the headline set over it. Spend them where the deck would otherwise be
 cards in a row: the problem in the world before the method, the setting a
-result matters in, the turn between two halves. Give consecutive stages
-different \`placement\`s. A plan with fewer stages than this is sent back.`;
+result matters in, the turn between two halves. A stage's picture shows what
+its headline says: a beat whose point is a result — scores, a comparison
+across datasets, a qualitative improvement — is a hero-number, a bar-compare,
+a data-table or a figure from the source, never a stage over a scenic picture
+that shows none of it. Give consecutive stages different \`placement\`s. A plan with fewer stages than this is sent back.`;
 }
 
 /**
@@ -800,7 +811,7 @@ export function systemPrompt(prefs: Prefs): string {
   // what it can be is honest, which is why the LENGTH block below now says the
   // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
-  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images) : ""}
+  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images, prefs.design) : ""}
 
 PREFERENCES — chosen by the person who asked for this deck.
 ${

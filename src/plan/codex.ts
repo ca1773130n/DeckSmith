@@ -243,7 +243,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     // looks like every other deck.
     const prompt = buildPrompt(source, prefs);
     const first = await ask(prompt);
-    const broken = varietyFindings(first, prefs.images);
+    const broken = varietyFindings(first, prefs.images, prefs.design);
     if (broken.length === 0) return first;
     opts.onRepair?.(broken);
     const second = await ask(repairPrompt(prompt, first, broken));
@@ -257,7 +257,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
             `the repair returned ${second.beats.length} beats for a plan of ${first.beats.length}; a repair changes shapes and may not drop beats.`,
           ]
         : []),
-      ...varietyFindings(second, prefs.images),
+      ...varietyFindings(second, prefs.images, prefs.design),
     ];
     if (still.length > 0) {
       throw new Error(

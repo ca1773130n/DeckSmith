@@ -490,6 +490,29 @@ describe("the prompt's illustrations block", () => {
     expect(on).toMatch(/consecutive stages\s+different `placement`s/);
   });
 
+  // Round 2 of the ko e2e: two hero-numbers said "both quality metrics" over one
+  // PSNR figure, and two stages laid "four splits" and "structure and colour
+  // improve" over scenic pictures that showed neither.
+  it("holds a headline to what its screen shows, and a stage's picture to its headline", () => {
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(on).toMatch(/claims nothing the screen does not\s+show/);
+    expect(on).toMatch(/A claim over two\s+metrics is one hero-number per metric/);
+    expect(on).toMatch(/A stage's picture shows what\s+its headline says/);
+    expect(on).toMatch(/never a stage over a scenic picture\s+that shows none of it/);
+  });
+
+  // In v2 an un-pictured bar-compare stands on the field, so it counts as a
+  // scene there and only there; a figure card never does.
+  it("names the field archetypes as scenes for the design the deck is built in", () => {
+    const v2 = systemPrompt(prefsSchema.parse({ images: { enabled: true }, design: "v2" }));
+    const classic = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(v2).toMatch(/A hero-number, kinetic or bar-compare beat WITHOUT a backdrop/);
+    expect(classic).toMatch(/A hero-number or kinetic beat WITHOUT a backdrop/);
+    expect(classic).toMatch(
+      /NOT a claim-figure or annotated-figure, which sit on the plain ground/,
+    );
+  });
+
   // Round 1's ten scenes in fourteen were nine panels over pictures; the cap
   // is stated from the number the plan is checked against, and numbers and
   // claims are named as scenes that spend no picture.

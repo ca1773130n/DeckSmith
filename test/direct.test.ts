@@ -334,8 +334,10 @@ describe("design: the switch", () => {
     // → row@top, s14 panels@foot → rows@top), split-compare s13 grows its list
     // and stops its divider at the lists, callout panels centre their content
     // with balanced lines, and the stage headline is balanced.
+    // Then round 3 of that review: s10's bar-compare stands on the field in
+    // glass (read at its last hold, 83.45s), with dim below the lifted tones.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "aea9805f916a64516c51cf04841a66bb2a46d27250fbf38e027433a3e3a61ad1",
+      "64d9378a066d5bd114710d5dfca8ed8900fd25913489bfaaf6dab698a86a6e13",
     );
   });
 

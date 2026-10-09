@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { barCompare } from "../src/emit/archetypes/bar-compare.js";
+import { emitScene } from "../src/emit/archetypes/index.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { contentW, tweenText } from "../src/emit/kit.js";
 import { textWidth } from "../src/emit/svg.js";
+import { isScene } from "../src/plan/variety.js";
 import type { BeatOf, Format, Source } from "../src/types.js";
 import { FORMATS } from "../src/types.js";
 
@@ -484,5 +486,21 @@ describe("bar-compare in portrait", () => {
     const rail = rails(html)[0] as { x: number };
     expect(rail.x).toBeGreaterThan(100);
     expect(/class="bc-lab"[^>]*text-anchor="end"/.test(html)).toBe(true);
+  });
+});
+
+describe("bar-compare on the field", () => {
+  // Round 2 of the 2026-10-09 ko e2e: b10, a plain bar chart on the pale
+  // dotted ground between two panels. In v2 it stands on the field, as a
+  // hero-number does; classic is v0.8.0 exactly and keeps its ground.
+  it("stands on the field in v2 without a backdrop, and on its own ground in classic", () => {
+    const v2 = emitScene(MINIMAL, { ...ctx("s7"), design: "v2" });
+    expect(v2.html).toMatch(/^<div class="fd" id="s7-fd"/);
+    expect(v2.css).toContain("color:#f4f6fa");
+    expect(isScene(MINIMAL, "v2")).toBe(true);
+
+    const classic = emitScene(MINIMAL, ctx("s7"));
+    expect(classic.html).not.toContain('class="fd"');
+    expect(isScene(MINIMAL)).toBe(false);
   });
 });

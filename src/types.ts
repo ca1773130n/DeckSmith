@@ -219,6 +219,14 @@ export const BACKDROP_ARCHETYPES = [
 export const FIELD_ARCHETYPES = ["hero-number", "kinetic"] as const;
 
 /**
+ * Archetypes that stand on the field in v2 only. A bar-compare with no backdrop
+ * was the one chart left on the pale ground in round 2 of the 2026-10-09 ko
+ * e2e (b10, a plain bar chart between two panels); classic is v0.8.0 exactly
+ * and keeps drawing it on its ground.
+ */
+export const V2_FIELD_ARCHETYPES = ["bar-compare"] as const;
+
+/**
  * The id prefix `illustrate` gives every figure it draws (`gen-b03`,
  * `gen-b04-left`). Such a figure is the DECK's, not the document's: it was
  * drawn from a brief the planner wrote, so nothing that sizes a deck to what

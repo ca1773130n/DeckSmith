@@ -1352,7 +1352,8 @@ cropped by more than 30% to fill the frame. With `--reserve-captions` the pictur
 above the caption strip. The planner is told to reach for it when a visual should own the
 screen, and, under RULE 1's variety rule, to give consecutive stages different placements.
 
-`hero-number` and `kinetic` are full-bleed too, and need no picture. Without a
+`hero-number` and `kinetic` are full-bleed too, and need no picture (in `--design v2` so
+is a `bar-compare`, which classic still draws on its ground). Without a
 `backdrop` they stand on a field of one of the pack's colours — the accent and each tone in
 turn, by the beat's place in the deck, so field beats near each other differ — darkened
 until it is no lighter

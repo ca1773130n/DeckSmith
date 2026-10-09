@@ -23,7 +23,7 @@
  * keeps the deck's content the planner's.
  */
 import type { Prefs } from "../prefs.js";
-import type { Archetype, Beat, Storyboard } from "../types.js";
+import type { Archetype, Beat, Design, Storyboard } from "../types.js";
 
 /** A deck this long must carry stage beats. Below it there is no room to spend one. */
 export const STAGE_MIN_BEATS = 8;
@@ -80,14 +80,15 @@ export function scenesRequired(beats: number, images: Prefs["images"]): number {
  * with a picture, or a diagram over a `backdrop`. A brief counts as a figure
  * does — it is a picture by the time anyone sees the deck. A hero number and a
  * kinetic claim are scenes with or without one: with none they fill the frame
- * with a field of colour, never the pale ground.
+ * with a field of colour, never the pale ground — and so, in v2, is a
+ * bar-compare.
  *
  * NOT a claim-figure or an annotated-figure: both draw their figure as a card
  * on the pack's pale ground (neither goes through `overBackdrop` or
  * `overField`), so counting them let a plan meet `SCENE_SHARE` with exactly
  * the cards-on-paper the share exists to refuse.
  */
-export function isScene(beat: Beat): boolean {
+export function isScene(beat: Beat, design?: Design): boolean {
   const p = beat.params as Record<string, unknown>;
   const pictured = (x: unknown) => {
     const o = x as { figureId?: unknown; illustration?: unknown } | undefined;
@@ -100,6 +101,9 @@ export function isScene(beat: Beat): boolean {
       return true;
     case "split-compare":
       return pictured(p.left) || pictured(p.right) || pictured(p.backdrop);
+    // On the field in v2 (V2_FIELD_ARCHETYPES); on the pale ground in classic.
+    case "bar-compare":
+      return design === "v2" || pictured(p.backdrop);
     default:
       return pictured(p.backdrop);
   }
@@ -109,7 +113,11 @@ export function isScene(beat: Beat): boolean {
  * Every way `storyboard` breaks the variety rule, as sentences the planner can
  * act on. Empty is a pass.
  */
-export function varietyFindings(storyboard: Storyboard, images: Prefs["images"]): string[] {
+export function varietyFindings(
+  storyboard: Storyboard,
+  images: Prefs["images"],
+  design?: Design,
+): string[] {
   const beats = storyboard.beats;
   const out: string[] = [];
 
@@ -152,7 +160,7 @@ export function varietyFindings(storyboard: Storyboard, images: Prefs["images"])
     );
   }
   const scenes = scenesRequired(beats.length, images);
-  const pictured = beats.filter(isScene).length;
+  const pictured = beats.filter((b) => isScene(b, design)).length;
   if (pictured < scenes) {
     out.push(
       `${beats.length} beats carry ${pictured} scene(s); at least ${scenes} must be scenes. Set a number the source reports as a \`hero-number\` and a single strong claim as \`kinetic\`, or give the pipeline, split-compare, callout and bar-compare beats a \`backdrop\` with an \`illustration\` brief — a scene that fits the point, calm where the panels sit.`,

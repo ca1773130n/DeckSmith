@@ -6,8 +6,9 @@
  * `types.ts` honest.
  */
 import type { Archetype, Beat } from "../../types.js";
-import { FIELD_ARCHETYPES } from "../../types.js";
+import { FIELD_ARCHETYPES, V2_FIELD_ARCHETYPES } from "../../types.js";
 import { backdropFigure, glass, overBackdrop, overField } from "../backdrop.js";
+import { isV2 } from "../fit.js";
 import type { EmitContext, Emitter, Scene } from "../kit.js";
 import { annotatedFigure } from "./annotated-figure.js";
 import { barCompare } from "./bar-compare.js";
@@ -67,7 +68,10 @@ export function emitScene(beat: Beat, ctx: EmitContext): Scene {
   }
   // The full-bleed archetypes never fall back to the pack's ground: with no
   // picture they stand on a field of one of its colours (`fieldStep`), in glass.
-  if ((FIELD_ARCHETYPES as readonly Archetype[]).includes(beat.archetype)) {
+  if (
+    (FIELD_ARCHETYPES as readonly Archetype[]).includes(beat.archetype) ||
+    (isV2(ctx) && (V2_FIELD_ARCHETYPES as readonly Archetype[]).includes(beat.archetype))
+  ) {
     return overField(emit(beat, { ...ctx, theme: glass(ctx.theme) }), ctx, beat.seconds);
   }
   return emit(beat, ctx);
