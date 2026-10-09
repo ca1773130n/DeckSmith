@@ -8,10 +8,15 @@
  *     →  critique-and-fix with the frames attached  →  static check
  *     →  probe again  →  keep what passed, fall back for the rest
  *
- * ONE critique round, not a loop. The spike measured it as the round that
- * matters — it caught a giant stray arc no gate saw — and every further round
- * is another ~4 minutes and ~60k tokens on a quota that has already stopped
- * deck production once (2026-09-08..12).
+ * ONE critique round for every beat, not a loop. The spike measured it as the
+ * round that matters — it caught a giant stray arc no gate saw — and every
+ * further round is another ~4 minutes and ~60k tokens on a quota that has
+ * already stopped deck production once (2026-09-08..12). A SECOND critique only
+ * for a beat that would otherwise fall back, and only while the call cap and
+ * `SECOND_SECONDS` of the clock allow: with every beat drawn, the three r1
+ * fallbacks (2026-10-10) were the deck's core mechanism beats, 24% of its
+ * running time spent on boxes and arrows, each failing on one or two
+ * collisions its first critique had moved rather than removed.
  *
  * HARD CAPS, both checked before every call: `maxCalls` Codex calls and
  * `maxSeconds` of wall time for the whole pass. A quota or rate-limit answer
@@ -108,7 +113,7 @@ export interface GateResult {
 }
 
 /** Which probe: the drafts, the final candidates, or a repair round's. */
-export type GateRound = "draft" | "final" | "repair";
+export type GateRound = "draft" | "final" | "repair" | "second";
 
 /** Builds a deck with these candidates, gates each, and says what it found — keyed by beat id. */
 export type GateFn = (candidates: BespokeMap, round: GateRound) => Promise<Map<string, GateResult>>;
@@ -168,6 +173,8 @@ export interface SceneReport {
   data?: boolean;
   /** The scene's visual device (`assignDevices`). */
   device?: string;
+  /** A second critique call was made for it (round 4: its first critique's scene failed). */
+  second?: boolean;
   /** Why there is none, when one was wanted. */
   artNote?: string;
   /** What the deterministic repair did to the kept scene (src/bespoke/repair.ts). */
@@ -242,6 +249,8 @@ export const GATE_STAMP = `${GATES_VERSION}+${CARDS_VERSION}`;
 const CALL_SECONDS = 600;
 /** An illustration call's ceiling: MEASURED 36-49s; a stuck image tool should not hold the deck. */
 const ART_SECONDS = 240;
+/** A second critique starts only with this much of the wall-time cap left, seconds. */
+export const SECOND_SECONDS = 420;
 /** Repair rounds after the final gates, each one probe build of the repaired scenes only. */
 export const REPAIR_ROUNDS = 2;
 
@@ -991,6 +1000,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     draftMetrics?: Measured;
     draftWarnings: string[];
     critique: "ran" | "skipped" | "none";
+    /** A second critique replaced the first one's failing scene (round 4). */
+    second?: boolean;
     repair?: RepairNote & { rounds: number };
     stop?: string;
     /** A fallback the beat earned (gates), as opposed to one the budget imposed. */
@@ -1312,7 +1323,12 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     }
   };
 
-  const call = async (b: Beat1, kind: "draft" | "critique", prompt: string, images: string[]) => {
+  const call = async (
+    b: Beat1,
+    kind: "draft" | "critique" | "critique2",
+    prompt: string,
+    images: string[],
+  ) => {
     const refused = budget.take();
     if (refused) {
       b.stop = refused;
@@ -1526,38 +1542,95 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   // gates refused for collisions or its end state, re-gated. At most
   // `REPAIR_ROUNDS`, each a probe build of only the repaired scenes, and only
   // while the wall-time cap leaves room for one.
-  for (let round = 1; round <= REPAIR_ROUNDS; round++) {
-    const todo = work1.filter((b) => {
-      if (b.cached) return false;
-      if (b.fixed && b.fixedFindings.length === 0) {
-        const g = b.fixedGate;
-        return g?.failed === true && repairable(g.findings);
+  const repairRounds = async (only?: ReadonlySet<string>) => {
+    for (let round = 1; round <= REPAIR_ROUNDS; round++) {
+      const todo = work1.filter((b) => {
+        if (b.cached || (only && !only.has(b.beat.id))) return false;
+        if (b.fixed && b.fixedFindings.length === 0) {
+          const g = b.fixedGate;
+          return g?.failed === true && repairable(g.findings);
+        }
+        // No fix to repair (the critique call never came back): repair the draft.
+        return (
+          !b.fixed &&
+          b.draft !== undefined &&
+          b.draftPassed === false &&
+          repairable(b.draftFindings)
+        );
+      });
+      if (todo.length === 0) break;
+      if (budget.deadline - now() < 60_000) {
+        step("bespoke: no repair round — the wall-time cap is too close");
+        break;
       }
-      // No fix to repair (the critique call never came back): repair the draft.
-      return (
-        !b.fixed && b.draft !== undefined && b.draftPassed === false && repairable(b.draftFindings)
+      const repaired = todo.filter((b) =>
+        b.fixed
+          ? tryRepair(b, b.fixed, b.fixedGate, b.fixedFrom ?? "critique")
+          : tryRepair(b, b.draft as Fragment, gateA.get(b.beat.id), "draft"),
       );
-    });
-    if (todo.length === 0) break;
-    if (budget.deadline - now() < 60_000) {
-      step("bespoke: no repair round — the wall-time cap is too close");
-      break;
+      if (repaired.length === 0) break;
+      const ids = new Set(repaired.map((b) => b.beat.id));
+      const gateC = await gate(
+        candidates((b) => ids.has(b.beat.id)),
+        "repair",
+      );
+      for (const b of repaired) b.fixedGate = gateC.get(b.beat.id);
     }
-    const repaired = todo.filter((b) =>
-      b.fixed
-        ? tryRepair(b, b.fixed, b.fixedGate, b.fixedFrom ?? "critique")
-        : tryRepair(b, b.draft as Fragment, gateA.get(b.beat.id), "draft"),
-    );
-    if (repaired.length === 0) break;
-    const ids = new Set(repaired.map((b) => b.beat.id));
-    const gateC = await gate(
-      candidates((b) => ids.has(b.beat.id)),
-      "repair",
-    );
-    for (const b of repaired) b.fixedGate = gateC.get(b.beat.id);
-  }
-
+  };
+  await repairRounds();
   mark("repairs");
+
+  // Round 4: a SECOND critique, for a beat that would otherwise fall back —
+  // its critique's scene still fails and there is no passing draft to keep —
+  // with the second scene's own frames and findings, then its gates and repairs.
+  const passes = (b: Beat1) =>
+    b.fixed !== undefined && b.fixedFindings.length === 0 && b.fixedGate?.failed === false;
+  const again = work1.filter(
+    (b) => !b.cached && !b.stop && b.critique === "ran" && b.fixed && !passes(b) && !b.draftPassed,
+  );
+  if (again.length && budget.deadline - now() < SECOND_SECONDS * 1000)
+    step(
+      `bespoke: no second critique for ${again.length} beat(s) — the wall-time cap is too close`,
+    );
+  else if (again.length) {
+    await pool(again, prefs.concurrency, async (b) => {
+      const g = b.fixedGate;
+      const findings = b.fixedFindings.length ? b.fixedFindings : (g?.findings ?? []);
+      const f = await call(
+        b,
+        "critique2",
+        critiquePrompt(
+          b.brief,
+          b.fixed as Fragment,
+          findings,
+          g?.sheet ? g.legend : undefined,
+          withKinds(g?.metrics, b.fixed),
+        ),
+        [...(g?.sheet ? [g.sheet] : []), ...(b.art?.boxed ? [b.art.boxed] : [])],
+      );
+      if (!f) {
+        // No second scene: the first one's verdict stands, and so does its cacheability.
+        b.stop = undefined;
+        return;
+      }
+      b.fixed = f;
+      b.fixedFrom = "critique";
+      b.fixedFindings = statics(b, f);
+      b.fixedGate = undefined;
+      b.repair = undefined;
+      b.second = true;
+    });
+    const ids = new Set(again.filter((b) => b.second).map((b) => b.beat.id));
+    if (ids.size) {
+      const gateD = await gate(
+        candidates((b) => ids.has(b.beat.id)),
+        "second",
+      );
+      for (const b of again) if (ids.has(b.beat.id)) b.fixedGate = gateD.get(b.beat.id);
+      await repairRounds(ids);
+    }
+  }
+  mark("second critiques");
   const map: Record<string, BespokeEntry> = {};
   for (const b of work1) {
     const report1 = (status: "bespoke" | "fallback", extra: Partial<SceneReport>): SceneReport => ({
@@ -1580,6 +1653,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         : {}),
       ...(b.brief.data ? { data: true } : {}),
       device: b.device.device,
+      ...(b.second ? { second: true } : {}),
       ...(b.artNote ? { artNote: b.artNote } : {}),
       ...(b.repair ? { repair: b.repair } : {}),
       ...extra,
@@ -1617,7 +1691,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       gatedAt = gb.sid;
       from = b.fixedFrom ?? "critique";
       metrics = withKinds(gb.metrics, b.fixed);
-      if (b.repair) note = `kept the ${from} scene after ${b.repair.rounds} repair round(s)`;
+      if (b.second) note = "kept the second critique's scene";
+      if (b.repair)
+        note = `kept the ${b.second ? "second critique's" : from} scene after ${b.repair.rounds} repair round(s)`;
     } else if (b.draft && b.draftPassed) {
       // The fix round broke a draft that had passed: keep the draft.
       fragment = b.draft;
@@ -1669,7 +1745,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     const reason =
       b.stop && !b.fixed
         ? b.stop
-        : `failed the gates after the ${b.repair ? "repair" : "critique"} round: ${findings.slice(0, 3).join("; ") || "no finding recorded"}`;
+        : `failed the gates after the ${b.repair ? "repair" : b.second ? "second critique" : "critique"} round: ${findings.slice(0, 3).join("; ") || "no finding recorded"}`;
     if (earned && !b.stop?.startsWith("cached rejection")) {
       await cache.put({
         version: 1,

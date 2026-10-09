@@ -570,6 +570,42 @@ describe("the bespoke pass", () => {
     expect(hit?.gates).toBe(GATE_STAMP);
   });
 
+  it("asks a second critique for a beat that would fall back, and keeps what it draws", async () => {
+    const bad: Fragment = { ...SCENE, css: `${SCENE.css}\n/* bad */` };
+    const gate: GateFn = async (m) =>
+      new Map(
+        Object.entries(m).map(([id, e]) => [
+          id,
+          e.fragment.css.includes("bad")
+            ? {
+                findings: ["error text_overlap: #s3 at c1z (2.00s): text prints over text — a × b"],
+                failed: true,
+              }
+            : { findings: [], failed: false },
+        ]),
+      );
+    const { calls, run } = fake((args) => (args.outPath.endsWith(".critique2.json") ? SCENE : bad));
+    const r = await bespokePass({ ...input({ run, gate }), prefs: prefs({ maxCalls: 3 }) });
+    expect(calls.map((c) => c.outPath.split(".").slice(-2, -1)[0])).toEqual([
+      "draft",
+      "critique",
+      "critique2",
+    ]);
+    const sc = r.report.scenes[0];
+    expect(sc?.status).toBe("bespoke");
+    expect(sc?.second).toBe(true);
+    expect(sc?.reason).toMatch(/second critique/);
+    // A second critique that fails too: the archetype, and the reason says which round.
+    const still = fake(() => bad);
+    const r2 = await bespokePass({
+      ...input({ run: still.run, gate }),
+      prefs: prefs({ maxCalls: 3, cache: join(cacheDir, "b") }),
+    });
+    expect(r2.report.scenes[0]?.status).toBe("fallback");
+    expect(r2.report.scenes[0]?.reason).toMatch(/after the second critique round/);
+    expect(still.calls).toHaveLength(3);
+  });
+
   it("never has more Codex calls in flight than its lanes, pictures and scenes alike, and frees a lane on a failure", async () => {
     let live = 0;
     let most = 0;
