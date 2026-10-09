@@ -44,7 +44,7 @@ export const REVEALS: Record<string, string> = {
   "data-table": "one per highlighted row, plus 1",
   // "long enough" is not a hedge: below the emitter's own floor the comparison
   // is dropped and the chart stops twice becoming a chart that stops once. See
-  // the line-chart entry under THE THIRTEEN ARCHETYPES for what that costs.
+  // the line-chart entry under THE FOURTEEN ARCHETYPES for what that costs.
   "line-chart": "1, or 2 when compare is given and the beat is long enough for it",
   callout: "one per panel",
   pipeline: "one per stage",
@@ -53,6 +53,7 @@ export const REVEALS: Record<string, string> = {
   "bar-compare": "2, however many bars there are",
   stack: "one per layer",
   "split-compare": "2, one per side",
+  stage: "1",
 };
 
 const REVEAL_COUNTS = Object.entries(REVEALS)
@@ -97,10 +98,11 @@ A beat is one idea, one visual, one hold. It carries:
              beat immediately before it. See RULE 11. Leave it off unless the
              source itself puts one inside the other.
 
-THE THIRTEEN ARCHETYPES
+THE FOURTEEN ARCHETYPES
 
-Nine of them DRAW: they build a vector graphic out of the source's own content
-and reveal it stage by stage, so the viewer watches the idea assemble. Four only
+Ten of them DRAW: nine build a vector graphic out of the source's own content
+and reveal it stage by stage, so the viewer watches the idea assemble, and one
+gives a picture the whole screen. Four only
 describe. The drawing ones are the default. The describing ones are what you
 fall back to when a point genuinely has no shape.
 
@@ -214,6 +216,22 @@ DRAWING ARCHETYPES — reach here first
                  the slide is still there, but the point about the baseline is
                  gone.
 
+  stage          One figure filling the whole frame, edge to edge — no plate,
+                 no border, no side column — with the words, if any, set over
+                 it. The tell: A VISUAL THAT SHOULD OWN THE SCREEN — a product
+                 UI, a scene, a photograph, an animation. The picture is cropped
+                 to the frame's shape, so it must survive losing its edges: a
+                 paper figure with panels, axes or labels near its border is
+                 claim-figure or annotated-figure, never this.
+                 \`placement\` is where the words go: "bottom-left", "top-left",
+                 "center", "right", or "none" for the picture alone.
+                 \`headline\` is always written — under "none" it labels the
+                 slide without being drawn — and \`line\` is one optional short
+                 sentence under it. Keep both short: up to three headline lines
+                 and two lines of \`line\` fit, and a longer one is refused rather
+                 than shrunk. "right" has the narrowest column, "center" the
+                 widest.
+
 DESCRIBING ARCHETYPES — the fallbacks
 
   title          One headline, with \`eyebrow\` above it and \`sub\` beneath. The
@@ -289,7 +307,10 @@ RULES
    single archetype took nineteen of them, and the deck it produced looks, slide
    after slide, exactly like every other deck this planner has ever written.
    Reaching for the same shape twice running is the reliable sign that the point
-   was not read — it is the last thing that worked, reused.
+   was not read — it is the last thing that worked, reused. The same holds for
+   where the words sit: a deck with more than one stage gives each a different
+   \`placement\` where it can, so the text does not land in one corner slide after
+   slide.
 
 2. Every id you write — in params and in evidence — must appear in the inventory
    below. A dangling id fails the build. If no figure fits the point, choose a
@@ -584,7 +605,7 @@ ${REVEAL_COUNTS}`
  * eleven below it, which several tests slice by index.
  *
  * The wording avoids three live tripwires: no "The tell:" (a test counts
- * thirteen, one per archetype), no "what was measured" (a test pins exactly one,
+ * fourteen, one per archetype), no "what was measured" (a test pins exactly one,
  * and RULE 6 owns it), and it is emitted AFTER the first "RULES" heading, which
  * another test uses to slice the archetype catalogue.
  */
@@ -788,7 +809,7 @@ export function renderSource(source: Source): string {
 
   out.push("", "== FIGURES ==");
   if (!source.figures.length) {
-    out.push("(none — no annotated-figure or claim-figure beat is possible)");
+    out.push("(none — no annotated-figure, claim-figure or stage beat is possible)");
   } else {
     const n = source.figures.length;
     // The count as a fact, said once. What to DO about a figure is RULE 2's job;
@@ -827,7 +848,7 @@ export function renderSource(source: Source): string {
       // MARKED WHERE THE ID IS. The model scans this list for something to cite,
       // and a fact that changes whether the beat can be spent belongs on the
       // line it stops at rather than under it. An image's line is unchanged.
-      // A PIECE is an animation only claim-figure can draw; every other figure
+      // A PIECE is an animation only claim-figure and stage can draw; every other figure
       // archetype refuses it, so the line says so where the id is — and so are
       // the two things `build` refuses a planned beat for: a beat shorter than
       // the piece plays (`pieceBeatSeconds`), and a second piece in one deck.
@@ -835,7 +856,7 @@ export function renderSource(source: Source): string {
         f.kind === "clip"
           ? `CLIP ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`}`
           : f.kind === "piece"
-            ? `ANIMATION ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`} — claim-figure only${f.seconds === undefined ? "" : `, in a beat of at least ${pieceBeatSeconds(f.seconds)} seconds`}; a deck shows one animation`
+            ? `ANIMATION ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`} — claim-figure or stage only${f.seconds === undefined ? "" : `, in a beat of at least ${pieceBeatSeconds(f.seconds)} seconds`}; a deck shows one animation`
             : `${f.width}x${f.height}`;
       out.push("", `[figure ${f.id}] ${size} — ${f.caption}`);
       // The video we do not hold. Said next to the id because it is the one

@@ -1116,12 +1116,13 @@ animation and no external references, and the same brief always draws the same b
 ## Animated pieces
 
 A **piece** is a figure that moves: a cut-paper scene written for
-[animate](https://github.com/cth9191/animate), drawn on a `<canvas>` by `claim-figure` and
-played by one `dsAnimate` tween. It is a third figure `kind`, next to `image` and `clip`.
+[animate](https://github.com/cth9191/animate), drawn on a `<canvas>` by `claim-figure` or `stage`
+and played by one `dsAnimate` tween. It is a third figure `kind`, next to `image` and `clip`.
 You write it by hand. No ingest, `plan`, server or MCP path produces one.
 
 **Authoring one** takes three edits. Put the scene file under `assets/` beside
-`source.json`, give it a figure entry, and point a `claim-figure` beat at that entry:
+`source.json`, give it a figure entry, and point a `claim-figure` beat (or a `stage` beat, for the piece alone on the whole frame)
+at that entry:
 
 ```jsonc
 // source.json, under "figures"
@@ -1152,7 +1153,9 @@ const SHOTS = [['sky', 0, 0.0, DURATION, 'sky']];
 
 Do not define `W`, `H`, `FPS`, `DURATION`, `NFRAMES`, `LOOP_T`, `SAFE`, `HAND`, `CX` or
 `TIMELINE`. DeckSmith sets them from the figure: its `width`, `height` and `seconds`, 30
-fps, and the deck's font stack. A file that declares one of them fails to load, and
+fps, and the deck's font stack. On a `stage` beat `W` and `H` are the frame's pixels
+instead (less any caption reserve), so lay the piece out with `LX`, `LY` and `UNIT` rather than
+fixed coordinates. A file that declares one of them fails to load, and
 `verify` reports that as a page error. `TIMELINE` carries `shots` only. animate's own demos
 read `TIMELINE.cues`, so write those times as numbers.
 
@@ -1162,7 +1165,8 @@ its `seconds`, with a 0.3s hold after its last frame. Before the tween the canva
 frame 0. After it, the canvas holds the last frame; it does not wrap back to frame 0. The
 beat must be at least `1 + seconds + 0.3` long. A shorter beat is refused by name rather
 than clamped. The hold is never before 2.4s, when the claim, plate and caption have all
-entered, so a piece shorter than 1.1s holds there instead.
+entered, so a piece shorter than 1.1s holds there instead. On a `stage` the floor is 2.1s
+when there are words over it and 1.1s when there are none.
 
 **What is refused**, and where:
 
@@ -1186,7 +1190,7 @@ entered, so a piece shorter than 1.1s holds there instead.
   primitive is simply undefined: a piece that calls riso's `plates()` fails `verify` with
   `page_error plates is not defined`. Riso and pixel read pixels back from the canvas,
   and that has not been measured under capture.
-- A piece in any archetype but `claim-figure`, a piece with no `seconds`, a `src` that
+- A piece in any archetype but `claim-figure` and `stage`, a piece with no `seconds`, a `src` that
   does not end in `.js` (the determinism scan reads only those), and an `id` containing
   anything other than letters, digits, `.`, `_` and `-`.
 
@@ -1287,7 +1291,7 @@ names the figure or equation it rests on, a later pass can ask whether the anima
 actually asserts what the source asserts. Prior art verifies that slides *look* fine;
 nothing verifies that they are *true*.
 
-## The thirteen archetypes
+## The fourteen archetypes
 
 The explanatory vocabulary. These came out of hand-building a real deck
 (`.planning/EXPERIMENT-002-thinksr-korean.md`), not from guessing at what might be useful.
@@ -1296,6 +1300,7 @@ The explanatory vocabulary. These came out of hand-building a real deck
 |---|---|---|
 | `title` | opening or section break | `headline`, `eyebrow?`, `sub?` |
 | `claim-figure` | one assertion beside the figure that supports it | `claim`, `figureId` |
+| `stage` | one picture, UI, clip or piece filling the whole frame, words optional over it | `figureId`, `placement`, `headline`, `line?` |
 | `equation-walk` | an equation explained symbol by symbol | `equationId`, `terms` (1–4) |
 | `equation-morph` | one equation becoming the next, the shared terms carried across | `fromId`, `toId`, `terms` (1–4) |
 | `data-table` | a results table with rows revealed in argument order | `tableId`, `highlight` |
@@ -1311,6 +1316,21 @@ The explanatory vocabulary. These came out of hand-building a real deck
 The last six draw the mechanism rather than describe it, and `verify` warns when a deck
 leans on the others: a deck of headlines and bullet panels is what every other slide
 generator already makes.
+
+`stage` is the slide that is not a slide: the figure covers the frame edge to edge
+(cover-fit, so it is cropped to the frame's shape), with no plate, border or column. Words
+are optional. `placement` is one of `none`, `bottom-left`, `top-left`, `center` or
+`right`; under anything but `none` the `headline` (72px) and an optional `line` (44px)
+are set in white over a black scrim. The scrim's solid part is sized from the text's
+measured height and is 66% black, which white text clears at about 7:1 even over a pure
+white picture, so the contrast gate passes on whatever the picture is. Text is never
+shrunk: a headline over three lines or a `line` over two in its placement's column is
+refused by name. The picture fades and settles in first, the words after; one stop lands
+once both are in, or after a piece's last frame. A still or clip drifts 4% over the beat.
+`build` warns (it does not refuse) when a raster figure is upscaled more than 1.5x or
+cropped by more than 30% to fill the frame. With `--reserve-captions` the picture stops
+above the caption strip. The planner is told to reach for it when a visual should own the
+screen, and, under RULE 1's variety rule, to give consecutive stages different placements.
 
 `line-chart`'s `compare` is the one parameter that changes what its archetype *is*. Given
 `{ label, points }` the chart draws the baseline first, holds it, then reshapes the curve

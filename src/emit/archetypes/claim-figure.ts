@@ -286,7 +286,7 @@ function blockLines(text: string, size: number, width: number, face: Face): numb
 }
 
 /** What the plate holds, and the tag its height cap and its drift rule name. */
-interface Plate {
+export interface Plate {
   html: string;
   /** `img`, `video` or `canvas`. One CSS rule is written, for whichever is actually there. */
   el: "img" | "video" | "canvas";
@@ -320,8 +320,18 @@ interface Plate {
  * composition, and test/emit.test.ts ("never embeds a document it does not own")
  * asserts the vocabulary never writes one — or this figure's watch URL — to
  * begin with.
+ *
+ * SHARED WITH `stage`, which is why the refusals name `who` (the archetype and
+ * beat) rather than assuming claim-figure, and why a piece's canvas may be
+ * given a `buffer` size: a stage canvas is the frame, not the figure's box.
  */
-function plate(fig: Figure, sid: string, beatId: string, start: number | undefined): Plate {
+export function plate(
+  fig: Figure,
+  sid: string,
+  who: string,
+  start: number | undefined,
+  buffer: { width: number; height: number } = fig,
+): Plate {
   const img = (src: string): Plate => ({
     html: `<img src="assets/${esc(src)}" alt="${esc(fig.caption)}" />`,
     el: "img",
@@ -334,7 +344,7 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
   if (fig.kind === "piece") {
     return {
       html:
-        `<canvas id="${sid}-pc" ${PIECE_ATTR} width="${fig.width}" height="${fig.height}" role="img" aria-label="${esc(fig.caption)}"></canvas>` +
+        `<canvas id="${sid}-pc" ${PIECE_ATTR} width="${buffer.width}" height="${buffer.height}" role="img" aria-label="${esc(fig.caption)}"></canvas>` +
         `<script src="assets/${esc(fig.src)}"></script>`,
       el: "canvas",
     };
@@ -346,7 +356,7 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
     // thing that is wrong, so the message names the figure and the step.
     if (fig.poster === undefined) {
       throw new Error(
-        `claim-figure ${beatId}: figure "${fig.id}" is a clip we hold no file for and no still of — ` +
+        `${who}: figure "${fig.id}" is a clip we hold no file for and no still of — ` +
           `re-ingest it so its poster is measured, or point the beat at a figure this deck has`,
       );
     }
@@ -395,7 +405,7 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
   // buy a seek the runtime already performs at 24x the non-reproducible frames.
   if (start === undefined) {
     throw new Error(
-      `claim-figure ${beatId}: figure "${fig.id}" is a clip, and nobody said when this scene starts — ` +
+      `${who}: figure "${fig.id}" is a clip, and nobody said when this scene starts — ` +
         "the video is seeked on the deck's absolute clock, so `EmitContext.start` has to be passed",
     );
   }
@@ -424,37 +434,38 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
  * REFUSED BY NAME rather than clamped: a piece with no length has no clock, a
  * `src` not ending in `.js` is a script verify never scans, and
  * a beat too short for the piece would end it mid-motion with the hold clamped
- * on top of a moving frame.
+ * on top of a moving frame. `who` names the archetype and beat, because
+ * `stage` plays a piece through this too.
  */
-function pieceTimeline(
+export function pieceTimeline(
   fig: Figure,
   sid: string,
-  beatId: string,
+  who: string,
   seconds: number,
   hand: string,
 ): { tween: Tween; mount: string; hold: number } {
   if (fig.seconds === undefined) {
     throw new Error(
-      `claim-figure ${beatId}: figure "${fig.id}" is a piece with no \`seconds\` — a piece is its own clock, so its source.json entry has to say how long it plays`,
+      `${who}: figure "${fig.id}" is a piece with no \`seconds\` — a piece is its own clock, so its source.json entry has to say how long it plays`,
     );
   }
   if (!PIECE_ID.test(fig.id)) {
     throw new Error(
-      `claim-figure ${beatId}: piece "${fig.id}" has an id a script cannot carry as written — use letters, digits, ".", "_" and "-"`,
+      `${who}: piece "${fig.id}" has an id a script cannot carry as written — use letters, digits, ".", "_" and "-"`,
     );
   }
   // `verify`'s determinism scan reads `assets/**/*.js` (`readAssetScripts`);
   // a `.mjs` loads just the same through `<script src>` and is never read.
   if (!fig.src.endsWith(".js")) {
     throw new Error(
-      `claim-figure ${beatId}: piece "${fig.id}" has src "${fig.src}" — a piece's script must end in ".js", the only scripts verify's determinism scan reads`,
+      `${who}: piece "${fig.id}" has src "${fig.src}" — a piece's script must end in ".js", the only scripts verify's determinism scan reads`,
     );
   }
   const run = r3(fig.seconds);
   const hold = pieceBeatSeconds(run);
   if (hold > seconds) {
     throw new Error(
-      `claim-figure ${beatId}: piece "${fig.id}" plays ${run}s from ${PIECE_AT}s and holds ${PIECE_TAIL}s, ` +
+      `${who}: piece "${fig.id}" plays ${run}s from ${PIECE_AT}s and holds ${PIECE_TAIL}s, ` +
         `which needs ${hold}s, and the beat is ${seconds}s — lengthen the beat or shorten the piece`,
     );
   }
@@ -491,7 +502,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   }
   const piece =
     fig.kind === "piece"
-      ? pieceTimeline(fig, sid, beat.id, beat.seconds, theme.fontStack)
+      ? pieceTimeline(fig, sid, `claim-figure ${beat.id}`, beat.seconds, theme.fontStack)
       : undefined;
   /**
    * The content box, or what the chosen placement leaves the body
@@ -597,7 +608,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // the script it is instead of in sentence-long blocks.
   const claim = `<div class="claim" id="${sid}-c">${words(p.claim, "w", { unspaced: v2 })}</div>`;
   // `figure.src` is relative to the deck's asset directory.
-  const held = plate(fig, sid, beat.id, ctx.start);
+  const held = plate(fig, sid, `claim-figure ${beat.id}`, ctx.start);
   const figure = `<div class="figwrap" id="${sid}-f">${held.html}</div>`;
   const caption = `<div class="caption" id="${sid}-cap">${esc(fig.caption)}</div>`;
 

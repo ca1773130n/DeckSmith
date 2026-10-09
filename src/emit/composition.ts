@@ -647,13 +647,13 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // would share those globals with the first. Two pieces have never been
     // rendered together; lifting this means patching morph.js and doing that.
     const fig =
-      beat.archetype === "claim-figure"
+      beat.archetype === "claim-figure" || beat.archetype === "stage"
         ? source.figures.find((f) => f.id === beat.params.figureId)
         : undefined;
     if (fig?.kind === "piece") {
       if (piece) {
         throw new Error(
-          `claim-figure ${beat.id}: figure "${fig.id}" is a second animate piece in this deck — ` +
+          `${beat.archetype} ${beat.id}: figure "${fig.id}" is a second animate piece in this deck — ` +
             `${piece.beat} already draws "${piece.figure}", and a deck holds one piece. ` +
             "Point one of these beats at a still, or split the deck",
         );

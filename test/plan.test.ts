@@ -91,6 +91,20 @@ describe("assertRefsResolve", () => {
     );
   });
 
+  it("catches a dangling figure on a stage, before build spends anything on it", () => {
+    const stage = (figureId: string) => ({
+      id: "b02-stage",
+      intent: "i",
+      weight: 0.7,
+      archetype: "stage",
+      params: { headline: "The loop", figureId, placement: "bottom-left" },
+    });
+    expect(() => assertRefsResolve(plan(beat, stage("fig-arch")), source)).not.toThrow();
+    expect(() => assertRefsResolve(plan(beat, stage("fig-hero")), source)).toThrow(
+      /b02-stage.*params\.figureId.*fig-hero/s,
+    );
+  });
+
   it("catches a dangling id in evidence, which the schema cannot see", () => {
     const broken = plan({ ...beat, evidence: [{ kind: "equation", id: "eq-psnr" }] });
 
@@ -495,7 +509,7 @@ describe("the schema handed to Codex", () => {
     const [planned] = result.beats;
     expect(result.theme).toBe("ink");
     expect(planned).toBeDefined();
-    expect(planned?.params.eyebrow).toBeUndefined();
+    expect((planned?.params as { eyebrow?: string } | undefined)?.eyebrow).toBeUndefined();
   });
 });
 
@@ -523,5 +537,10 @@ describe("what the planner's schema does and does not offer", () => {
   it("leaves the rest of the params alone", () => {
     expect(json).toContain('"layers"');
     expect(json).toContain('"headline"');
+  });
+
+  it("offers a stage with exactly the placements the emitter has a scrim for", () => {
+    expect(json).toContain('"stage"');
+    expect(json).toContain('["none","bottom-left","center","top-left","right"]');
   });
 });

@@ -118,6 +118,10 @@ export function railable(format: Format): boolean {
 export function candidates(beat: Beat, format: Format): Look[] {
   const a = beat.archetype;
   const classic = classicLook(a);
+  // A stage has no chrome to move: its words sit over the picture where its own
+  // `placement` param says. A `foot` look would draw the same slide under a
+  // second signature, which is what the sameness metrics must not be told.
+  if (a === "stage") return [classic];
   if (!railable(format)) return [classic, { ...classic, placement: "foot" }];
   switch (a) {
     case "split-compare":

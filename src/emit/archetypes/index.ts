@@ -19,6 +19,7 @@ import { lineChart } from "./line-chart.js";
 import { pipeline } from "./pipeline.js";
 import { splitCompare } from "./split-compare.js";
 import { stack } from "./stack.js";
+import { stage } from "./stage.js";
 import { title } from "./title.js";
 
 export const emitters: { [A in Archetype]: Emitter<A> } = {
@@ -33,6 +34,8 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
   "equation-walk": equationWalk,
   "equation-morph": equationMorph,
   "line-chart": lineChart,
+  // The one that gives a picture the whole frame.
+  stage,
   // The ones that describe.
   title,
   "claim-figure": claimFigure,
@@ -42,7 +45,7 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
 
 /**
  * Dispatch a beat to its emitter. The cast is the one place the pairing is taken
- * on trust: `emitters[beat.archetype]` is a union of thirteen emitters and TypeScript
+ * on trust: `emitters[beat.archetype]` is a union of fourteen emitters and TypeScript
  * will not narrow the key and the beat together. The table above already proves
  * every archetype has exactly one emitter of the right shape.
  */

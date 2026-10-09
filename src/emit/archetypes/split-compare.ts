@@ -144,7 +144,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     if (fig.kind === "piece") {
       throw new Error(
         `split-compare ${beat.id}: the ${NAME[i]} figure "${fig.id}" is an animate piece, and a side draws a still <image> — ` +
-          "use claim-figure, which plays it",
+          "use claim-figure or stage, which play it",
       );
     }
     return fig;

@@ -182,6 +182,10 @@ const CASES: [string, unknown, number][] = [
     },
     2,
   ],
+  // One stop whatever the placement: after the words have landed, or after the
+  // picture has when there are none.
+  ["stage", { headline: "H", figureId: "fig", placement: "bottom-left", line: "l" }, 1],
+  ["stage", { headline: "H", figureId: "fig", placement: "none" }, 1],
 ];
 
 describe("the prompt's reveal counts", () => {
@@ -260,6 +264,14 @@ describe("the prompt's reveal counts", () => {
     expect(text).toContain(`${cap(describing.length)} only\ndescribe`);
   });
 
+  it("says when a stage is the shape, and extends RULE 1's variety to its placement", () => {
+    const text = systemPrompt(prefsSchema.parse({}));
+    expect(text).toContain("A VISUAL THAT SHOULD OWN THE SCREEN");
+    // Inside RULE 1, not a second rule about variety: one statement per constraint.
+    const rule1 = text.slice(text.indexOf("AND VARY THE SHAPE"), text.indexOf("\n2. "));
+    expect(rule1).toMatch(/more than one stage gives each a different\s+`placement`/);
+  });
+
   it("puts the table in the prompt the planner actually receives", () => {
     const text = systemPrompt(prefsSchema.parse({}));
     for (const archetype of Object.keys(REVEALS)) expect(text).toContain(archetype);
@@ -310,7 +322,7 @@ describe("the figure inventory", () => {
     expect(text).toContain("[figure fig-arch] 1373x381 — Figure 2 — One tick.");
   });
 
-  it("marks an animate piece where its id is, as claim-figure's alone", () => {
+  it("marks an animate piece where its id is, as claim-figure's and stage's alone", () => {
     // Every other figure archetype refuses a piece by name; the line the model
     // scans for something to cite is where it learns that, not the refusal.
     const text = renderSource(
@@ -329,7 +341,7 @@ describe("the figure inventory", () => {
     // And what `build` refuses a planned beat for: shorter than 1 + 6 + 0.3s,
     // or a second piece in the deck. The default beat is 7s, which is too short.
     expect(text).toContain(
-      "[figure fig-loop] ANIMATION 1920x1080, 6s — claim-figure only, in a beat of at least 7.3 seconds; a deck shows one animation — Figure 2 — One tick.",
+      "[figure fig-loop] ANIMATION 1920x1080, 6s — claim-figure or stage only, in a beat of at least 7.3 seconds; a deck shows one animation — Figure 2 — One tick.",
     );
   });
 
@@ -359,7 +371,7 @@ describe("the figure inventory", () => {
   it("still tells a figure-less source that no figure beat is possible", () => {
     // The line the ILLUSTRATIONS block below is the one exception to.
     const text = renderSource(paper([]));
-    expect(text).toContain("(none — no annotated-figure or claim-figure beat is possible)");
+    expect(text).toContain("(none — no annotated-figure, claim-figure or stage beat is possible)");
     expect(text).not.toContain("figures in this document");
   });
 });

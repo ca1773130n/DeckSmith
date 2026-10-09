@@ -139,6 +139,7 @@ export function assertRefsResolve(
         break;
       }
       case "annotated-figure":
+      case "stage":
         check(beat, "figure", beat.params.figureId, "params.figureId");
         break;
       case "split-compare":

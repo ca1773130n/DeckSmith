@@ -696,7 +696,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
   if (fig.kind === "piece") {
     throw new Error(
       `annotated-figure ${beat.id}: figure "${fig.id}" is an animate piece, and notes can only be pinned to a still — ` +
-        "use claim-figure, which plays it",
+        "use claim-figure or stage, which play it",
     );
   }
 

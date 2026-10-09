@@ -44,8 +44,8 @@ export const figureSchema = z.object({
    * caption and a duration, whose asset is an animate scene SCRIPT that
    * `claim-figure` draws on a `<canvas>`, seeked by the `dsAnimate` plugin
    * (src/emit/animate-runtime.ts). Hand-written into `source.json` — no ingest
-   * path produces one — and only `claim-figure` takes it; every other archetype
-   * refuses it by name. One per deck in this version.
+   * path produces one — and only `claim-figure` and `stage` take it; every
+   * other figure archetype refuses it by name. One per deck in this version.
    */
   kind: z.enum(["image", "clip", "piece"]).default("image"),
   /** Path relative to the deck's asset directory. */
@@ -87,8 +87,8 @@ export const figureSchema = z.object({
   poster: z.string().optional(),
   /**
    * How long the clip runs. Seconds, as measured off the file, never guessed.
-   * For a piece, how long it plays — REQUIRED there, and `claim-figure` refuses
-   * a piece without it, because it is the piece's own clock.
+   * For a piece, how long it plays — REQUIRED there, and `claim-figure` and
+   * `stage` refuse a piece without it, because it is the piece's own clock.
    */
   seconds: z.number().positive().optional(),
   /**
@@ -495,6 +495,31 @@ export const splitCompareParamsSchema = z.object({
   note: z.string().optional(),
 });
 
+/**
+ * Where a stage beat sets its words over the picture, or `none` for no words.
+ *
+ * A SMALL FIXED SET rather than coordinates: each one is a layout the emitter
+ * has a scrim for, so the contrast under the text is decided once per entry
+ * and never by the planner. An enum, so the model sees exactly these values.
+ */
+export const STAGE_PLACEMENTS = ["none", "bottom-left", "center", "top-left", "right"] as const;
+
+/**
+ * One figure that owns the whole frame — a product UI, a scene, a photo, an
+ * animate piece — edge to edge, with no plate, border or side column.
+ *
+ * `headline` is required even under `placement: "none"`: it is the scene's
+ * label (the composition's title attribute, the deck's notes fallback), and a
+ * beat with nothing to say about its picture has no business being a beat.
+ */
+export const stageParamsSchema = z.object({
+  headline: z.string(),
+  figureId: z.string(),
+  placement: z.enum(STAGE_PLACEMENTS),
+  /** One short line under the headline. Dropped under `placement: "none"`. */
+  line: z.string().optional(),
+});
+
 /* ------------------------------------------------------------------- Beats */
 
 /**
@@ -668,6 +693,7 @@ export const beatSchema = z.discriminatedUnion("archetype", [
     params: splitCompareParamsSchema,
     ...beatTail,
   }),
+  z.object({ ...beatCore, archetype: z.literal("stage"), params: stageParamsSchema, ...beatTail }),
 ]);
 
 /**
@@ -693,6 +719,7 @@ export const DIAGRAMMATIC: ReadonlySet<string> = new Set([
   "equation-walk",
   "equation-morph",
   "line-chart",
+  "stage",
 ]);
 
 /**
@@ -720,6 +747,8 @@ export type ArchetypeFamily = "frame" | "structure" | "quantity" | "formal";
 export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   title: "frame",
   "claim-figure": "frame",
+  // Same reason as claim-figure: the picture illustrates what the beat says.
+  stage: "frame",
   callout: "frame",
   pipeline: "structure",
   grid: "structure",
