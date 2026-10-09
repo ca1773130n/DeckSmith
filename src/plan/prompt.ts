@@ -16,7 +16,14 @@ import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
-import { MAX_ALTERNATION, STAGE_EVERY, STAGE_MIN_BEATS, stagesRequired } from "./variety.js";
+import {
+  MAX_ALTERNATION,
+  SCENE_SHARE,
+  STAGE_EVERY,
+  STAGE_MIN_BEATS,
+  scenesRequired,
+  stagesRequired,
+} from "./variety.js";
 
 /**
  * How many sentences each archetype wants, because it is how many stops it has.
@@ -697,7 +704,29 @@ nothing, so it can never dangle.
   - Write \`figureId\` OR \`illustration\`, never both. A figure in the
     inventory always wins over a brief for one.
   - At most ${images.max} pictures in the whole deck; a split-compare with two
-    briefs spends two. Past that, find the point's shape and draw it.
+    briefs spends two, and a backdrop spends one. Past that, find the point's
+    shape and draw it.
+
+BACKDROPS: A DIAGRAM DRAWN OVER A SCENE. A pipeline, split-compare, callout or
+bar-compare may carry \`backdrop: { illustration: { prompt, caption } }\`. The
+picture covers the whole frame behind the diagram, darkened, and the boxes,
+panels and bars are drawn over it as dark glass — the diagram keeps its shape
+and its words, and the slide becomes a scene instead of cards on a plain
+ground. Use them: a deck of ${STAGE_MIN_BEATS} beats or more has at least ${Math.round(SCENE_SHARE * 100)}% of its beats as
+scenes (a stage, a figure, a picture on a split-compare side, or a backdrop; a
+${2 * STAGE_EVERY + 6}-beat deck, ${scenesRequired(2 * STAGE_EVERY + 6, images)}), within the picture cap.
+  - The brief is the WORLD the beat's point happens in, specific to that point:
+    the hazy coastline a dehazing step clears, the server hall a power figure is
+    paid in, the neuron that does or does not fire. Never a generic texture,
+    never the diagram itself drawn again.
+  - The diagram sits across the middle of the frame, so the brief keeps that
+    region CALM — open sky, water, mist, a soft-focus field, low detail and low
+    contrast — and puts the interest at the edges and corners. Say so in the
+    prompt ("the centre left open and quiet").
+  - Same rules as every brief: a scene, never text, labels, numbers or charts.
+    The caption is alt text; nothing reads it aloud.
+  - Leave \`backdrop\` off a split-compare whose sides carry pictures, and never
+    point a backdrop at an inventory figure: a figure is shown, not wallpapered.
 
 STAGES ARE REQUIRED, not merely allowed. A deck of ${STAGE_MIN_BEATS} beats or more
 carries at least one \`stage\` beat for every ${STAGE_EVERY} beats (a ${2 * STAGE_EVERY + 2}-beat deck,

@@ -6,18 +6,32 @@
  * for nine beats and asked for no picture at all, with `--images` on.
  */
 import { describe, expect, it } from "vitest";
-import { MAX_ALTERNATION, stagesRequired, varietyFindings } from "../src/plan/variety.js";
+import {
+  MAX_ALTERNATION,
+  scenesRequired,
+  stagesRequired,
+  varietyFindings,
+} from "../src/plan/variety.js";
 import { prefsSchema, type Storyboard } from "../src/types.js";
 
 const on = prefsSchema.parse({ images: { enabled: true } }).images;
 const off = prefsSchema.parse({}).images;
 
-/** Only what the rule reads: id, archetype, and a stage's placement. */
+/**
+ * Only what the rule reads: id, archetype, a stage's placement, and whether a
+ * diagram has a backdrop (`pipeline+bd`).
+ */
 const deck = (...shapes: string[]): Storyboard =>
   ({
     beats: shapes.map((s, i) => {
-      const [archetype, placement] = s.split("@");
-      return { id: `b${i + 1}`, archetype, params: placement ? { placement } : {} };
+      const [shape, bd] = s.split("+");
+      const [archetype, placement] = (shape ?? "").split("@");
+      const backdrop = bd ? { backdrop: { illustration: { prompt: "p", caption: "c" } } } : {};
+      return {
+        id: `b${i + 1}`,
+        archetype,
+        params: { ...(placement ? { placement } : {}), ...backdrop },
+      };
     }),
   }) as unknown as Storyboard;
 
@@ -54,7 +68,7 @@ describe("varietyFindings", () => {
     expect(stagesRequired(7, on)).toBe(0);
     expect(stagesRequired(8, on)).toBe(2);
     expect(stagesRequired(14, on)).toBe(3);
-    expect(stagesRequired(30, on)).toBe(on.max);
+    expect(stagesRequired(30, { ...on, max: 4 })).toBe(4);
     expect(stagesRequired(14, off)).toBe(0);
     expect(stagesRequired(14, { ...on, max: 1 })).toBe(1);
   });
@@ -63,10 +77,10 @@ describe("varietyFindings", () => {
     const varied = [
       "title",
       "stage@bottom-left",
-      "pipeline",
+      "pipeline+bd",
       "split-compare",
       "stage@right",
-      "bar-compare",
+      "bar-compare+bd",
       "callout",
       "stage@center",
     ];
@@ -76,5 +90,28 @@ describe("varietyFindings", () => {
       expect.stringMatching(/b2 and b5 both set their words at "right"/),
       expect.stringMatching(/b5 and b8 both set their words at "right"/),
     ]);
+  });
+
+  it("wants most of a picture deck to be scenes, and counts a diagram over a backdrop as one", () => {
+    // The 2026-10-09 ko e2e: three stages in fourteen beats passed the stage
+    // minimum and left nine beats of cards on one pale ground.
+    expect(scenesRequired(14, on)).toBe(9);
+    expect(scenesRequired(14, { ...on, max: 4 })).toBe(4);
+    expect(scenesRequired(14, off)).toBe(0);
+    expect(scenesRequired(7, on)).toBe(0);
+    const cards = [
+      "title",
+      "stage@bottom-left",
+      "pipeline",
+      "split-compare",
+      "stage@right",
+      "bar-compare",
+      "callout",
+      "stage@center",
+    ];
+    expect(varietyFindings(deck(...cards), on)).toEqual([
+      expect.stringMatching(/8 beats carry 3 picture\(s\); at least 5 must be scenes/),
+    ]);
+    expect(varietyFindings(deck(...cards), off)).toEqual([]);
   });
 });

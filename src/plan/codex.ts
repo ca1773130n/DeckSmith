@@ -283,7 +283,8 @@ ${broken.map((m) => `  - ${m}`).join("\n")}
 
 Return the whole storyboard again with these fixed. Keep every beat whose shape
 is not named above as it is; change archetypes, add stage beats with
-illustration briefs, or reorder neighbours only as far as the fix needs. Never
+illustration briefs, give diagram beats a backdrop brief, or reorder
+neighbours only as far as the fix needs. Never
 drop or merge beats: a repair with fewer beats than the plan below is refused.
 
 ${JSON.stringify(plan)}`;

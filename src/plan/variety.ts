@@ -32,10 +32,48 @@ export const STAGE_EVERY = 4;
 /** Longest A/B/A/B run allowed: three beats (A, B, A) is a return; four is a rut. */
 export const MAX_ALTERNATION = 3;
 
+/**
+ * At least this share of a deck's beats are SCENES — a picture owns or backs
+ * them — when the deck may ask for pictures. Three stages in fourteen still left
+ * nine beats of cards on the pack's pale ground in the 2026-10-09 ko e2e; a
+ * diagram with a `backdrop` is drawn over a picture, so "most beats are scenes"
+ * no longer costs the diagram.
+ */
+export const SCENE_SHARE = 0.6;
+
 /** How many stage beats a deck of `beats` must carry, given the picture cap. */
 export function stagesRequired(beats: number, images: Prefs["images"]): number {
   if (!images.enabled || beats < STAGE_MIN_BEATS) return 0;
   return Math.min(Math.floor(beats / STAGE_EVERY), images.max);
+}
+
+/** How many beats of a deck of `beats` must be scenes (`SCENE_SHARE`), given the picture cap. */
+export function scenesRequired(beats: number, images: Prefs["images"]): number {
+  if (!images.enabled || beats < STAGE_MIN_BEATS) return 0;
+  return Math.min(Math.ceil(beats * SCENE_SHARE), images.max);
+}
+
+/**
+ * Whether a picture owns or backs this beat: a stage, a figure beat, a
+ * split-compare side with a picture, or a diagram over a `backdrop`. A brief
+ * counts as a figure does — it is a picture by the time anyone sees the deck.
+ */
+export function isScene(beat: Beat): boolean {
+  const p = beat.params as Record<string, unknown>;
+  const pictured = (x: unknown) => {
+    const o = x as { figureId?: unknown; illustration?: unknown } | undefined;
+    return o?.figureId !== undefined || o?.illustration !== undefined;
+  };
+  switch (beat.archetype) {
+    case "stage":
+    case "claim-figure":
+    case "annotated-figure":
+      return true;
+    case "split-compare":
+      return pictured(p.left) || pictured(p.right) || pictured(p.backdrop);
+    default:
+      return pictured(p.backdrop);
+  }
 }
 
 /**
@@ -82,6 +120,13 @@ export function varietyFindings(storyboard: Storyboard, images: Prefs["images"])
   if (stages.length < need) {
     out.push(
       `${beats.length} beats carry ${stages.length} stage beat(s); a deck this long needs at least ${need} (one per ${STAGE_EVERY}). Give points with no figure a full-bleed \`stage\` with an \`illustration\` brief.`,
+    );
+  }
+  const scenes = scenesRequired(beats.length, images);
+  const pictured = beats.filter(isScene).length;
+  if (pictured < scenes) {
+    out.push(
+      `${beats.length} beats carry ${pictured} picture(s); at least ${scenes} must be scenes. Give the pipeline, split-compare, callout and bar-compare beats a \`backdrop\` with an \`illustration\` brief — a scene that fits the point, calm where the panels sit.`,
     );
   }
   for (let i = 1; i < stages.length; i++) {

@@ -1032,12 +1032,16 @@ export const prefsSchema = z.object({
        * Most PICTURES drawn through the chain — a split-compare beat with two
        * briefs spends two. Briefs past it are drawn by the tool, which is free.
        * Zero is legal and means "every picture by the tool".
+       *
+       * TEN, so a fourteen-beat deck can be mostly scenes (`SCENE_SHARE` in
+       * src/plan/variety.ts): at four, three stages spent the cap and every
+       * diagram was cards on the pack's ground.
        */
-      max: z.int().min(0).default(4),
+      max: z.int().min(0).default(10),
     })
     // Same reason as `narration`: the resolved shape, spelled once, so an omitted
     // block reads fully populated and a `.deck` manifest carries every field.
-    .default({ enabled: false, provider: "codex", style: "flat vector illustration", max: 4 }),
+    .default({ enabled: false, provider: "codex", style: "flat vector illustration", max: 10 }),
 });
 
 /* -------------------------------------------------------------- Narration */

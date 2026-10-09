@@ -840,7 +840,7 @@ invalidates a storyboard you have already edited.
 | `images.provider` | `codex` | illustrate | `auto` · `codex` · `svg` — where the chain of rungs starts |
 | `images.model` | unset | illustrate | model for the separate backend only; the Codex rung uses the account's own |
 | `images.style` | `flat vector illustration` | illustrate | one phrase folded into every picture prompt |
-| `images.max` | `4` | illustrate | most pictures drawn through the chain; the rest are the tool's SVG |
+| `images.max` | `10` | illustrate | most pictures drawn through the chain; the rest are the tool's SVG |
 
 Three layers, in increasing precedence: these defaults, then the nearest
 `decksmith.config.json` found by walking up from the working directory, then flags.

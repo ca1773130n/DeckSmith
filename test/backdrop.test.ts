@@ -14,6 +14,7 @@ import { type Beat, FORMATS, type Format, type Source } from "../src/types.js";
 const source: Source = {
   id: "paper",
   title: "A paper",
+  lang: "en",
   sections: [{ id: "sec-1", depth: 1, heading: "Intro", text: "Words." }],
   figures: [
     {
