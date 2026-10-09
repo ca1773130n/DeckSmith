@@ -14,7 +14,8 @@ import { describe, expect, it } from "vitest";
 import { stage } from "../src/emit/archetypes/stage.js";
 import { emitComposition } from "../src/emit/composition.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
-import { tweenText } from "../src/emit/kit.js";
+import { PAD_X, PAD_Y, refHeight, refWidth, reserveRef, tweenText } from "../src/emit/kit.js";
+import { ENTRANCES, restyleEntrance } from "../src/emit/motion.js";
 import { MIN_FONT } from "../src/emit/svg.js";
 import {
   type BeatOf,
@@ -102,14 +103,14 @@ describe("stage", () => {
   it("covers the frame with the figure: no plate, no border, no column", () => {
     const scene = stage(beat(), ctx());
     expect(scene.html).toContain(
-      '<div class="stg-m" id="s4-m" data-layout-allow-overflow><img src="assets/ui.png" alt="The editor, open" /></div>',
+      '<div class="stg-m" id="s4-m" data-layout-allow-overflow><div class="stg-mi" id="s4-mi"><img src="assets/ui.png" alt="The editor, open" /></div></div>',
     );
     const css = scene.css ?? "";
     // Absolute against `.scene`, so its padding never reaches the picture, and
     // cover-fit, so the frame is filled at the figure's own aspect.
     expect(css).toContain(".stg-m,.stg-scrim{position:absolute;left:0;top:0;right:0;bottom:0px}");
     expect(css).toContain(
-      ".stg-m>img,.stg-m>video,.stg-m>canvas{display:block;width:100%;height:100%;object-fit:cover}",
+      ".stg-mi>img,.stg-mi>video,.stg-mi>canvas{display:block;width:100%;height:100%;object-fit:cover}",
     );
     // None of claim-figure's furniture.
     expect(scene.html).not.toMatch(/figwrap|caption|claim|headline/);
@@ -188,29 +189,191 @@ describe("stage", () => {
     expect(scene.holds).toEqual([1.1]);
   });
 
-  it("refuses text the overlay cannot hold, rather than shrinking it", () => {
+  it("refuses text the overlay cannot hold even across the full width, rather than shrinking it", () => {
     const long = "word ".repeat(40).trim();
     expect(() => stage(beat({ placement: "right", headline: long }), ctx())).toThrow(
-      /stage b4: the headline sets on \d+ lines in the right column at 72px, and the overlay holds 3/,
+      /stage b4: the headline sets on \d+ lines in the right column at 72px, and the overlay holds 3 even across the full width/,
     );
     expect(() => stage(beat({ line: long }), ctx())).toThrow(
-      /stage b4: the line sets on \d+ lines in the bottom-left column at 44px, and the overlay holds 2/,
+      /stage b4: the line sets on \d+ lines in the bottom-left column at 44px, and the overlay holds 2 even across the full width/,
     );
     // Under none nothing is set, so nothing is refused.
     expect(() => stage(beat({ placement: "none", headline: long }), ctx())).not.toThrow();
+  });
+
+  /**
+   * THE PLANNER IS TOLD A HEADLINE MAY RUN TO 80 CHARACTERS (RULE 5), and a
+   * refused stage is a slide `build` leaves out of the deck. `right`'s 0.42
+   * column set a 61-character headline on four lines at 16:9, and at 1:1 refused
+   * 36 characters. Words too long for their column take a wider one instead —
+   * said, as a warning — so no headline inside the planner's budget loses the slide.
+   */
+  it("widens the column for words its placement cannot hold, in every format, and says so", () => {
+    const headline = "The editor keeps every change you make in one shared timeline, live"; // 68
+    const line = "Every change is kept, in order, for everyone";
+    for (const id of Object.keys(FORMATS)) {
+      const format = FORMATS[id] as Format;
+      for (const placement of STAGE_PLACEMENTS.filter((p) => p !== "none")) {
+        const at = `${id} ${placement}`;
+        const scene = stage(beat({ placement, headline, line }), ctx(format));
+        const col = Number(/#s4 \.stg-t\{max-width:(\d+)px/.exec(scene.css ?? "")?.[1]);
+        expect(col, at).toBeLessThanOrEqual(refWidth(format) - 2 * PAD_X);
+      }
+    }
+    // The case that used to be refused: wider than right's own 714px, and warned.
+    const scene = stage(beat({ placement: "right", headline }), ctx());
+    expect(Number(/#s4 \.stg-t\{max-width:(\d+)px/.exec(scene.css ?? "")?.[1])).toBe(1054);
+    expect(scene.warnings).toEqual([
+      "the words do not fit the right column in 3 headline and 2 line lines, so they take a 62% column and cover more of the picture — shorten them to keep it",
+    ]);
+    // Words that fit keep their placement's own column, unwarned.
+    const fits = stage(beat({ placement: "right", headline: "The editor is it" }), ctx());
+    expect(fits.css).toContain("#s4 .stg-t{max-width:714px;align-self:flex-end}");
+    expect(fits.warnings).toBeUndefined();
+  });
+
+  /**
+   * WHERE THE SCRIM IS, held against where the words are — evaluated, not
+   * string-matched, so a gradient pointed the wrong way, a band centred on the
+   * wrong row or a block moved to the other end fails here instead of shipping
+   * white text over an unscrimmed picture with every other case green.
+   *
+   * Three claims, at every placement and format: every corner of the words'
+   * column is under the full 0.66; the picture is CLEAR away from the words on
+   * any axis the frame has room on (a full-width band dimmed the sun the 16:9
+   * headline named, and at 9:16 `right` put 96% of the frame under 0.66); and
+   * the block's own CSS puts it at the corner the scrim assumes.
+   */
+  describe("puts the scrim where the words are, and nowhere else", () => {
+    /** Alpha of a `linear-gradient(to <side>, color Npx, ...)` at `pos` px along it. */
+    const along = (gradient: string, pos: number): number => {
+      const stops = [...gradient.matchAll(/(rgba\(0,0,0,([\d.]+)\)|#000) (-?\d+)px/g)].map((m) => ({
+        a: m[2] === undefined ? 1 : Number(m[2]),
+        at: Number(m[3]),
+      }));
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (!first || !last) throw new Error(`no stops in ${gradient}`);
+      if (pos <= first.at) return first.a;
+      if (pos >= last.at) return last.a;
+      for (let i = 1; i < stops.length; i++) {
+        const a = stops[i - 1];
+        const b = stops[i];
+        if (a && b && pos <= b.at) return a.a + ((b.a - a.a) * (pos - a.at)) / (b.at - a.at || 1);
+      }
+      return last.a;
+    };
+    /** Position of (x, y) along a gradient's direction, in a w x h box. */
+    const offset = (g: string, x: number, y: number, w: number, h: number): number => {
+      const dir = /linear-gradient\(to (top|bottom|left|right),/.exec(g)?.[1];
+      if (dir === "top") return h - y;
+      if (dir === "bottom") return y;
+      if (dir === "left") return w - x;
+      if (dir === "right") return x;
+      throw new Error(`no direction in ${g}`);
+    };
+    const scrimOf = (css: string) => {
+      const bg = /#s4 \.stg-scrim\{background:(linear-gradient\([^)]*(?:\)[^)]*)*?\));/.exec(
+        css,
+      )?.[1];
+      const mask = /;mask-image:(linear-gradient\(.*?\))\}/.exec(css)?.[1];
+      if (!bg || !mask) throw new Error(`no scrim in ${css}`);
+      return { bg, mask };
+    };
+
+    const BLOCKS = {
+      "bottom-left": "margin-top:auto;align-self:flex-start",
+      "top-left": "margin-bottom:auto;align-self:flex-start",
+      center: "align-self:center;text-align:center",
+      right: "align-self:flex-end",
+    } as const;
+    const cases = Object.keys(FORMATS).flatMap((id) =>
+      (Object.keys(BLOCKS) as (keyof typeof BLOCKS)[]).map((p) => [id, p] as const),
+    );
+
+    it.each(cases)("%s, %s", (id, placement) => {
+      const format = { ...(FORMATS[id] as Format), captionReserve: 120 };
+      const css = stage(beat({ placement, headline: "Short" }), ctx(format)).css ?? "";
+      const { bg, mask } = scrimOf(css);
+      const w = refWidth(format);
+      const h = refHeight(format) - reserveRef(format);
+      const alpha = (x: number, y: number) =>
+        along(bg, offset(bg, x, y, w, h)) * along(mask, offset(mask, x, y, w, h));
+
+      // The block the scrim must be under: one 72px line, its column's extent.
+      const col = Number(/#s4 \.stg-t\{max-width:(\d+)px/.exec(css)?.[1]);
+      const textH = Math.round(72 * 1.12);
+      const portrait = format.height > format.width;
+      const [x0, x1] =
+        placement === "right"
+          ? [w - PAD_X - col, w - PAD_X]
+          : placement === "center"
+            ? [w / 2 - col / 2, w / 2 + col / 2]
+            : [PAD_X, PAD_X + col];
+      const [y0, y1] =
+        placement === "bottom-left"
+          ? [h - PAD_Y - textH, h - PAD_Y]
+          : placement === "top-left"
+            ? [PAD_Y, PAD_Y + textH]
+            : [h / 2 - textH / 2, h / 2 + textH / 2];
+      for (const [x, y] of [
+        [x0, y0],
+        [x1, y0],
+        [x0, y1],
+        [x1, y1],
+      ] as const) {
+        expect(alpha(x, y), `corner (${x}, ${y})`).toBeCloseTo(0.66, 6);
+      }
+
+      // Clear away from the words, wherever the frame has the room.
+      const mid = (y0 + y1) / 2;
+      const clear: [number, number][] = [];
+      if (placement === "bottom-left") clear.push([x0, 0]);
+      if (placement === "top-left") clear.push([x0, h - 1]);
+      if (placement === "right" || placement === "center") clear.push([x1, 0], [x1, h - 1]);
+      if (!portrait && (placement === "bottom-left" || placement === "top-left")) {
+        clear.push([w - 1, mid]);
+      }
+      if (!portrait && placement === "right") clear.push([0, mid]);
+      for (const [x, y] of clear) expect(alpha(x, y), `clear at (${x}, ${y})`).toBe(0);
+
+      // And the block sits where all of the above assumed it does.
+      const block = /#s4 \.stg-t\{max-width:\d+px;([^}]*)\}/.exec(css)?.[1];
+      expect(block).toBe(
+        placement === "right" && portrait ? `${BLOCKS.right};text-align:right` : BLOCKS[placement],
+      );
+      if (portrait) expect(col).toBe(w - 2 * PAD_X);
+    });
   });
 
   it("enters the media first, then the words, every tween a fromTo scoped to the scene", () => {
     const scene = stage(beat({ line: "l" }), ctx());
     const code = scene.tl.map(tweenText);
     expect(code[0]).toBe(
-      'tl.fromTo("#s4-m", { opacity: 0, scale: 1.06 }, { opacity: 1, scale: 1, duration: 1.1, ease: "power2.out" }, 0);',
+      'tl.fromTo("#s4-mi", { opacity: 0, scale: 1.06 }, { opacity: 1, scale: 1, duration: 1.1, ease: "power2.out" }, 0);',
     );
     const at = (sel: string) => scene.tl.find((t) => t.target === sel)?.at ?? Number.NaN;
-    expect(at("#s4-h")).toBeGreaterThan(at("#s4-m"));
+    expect(at("#s4-h")).toBeGreaterThan(at("#s4-mi"));
     expect(at("#s4-l")).toBeGreaterThan(at("#s4-h"));
     for (const t of scene.tl) expect(t.target.startsWith("#s4")).toBe(true);
     expect(code.join("\n")).not.toMatch(/\bon(Update|Start|Complete)\b/);
+  });
+
+  /**
+   * THE CLIPPING BOX NEVER MOVES. It is anchored `reserveRef` above the bottom
+   * edge, and `overflow:hidden` clips its children, not its own transform: a
+   * 1.06 entrance on the box itself put 49 canvas px of picture into a 9:16
+   * caption reserve for the first second of every stage, where the stop-time
+   * `ink_in_caption_reserve` gate never looks. Under v2 the entrance is
+   * revoiced (`rise` drops 22px), so the claim is checked for every verb.
+   */
+  it("moves only what the box clips, under every entrance verb", () => {
+    const short = { ...(FORMATS["short-9x16"] as Format), captionReserve: 300 };
+    const scene = stage(beat({ line: "l" }), ctx(short));
+    expect(scene.html).toMatch(/<div class="stg-m" id="s4-m"[^>]*><div class="stg-mi" id="s4-mi">/);
+    for (const s of [scene, ...ENTRANCES.map((v) => restyleEntrance(scene, "s4", v))]) {
+      expect(s.tl.filter((t) => t.target === "#s4-m")).toEqual([]);
+    }
   });
 
   it("holds after the words have entered, and after a piece's last frame", () => {

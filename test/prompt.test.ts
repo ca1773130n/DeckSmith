@@ -270,6 +270,12 @@ describe("the prompt's reveal counts", () => {
     // Inside RULE 1, not a second rule about variety: one statement per constraint.
     const rule1 = text.slice(text.indexOf("AND VARY THE SHAPE"), text.indexOf("\n2. "));
     expect(rule1).toMatch(/more than one stage gives each a different\s+`placement`/);
+    // What the emitter does with long words, not what it used to: a column that
+    // widens, and a "right" that is only narrow where the frame is wide.
+    const entry = text.slice(text.indexOf("  stage   "), text.indexOf("DESCRIBING ARCHETYPES"));
+    expect(entry).toMatch(/words too long for their column take\s+a wider one/);
+    expect(entry).toMatch(/In a tall frame every placement spans the full width/);
+    expect(entry).not.toMatch(/a longer one is refused/);
   });
 
   it("puts the table in the prompt the planner actually receives", () => {

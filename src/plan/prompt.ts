@@ -228,9 +228,13 @@ DRAWING ARCHETYPES — reach here first
                  \`headline\` is always written — under "none" it labels the
                  slide without being drawn — and \`line\` is one optional short
                  sentence under it. Keep both short: up to three headline lines
-                 and two lines of \`line\` fit, and a longer one is refused rather
-                 than shrunk. "right" has the narrowest column, "center" the
-                 widest.
+                 and two lines of \`line\` fit. In a wide frame "right" has the
+                 narrowest column (a headline of about 45 characters keeps it)
+                 and "center" the widest; words too long for their column take
+                 a wider one and cover more of the picture, and only words that
+                 will not fit across the whole frame are refused, never shrunk.
+                 In a tall frame every placement spans the full width, and
+                 "right" only aligns the words to the right.
 
 DESCRIBING ARCHETYPES — the fallbacks
 

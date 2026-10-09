@@ -13,22 +13,27 @@
  * `SCRIM` alpha. At 0.66 black over a pure-white pixel the background is
  * 87/255, which white text clears at about 7:1, so the contrast gate passes on
  * any picture rather than on the one it was tried with. The solid extent is
- * DERIVED from the text block's measured height, so a third headline line moves
- * the scrim with it.
+ * DERIVED from the text block's measured height and its column's width, and is
+ * bounded on BOTH axes (`scrimFor`): a scrim that ran the whole width dimmed
+ * the picture's subject wherever it shared the words' rows.
  *
  * THE TEXT IS NEVER SHRUNK. Headline and line have fixed sizes above the 40px
- * floor (invariant 5); text that does not fit its placement's column in
- * `MAX_HEAD_LINES` / `MAX_LINE_LINES` is refused by name, the same answer
- * callout and split-compare give.
+ * floor (invariant 5). Text that does not fit its placement's column in
+ * `MAX_HEAD_LINES` / `MAX_LINE_LINES` takes the next wider column (`WIDER`),
+ * so the words cover more of the picture rather than the slide being dropped;
+ * only text that will not fit across the whole content width is refused by
+ * name, the same answer callout and split-compare give.
  *
  * THE CAPTION RESERVE IS LEFT CLEAR. The media and its scrim stop `reserveRef`
  * above the bottom edge, so a deck that asked for burned captions keeps the
- * strip it asked for (`ink_in_caption_reserve`).
+ * strip it asked for (`ink_in_caption_reserve`). Nothing that MOVES is that
+ * box: the entrance scales an inner wrapper the box clips, so no frame of it
+ * reaches the strip either.
  */
 import type { Figure, STAGE_PLACEMENTS } from "../../types.js";
 import { MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween } from "../kit.js";
-import { contentW, esc, PAD_X, PAD_Y, refHeight, reserveRef } from "../kit.js";
+import { contentW, esc, PAD_X, PAD_Y, refHeight, refWidth, reserveRef } from "../kit.js";
 import { displayFace, faceOf, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
 import { pieceTimeline, plate } from "./claim-figure.js";
@@ -74,6 +79,15 @@ const COLUMN: Readonly<Record<Placed, number>> = {
   right: 0.42,
 };
 
+/**
+ * The wider columns a placement's words move to, in order, when they do not fit
+ * its own. A 61-character headline sets on four lines in `right`'s 0.42 column
+ * at 16:9, and the planner is told up to 80 is fine; refusing it dropped the
+ * slide from the deck at build. The block keeps its corner and the scrim is
+ * re-derived from the wider column, so only the share of picture covered moves.
+ */
+const WIDER = [0.62, 0.82, 1] as const;
+
 /** Where the block sits in the scene's flex column, and which way its scrim runs. */
 const BLOCK: Readonly<Record<Placed, string>> = {
   "bottom-left": "margin-top:auto;align-self:flex-start",
@@ -84,28 +98,53 @@ const BLOCK: Readonly<Record<Placed, string>> = {
 
 /**
  * The scrim for a text block `textH` tall and `col` wide, in reference px of a
- * scrim box `boxH` tall. Solid over the block and `SCRIM_MARGIN` past it, then
- * a `SCRIM_FADE` to clear — so the picture is untouched away from the words.
+ * scrim box `boxW` x `boxH`. Solid over the block and `SCRIM_MARGIN` past it,
+ * then a `SCRIM_FADE` to clear — so the picture is untouched away from the
+ * words, on both axes.
+ *
+ * TWO GRADIENTS, MULTIPLIED: `background` runs along one axis and `mask` along
+ * the other, so the scrim's alpha is the product — solid only where both are,
+ * which is the block plus its margin. Two `background` layers cannot do this:
+ * layers composite as a union, and a union of two full-length bands is the
+ * header bar across the slide this archetype exists to avoid.
  */
-function scrimFor(placement: Placed, textH: number, col: number, boxH: number): string {
+export function scrimFor(
+  placement: Placed,
+  textH: number,
+  col: number,
+  boxW: number,
+  boxH: number,
+): { background: string; mask: string } {
   const dark = `rgba(0,0,0,${SCRIM})`;
+  const opaque = "#000";
   const clear = "rgba(0,0,0,0)";
-  const ramp = (dir: string, solid: number) =>
-    `linear-gradient(${dir},${dark} 0px,${dark} ${solid}px,${clear} ${solid + SCRIM_FADE}px)`;
+  const ramp = (ink: string, dir: string, solid: number) =>
+    `linear-gradient(${dir},${ink} 0px,${ink} ${solid}px,${clear} ${solid + SCRIM_FADE}px)`;
+  const band = (ink: string, dir: string, mid: number, half: number) => {
+    const lo = Math.round(mid - half - SCRIM_MARGIN);
+    const hi = Math.round(mid + half + SCRIM_MARGIN);
+    return `linear-gradient(${dir},${clear} ${lo - SCRIM_FADE}px,${ink} ${lo}px,${ink} ${hi}px,${clear} ${hi + SCRIM_FADE}px)`;
+  };
+  // The block is centred in the content box, whose centre is the scrim box's:
+  // the padding is symmetric once the reserve is out of both.
+  const rows = (ink: string) => band(ink, "to bottom", boxH / 2, textH / 2);
+  // The left-hand placements' block starts at the padding and is at most `col` wide.
+  const fromLeft = (ink: string) => ramp(ink, "to right", PAD_X + col + SCRIM_MARGIN);
   switch (placement) {
     case "bottom-left":
-      return ramp("to top", PAD_Y + textH + SCRIM_MARGIN);
+      return {
+        background: ramp(dark, "to top", PAD_Y + textH + SCRIM_MARGIN),
+        mask: fromLeft(opaque),
+      };
     case "top-left":
-      return ramp("to bottom", PAD_Y + textH + SCRIM_MARGIN);
+      return {
+        background: ramp(dark, "to bottom", PAD_Y + textH + SCRIM_MARGIN),
+        mask: fromLeft(opaque),
+      };
     case "right":
-      return ramp("to left", PAD_X + col + SCRIM_MARGIN);
-    case "center": {
-      // The block is centred in the content box, whose centre is the scrim
-      // box's: the padding is symmetric once the reserve is out of both.
-      const lo = Math.round(boxH / 2 - textH / 2 - SCRIM_MARGIN);
-      const hi = Math.round(boxH / 2 + textH / 2 + SCRIM_MARGIN);
-      return `linear-gradient(to bottom,${clear} ${lo - SCRIM_FADE}px,${dark} ${lo}px,${dark} ${hi}px,${clear} ${hi + SCRIM_FADE}px)`;
-    }
+      return { background: ramp(dark, "to left", PAD_X + col + SCRIM_MARGIN), mask: rows(opaque) };
+    case "center":
+      return { background: rows(dark), mask: band(opaque, "to right", boxW / 2, col / 2) };
   }
 }
 
@@ -153,36 +192,59 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
   const placement = p.placement === "none" ? undefined : p.placement;
   const face = faceOf(theme.fontStack);
   const type = typeOf(face);
-  const col = placement
-    ? Math.round(isPortrait(format) ? contentW(format) : contentW(format) * COLUMN[placement])
-    : 0;
+  let col = 0;
   let textH = 0;
   if (placement) {
-    const measure = col * MEASURE_SLACK;
-    const head = wrap(p.headline, HEAD_SIZE, measure, type.headline.weight, 0, displayFace(face));
+    const full = contentW(format);
+    // A portrait frame has no room for a side column: every placement is the
+    // full width there, and `right` is told apart by its alignment instead.
+    const own = isPortrait(format) ? 1 : COLUMN[placement];
+    const shares = [own, ...WIDER.filter((s) => s > own)];
+    let head: string[] = [];
+    let lines: string[] = [];
+    for (const share of shares) {
+      col = Math.round(full * share);
+      const measure = col * MEASURE_SLACK;
+      head = wrap(p.headline, HEAD_SIZE, measure, type.headline.weight, 0, displayFace(face));
+      lines = p.line ? wrap(p.line, LINE_SIZE, measure, 400, 0, face) : [];
+      if (head.length <= MAX_HEAD_LINES && lines.length <= MAX_LINE_LINES) break;
+    }
     if (head.length > MAX_HEAD_LINES) {
       throw new Error(
-        `${who}: the headline sets on ${head.length} lines in the ${placement} column at ${HEAD_SIZE}px, and the overlay holds ${MAX_HEAD_LINES} — ` +
-          "shorten it, or use placement center, which has the widest column",
+        `${who}: the headline sets on ${head.length} lines in the ${placement} column at ${HEAD_SIZE}px, ` +
+          `and the overlay holds ${MAX_HEAD_LINES} even across the full width — shorten it`,
+      );
+    }
+    if (lines.length > MAX_LINE_LINES) {
+      throw new Error(
+        `${who}: the line sets on ${lines.length} lines in the ${placement} column at ${LINE_SIZE}px, ` +
+          `and the overlay holds ${MAX_LINE_LINES} even across the full width — shorten it`,
+      );
+    }
+    if (col > Math.round(full * own)) {
+      warnings.push(
+        `the words do not fit the ${placement} column in ${MAX_HEAD_LINES} headline and ${MAX_LINE_LINES} line lines, ` +
+          `so they take a ${Math.round((100 * col) / full)}% column and cover more of the picture — shorten them to keep it`,
       );
     }
     textH = head.length * Math.round(HEAD_SIZE * HEAD_LH);
-    if (p.line) {
-      const line = wrap(p.line, LINE_SIZE, measure, 400, 0, face);
-      if (line.length > MAX_LINE_LINES) {
-        throw new Error(
-          `${who}: the line sets on ${line.length} lines in the ${placement} column at ${LINE_SIZE}px, and the overlay holds ${MAX_LINE_LINES} — shorten it`,
-        );
-      }
-      textH += LINE_GAP + line.length * Math.round(LINE_SIZE * LINE_LH);
-    }
+    if (lines.length) textH += LINE_GAP + lines.length * Math.round(LINE_SIZE * LINE_LH);
   }
+  // `right` across the whole width would be the left-hand block again: its
+  // lines fill the column, so only the alignment can still put them right.
+  const block =
+    placement === "right" && col === contentW(format)
+      ? `${BLOCK.right};text-align:right`
+      : placement && BLOCK[placement];
+  const scrim = placement && scrimFor(placement, textH, col, refWidth(format), boxH);
 
   const line = placement && p.line ? `\n<p class="stg-l" id="${sid}-l">${esc(p.line)}</p>` : "";
   const html = [
     // `data-layout-allow-overflow`: the picture is drawn past its box on purpose
-    // while it settles and drifts, and the box clips it to the frame.
-    `<div class="stg-m" id="${sid}-m" data-layout-allow-overflow>${media.html}</div>`,
+    // while it settles and drifts, and the box clips it to the frame. The box
+    // itself never moves — `-mi` inside it is what enters — so the clip holds
+    // at every frame, and the caption reserve below the box stays clear.
+    `<div class="stg-m" id="${sid}-m" data-layout-allow-overflow><div class="stg-mi" id="${sid}-mi">${media.html}</div></div>`,
     ...(placement
       ? [
           `<div class="stg-scrim" id="${sid}-sc"></div>`,
@@ -193,7 +255,7 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
 
   const tl: Tween[] = [
     tween(
-      `#${sid}-m`,
+      `#${sid}-mi`,
       { opacity: 0, scale: 1.06 },
       { opacity: 1, scale: 1, duration: MEDIA_IN, ease: "power2.out" },
       0,
@@ -244,18 +306,19 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
       // px. Absolute against `.scene`, so the padding never reaches it.
       `.stg-m,.stg-scrim{position:absolute;left:0;top:0;right:0;bottom:${reserve}px}`,
       ".stg-m{overflow:hidden}",
-      ".stg-m>img,.stg-m>video,.stg-m>canvas{display:block;width:100%;height:100%;object-fit:cover}",
+      ".stg-mi{width:100%;height:100%}",
+      ".stg-mi>img,.stg-mi>video,.stg-mi>canvas{display:block;width:100%;height:100%;object-fit:cover}",
       // The picture is the focal element. A luminance breath, because its
       // entrance tween owns `transform`; the scrim is a sibling, so the words'
       // contrast is not what breathes.
       ambient(sid, "-m", BREATHE),
       ...(placement
         ? [
-            `#${sid} .stg-scrim{background:${scrimFor(placement, textH, col, boxH)}}`,
+            `#${sid} .stg-scrim{background:${scrim?.background};-webkit-mask-image:${scrim?.mask};mask-image:${scrim?.mask}}`,
             // In the scene's flex column, the one child in flow: the placement
             // is where the column's free space goes.
             `.stg-t{position:relative;display:flex;flex-direction:column}`,
-            `#${sid} .stg-t{max-width:${col}px;${BLOCK[placement]}}`,
+            `#${sid} .stg-t{max-width:${col}px;${block}}`,
             `.stg-h{${family}font-size:${HEAD_SIZE}px;line-height:${HEAD_LH};font-weight:${type.headline.weight};color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45)}`,
             `.stg-l{font-size:${LINE_SIZE}px;line-height:${LINE_LH};color:#ececec;margin-top:${LINE_GAP}px;text-shadow:0 2px 10px rgba(0,0,0,.45)}`,
           ]
