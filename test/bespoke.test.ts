@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { artPrompt } from "../src/bespoke/art.js";
 import { cacheKey, canonical, type KeyInput, SceneCache } from "../src/bespoke/cache.js";
 import type { Fragment } from "../src/bespoke/contract.js";
 import {
@@ -20,6 +21,7 @@ import {
   deviceName,
   type GateFn,
   type GateResult,
+  pictureFloor,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
 import { critiquePrompt, type DeviceBeat, generatePrompt } from "../src/bespoke/prompt.js";
@@ -644,8 +646,110 @@ describe("the deck-order device pass", () => {
     for (const n of names) expect(n).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
     r.beats.forEach((b, i) => {
       expect(b.beatId).toBe(deck[i]?.id);
-      expect(b.priorDevices).toEqual(names.slice(0, i));
+      // The earlier devices, then the earlier camera grammars and chart builds (round 5).
+      expect(b.priorDevices).toEqual([
+        ...names.slice(0, i),
+        ...r.beats
+          .slice(0, i)
+          .flatMap((o) => [
+            ...(o.grammar ? [`camera-${o.grammar}`] : []),
+            ...(o.build ? [`build-${o.build}`] : []),
+          ]),
+      ]);
     });
+  });
+
+  it("never leaves a deck with fewer pictures than the floor: exactly min(cap, 3, ceil(eligible/2)) when the model marks none, and says which were forced", async () => {
+    const none = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: false, idea: "x" }));
+    // b1 (one cue) and b4 (data) are not eligible: four eligible beats.
+    const eligible = deck.filter((b) => !b.data && b.cues >= 2).length;
+    expect(eligible).toBe(4);
+    for (const cap of [1, 2, 6]) {
+      const r = await assignDevices(deck, {
+        artCap: cap,
+        work,
+        timeoutMs: 1000,
+        run: answer(none),
+      });
+      const pictured = r.beats.filter((b) => b.illustrate);
+      expect(pictured).toHaveLength(Math.min(cap, 3, Math.ceil(eligible / 2)));
+      expect(pictured.every((b) => b.forced === true)).toBe(true);
+      expect(r.note).toMatch(
+        /picture floor: .* given a picture \(the model marked 0 of 4 eligible beats; the floor is \d\)/,
+      );
+    }
+    expect(pictureFloor(4, 6)).toBe(2);
+    expect(pictureFloor(7, 6)).toBe(3);
+    expect(pictureFloor(5, 1)).toBe(1);
+    // The model's own picks at or over the floor: nothing forced, nothing said.
+    const some = deck.map((b) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: ["b2", "b3"].includes(b.id),
+      idea: "x",
+    }));
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run: answer(some) });
+    expect(r.beats.filter((b) => b.illustrate).map((b) => b.beatId)).toEqual(["b2", "b3"]);
+    expect(r.beats.some((b) => b.forced)).toBe(false);
+    expect(r.note ?? "").not.toMatch(/picture floor/);
+  });
+
+  it("plans the deck's pictures together: a setting and subjects per illustrated beat, none for the rest (round 5)", async () => {
+    const all = deck.map((b, i) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: true,
+      idea: "x",
+      setting: `place ${i}`,
+      subjects: [`thing ${i}a`, `thing ${i}b`, 7],
+    }));
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run: answer(all) });
+    for (const b of r.beats) {
+      if (b.illustrate) {
+        expect(b.setting).toMatch(/^place \d$/);
+        expect(b.subjects).toHaveLength(2);
+      } else {
+        expect(b.setting).toBeUndefined();
+        expect(b.subjects).toBeUndefined();
+      }
+    }
+    const brief = {
+      lang: "en",
+      headline: "h",
+      intent: "i",
+      context: "c",
+      theme: resolveTheme("ink"),
+      pack: "ink",
+      setting: "a tide pool",
+      subjects: ["crab", "anemone"],
+    };
+    expect(artPrompt(brief)).toContain(
+      "the setting is a tide pool; the subjects are crab, anemone",
+    );
+  });
+
+  it("gives every illustrated beat a camera grammar, never the one before it, and every data beat its own build (round 5)", async () => {
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(
+      [...deck, beat("b7"), beat("b8"), beat("b9", { archetype: "line-chart", data: true })],
+      { artCap: 6, work, timeoutMs: 1000, run: answer(all) },
+    );
+    const pictured = r.beats.filter((b) => b.illustrate);
+    expect(pictured.length).toBeGreaterThan(3);
+    for (const b of r.beats) expect(b.grammar !== undefined).toBe(b.illustrate);
+    const gs = pictured.map((b) => b.grammar);
+    gs.slice(1).forEach((g, i) => {
+      expect(g).not.toBe(gs[i]);
+    });
+    // Up to seven illustrated beats, every grammar differs.
+    expect(new Set(gs).size).toBe(gs.length);
+    const builds = r.beats.filter((b) => b.build).map((b) => b.build);
+    expect(builds).toHaveLength(2);
+    expect(new Set(builds).size).toBe(2);
+    // A later beat is told the earlier grammars, as devices not to reuse.
+    const last = r.beats[r.beats.length - 1];
+    expect(last?.priorDevices).toContain(`camera-${gs[0]}`);
+    expect(last?.priorDevices).toContain(`build-${builds[0]}`);
   });
 
   it("never illustrates a data beat or a one-cue beat, holds to the cap, and leaves some beats as motion graphics", async () => {

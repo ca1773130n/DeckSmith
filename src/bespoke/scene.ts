@@ -22,15 +22,18 @@ import type { EmitContext, Scene } from "../emit/kit.js";
 import { contentW } from "../emit/kit.js";
 import { faceOf } from "../emit/svg.js";
 import type { Beat } from "../types.js";
-import { type ArtRef, artHref } from "./art.js";
+import { type ArtRef, artHref, plateHref } from "./art.js";
 import { calloutLayer, calloutZones, withZone, type Zone } from "./callouts.js";
 import { type Fragment, instantiate } from "./contract.js";
+import type { DataBuild } from "./databuild.js";
+import type { Grammar } from "./grammar.js";
 import {
   artPlacement,
   type Box,
-  type CamMove,
   cameraScript,
-  compileShots,
+  compileStaging,
+  type Staging,
+  sharpMax,
   subjectsInBox,
 } from "./shots.js";
 
@@ -48,6 +51,10 @@ export interface BespokeEntry {
    * (src/bespoke/shots.ts). Present on an illustrated scene.
    */
   stage?: { cues: ReadonlyArray<{ t0: number; t1: number }>; duration: number };
+  /** The camera grammar an illustrated scene is staged in (src/bespoke/grammar.ts). Absent: "tour". */
+  grammar?: Grammar;
+  /** A data scene's build (src/bespoke/databuild.ts), stamped on the scene for the deck gate. */
+  build?: DataBuild;
 }
 
 /** The file `build` writes beside a deck with the bespoke pass's account of itself. */
@@ -86,6 +93,7 @@ export function withArt(
   markup: string,
   art: ArtRef | undefined,
   box?: { width: number; height: number },
+  clip?: string,
 ): string {
   if (!art) return markup;
   const href = (s: string) =>
@@ -97,12 +105,16 @@ export function withArt(
   return href(
     markup.replace(/<image\b([^>]*?)(\/?)>/gi, (m, attrs: string, close: string) => {
       if (!/\sdata-art\s*=\s*(["']?)1\1/i.test(` ${attrs}`)) return m;
+      // A wiped-on picture is the shell's to reveal: the scene's own clip or mask goes.
+      const owned = clip
+        ? /x|y|width|height|preserveAspectRatio|clip-path|mask/
+        : /x|y|width|height|preserveAspectRatio/;
       const kept = attrs.replace(
-        /\s(x|y|width|height|preserveAspectRatio)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+        new RegExp(`\\s(${owned.source})\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>]+)`, "gi"),
         "",
       );
       const at = artPlacement(box);
-      return `<image${kept} x="${at.x}" y="${at.y}" width="${at.w}" height="${at.h}" preserveAspectRatio="xMidYMid slice"${close}>`;
+      return `<image${kept} x="${at.x}" y="${at.y}" width="${at.w}" height="${at.h}" preserveAspectRatio="xMidYMid slice"${clip ? ` clip-path="url(#${clip})"` : ""}${close}>`;
     }),
   );
 }
@@ -130,11 +142,17 @@ export function subjectLayer(subjects: readonly Box[], width: number, height: nu
 export function staging(
   entry: BespokeEntry,
   box: { width: number; height: number },
-): { subjects: Box[]; zones: Zone[]; moves: CamMove[] } {
+): { subjects: Box[]; zones: Zone[]; staged: Staging } {
   const art = entry.art;
-  if (!art?.subjects?.length || !entry.stage) return { subjects: [], zones: [], moves: [] };
+  const none: Staging = {
+    grammar: entry.grammar ?? "tour",
+    open: { s: 1, x: 0, y: 0 },
+    moves: [],
+    wipes: [],
+  };
+  if (!art?.subjects?.length || !entry.stage) return { subjects: [], zones: [], staged: none };
   const subjects = subjectsInBox(art.subjects, art, box);
-  const zones = calloutZones(subjects, box.width);
+  const zones = calloutZones(subjects, box.width, box.height);
   const labelled = new Set((entry.fragment.labels ?? []).map((l) => l.subject));
   const targets = subjects.map((s, i) =>
     labelled.has(i + 1)
@@ -144,15 +162,40 @@ export function staging(
         )
       : s,
   );
-  const moves = compileShots(
+  const staged = compileStaging(
+    entry.grammar ?? "tour",
     entry.fragment.shots ?? [],
     entry.stage.cues,
     entry.stage.duration,
     targets,
     box.width,
     box.height,
+    sharpMax(art, box),
   );
-  return { subjects, zones, moves };
+  return { subjects, zones, staged };
+}
+
+/**
+ * The backdrop layer (round 5): the setting, behind the camera's wrapper and
+ * moved by its own twin of every camera tween at `PARALLAX` of the zoom. It
+ * covers the whole body box, the label band included; the shell's wipe clip,
+ * when the grammar is "wipe", is defined here too.
+ */
+export function plateLayer(
+  sid: string,
+  art: ArtRef | undefined,
+  width: number,
+  height: number,
+  wipe: boolean,
+): string {
+  const defs = wipe
+    ? `<defs><clipPath id="${sid}-wipeclip" clipPathUnits="userSpaceOnUse"><rect id="${sid}-wipe" x="0" y="0" width="0" height="${height}"/></clipPath></defs>`
+    : "";
+  if (!art?.plate)
+    return wipe
+      ? `<svg class="ds-shell" aria-hidden="true" width="0" height="0" style="position:absolute">${defs}</svg>`
+      : "";
+  return `<div class="ds-plate" id="${sid}-plate"><svg aria-hidden="true" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="position:absolute;left:0;top:0">${defs}<image data-ds-plate="1" href="${plateHref(art.plate)}" x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice"${wipe ? ` clip-path="url(#${sid}-wipeclip)"` : ""}/></svg></div>`;
 }
 
 /** CSS feather for an illustration's edges: 6% at the sides, 10% top and bottom. */
@@ -173,10 +216,16 @@ export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry):
   // An illustrated scene is STAGED by the shell (round 4): the picture covers
   // the box, its subjects are known boxes, and the camera follows the scene's
   // shot list in one fixed grammar (src/bespoke/shots.ts).
-  const { subjects, zones, moves } = staging(entry, { width, height });
-  const shot = moves.length ? cameraScript(sid, moves, width, height) : "";
+  const { subjects, zones, staged } = staging(entry, { width, height });
+  const { moves } = staged;
+  const wipe = staged.wipes.length > 0;
+  const plate = subjects.length > 0 && entry.art?.plate !== undefined;
+  const shot =
+    moves.length || wipe || staged.open.s !== 1
+      ? cameraScript(sid, moves, width, height, { open: staged.open, plate, wipes: staged.wipes })
+      : "";
   const callouts = subjects.length
-    ? calloutLayer(sid, f.labels ?? [], zones, moves, theme, width, height)
+    ? calloutLayer(sid, f.labels ?? [], zones, staged, theme, width, height)
     : { markup: "", script: "" };
   const script = [shot, callouts.script, f.script].filter(Boolean).join("\n");
   // THE CAMERA is the shell's: a wrapper the size of the body box, transformed
@@ -188,9 +237,10 @@ export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry):
   const camera = usesCamera(script) || /\bviewBox\b/.test(script);
   return {
     html: `${chrome(sid, p.eyebrow, p.headline, contentW(ctx.format), face)}
-<div class="ds-bespoke" id="${sid}-g"${camera ? " data-ds-clip" : ""}>
+<div class="ds-bespoke" id="${sid}-g"${camera ? " data-ds-clip" : ""}${subjects.length ? ` data-ds-grammar="${staged.grammar}"` : ""}${entry.build ? ` data-ds-build="${entry.build}"` : ""}>
+${subjects.length ? plateLayer(sid, entry.art, width, height, wipe) : ""}
 <div class="ds-cam" id="${sid}-cam">
-${withArt(f.markup, entry.art, subjects.length ? { width, height } : undefined)}
+${withArt(f.markup, entry.art, subjects.length ? { width, height } : undefined, wipe ? `${sid}-wipeclip` : undefined)}
 ${subjectLayer(subjects, width, height)}
 ${callouts.markup}
 </div>
@@ -204,13 +254,19 @@ ${callouts.markup}
       chromeCss(theme),
       `#${sid}-g{position:relative;flex:none;width:${width}px;height:${height}px;margin-top:${BODY_TOP}px;color:${theme.fg}${camera ? ";overflow:hidden" : ""}}`,
       `#${sid}-cam{position:absolute;left:0;top:0;width:${width}px;height:${height}px;transform-origin:0 0}`,
+      ...(plate
+        ? [
+            `#${sid}-plate{position:absolute;left:0;top:0;width:${width}px;height:${height}px;transform-origin:0 0}`,
+          ]
+        : []),
       // The illustration's edges, feathered by the shell unless the scene masks
       // it itself: its flat ground meets a pack ground that is often a
       // gradient, and an unmasked picture showed as a lighter rectangle.
       // A picture whose copy is feathered already (alpha baked in by the pass)
       // needs none: MEASURED 2026-10-09, this CSS mask made every screenshot of
       // its scene ~0.7s slower (13.5s against 4.1s for one scene's 13 frames).
-      ...(entry.art && !entry.art.feathered
+      // A cutout (round 5: subjects on a transparent ground) has no edge to feather.
+      ...(entry.art && !entry.art.feathered && !entry.art.cutout
         ? [`#${sid}-g image[data-art]:not([mask]){${ART_FEATHER}}`]
         : []),
       f.css,

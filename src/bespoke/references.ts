@@ -524,9 +524,9 @@ tl.to(dots, { scale: 1.12, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.in
  * a counter lands the point.
  */
 const ILLUSTRATED_SUBJECTS = [
-  { x: 153, y: 200, w: 500, h: 480 },
-  { x: 731, y: 160, w: 400, h: 400 },
-  { x: 1150, y: 240, w: 440, h: 440 },
+  { x: 153, y: 260, w: 500, h: 420 },
+  { x: 731, y: 250, w: 400, h: 360 },
+  { x: 1150, y: 280, w: 440, h: 400 },
 ];
 
 const illustrated: Reference = {
@@ -557,41 +557,42 @@ const illustrated: Reference = {
   <defs>
     <clipPath id="SCENEID-wipe"><rect id="SCENEID-wipe-bar" x="0" y="0" width="0" height="732"/></clipPath>
     <radialGradient id="SCENEID-soft"><stop offset="0.7" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/></radialGradient>
-    <mask id="SCENEID-hole"><rect x="0" y="0" width="1700" height="732" fill="#ffffff"/><circle id="SCENEID-hole-c" cx="403" cy="440" r="300" fill="url(#SCENEID-soft)"/></mask>
+    <mask id="SCENEID-hole"><rect x="0" y="0" width="1700" height="732" fill="#ffffff"/><circle id="SCENEID-hole-c" cx="403" cy="470" r="300" fill="url(#SCENEID-soft)"/></mask>
   </defs>
   <g id="SCENEID-art" data-cue="1" clip-path="url(#SCENEID-wipe)">
     <image id="SCENEID-pic" data-art="1" x="0" y="120" width="1700" height="612" preserveAspectRatio="xMidYMid slice"/>
     <rect id="SCENEID-shade" x="0" y="0" width="1700" height="732" fill="{{bg}}" mask="url(#SCENEID-hole)"/>
   </g>
   <g id="SCENEID-links" data-cue="3">
-    <path id="SCENEID-l12" d="M403 440 L931 360" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-    <path id="SCENEID-l23" d="M931 360 L1370 460" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-    <circle id="SCENEID-p1" cx="403" cy="440" r="14" fill="{{fg}}"/>
-    <circle id="SCENEID-p2" cx="931" cy="360" r="14" fill="{{fg}}"/>
+    <path id="SCENEID-l12" d="M403 470 L931 430" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+    <path id="SCENEID-l23" d="M931 430 L1370 480" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+    <circle id="SCENEID-p1" cx="403" cy="470" r="14" fill="{{fg}}"/>
+    <circle id="SCENEID-p2" cx="931" cy="430" r="14" fill="{{fg}}"/>
   </g>
   <g id="SCENEID-s1" data-cue="2">
-    <circle id="SCENEID-ring1" cx="403" cy="440" r="200" fill="none" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
+    <circle id="SCENEID-ring1" cx="403" cy="470" r="190" fill="none" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
   </g>
   <g id="SCENEID-sum" data-cue="4">
-    <rect id="SCENEID-sum-plate" x="560" y="596" width="560" height="132" rx="30" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
-    <text id="SCENEID-n" x="630" y="662" font-size="88" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
-    <text id="SCENEID-sum-label" x="690" y="662" font-size="52" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
+    <rect id="SCENEID-sum-plate" x="560" y="10" width="580" height="100" rx="26" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
+    <text id="SCENEID-n" x="630" y="60" font-size="72" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
+    <text id="SCENEID-sum-label" x="690" y="60" font-size="52" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
   </g>
 </svg>`,
     css: "",
-    script: `// Layout (box 1700x732): a 120px band on top for the labels; the picture covers the rest
-// (y 120-732). Its subjects: S1 x 153-653, y 200-680 · S2 x 731-1131, y 160-560 · S3 x
-// 1150-1590, y 240-680. Their names are "labels": the shell sets each in its zone just above
-// it (S1 y 93-188, S2 y 53-148, S3 y 133-228) as the camera arrives, so nothing here is
-// drawn there. S1's callout ring (r 200) tops out at y 240, under its zone. Links run centre
-// to centre (403,440) → (931,360) → (1370,460) · summary plate x 560-1120, y 596-728.
+    script: `// Layout (box 1700x732): the CAPTION BAND y 0-120 on top holds this scene's own words; the
+// picture covers the rest (y 120-732). Its subjects: S1 x 153-653, y 260-680 · S2 x 731-1131,
+// y 250-610 · S3 x 1150-1590, y 280-680. Their names are "labels": the shell sets each in its
+// zone just above it (S1 y 139-248, S2 y 129-238, S3 y 159-268) as the camera arrives, so
+// nothing here is drawn there. S1's callout ring (r 190) tops out at y 280, under its zone.
+// Links run centre to centre (403,470) → (931,430) → (1370,480) · the summary plate sits in
+// the caption band, x 560-1140, y 10-110.
 // Shots (the shell's camera): C1 establishing · C2 push in on S1 · C3 on S2, then S3 half
 // way · C4 the shell reveals the whole.
 var links = ["#SCENEID-l12", "#SCENEID-l23"];
 
 gsap.set("#SCENEID-wipe-bar", { attr: { width: 0 } });
 gsap.set("#SCENEID-shade", { opacity: 0 });
-gsap.set("#SCENEID-hole-c", { attr: { cx: 403, cy: 440, r: 300 } });
+gsap.set("#SCENEID-hole-c", { attr: { cx: 403, cy: 470, r: 300 } });
 gsap.set("#SCENEID-ring1", { drawSVG: "0% 0%" });
 gsap.set(["#SCENEID-s1", "#SCENEID-sum"], { opacity: 0 });
 gsap.set(links, { drawSVG: "0% 0%" });
@@ -608,12 +609,12 @@ tl.to("#SCENEID-ring1", { scale: 1.04, transformOrigin: "50% 50%", duration: 0.5
 
 // C3 9.0-13.4 "becomes a graph of objects and relations," — the camera on S2, then S3;
 // the spotlight follows; links draw from subject to subject and particles flow along them.
-tl.to("#SCENEID-hole-c", { attr: { cx: 931, cy: 360, r: 280 }, duration: 1.1, ease: "power3.inOut" }, 9.0);
+tl.to("#SCENEID-hole-c", { attr: { cx: 931, cy: 430, r: 280 }, duration: 1.1, ease: "power3.inOut" }, 9.0);
 tl.to(links, { drawSVG: "0% 100%", duration: 0.8, ease: "power2.out", stagger: 0.6 }, 9.8);
 tl.to(["#SCENEID-p1", "#SCENEID-p2"], { opacity: 1, duration: 0.2 }, 10.6);
-tl.to("#SCENEID-p1", { attr: { cx: 931, cy: 360 }, duration: 1.0, repeat: 5, ease: "none" }, 10.6);
-tl.to("#SCENEID-p2", { attr: { cx: 1370, cy: 460 }, duration: 1.0, repeat: 5, ease: "none" }, 10.8);
-tl.to("#SCENEID-hole-c", { attr: { cx: 1370, cy: 460, r: 300 }, duration: 1.1, ease: "power3.inOut" }, 11.2);
+tl.to("#SCENEID-p1", { attr: { cx: 931, cy: 430 }, duration: 1.0, repeat: 5, ease: "none" }, 10.6);
+tl.to("#SCENEID-p2", { attr: { cx: 1370, cy: 480 }, duration: 1.0, repeat: 5, ease: "none" }, 10.8);
+tl.to("#SCENEID-hole-c", { attr: { cx: 1370, cy: 480, r: 300 }, duration: 1.1, ease: "power3.inOut" }, 11.2);
 
 // C4 13.4-17.8 "which the language model reads in one pass." — the reveal: the shade lifts,
 // everything is lit, and the count lands on its plate.

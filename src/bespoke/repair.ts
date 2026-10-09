@@ -39,7 +39,16 @@ export const REPAIRABLE = new Set([
   "camera_end",
   // Two tweens on one property over overlapping time (src/bespoke/untangle.ts).
   "seek_order",
+  // Round 5: the scene's own words crowding a shell label — the same nudge, with
+  // the shell's label as the obstacle and `BAND_GAP` as the clearance.
+  "label_band",
 ]);
+
+/**
+ * Clearance the scene's own words keep from one of the shell's subject labels,
+ * camera-free px — what `label_band` measures (24px), plus a hair.
+ */
+export const BAND_GAP = 26;
 
 /** Clearance a moved label keeps from every other label, px. */
 export const LABEL_GAP = 16;
@@ -135,8 +144,11 @@ export function solveNudges(frames: readonly Geo[]): { moves: Move[]; unresolved
       if (mi === li || (L.u !== null && M.u === L.u)) return;
       const [mx, my] = off(fi, M.u);
       const [ix, iy] = overlapOf(box, shifted(M.b, mx, my));
-      if (strict ? ix > 4 && iy > 4 : ix > -LABEL_GAP && iy > -LABEL_GAP)
-        out.push({ kind: "label", other: mi });
+      // A shell label is kept clear by BAND_GAP (camera-free, so times the
+      // camera's scale on screen); the 24px the gate holds it to, when strict.
+      const band = (M.c === 1) !== (L.c === 1);
+      const g = band ? (strict ? 24 : BAND_GAP) * (f.cs ?? 1) : strict ? -4 : LABEL_GAP;
+      if (ix > -g && iy > -g) out.push({ kind: "label", other: mi });
     });
     const inset = strict ? 4 : -STROKE_GAP;
     for (const [px, py, pu] of f.points) {

@@ -141,20 +141,20 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "decksmith-refs-"));
     const artFile = join(dir, "source-art.png");
-    const png = testPng(768, 432);
+    const png = testPng(1536, 864);
     await writeFile(artFile, png);
     const art: ArtRef = {
       key: "test",
       name: "test.png",
       file: artFile,
-      width: 768,
-      height: 432,
+      width: 1536,
+      height: 864,
       depicts: "three discs",
       // The illustrated reference's own subjects, as shares of this picture placed
       // under the reference box's label band (\`slice\`): the reference is a layout for them.
       subjects: unitsInPicture(
         REFERENCES.find((r) => r.name === "illustrated")?.subjects ?? [],
-        { width: 768, height: 432 },
+        { width: 1536, height: 864 },
         REFERENCE_BOX,
       ),
     };

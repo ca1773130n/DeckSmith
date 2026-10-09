@@ -5,10 +5,14 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  CAPTION_BAND,
   calloutLayer,
   calloutZones,
   entrances,
   fitLabel,
+  LABEL_MIN_PX,
+  LABEL_PX,
+  labelScale,
   withZone,
 } from "../src/bespoke/callouts.js";
 import {
@@ -64,14 +68,15 @@ describe("the subjects in the box", () => {
 });
 
 describe("the label band", () => {
-  it("leaves room above a subject that touches the top of its picture, so its label goes above it, not across its face", () => {
+  it("never puts a label in the caption band: a subject high in its picture is labelled below it, or across its top", () => {
     const [s] = subjectsInBox(
       [[0.1, 0, 0.2, 0.5]],
       { width: 1536, height: 1024 },
       { width: W, height: H },
     );
-    const zones = calloutZones([s as NonNullable<typeof s>], W);
-    expect(zones[0]?.side).toBe("above");
+    const zones = calloutZones([s as NonNullable<typeof s>], W, H);
+    expect(zones[0]?.side).not.toBe("above");
+    expect(zones[0]?.y).toBeGreaterThanOrEqual(CAPTION_BAND);
   });
 });
 
@@ -146,6 +151,10 @@ describe("staged shots", () => {
       { cue: 2, at: 0, subject: 1 },
       { cue: 3, at: 0, subject: 2 },
     ]);
+    expect(defaultShots(3, 3)).toEqual([
+      { cue: 2, at: 0, subject: 1 },
+      { cue: 2, at: 0.5, subject: 2 },
+    ]);
     expect(defaultShots(2, 3)).toEqual([
       { cue: 1, at: 0.5, subject: 1 },
       { cue: 2, at: 0, subject: 2 },
@@ -183,43 +192,83 @@ describe("staged shots", () => {
 describe("the shell's labels, on their subjects", () => {
   const ink = resolveTheme("ink");
 
-  it("gives each subject a zone above it (or across its top when there is no room), never meeting a neighbour's", () => {
-    const zones = calloutZones(subjects, W);
+  // Subjects standing in the lower middle of the picture, as the illustrator is asked.
+  const low = [
+    { x: 100, y: 300, w: 400, h: 360 },
+    { x: 650, y: 280, w: 380, h: 380 },
+    { x: 1200, y: 310, w: 400, h: 350 },
+  ];
+
+  it("gives each subject a zone above it under the caption band, else below it, else across its top — never meeting a neighbour's", () => {
+    const zones = calloutZones(low, W, H);
     expect(zones.map((z) => z.side)).toEqual(["above", "above", "above"]);
     for (const [i, z] of zones.entries()) {
-      const s = subjects[i] as (typeof subjects)[number];
-      if (z.side === "above") expect(z.y + z.h).toBeLessThanOrEqual(s.y);
-      else expect(z.y).toBeGreaterThanOrEqual(s.y);
+      const s = low[i] as (typeof low)[number];
+      expect(z.y + z.h).toBeLessThanOrEqual(s.y);
+      expect(z.y).toBeGreaterThanOrEqual(CAPTION_BAND);
       expect(z.x).toBeGreaterThanOrEqual(0);
       expect(z.x + z.w).toBeLessThanOrEqual(W);
       // The dot is on the subject, just inside its top edge: a short leader that
       // does not run down through what the scene drew on the subject.
       expect(z.dot.y).toBeGreaterThan(s.y);
-      if (z.side === "above") expect(z.dot.y - s.y).toBeLessThanOrEqual(20);
+      expect(z.dot.y - s.y).toBeLessThanOrEqual(20);
       const next = zones[i + 1];
       if (next) expect(z.x + z.w).toBeLessThanOrEqual(next.x);
     }
-    const high = calloutZones([{ x: 100, y: 20, w: 400, h: 500 }], W);
-    expect(high[0]?.side).toBe("top");
-    expect(high[0]?.y).toBeGreaterThan(20);
+    // No room above (the caption band): below, with the dot just inside its bottom edge.
+    const [below] = calloutZones([{ x: 100, y: 140, w: 400, h: 380 }], W, H);
+    expect(below?.side).toBe("below");
+    expect(below?.y).toBeGreaterThanOrEqual(520);
+    expect(below?.dot.y).toBeLessThan(520);
+    // No room either side: across its top, still under the band.
+    const [high] = calloutZones([{ x: 100, y: 130, w: 400, h: 560 }], W, H);
+    expect(high?.side).toBe("top");
+    expect(high?.y).toBeGreaterThanOrEqual(CAPTION_BAND);
   });
 
-  it("sets a label on one line, shrinks it, breaks it onto two, or refuses it", () => {
-    const [z] = calloutZones([{ x: 600, y: 300, w: 400, h: 300 }], W);
+  it("sets a label on one line at 64px, shrinks it to 52, breaks it onto two, or refuses it", () => {
+    const [z] = calloutZones([{ x: 600, y: 300, w: 400, h: 300 }], W, H);
     const zone = z as NonNullable<typeof z>;
-    expect(fitLabel("cup", { ...zone, w: 400 }, ink)).toEqual({ fs: 56, lines: ["cup"] });
+    expect(fitLabel("cup", { ...zone, w: 400 }, ink)).toEqual({ fs: LABEL_PX, lines: ["cup"] });
     const two = fitLabel("image-based reasoning", { ...zone, w: 400 }, ink, H);
     expect(two?.lines).toEqual(["image-based", "reasoning"]);
+    expect(two?.fs).toBeGreaterThanOrEqual(LABEL_MIN_PX);
     expect(
       fitLabel("unbreakablelongwordthatnevershrinks", { ...zone, w: 300 }, ink, H),
     ).toBeUndefined();
   });
 
+  it("sets names big enough to read in the whole view: 60px or more, never under 52 (round 5)", () => {
+    // The founder's bar, as numbers: round 4's 44-56px read small in the reveal.
+    expect(LABEL_PX).toBeGreaterThanOrEqual(60);
+    expect(LABEL_MIN_PX).toBeGreaterThanOrEqual(52);
+    const [z] = calloutZones([{ x: 600, y: 300, w: 400, h: 300 }], W, H);
+    for (const w of [200, 260, 320, 400, 640])
+      for (const text of ["cup", "sorting hall", "the long evaluation gap"]) {
+        const fit = fitLabel(text, { ...(z as NonNullable<typeof z>), w }, resolveTheme("ink"), H);
+        if (fit) expect(fit.fs).toBeGreaterThanOrEqual(52);
+      }
+  });
+
+  it("holds a label against the camera's zoom: on screen it grows by sqrt(s), and it is home at the end", () => {
+    expect(labelScale(1)).toBe(1);
+    expect(labelScale(2)).toBeCloseTo(1 / Math.SQRT2, 3);
+    const zones = calloutZones(low, W, H);
+    const moves = compileShots([{ cue: 2, at: 0, subject: 1 }], cues, 19, low, W, H);
+    const layer = calloutLayer("s3", [{ subject: 1, text: "cup" }], zones, moves, ink, W, H);
+    const face = layer.script.split("\n").filter((l) => l.includes("#s3-callout1-face"));
+    // One tween per move that changes the scale, the last back to 1.
+    expect(face.length).toBeGreaterThan(1);
+    expect(face[face.length - 1]).toMatch(/\{ scale: 1, duration/);
+    const push = moves.find((m) => m.subject === 1) as (typeof moves)[number];
+    expect(layer.script).toContain(`scale: ${labelScale(push.s)}, duration: ${push.dur}`);
+  });
+
   it("frames a labelled subject with its label, and lands the label as the camera arrives", () => {
-    const zones = calloutZones(subjects, W);
-    const target = withZone(subjects[0] as (typeof subjects)[number], zones[0]);
+    const zones = calloutZones(low, W, H);
+    const target = withZone(low[0] as (typeof low)[number], zones[0]);
     expect(target.y).toBe(zones[0]?.y);
-    const moves = compileShots([{ cue: 2, at: 0, subject: 1 }], cues, 19, subjects, W, H);
+    const moves = compileShots([{ cue: 2, at: 0, subject: 1 }], cues, 19, low, W, H);
     const at = entrances(moves, 3);
     expect(at.get(1)).toBeCloseTo(5 + 0.6 * 1.1, 5);
     // A subject the camera never visits is named at the reveal.

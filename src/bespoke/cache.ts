@@ -53,6 +53,9 @@ export interface KeyInput {
   /** The scene's visual device and the deck's earlier ones (`assignDevices`): both are in its prompt. */
   device?: string;
   priorDevices?: readonly string[];
+  /** The camera grammar and the data build (round 5): both shape the prompt and the scene. */
+  grammar?: string;
+  build?: string;
 }
 
 export interface CacheEntry {

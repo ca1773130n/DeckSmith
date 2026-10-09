@@ -15,6 +15,7 @@ import type { ArtRef } from "../src/bespoke/art.js";
 import { checkFragment, checkScript, type Fragment } from "../src/bespoke/contract.js";
 import {
   applyMoves,
+  BAND_GAP,
   fitPlates,
   homeCamera,
   relight,
@@ -57,6 +58,30 @@ const frame = (over: Partial<Geo> = {}): Geo => ({
 });
 
 describe("the label solver", () => {
+  it("keeps the scene's own words BAND_GAP clear of a shell label, moving only the scene's (round 5)", () => {
+    // A shell label (never moved) and the scene's word 20px to its right, camera home.
+    const f = frame({
+      cs: 1,
+      labels: [
+        { a: "text:9", u: null, o: 9, b: [600, 200, 240, 80], s: 1, fs: 64, c: 1 },
+        { a: "text:0", u: "g:0", o: 1, b: [860, 200, 300, 80], s: 1, fs: 72 },
+      ],
+    });
+    expect(
+      repairable([
+        "error label_band: #s3 at end (9.00s): a label is where the scene's own words go — x",
+      ]),
+    ).toBe(true);
+    const { moves, unresolved } = solveNudges([f]);
+    expect(unresolved).toEqual([]);
+    const m = moves.find((x) => x.u === "g:0") as { dx: number; dy: number };
+    const nb: [number, number, number, number] = [860 + m.dx, 200 + m.dy, 300, 80];
+    const gx = Math.max(600 - (nb[0] + nb[2]), nb[0] - (600 + 240));
+    const gy = Math.max(200 - (nb[1] + nb[3]), nb[1] - (200 + 80));
+    expect(Math.max(gx, gy)).toBeGreaterThanOrEqual(BAND_GAP);
+    expect(moves.some((x) => x.u === null)).toBe(false);
+  });
+
   it("moves the smaller of two overlapping labels, and only as far as it must", () => {
     const f = frame({
       labels: [

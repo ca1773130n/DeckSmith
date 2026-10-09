@@ -32,8 +32,10 @@
  * The graders are pure and take what the browser measured, so each is tested
  * without one; `probeScenes` is the one place a browser is opened.
  */
+
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ART_BAND } from "../bespoke/shots.js";
 import type { DeckPage } from "../render/capture.js";
 import type { Timing } from "../render/timing.js";
 import type { Finding } from "../types.js";
@@ -141,12 +143,16 @@ export interface GeoLabel {
   /** Screen px per unit of the unit's parent (a camera zoom makes it > 1). */
   s: number;
   fs: number;
+  /** One of the shell's subject labels (round 5): never moved, kept `BAND_GAP` clear of. */
+  c?: 1;
 }
 
 /** What one frame of a bespoke scene looks like to the repair pass. */
 export interface Geo {
   w: number;
   h: number;
+  /** The shell camera's scale at this frame (1 when it has none). */
+  cs?: number;
   labels: GeoLabel[];
   /** Filled shapes and pictures: address, owning label unit, paint order, box. */
   boxes: Array<{ a: string; u: string | null; o: number; b: [number, number, number, number] }>;
@@ -200,6 +206,10 @@ export interface Layout {
   anchors?: Array<{ id: string; k: number; d: number; o: number }>;
   /** Labels with digits in them sitting on the illustration. */
   onPicture?: number;
+  /** The smallest of the shell's subject labels as rendered at this instant, px (`label_size`). */
+  labelPx?: number;
+  /** The shell's labels inside the caption band, or crowding the scene's own words (`label_band`). */
+  bandHits?: string[];
 }
 
 /**
@@ -210,6 +220,11 @@ export interface Layout {
 export const ANCHOR_PX = 96;
 /** A label may cover at most this share of itself with ANOTHER subject's box. */
 export const ANCHOR_OVERLAP = 0.25;
+/**
+ * The smallest a subject's label may RENDER, px at 1080p, at any graded frame
+ * (the shell sets them at 52-64px and holds them against the camera's zoom).
+ */
+export const LABEL_RENDERED_MIN = 51.5;
 /** This many numbers on the picture is a table or a chart painted over it (ja s12, round 3: nine). */
 export const NUMBERS_ON_PICTURE = 5;
 /** A shot at this scale or closer is a push-in; under `WIDE` it is the whole picture. */
@@ -228,6 +243,12 @@ export interface CamSample {
   shot: [number, number, number, number, number];
   /** How many subjects the scene's illustration has. */
   subjects: number;
+  /** The camera grammar the shell stamped on the scene (src/bespoke/grammar.ts). */
+  grammar?: string;
+  /** The backdrop's scale, x, y (round 5's second layer), when it has one. */
+  plate?: [number, number, number];
+  /** How much of the box's width a wiped-on picture shows, 0..1, when it is wiped. */
+  wipe?: number;
 }
 
 /** Where a shot points: the point at the centre of the view, as shares of the box. */
@@ -257,10 +278,140 @@ export function shotsOf(samples: readonly CamSample[]): {
     const a = aim(c.shot);
     const b = aim(n.shot);
     if (Math.hypot(a[0] - b[0], a[1] - b[1]) >= SAME_SHOT / 2) continue;
-    if (!close.some(([x, y]) => Math.hypot(x - a[0], y - a[1]) < SAME_SHOT))
-      close.push([Math.round(a[0] * 100) / 100, Math.round(a[1] * 100) / 100]);
+    // Where the hold settles: the later of the pair. The earlier can be the
+    // tail of the push still zooming, whose aim drifts as the scale grows
+    // (a push held to the box's edge read 0.32 for a shot that holds at 0.27).
+    if (!close.some(([x, y]) => Math.hypot(x - b[0], y - b[1]) < SAME_SHOT))
+      close.push([Math.round(b[0] * 100) / 100, Math.round(b[1] * 100) / 100]);
   }
   return { wide, close };
+}
+
+/**
+ * Whether the camera did what its grammar says (src/bespoke/grammar.ts), read
+ * off the samples alone — so a shell that compiled every grammar to round 4's
+ * tour would fail here, not pass on the stamp.
+ */
+export function grammarBroken(grammar: string, list: readonly CamSample[], t0 = 0): string[] {
+  const out: string[] = [];
+  const aimOf = (r: CamSample) => aim(r.shot);
+  const dist = (a: CamSample, b: CamSample) => {
+    const p = aimOf(a);
+    const q = aimOf(b);
+    return Math.hypot(p[0] - q[0], p[1] - q[1]);
+  };
+  const pairs = list.slice(1).map((r, i) => [list[i] as CamSample, r] as const);
+  if (grammar === "follow") {
+    // A TRACK: three or more samples in a row, close, the aim travelling at one scale.
+    let run = 0;
+    let best = 0;
+    for (const [a, b] of pairs) {
+      const moving =
+        a.shot[0] >= CLOSE - 0.1 &&
+        b.shot[0] >= CLOSE - 0.1 &&
+        Math.abs(a.shot[0] - b.shot[0]) < 0.08 &&
+        dist(a, b) >= 0.02;
+      run = moving ? run + 1 : 0;
+      best = Math.max(best, run);
+    }
+    // Four moving pairs in a row is 2s of travel: a push's 1.1s move spans three at most.
+    if (best < 4)
+      out.push("a follow never tracks: no stretch where the camera travels at one close scale");
+  }
+  if (grammar === "rack") {
+    // A RETURN: a close shot held again after the camera held another.
+    const held = shotsHeld(list);
+    const back = held.some((h, i) =>
+      held.slice(0, Math.max(0, i - 1)).some((e) => Math.hypot(e[0] - h[0], e[1] - h[1]) < 0.06),
+    );
+    // Or the two-shot: both subjects held together at a medium scale, after both alone.
+    const lastClose = list.reduce((k, r, i) => (r.shot[0] >= CLOSE ? i : k), -1);
+    // Or the two-shot: both subjects HELD together at a medium scale (three samples,
+    // a second, steady), after both alone — not a reveal passing through it.
+    const two =
+      held.length >= 2 &&
+      list.slice(lastClose + 1).some((r, i, a) => {
+        const run = [r, a[i + 1], a[i + 2]];
+        return run.every(
+          (x) =>
+            x !== undefined &&
+            x.shot[0] >= 1.1 &&
+            x.shot[0] < CLOSE &&
+            Math.abs(x.shot[0] - r.shot[0]) < 0.05,
+        );
+      });
+    if (!back && !two)
+      out.push(
+        "a rack never comes back: no subject is held again after the camera held another, and no two-shot holds both",
+      );
+  }
+  if (grammar === "cutaway") {
+    const cut = pairs.some(([a, b]) => a.shot[0] < WIDE && b.shot[0] >= CLOSE);
+    if (!cut)
+      out.push(
+        "a cutaway never cuts: the camera never jumps from the whole picture to a close shot between two samples",
+      );
+  }
+  if (grammar === "zoom-out") {
+    const rise = pairs.find(([a, b]) => b.shot[0] > a.shot[0] + 0.05);
+    if (rise)
+      out.push(
+        `a zoom-out only pulls back, but the camera pushes in at ${rise[1].t.toFixed(2)}s (${rise[0].shot[0]} → ${rise[1].shot[0]})`,
+      );
+  }
+  if (grammar === "wipe") {
+    const shown = list.filter((r) => r.wipe !== undefined);
+    const start = shown.find((r) => r.t >= t0);
+    const end = shown[shown.length - 1];
+    if (!start || !end || (start.wipe ?? 1) > 0.7 || (end.wipe ?? 0) < 0.99)
+      out.push(
+        `a wipe never wipes: the picture shows ${Math.round(100 * (start?.wipe ?? 1))}% at the start and ${Math.round(100 * (end?.wipe ?? 0))}% at the end`,
+      );
+    const close = list.find((r) => r.shot[0] >= CLOSE);
+    if (close)
+      out.push(
+        `a wipe keeps the camera wide, but it is at ${close.shot[0]} at ${close.t.toFixed(2)}s`,
+      );
+  }
+  if (grammar === "parallax") {
+    // A truck, not a push: never a close shot.
+    const close = list.find((r) => r.shot[0] >= CLOSE);
+    if (close)
+      out.push(
+        `a parallax truck stays at a medium scale, but the camera is at ${close.shot[0]} at ${close.t.toFixed(2)}s`,
+      );
+    const mid = list.filter((r) => r.shot[0] >= WIDE && r.shot[0] < CLOSE);
+    const xs = mid.map((r) => aimOf(r)[0]);
+    const travel = xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
+    if (travel < 0.12)
+      out.push(
+        `a parallax truck travels ${Math.round(100 * travel)}% of the box at a medium scale; at least 12% wanted`,
+      );
+  }
+  // THE DEPTH: wherever there is a backdrop, it moves less than the subjects.
+  const deep = list.filter((r) => r.plate && r.shot[0] > 1.05);
+  const flat = deep.find((r) => (r.plate as [number, number, number])[0] >= r.shot[0] - 0.01);
+  if (flat)
+    out.push(
+      `the backdrop zooms with the subjects (${(flat.plate as [number, number, number])[0]} against ${flat.shot[0]} at ${flat.t.toFixed(2)}s): no parallax`,
+    );
+  return out;
+}
+
+/** The close shots a camera holds, in order (consecutive samples at `CLOSE` aimed alike), repeats kept. */
+function shotsHeld(list: readonly CamSample[]): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i + 1 < list.length; i++) {
+    const c = list[i] as CamSample;
+    const n = list[i + 1] as CamSample;
+    if (c.shot[0] < CLOSE || n.shot[0] < CLOSE) continue;
+    const a = aim(c.shot);
+    const b = aim(n.shot);
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) >= SAME_SHOT / 2) continue;
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(last[0] - b[0], last[1] - b[1]) >= SAME_SHOT) out.push(b);
+  }
+  return out;
 }
 
 /**
@@ -277,22 +428,36 @@ export function gradeShots(
   const out: Finding[] = [];
   const bySid = new Map<string, CamSample[]>();
   for (const r of samples) bySid.set(r.sid, [...(bySid.get(r.sid) ?? []), r]);
-  for (const [sid, list] of bySid) {
+  for (const [sid, all] of bySid) {
+    const list = [...all].sort((a, b) => a.t - b.t);
     const n = Math.max(0, ...list.map((r) => r.subjects));
     if (n === 0) continue;
+    const grammar = list.find((r) => r.grammar)?.grammar ?? "tour";
     const { close } = shotsOf(list);
     const want = Math.min(2, n);
     const t0 = opens.get(sid) ?? 0;
-    const early = list.find((r) => r.t >= t0 && r.t <= t0 + 1 && r.shot[0] >= WIDE);
+    const first = list.filter((r) => r.t >= t0 && r.t <= t0 + 1);
     const say: string[] = [];
-    if (early)
-      say.push(
-        `it opens pushed in (scale ${early.shot[0]} at ${early.t.toFixed(2)}s), not on the whole picture`,
-      );
-    if (close.length < want)
+    // How it OPENS: on the whole picture, except a zoom-out, which opens close.
+    if (grammar === "zoom-out") {
+      const wide = first.find((r) => r.shot[0] < CLOSE);
+      if (wide)
+        say.push(
+          `a zoom-out opens close on its detail, but the camera is at scale ${wide.shot[0]} at ${wide.t.toFixed(2)}s`,
+        );
+    } else {
+      const early = first.find((r) => r.shot[0] >= WIDE);
+      if (early)
+        say.push(
+          `it opens pushed in (scale ${early.shot[0]} at ${early.t.toFixed(2)}s), not on the whole picture`,
+        );
+    }
+    // What it HOLDS: push-ins on the subjects, for the grammars that push in.
+    if (["tour", "follow", "rack", "cutaway"].includes(grammar) && close.length < want)
       say.push(
         `the camera holds ${close.length} distinct push-in(s) at ${CLOSE}x or closer where ${want} are wanted — it pans or idles instead of staging shots`,
       );
+    say.push(...grammarBroken(grammar, list, t0));
     if (say.length)
       out.push({
         severity: "error",
@@ -351,6 +516,15 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         .map((a) => `${a.id} (subject ${a.k}) is ${Math.round(100 * a.o)}% over another subject`),
       "a label covers another subject —",
     );
+    // Round 5: the shell's names read in the whole view and in every shot.
+    if (r.labelPx !== undefined && r.labelPx < LABEL_RENDERED_MIN)
+      add(
+        "label_size",
+        r,
+        [`${r.labelPx}px rendered`],
+        `a subject's label renders under ${LABEL_RENDERED_MIN}px —`,
+      );
+    add("label_band", r, r.bandHits ?? [], "a label is where the scene's own words go —");
     if ((r.onPicture ?? 0) >= NUMBERS_ON_PICTURE)
       add(
         "data_over_picture",
@@ -739,10 +913,22 @@ export async function probeScenes(
         );
         for (let t = CAM_STEP / 2; t < w.duration; t += CAM_STEP) {
           await deck.seek(w.start + t);
-          const shot = (await deck.page.evaluate(`(${CAM})(${JSON.stringify(w.sid)})`)) as
-            | CamSample["shot"]
-            | null;
-          if (shot) cams.push({ sid: w.sid, t: round(t), shot, subjects });
+          const got = (await deck.page.evaluate(`(${CAM})(${JSON.stringify(w.sid)})`)) as {
+            shot: CamSample["shot"];
+            grammar: string | null;
+            plate: [number, number, number] | null;
+            wipe: number | null;
+          } | null;
+          if (got)
+            cams.push({
+              sid: w.sid,
+              t: round(t),
+              shot: got.shot,
+              subjects,
+              ...(got.grammar ? { grammar: got.grammar } : {}),
+              ...(got.plate ? { plate: got.plate } : {}),
+              ...(got.wipe !== null ? { wipe: got.wipe } : {}),
+            });
         }
       }
       if (gates.has("motion")) {
@@ -901,13 +1087,29 @@ function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
-/** Serialised into the page: the shell's camera of one scene (scale, x, y, box w, h), or null. */
+/**
+ * Serialised into the page: the shell's camera of one scene (scale, x, y, box
+ * w, h), the grammar stamped on it, its backdrop's scale, x, y, and how much
+ * of the box a wiped-on picture shows — or null.
+ */
 const CAM = `(sid) => {
   const cam = document.getElementById(sid + "-cam");
   if (!cam) return null;
-  const t = getComputedStyle(cam).transform;
-  const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
-  return [Math.round((v.length === 6 ? v[0] : 1) * 1000) / 1000, Math.round(v[4] || 0), Math.round(v[5] || 0), cam.offsetWidth, cam.offsetHeight];
+  const tf = (el) => {
+    const t = getComputedStyle(el).transform;
+    const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
+    return [Math.round((v.length === 6 ? v[0] : 1) * 1000) / 1000, Math.round(v[4] || 0), Math.round(v[5] || 0)];
+  };
+  const box = document.getElementById(sid + "-g");
+  const plate = document.getElementById(sid + "-plate");
+  const wipe = document.getElementById(sid + "-wipe");
+  const ww = wipe ? Number(wipe.getAttribute("width")) : NaN;
+  return {
+    shot: [...tf(cam), cam.offsetWidth, cam.offsetHeight],
+    grammar: box ? box.getAttribute("data-ds-grammar") : null,
+    plate: plate ? tf(plate) : null,
+    wipe: wipe && cam.offsetWidth ? Math.round((1000 * (Number.isFinite(ww) ? ww : 0)) / cam.offsetWidth) / 1000 : null,
+  };
 }`;
 
 /**
@@ -1145,7 +1347,7 @@ const MEASURE = `(sid, wantGeo) => {
   }
   // Round 4: the shell's camera (scale, x, y and the box it moves), the
   // subjects of an illustrated scene, and how its labels sit on them.
-  let shot, subjects, anchors, onPicture;
+  let shot, subjects, anchors, onPicture, labelPx, bandHits;
   if (cam && box) {
     const t = getComputedStyle(cam).transform;
     const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
@@ -1176,6 +1378,32 @@ const MEASURE = `(sid, wantGeo) => {
           over = Math.max(over, a / Math.max(1, area(lab)));
         }
         anchors.push({ id: g.id || "g:" + k, k, d: Math.round(gap), o: Math.round(over * 100) / 100 });
+      }
+    }
+    // Round 5: the shell's labels — the size they are rendered at, and whether
+    // they keep out of the caption band and clear of the scene's own words —
+    // in the box's own px (camera-free: screen = box + translate + scale * p).
+    if (subs.length) {
+      const ob = box.getBoundingClientRect();
+      const free = (r) => ({ x: (r.x - ob.x - (v[4] || 0)) / s, y: (r.y - ob.y - (v[5] || 0)) / s, w: r.width / s, h: r.height / s });
+      const tags = texts.filter((x) => box.contains(x.el) && x.el.closest(".ds-callouts"));
+      // fs carries the SVG transforms (the label's own scale), not the camera's
+      // CSS transform (MEASURED 2026-10-10: a 64px label held at 0.78 under a 1.66x
+      // camera read 49.7): times the camera's scale, it is what the screen shows.
+      if (tags.length) labelPx = Math.round(Math.min(...tags.map((x) => x.fs * s)) * 10) / 10;
+      bandHits = [];
+      const plates = [...box.querySelectorAll(".ds-callouts g[id$='-tag'] > rect")].filter((r) => alpha(r) > 0.15);
+      const own = texts.filter((x) => box.contains(x.el) && !x.el.closest(".ds-callouts"));
+      for (const pl of plates) {
+        const p = free(pl.getBoundingClientRect());
+        const tag = pl.parentElement && pl.parentElement.id ? pl.parentElement.id : "label";
+        if (p.y < ${ART_BAND} - 1) bandHits.push(tag + " reaches into the caption band (y " + Math.round(p.y) + " < ${ART_BAND})");
+        for (const t of own) {
+          const q = free({ x: t.x, y: t.y, width: t.w, height: t.h });
+          const gx = Math.max(p.x - (q.x + q.w), q.x - (p.x + p.w));
+          const gy = Math.max(p.y - (q.y + q.h), q.y - (p.y + p.h));
+          if (gx < 24 && gy < 24) bandHits.push(tag + " crowds the scene's own words " + t.id + " (" + Math.round(Math.max(gx, gy, 0)) + "px apart)");
+        }
       }
     }
     // A table or chart painted over the picture: numbers sitting on the illustration.
@@ -1238,7 +1466,7 @@ const MEASURE = `(sid, wantGeo) => {
       const movable = t.el.tagName.toLowerCase() === "text" && !t.el.closest(".ds-callouts");
       const u = movable ? unitOf(t.el) : null;
       if (u) units.push(u);
-      return { a: index.get(t.el) || "", u: u ? index.get(u) : null, o: order.get(t.el) ?? -1, b: rel(t.x, t.y, t.w, t.h), s: u ? Math.round(scaleOf(u) * 1000) / 1000 : 1, fs: Math.round(t.fs) };
+      return { a: index.get(t.el) || "", u: u ? index.get(u) : null, o: order.get(t.el) ?? -1, b: rel(t.x, t.y, t.w, t.h), s: u ? Math.round(scaleOf(u) * 1000) / 1000 : 1, fs: Math.round(t.fs), ...(t.el.closest(".ds-callouts") ? { c: 1 } : {}) };
     });
     const ownerOf = (el) => { for (const u of units) if (u === el || u.contains(el)) return index.get(u); return null; };
     const points = geoPoints.filter((p) => box.contains(p.el)).map((p) => [Math.round(p.x - ob.x), Math.round(p.y - ob.y), ownerOf(p.el)]);
@@ -1255,7 +1483,10 @@ const MEASURE = `(sid, wantGeo) => {
             if (index.has(e) && own(e) < 0.95) dim.push(index.get(e) + (e.id ? "#" + e.id : ""));
         return { a: index.get(p.el) || "", al: Math.round(p.o * 100) / 100, dim };
       });
-    geo = { w: Math.round(ob.width), h: Math.round(ob.height), labels, boxes, points, parts };
+    const camEl = document.getElementById(sid + "-cam");
+    const ct = camEl ? getComputedStyle(camEl).transform : "none";
+    const cs = ct && ct !== "none" ? Number(ct.slice(ct.indexOf("(") + 1).split(",")[0]) || 1 : 1;
+    geo = { w: Math.round(ob.width), h: Math.round(ob.height), cs: Math.round(cs * 1000) / 1000, labels, boxes, points, parts };
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture };
+  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, labelPx, bandHits };
 }`;

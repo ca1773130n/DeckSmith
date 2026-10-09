@@ -18,7 +18,7 @@
  */
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
-import type { Box, CamMove } from "./shots.js";
+import { ART_BAND, type Box, type CamMove, type Staging } from "./shots.js";
 
 /** One subject's label, as the scene names it. */
 export interface Label {
@@ -29,20 +29,32 @@ export interface Label {
 /** Where a subject's label goes: its zone (box px), and the dot its leader ends on. */
 export interface Zone extends Box {
   subject: number;
-  /** "above" the subject, or across its "top" inside it. */
-  side: "above" | "top";
+  /** "above" the subject, "below" it, or across its "top" inside it. */
+  side: "above" | "below" | "top";
   dot: { x: number; y: number };
 }
 
-/** The label's size, and the floor it may shrink to to fit its zone. */
-export const LABEL_PX = 56;
-export const LABEL_MIN_PX = 44;
+/**
+ * The label's size, and the floor it may shrink to to fit its zone. ROUND 5:
+ * round 4's 44-56px names read small in the reveal's whole view (the founder,
+ * 2026-10-09); a 1080p explainer's on-screen names sit at 60-70px. The gate
+ * (`label_size`) holds every label at `LABEL_MIN_PX` or more as RENDERED, at
+ * every graded frame and at the end.
+ */
+export const LABEL_PX = 64;
+export const LABEL_MIN_PX = 52;
 /** Zone height: the plate is 1.6 x the type. */
 const ZONE_H = Math.round(LABEL_PX * 1.7);
 /** Gap between the zone and the subject's top, and between zones. */
 const GAP = 12;
 /** The widest a zone is. */
-const ZONE_W = 560;
+const ZONE_W = 640;
+/**
+ * The CAPTION BAND: the top of the box, where the scene draws its own words (a
+ * takeaway, a counter). Labels never go there (round 4: en s7's own "GPT-4o"
+ * and "answer" sat among the shell's names and competed with them).
+ */
+export const CAPTION_BAND = ART_BAND;
 /** The box's inner margin. */
 const EDGE = 8;
 /** How far inside the subject's top edge its leader's dot sits. */
@@ -53,7 +65,7 @@ const DOT_IN = 14;
  * distance to each neighbour allows (so neighbours' zones never meet), above
  * the subject when there is room, else across its top.
  */
-export function calloutZones(subjects: readonly Box[], W: number): Zone[] {
+export function calloutZones(subjects: readonly Box[], W: number, H = Infinity): Zone[] {
   const cx = subjects.map((s) => s.x + s.w / 2);
   const order = cx.map((_, i) => i).sort((a, b) => (cx[a] as number) - (cx[b] as number));
   const zones: Zone[] = [];
@@ -68,16 +80,23 @@ export function calloutZones(subjects: readonly Box[], W: number): Zone[] {
         : W - EDGE - c;
     const half = Math.max(80, Math.min(ZONE_W / 2, left, right));
     const x0 = Math.max(EDGE, Math.min(W - EDGE - 2 * half, c - half));
+    // Above the subject when there is room under the caption band; else below
+    // it when there is room above the box's floor; else across its top.
     const above = s.y - GAP - ZONE_H;
-    const side: Zone["side"] = above >= EDGE ? "above" : "top";
-    const y = side === "above" ? above : Math.max(EDGE, s.y + GAP);
-    // The dot sits just inside the subject's top edge: a leader that reached a
-    // sixth of the way down ran through the scene's own words drawn on the
-    // subject (MEASURED 2026-10-09: two of eight fallbacks across both runs).
+    const below = s.y + s.h + GAP;
+    const top = CAPTION_BAND + EDGE;
+    const side: Zone["side"] =
+      above >= top ? "above" : below + ZONE_H <= H - EDGE ? "below" : "top";
+    const y = side === "above" ? above : side === "below" ? below : Math.max(top, s.y + GAP);
+    // The dot sits just inside the subject's edge nearest its label: a leader
+    // that reached a sixth of the way in ran through the scene's own words
+    // drawn on the subject (MEASURED 2026-10-09: two of eight fallbacks).
     const dotY =
       side === "above"
         ? Math.min(s.y + s.h - 10, s.y + DOT_IN)
-        : Math.min(s.y + s.h - 10, y + ZONE_H + DOT_IN);
+        : side === "below"
+          ? Math.max(s.y + 10, s.y + s.h - DOT_IN)
+          : Math.min(s.y + s.h - 10, y + ZONE_H + DOT_IN);
     zones.push({
       subject: i + 1,
       side,
@@ -131,8 +150,12 @@ export function fitLabel(text: string, zone: Zone, theme: Theme, boxH = Infinity
   for (let fs = LABEL_PX; fs >= LABEL_MIN_PX; fs -= 2) {
     if (Math.max(w(two[0], fs), w(two[1], fs)) > zone.w) continue;
     const h = plateH(2, fs);
-    // Above the subject it grows upward from the zone's bottom; on the subject, downward.
-    const ok = zone.side === "above" ? zone.y + zone.h - h >= EDGE : zone.y + h <= boxH - EDGE;
+    // Above the subject it grows upward from the zone's bottom (never into the
+    // caption band); below it or on it, downward.
+    const ok =
+      zone.side === "above"
+        ? zone.y + zone.h - h >= CAPTION_BAND + EDGE
+        : zone.y + h <= boxH - EDGE;
     if (ok) return { fs, lines: two };
   }
   return undefined;
@@ -201,8 +224,21 @@ function place(label: Label, zone: Zone, theme: Theme, boxH: number): Placed | u
         ? zone.y + zone.h - ph
         : zone.y;
   const plate = { x: Math.round(cx - pw / 2), y: Math.round(py), w: pw, h: ph };
-  // The leader leaves the plate's bottom edge, at the point nearest the dot.
   const lx = Math.max(plate.x + 24, Math.min(plate.x + plate.w - 24, zone.dot.x));
+  if (zone.side === "below") {
+    // Under the subject: the leader leaves the plate's top edge, up to the dot.
+    const dotY = Math.min(zone.dot.y, plate.y - 22);
+    return {
+      k: label.subject,
+      fs,
+      lines,
+      plate,
+      text: { x: Math.round(cx), y: Math.round(py + ph / 2) },
+      lead: { x1: lx, y1: plate.y, x2: zone.dot.x, y2: dotY + 10 },
+      dot: { x: zone.dot.x, y: dotY },
+    };
+  }
+  // The leader leaves the plate's bottom edge, at the point nearest the dot.
   const dotY = Math.max(zone.dot.y, plate.y + plate.h + 22);
   return {
     k: label.subject,
@@ -215,14 +251,38 @@ function place(label: Label, zone: Zone, theme: Theme, boxH: number): Placed | u
   };
 }
 
-/** When each subject's label enters: as the camera arrives on it, else at the reveal. */
-export function entrances(moves: readonly CamMove[], subjects: number): Map<number, number> {
+/**
+ * When each subject's label enters: as the camera arrives on it (or the
+ * zoom-out opens on it, or the wipe uncovers it), else at the reveal.
+ */
+export function entrances(
+  staged: readonly CamMove[] | Pick<Staging, "moves" | "wipes" | "open">,
+  subjects: number,
+): Map<number, number> {
+  const st: Pick<Staging, "moves" | "wipes" | "open"> = Array.isArray(staged)
+    ? { moves: staged as CamMove[], wipes: [], open: { s: 1, x: 0, y: 0 } }
+    : (staged as Pick<Staging, "moves" | "wipes" | "open">);
   const out = new Map<number, number>();
-  for (const m of moves)
-    if (m.subject > 0 && !out.has(m.subject)) out.set(m.subject, m.t + 0.6 * m.dur);
-  const reveal = moves.find((m, i) => m.subject === 0 && i === moves.length - 1);
-  for (let k = 1; k <= subjects; k++) if (!out.has(k)) out.set(k, reveal ? reveal.t + 0.4 : 0.5);
+  if (st.open.subject) out.set(st.open.subject, 0.5);
+  for (const w of st.wipes)
+    if (w.subject > 0 && !out.has(w.subject)) out.set(w.subject, w.t + 0.6 * w.dur);
+  for (const m of st.moves)
+    if (m.subject > 0 && !out.has(m.subject)) out.set(m.subject, m.t + Math.max(0.1, 0.6 * m.dur));
+  const last = st.moves[st.moves.length - 1];
+  const reveal = last && last.subject === 0 ? last : undefined;
+  const wiped = st.wipes[st.wipes.length - 1];
+  for (let k = 1; k <= subjects; k++)
+    if (!out.has(k)) out.set(k, reveal ? reveal.t + 0.4 : wiped ? wiped.t + 0.6 * wiped.dur : 0.5);
   return out;
+}
+
+/**
+ * How big a label is held while the camera is at scale `s`: 1/sqrt(s), so on
+ * screen it grows with a push-in by sqrt(s) (1.41x at 2x) instead of by s —
+ * readable in the whole view, never a billboard in a close-up.
+ */
+export function labelScale(s: number): number {
+  return Math.round(1000 / Math.sqrt(Math.max(1, s))) / 1000;
 }
 
 /**
@@ -236,11 +296,15 @@ export function calloutLayer(
   sid: string,
   labels: readonly Label[],
   zones: readonly Zone[],
-  moves: readonly CamMove[],
+  staged: readonly CamMove[] | Pick<Staging, "moves" | "wipes" | "open">,
   theme: Theme,
   W: number,
   H: number,
 ): { markup: string; script: string } {
+  const moves: readonly CamMove[] = Array.isArray(staged)
+    ? (staged as readonly CamMove[])
+    : (staged as Pick<Staging, "moves">).moves;
+  const open = Array.isArray(staged) ? { s: 1 } : (staged as Pick<Staging, "open">).open;
   const seen = new Set<number>();
   const placed: Placed[] = [];
   for (const l of labels) {
@@ -257,7 +321,7 @@ export function calloutLayer(
     .map((p) => {
       const lab = labels.find((l) => l.subject === p.k) as Label;
       const len = Math.round(Math.hypot(p.lead.x2 - p.lead.x1, p.lead.y2 - p.lead.y1));
-      return `<g id="${sid}-callout${p.k}" data-subject="${p.k}"><line id="${sid}-callout${p.k}-lead" x1="${p.lead.x1}" y1="${p.lead.y1}" x2="${p.lead.x2}" y2="${p.lead.y2}" stroke="${theme.fg}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${len}" stroke-dashoffset="0"/><circle id="${sid}-callout${p.k}-dot" cx="${p.dot.x}" cy="${p.dot.y}" r="11" fill="${theme.fg}" stroke="${theme.bg}" stroke-width="4"/><g id="${sid}-callout${p.k}-tag"><rect x="${p.plate.x}" y="${p.plate.y}" width="${p.plate.w}" height="${p.plate.h}" rx="${Math.round(p.fs * 0.4)}" fill="${theme.panel}" stroke="${tone[(p.k - 1) % 4]}" stroke-width="5"/><text x="${p.text.x}" y="${p.text.y}" font-size="${p.fs}" font-weight="700" fill="${theme.fg}" text-anchor="middle" dominant-baseline="middle">${
+      return `<g id="${sid}-callout${p.k}" data-subject="${p.k}"><line id="${sid}-callout${p.k}-lead" x1="${p.lead.x1}" y1="${p.lead.y1}" x2="${p.lead.x2}" y2="${p.lead.y2}" stroke="${theme.fg}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${len}" stroke-dashoffset="0"/><circle id="${sid}-callout${p.k}-dot" cx="${p.dot.x}" cy="${p.dot.y}" r="11" fill="${theme.fg}" stroke="${theme.bg}" stroke-width="4"/><g id="${sid}-callout${p.k}-face"><g id="${sid}-callout${p.k}-tag"><rect x="${p.plate.x}" y="${p.plate.y}" width="${p.plate.w}" height="${p.plate.h}" rx="${Math.round(p.fs * 0.4)}" fill="${theme.panel}" stroke="${tone[(p.k - 1) % 4]}" stroke-width="5"/><text x="${p.text.x}" y="${p.text.y}" font-size="${p.fs}" font-weight="700" fill="${theme.fg}" text-anchor="middle" dominant-baseline="middle">${
         p.lines.length === 1
           ? esc(lab.text)
           : p.lines
@@ -266,10 +330,10 @@ export function calloutLayer(
                   `<tspan x="${p.text.x}" dy="${i === 0 ? -0.625 * p.fs : 1.25 * p.fs}">${esc(l)}</tspan>`,
               )
               .join("")
-      }</text></g></g>`;
+      }</text></g></g></g>`;
     })
     .join("")}</svg>`;
-  const at = entrances(moves, Math.max(...placed.map((p) => p.k)));
+  const at = entrances(staged, Math.max(...placed.map((p) => p.k)));
   const r2 = (n: number) => Math.round(n * 100) / 100;
   const lines = [
     "// The shell's labels (src/bespoke/callouts.ts): each enters as the camera arrives on its subject.",
@@ -291,6 +355,19 @@ export function calloutLayer(
       `tl.fromTo(${lead}, { strokeDashoffset: ${len} }, { strokeDashoffset: 0, duration: 0.4, ease: "power2.out", immediateRender: false }, ${r2(t + 0.1)});`,
       `tl.fromTo(${dot}, { scale: 0, transformOrigin: "50% 50%" }, { scale: 1, duration: 0.3, ease: "back.out(2)", immediateRender: false }, ${r2(t + 0.4)});`,
     );
+    // Held against the camera's zoom (`labelScale`), about the edge its leader
+    // leaves from, in step with every camera move; home at the end.
+    const face = JSON.stringify(`#${sid}-callout${p.k}-face`);
+    let from = labelScale(open.s);
+    lines.push(`gsap.set(${face}, { scale: ${from}, svgOrigin: "${p.lead.x1} ${p.lead.y1}" });`);
+    for (const m of moves) {
+      const to = labelScale(m.s);
+      if (to === from) continue;
+      lines.push(
+        `tl.fromTo(${face}, { scale: ${from} }, { scale: ${to}, duration: ${m.dur}, ease: "${m.ease}", immediateRender: false }, ${m.t});`,
+      );
+      from = to;
+    }
   }
   return { markup, script: lines.join("\n") };
 }

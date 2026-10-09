@@ -22,6 +22,7 @@ import { verify } from "../verify/index.js";
 import {
   ANCHOR_PX,
   type CamSample,
+  CLOSE,
   type Layout,
   probeScenes,
   readTimingFile,
@@ -111,10 +112,20 @@ export function stagingMeasures(
   const anchors = end?.anchors ?? [];
   const best = new Map<number, number>();
   for (const a of anchors) best.set(a.k, Math.min(best.get(a.k) ?? 1e9, a.d));
+  const grammar = cams.find((c) => c.grammar)?.grammar;
   return {
     subjects,
+    ...(grammar ? { grammar } : {}),
     shots: shotsOf(cams).close.length,
-    ...(early.length ? { establishing: early.every((c) => c.shot[0] < WIDE) } : {}),
+    // Opens as its grammar says: on the whole picture, or close for a zoom-out.
+    ...(early.length
+      ? {
+          establishing:
+            grammar === "zoom-out"
+              ? early.every((c) => c.shot[0] >= CLOSE)
+              : early.every((c) => c.shot[0] < WIDE),
+        }
+      : {}),
     anchored: [...best.values()].filter((d) => d <= ANCHOR_PX).length,
     ...(best.size ? { anchorMax: Math.max(...best.values()) } : {}),
   };
