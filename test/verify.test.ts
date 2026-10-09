@@ -28,6 +28,7 @@ import {
   scanNarrationLead,
   scanRepeatedObject,
   scanUnusedFigures,
+  verify,
 } from "../src/verify/index.js";
 import {
   collectSvgTextRuns,
@@ -654,6 +655,50 @@ describe("scanDeterminism", () => {
         message:
           "assets/pieces/loop.js:2 calls `Math.random(` at render time, so two renders of this deck will not be identical.",
       },
+    ]);
+  });
+
+  /**
+   * A piece pasted with animate's player loop reads no clock literal, and still
+   * draws on wall-clock time between seeks. The vendored kit schedules nothing
+   * (test/wiring.test.ts scans it), so these patterns cost a piece nothing.
+   */
+  it("refuses a timer, a frame callback and an image load: a clock of the piece's own", () => {
+    const piece = [
+      "let f = 0;",
+      "function loop() { renderFrame(f++ / 30, cv); requestAnimationFrame(loop); }",
+      "setInterval(() => renderFrame(f++ / 30, cv), 33);",
+      "const ASSETS = { moon: new Image() };",
+    ].join("\n");
+
+    expect(
+      scanDeterminism(piece, "assets/p.js").map((f) => [f.rule, f.message.split(" at render")[0]]),
+    ).toEqual([
+      ["wall_clock", "assets/p.js:2 calls `requestAnimationFrame(`"],
+      ["wall_clock", "assets/p.js:3 calls `setInterval(`"],
+      ["async_load", "assets/p.js:4 calls `new Image(`"],
+    ]);
+    expect(scanDeterminism("setTimeout(next, 0);", "assets/p.js")[0]?.rule).toBe("wall_clock");
+  });
+
+  /**
+   * THE WIRING, not the scan: `verify` itself must read `assets/`. `check` is
+   * given 1ms so it times out at once — its own verdict is not what is asserted.
+   */
+  it("fails verify on a Math.random in a piece's script", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "verify-wired-"));
+    mkdirSync(join(dir, "assets", "pieces"), { recursive: true });
+    writeFileSync(join(dir, "assets", "pieces", "loop.js"), "const jitter = Math.random();\n");
+    writeFileSync(join(dir, "index.html"), "<p>a deck</p>");
+
+    const verdict = await verify(dir, { fidelity: false, timeoutMs: 1 });
+
+    expect(verdict.passed).toBe(false);
+    expect(verdict.findings.filter((f) => f.gate === "determinism")).toEqual([
+      expect.objectContaining({
+        rule: "math_random",
+        message: expect.stringContaining("assets/pieces/loop.js:1 calls `Math.random(`"),
+      }),
     ]);
   });
 });

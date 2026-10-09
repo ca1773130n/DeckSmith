@@ -120,6 +120,17 @@ const NONDETERMINISM: ReadonlyArray<readonly [RegExp, string, string, string?]> 
   [/\bperformance\.now\s*\(/, "performance_now", "calls"],
   [/\bfetch\s*\(/, "runtime_fetch", "calls"],
   [/\bXMLHttpRequest\b/, "runtime_fetch", "calls"],
+  // A CLOCK OF ITS OWN. A timer or a frame callback draws on wall-clock time
+  // between the renderer's seeks — play, not seek (invariant 1) — and after an
+  // animate piece's text trap has been put back. No emitted composition
+  // schedules anything; a piece pasted with animate's player loop does (its
+  // score.js drives `renderFrame` from `requestAnimationFrame`), and the piece's
+  // `<script src>` is a file `hyperframes lint` never reads.
+  [/\brequestAnimationFrame\s*\(/, "wall_clock", "calls"],
+  [/\bset(?:Timeout|Interval)\s*\(/, "wall_clock", "calls"],
+  // An image is drawn once it has decoded, which is a race with the seek:
+  // animate's `asset()` draws nothing until `.complete`.
+  [/\bnew\s+Image\s*\(/, "async_load", "calls"],
   // The TAG, matched with a word boundary so `<iframes>` and the word "iframe"
   // in a comment or a `createElement("iframe")` in the wrapper's own runtime are
   // not it. `deck.html` is never scanned at all (`readCompositions`), which is

@@ -1188,7 +1188,8 @@ the error and every gate passed a piece frozen on a stale frame. That is the ele
 case under "What the gates do not check". `render` still exits 0 when the page has
 errors, so `verify` is the gate here. `hyperframes check` cannot see inside a canvas:
 layout and contrast cover only the DOM around it. The determinism scan reads
-`assets/**/*.js`, so a `Math.random` in a piece is caught. A checker without WebGL
+`assets/**/*.js`, so a `Math.random`, a `setTimeout`/`setInterval`, a
+`requestAnimationFrame` loop or a `new Image()` in a piece is caught. A checker without WebGL
 measures a piece instead of refusing it, because the piece's canvas carries
 `data-ds-piece`.
 
