@@ -196,6 +196,28 @@ describe("the vendored animate kit", () => {
       expect(scanDeterminism(kit(name).toString("utf8"), name)).toEqual([]);
     }
   });
+
+  /**
+   * The piece's browser tests skip without a built dist and a Chrome, which is
+   * every `npm test` in CI's check job. Some job must run them with both, and
+   * with skipping turned into failure — or they never run anywhere but here.
+   */
+  it("has a CI job that builds, installs the browser, and then REQUIRES the piece's browser tests", () => {
+    const ci = readFileSync(
+      fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
+      "utf8",
+    );
+    const job = ci.slice(ci.indexOf("\n  demo:"));
+    const at = (s: string) => job.indexOf(s);
+    const ready = [at("- run: npm run build"), at("- run: npx hyperframes browser ensure")];
+    expect(Math.min(...ready)).toBeGreaterThan(0);
+    expect(at("run: npx vitest run test/animate-piece.test.ts")).toBeGreaterThan(
+      Math.max(...ready),
+    );
+    expect(job).toMatch(
+      /run: npx vitest run test\/animate-piece\.test\.ts\n\s+env:\n\s+DECKSMITH_REQUIRE_BROWSER: "1"/,
+    );
+  });
 });
 
 /* ------------------------------------------------------------------- themes */

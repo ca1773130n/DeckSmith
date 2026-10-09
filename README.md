@@ -1194,7 +1194,11 @@ entered, so a piece shorter than 1.1s holds there instead.
 runtime reports the error before rethrowing it. Before that fix, hyperframes swallowed
 the error and every gate passed a piece frozen on a stale frame. That is the eleventh
 case under "What the gates do not check". `render` still exits 0 when the page has
-errors, so `verify` is the gate here. `hyperframes check` cannot see inside a canvas:
+errors, so `verify` is the gate here. `hyperframes check` sees a throw only at the times
+it samples, so the fidelity gate also draws every frame of each piece once, off-screen,
+and fails with `piece_error` on any that throws: a throw confined to one frame is caught
+too. `frames` refuses to write a PNG once the page has raised an error, rather than
+saving a stale or half-painted canvas. `hyperframes check` cannot see inside a canvas:
 layout and contrast cover only the DOM around it. The determinism scan reads
 `assets/**/*.js`, so a `Math.random`, a `setTimeout`/`setInterval`, a
 `requestAnimationFrame` loop or a `new Image()` in a piece is caught. A checker without WebGL

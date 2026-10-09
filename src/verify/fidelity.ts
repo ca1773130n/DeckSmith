@@ -142,6 +142,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { BrokenFrame } from "../emit/animate-runtime.js";
 import { DECK_PAGE } from "../emit/composition.js";
 import { FIT_FILE } from "../emit/fit.js";
 import { UNFIT_ATTR } from "../emit/tex.js";
@@ -685,6 +686,31 @@ export function gradeUnfit(rows: readonly Unfit[]): Finding[] {
 }
 
 /**
+ * Run IN THE PAGE: every mounted animate piece drawn at each of its own frames
+ * (`sweep`, src/emit/animate-runtime.ts). Empty on a deck with no piece, whose
+ * page never loads the runtime.
+ */
+export function collectBrokenPieces(): BrokenFrame[] {
+  const w = window as unknown as { DSAnimate?: { sweep?: () => BrokenFrame[] } };
+  return w.DSAnimate?.sweep?.() ?? [];
+}
+
+/**
+ * An error per piece that throws at ANY of its frames. A drawing error is a
+ * page error only where `hyperframes check` happens to seek, and on a long deck
+ * it samples coarsely enough to miss a throw confined to a short window — which
+ * `render` then draws half-painted and exits 0 over.
+ */
+export function gradePieces(rows: readonly BrokenFrame[]): Finding[] {
+  return rows.map((r) => ({
+    severity: "error",
+    gate: "fidelity",
+    rule: "piece_error",
+    message: `piece "${r.id}" throws at ${r.frames.length} of its frames (${r.frames[0]}–${r.frames.at(-1)}): ${r.message}`,
+  }));
+}
+
+/**
  * Seek every declared stop and count the ink below its caption.
  *
  * Never throws for an environmental reason: a machine that cannot open a browser
@@ -734,6 +760,9 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       timeout: opts.timeoutMs ?? 60_000,
     });
     const unfit = await page.evaluate(collectUnfit, UNFIT_ATTR);
+    // Before any stop is seeked: the sweep draws on a scratch canvas, so the
+    // frames measured below are untouched by it.
+    const brokenPieces = await page.evaluate(collectBrokenPieces);
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
     const apparent: ApparentStop[] = [];
@@ -804,6 +833,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...gradeOverprint(collided),
         ...gradeApparent(apparent),
         ...gradeUnfit(unfit),
+        ...gradePieces(brokenPieces),
         ...gradeFill(fills, manifest),
       ],
       elapsedMs: Date.now() - started,

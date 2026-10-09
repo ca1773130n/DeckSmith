@@ -55,6 +55,16 @@ jobs:
       - run: npm run build
       - run: npx hyperframes browser ensure
 
+      # The animate piece's browser tests: the build, `verify` on each broken
+      # piece, the frame memo held to the pixels, a checker with no WebGL. `npm
+      # test` in `check` runs before `npm run build` with no browser, so it
+      # skips them on every push; here they are REQUIRED, and a missing dist or
+      # Chrome fails instead of skipping.
+      - name: Piece tests in a browser
+        run: npx vitest run test/animate-piece.test.ts
+        env:
+          DECKSMITH_REQUIRE_BROWSER: "1"
+
       # A STOCK runner, on purpose: Ubuntu 24.04 denies the unprivileged user
       # namespaces Chrome's sandbox needs, which is what most Linux users have.
       # `launchOwnPage` (src/render/capture.ts) must get the gates' page open

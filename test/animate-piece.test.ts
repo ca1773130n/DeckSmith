@@ -18,7 +18,7 @@
  */
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,8 +33,9 @@ import {
   PIECE_ATTR,
   pieces,
   pieceTime,
+  sweep,
 } from "../src/emit/animate-runtime.js";
-import { chromePath, type DeckPage, openDeck } from "../src/render/capture.js";
+import { captureFrames, chromePath, type DeckPage, openDeck } from "../src/render/capture.js";
 import { fidelity } from "../src/verify/fidelity.js";
 import { scanDeterminism } from "../src/verify/index.js";
 
@@ -227,6 +228,36 @@ describe("the dsAnimate plugin", () => {
   });
 
   /**
+   * A throw in ONE frame is a page error only if something seeks to that frame,
+   * and `check` samples a long deck coarsely. `sweep` draws every frame once,
+   * on a scratch canvas, for `fidelity` to fail on — leaving the deck's canvas
+   * and its frame memo alone, and reporting nothing to the page itself.
+   */
+  it("sweeps every frame off the deck's canvas, and finds a throw confined to one", async () => {
+    vi.stubGlobal("document", { createElement: () => fakeCanvas("scratch") });
+    const bad = AUTHOR.replace(
+      "window.__frames.push(F);",
+      "window.__frames.push(F); if (F === 75) STYLE.missing(ctx);",
+    );
+    const { frames, state } = await mounted("window", 4, bad);
+    DSAnimatePlugin.render(0.5, state);
+    const drawn = frames.length;
+
+    expect(sweep().filter((b) => b.id === "window")).toEqual([
+      {
+        id: "window",
+        frames: [75],
+        message: expect.stringMatching(/STYLE.missing is not a function/),
+      },
+    ]);
+    expect(frames.slice(drawn)).toEqual(Array.from({ length: 120 }, (_, i) => i));
+    expect(reported).toEqual([]);
+    // Frame 60 is still what the deck's canvas holds, so it is not drawn again.
+    DSAnimatePlugin.render(0.5, state);
+    expect(frames).toHaveLength(drawn + 120);
+  });
+
+  /**
    * NO TEXT FROM A PIECE, on the canvas the piece made for itself. morph.js
    * draws every era on `layer(0)`, an offscreen canvas the mounted-canvas trap
    * the spike tested never saw. `handText` is cut-paper's own primitive.
@@ -333,9 +364,15 @@ describe("copyAssets", () => {
 
 /**
  * THE BROWSER, the gate and the build — each the one a reader runs. Needs
- * `dist/cli.js` (stale after a source change until `npm run build`) and the
- * renderer's Chrome; skipped without either, as test/narration-canvas.test.ts
- * and test/deck-page.test.ts are.
+ * `dist/cli.js` and the renderer's Chrome; skipped without either, as
+ * test/narration-canvas.test.ts and test/deck-page.test.ts are — EXCEPT where
+ * `DECKSMITH_REQUIRE_BROWSER=1`, which CI's demo job sets so that a missing
+ * dist or Chrome fails there instead of skipping (`npm test` in the check job
+ * runs before `npm run build`, with no browser, so it always skips).
+ *
+ * A dist/ OLDER THAN src/ FAILS. These tests build and gate decks with
+ * `dist/cli.js` while the pieces in them are assembled from src/, so a stale
+ * dist measures neither version.
  */
 const run = promisify(execFile);
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
@@ -344,15 +381,40 @@ const built = await stat(cli).then(
   () => false,
 );
 const chrome = await chromePath("open a piece with").catch(() => null);
+const required = process.env.DECKSMITH_REQUIRE_BROWSER === "1";
+
+/** The newest file under src/ that is newer than the dist/ bundles, if any. */
+async function staleAgainst(): Promise<string | undefined> {
+  const dist = await Promise.all(
+    ["cli.js", "ds-animate.js"].map((f) =>
+      stat(fileURLToPath(new URL(`../dist/${f}`, import.meta.url))).then(
+        (s) => s.mtimeMs,
+        () => 0,
+      ),
+    ),
+  );
+  const oldest = Math.min(...dist);
+  const src = fileURLToPath(new URL("../src", import.meta.url));
+  for (const e of await readdir(src, { recursive: true, withFileTypes: true })) {
+    if (!e.isFile()) continue;
+    const at = join(e.parentPath, e.name);
+    if ((await stat(at)).mtimeMs > oldest) return at;
+  }
+  return undefined;
+}
 
 /** The fixture piece, minus the line that records frames into a node array. */
 const PIECE = AUTHOR.replace("  window.__frames.push(F);\n", "");
 
-describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
+describe.skipIf(!required && (!built || chrome === null))("a piece in a built deck", () => {
   let dir = "";
   let deck = "";
 
   beforeAll(async () => {
+    if (!built) throw new Error(`${cli} is missing — run \`npm run build\``);
+    if (chrome === null) throw new Error("no Chrome — run `npx hyperframes browser ensure`");
+    const newer = await staleAgainst();
+    if (newer) throw new Error(`dist/ is older than ${newer} — run \`npm run build\``);
     dir = await mkdtemp(join(tmpdir(), "decksmith-piece-"));
     deck = join(dir, "deck");
     await mkdir(join(dir, "assets", "pieces"), { recursive: true });
@@ -421,11 +483,26 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
+  /** The deck above, its piece re-assembled from `author`, under a directory named for `name`. */
+  async function brokenCopy(name: string, author: string): Promise<string> {
+    const broken = join(dir, `broken-${name.replace(/\W+/g, "-")}`);
+    await cp(deck, broken, { recursive: true });
+    await writeFile(
+      join(broken, "assets", "pieces", "loop.js"),
+      await assemblePiece("fig-loop", "pieces/loop.js", author),
+    );
+    return broken;
+  }
+
   /**
    * ONE DRAW PER FRAME, held to the pixels. `renderSeek(t)` with no options is
    * the render's path, the one that moves the timeline three times per frame.
    * Draws are counted on the mounted canvas: morph.js asks it for its context
    * once per `renderFrame`. The piece runs 4.0s–8.0s in the deck.
+   *
+   * The gate's own path (`suppressEvents`) is seeked FROM ANOTHER FRAME: a
+   * seek to the frame already on the canvas draws nothing, so its pixels would
+   * be the previous seek's whatever the gate path painted.
    */
   it("draws each frame once on the render path, and seeking back repaints the same pixels", async () => {
     let page: DeckPage | undefined;
@@ -455,6 +532,7 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
           next: [at(181 / 30), at(182 / 30)],
           away: at(7.5),
           back: at(6),
+          left: at(7.5),
           gate: at(6, { suppressEvents: true }),
         };
       });
@@ -466,6 +544,8 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
       expect(got.back.draws).toBe(1);
       expect(got.away.px).not.toBe(got.first.px);
       expect(got.back.px).toBe(got.first.px);
+      expect(got.left.px).toBe(got.away.px);
+      expect(got.gate.draws).toBe(1);
       expect(got.gate.px).toBe(got.first.px);
     } finally {
       await page?.close();
@@ -547,6 +627,12 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
    * Without `reportError` the first passed verify with 0 errors (measured
    * 2026-10-09, the spike's Q2 and again on this runtime); the last is text on
    * morph.js's offscreen layer, which the mounted-canvas trap never saw.
+   *
+   * The second guards NOTHING the loud-error work added: the author's
+   * top-level code runs in the factory, at `mount`, so its throw leaves the
+   * scene's timeline unregistered, and that was a page error before
+   * `reportError` or the text trap existed. It pins that this stays loud —
+   * the spike listed a load-time throw after registering as unmeasured.
    */
   it.each([
     [
@@ -573,12 +659,7 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
   ])(
     "fails verify when the piece %s",
     async (_name, author, said) => {
-      const broken = join(dir, `broken-${_name.split(" ")[0]}`);
-      await cp(deck, broken, { recursive: true });
-      await writeFile(
-        join(broken, "assets", "pieces", "loop.js"),
-        await assemblePiece("fig-loop", "pieces/loop.js", author),
-      );
+      const broken = await brokenCopy(_name, author);
 
       const out = await run(process.execPath, [cli, "verify", broken, "--no-fidelity"]).then(
         (r) => ({ code: 0, stdout: r.stdout }),
@@ -591,4 +672,41 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
     },
     120_000,
   );
+
+  /**
+   * A THROW IN ONE FRAME. `check` samples a long deck coarsely and can step
+   * over a short window; `render` would then draw that frame half-painted and
+   * exit 0. `fidelity` sweeps every frame of the piece and fails on it, and
+   * `frames` — which seeks to it — refuses to write the PNG. The healthy deck
+   * is the control for both.
+   */
+  it("fails fidelity and frames on a piece that throws at one frame only", async () => {
+    const broken = await brokenCopy(
+      "one frame",
+      PIECE.replace(
+        "function sceneOnly() {\n",
+        "function sceneOnly() {\n  if (F === 77) STYLE.missingHook(ctx);\n",
+      ),
+    );
+
+    const bad = await fidelity(broken);
+    expect(bad.findings.filter((f) => f.rule === "piece_error")).toEqual([
+      expect.objectContaining({
+        severity: "error",
+        message: expect.stringMatching(
+          /piece "fig-loop" throws at 1 of its frames \(77–77\): STYLE\.missingHook is not a function/,
+        ),
+      }),
+    ]);
+    const good = await fidelity(deck);
+    expect(
+      good.findings.filter((f) => f.rule === "piece_error" || f.rule === "not_measured"),
+    ).toEqual([]);
+
+    // The piece starts at 4.0s in the deck, so its frame 77 is at 4 + 77/30.
+    await expect(captureFrames(broken, [4 + 77 / 30], join(dir, "frames-bad"))).rejects.toThrow(
+      /frames: the deck raised an error by 6\.567s, so this frame is not what it would draw: .*STYLE\.missingHook is not a function/,
+    );
+    expect(await captureFrames(deck, [4 + 77 / 30], join(dir, "frames-good"))).toHaveLength(1);
+  }, 240_000);
 });

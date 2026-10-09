@@ -94,6 +94,8 @@ interface Host {
 }
 
 const HOSTS = new WeakMap<object, Host>();
+/** Every mounted piece, in mount order, for `sweep` — a WeakMap cannot be walked. */
+const MOUNTED: Array<{ canvas: HTMLCanvasElement; host: Host }> = [];
 
 /**
  * The piece-local second to draw at tween value `t`: `t`, but never past the
@@ -167,7 +169,57 @@ export function mount(canvas: HTMLCanvasElement | null, id: string, cfg: PieceCo
   const piece = withoutText(id, () =>
     factory({ ...cfg, width: canvas.width, height: canvas.height }),
   );
-  HOSTS.set(canvas, { id, piece, drawn: Number.NaN });
+  const host = { id, piece, drawn: Number.NaN };
+  HOSTS.set(canvas, host);
+  MOUNTED.push({ canvas, host });
+}
+
+/** A piece frame that threw under `sweep`. */
+export interface BrokenFrame {
+  id: string;
+  /** The frames that threw, in order. */
+  frames: number[];
+  /** The first one's message. */
+  message: string;
+}
+
+/**
+ * EVERY FRAME OF EVERY MOUNTED PIECE, drawn once, for the gate.
+ *
+ * A DRAWING ERROR IS A PAGE ERROR only at the times something seeks to, and
+ * `hyperframes check` samples a long deck coarsely: a throw confined to a short
+ * window — a bridge's sub-phase, one frame — could fall between its samples,
+ * pass verify, and ship half-painted frames from a render that exits 0. So
+ * `fidelity` calls this once and fails on what it returns.
+ *
+ * Drawn on a scratch canvas of the same size, never the mounted one: `renderFrame`
+ * reads nothing of its canvas but the context, and the deck's canvas and its
+ * frame memo stay exactly as the timeline left them. Each draw runs under the
+ * text trap, as the plugin's does. Nothing is reported to the page; the caller
+ * reads the result.
+ */
+export function sweep(): BrokenFrame[] {
+  const out: BrokenFrame[] = [];
+  for (const { canvas, host } of MOUNTED) {
+    const scratch = document.createElement("canvas");
+    scratch.width = canvas.width;
+    scratch.height = canvas.height;
+    let broken: BrokenFrame | undefined;
+    for (let f = 0; f < host.piece.n; f++) {
+      try {
+        withoutText(host.id, () => host.piece.rf(f / host.piece.fps, scratch));
+      } catch (err) {
+        broken ??= {
+          id: host.id,
+          frames: [],
+          message: err instanceof Error ? err.message : String(err),
+        };
+        broken.frames.push(f);
+      }
+    }
+    if (broken) out.push(broken);
+  }
+  return out;
 }
 
 interface PluginState {
@@ -214,6 +266,6 @@ export const DSAnimatePlugin = {
 
 if (typeof window !== "undefined") {
   const w = window as unknown as { DSAnimate: unknown; DSAnimatePlugin: unknown };
-  w.DSAnimate = { pieces, mount };
+  w.DSAnimate = { pieces, mount, sweep };
   w.DSAnimatePlugin = DSAnimatePlugin;
 }

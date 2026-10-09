@@ -191,6 +191,13 @@ export interface DeckPage {
   shoot(): Promise<Buffer>;
   /** For callers that need to read the DOM at a stop, as `fidelity` does. */
   page: Page;
+  /**
+   * Every uncaught error the page has raised since it opened, in order. The
+   * runtime swallows a throw inside a seek, so this is the only place an
+   * animate piece's drawing error (`reportError`) surfaces: without it a seek
+   * resolves over a stale or half-painted canvas.
+   */
+  errors: string[];
   close(): Promise<void>;
 }
 
@@ -239,6 +246,8 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
 
   try {
     const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (err) => errors.push(err instanceof Error ? err.message : String(err)));
     // The runtime bundle is minified with esbuild's `__name` helper, which is not
     // defined when the bundle is injected instead of served. Same guard the
     // renderer installs.
@@ -291,6 +300,7 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
       width,
       height,
       page,
+      errors,
       seek: (t) => page.evaluate(renderSeek, t),
       shoot: async () => {
         const shot = await cdp.send("Page.captureScreenshot", {
@@ -356,6 +366,15 @@ export async function captureFrames(
     for (const [i, raw] of times.entries()) {
       const t = Math.round(raw * 1000) / 1000;
       await deck.seek(t);
+      // LOUD, not a plausible PNG: a frame the page threw drawing is stale or
+      // half-painted, and looking at frames is what this project tells people
+      // to do. Any error since the page opened counts — one at load leaves a
+      // scene with no timeline.
+      if (deck.errors.length > 0) {
+        throw new Error(
+          `frames: the deck raised an error by ${t}s, so this frame is not what it would draw: ${deck.errors.join(" | ")}`,
+        );
+      }
       const png = await deck.shoot();
       const path = join(outDir, frameName(i, t, times.length));
       await writeFile(path, png);
