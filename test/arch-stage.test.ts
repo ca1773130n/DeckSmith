@@ -10,13 +10,20 @@
  * on a real picture is the browser's business — `hyperframes check` on a built
  * deck — and is not claimed here.
  */
-import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { afterAll, describe, expect, it } from "vitest";
 import { stage } from "../src/emit/archetypes/stage.js";
 import { emitComposition } from "../src/emit/composition.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { PAD_X, PAD_Y, refHeight, refWidth, reserveRef, tweenText } from "../src/emit/kit.js";
 import { ENTRANCES, restyleEntrance } from "../src/emit/motion.js";
 import { MIN_FONT } from "../src/emit/svg.js";
+import { chromePath } from "../src/render/capture.js";
 import {
   type BeatOf,
   FORMATS,
@@ -27,6 +34,7 @@ import {
   stageParamsSchema,
   storyboardSchema,
 } from "../src/types.js";
+import { fidelity } from "../src/verify/fidelity.js";
 
 const theme: Theme = {
   bg: "#0b0d10",
@@ -448,3 +456,97 @@ describe("stage", () => {
     );
   });
 });
+
+/**
+ * THE CAPTION-RESERVE GATE, WIRED, on the deck that broke it: one full-bleed
+ * stage at 9:16 with `--reserve-captions`. The strip below the picture is bare
+ * deck ground, but the frame's MODAL colour is the picture, so measured against
+ * the mode the empty strip read as all ink and failed the build. `fidelity`
+ * captures the bare ground for any deck with a reserve and measures the strip
+ * against it; `test/fidelity.test.ts` pins `inkBelow` alone, and this pins that
+ * `fidelity()` actually takes that capture and passes it in.
+ *
+ * Needs `dist/cli.js` (run `npm run build` first — the build is dist's, the gate
+ * is src's) and Chrome; skipped without them unless `DECKSMITH_REQUIRE_BROWSER=1`.
+ */
+const run = promisify(execFile);
+const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+const built = await stat(cli).then(
+  () => true,
+  () => false,
+);
+const chrome = await chromePath("measure a stage's reserve with").catch(() => null);
+const required = process.env.DECKSMITH_REQUIRE_BROWSER === "1";
+
+describe.skipIf(!required && (!built || chrome === null))(
+  "a full-bleed stage over a caption reserve, gated",
+  () => {
+    let dir = "";
+    afterAll(async () => {
+      if (dir) await rm(dir, { recursive: true, force: true });
+    });
+
+    it("reads an empty reserve under a full-bleed picture as empty", async () => {
+      dir = await mkdtemp(join(tmpdir(), "decksmith-stage-reserve-"));
+      const deck = join(dir, "deck");
+      await mkdir(join(dir, "assets"), { recursive: true });
+      // One flat colour nothing like the deck ground, so the picture is the mode.
+      await writeFile(
+        join(dir, "assets", "field.svg"),
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920"><rect width="1080" height="1920" fill="#50a050"/></svg>',
+      );
+      await writeFile(
+        join(dir, "source.json"),
+        JSON.stringify({
+          id: "src-field",
+          title: "A field",
+          lang: "en",
+          sections: [{ id: "sec-1", depth: 1, heading: "One", text: "A field." }],
+          figures: [
+            { id: "fig-field", src: "field.svg", caption: "A field", width: 1080, height: 1920 },
+          ],
+          equations: [],
+          tables: [],
+        }),
+      );
+      await writeFile(
+        join(dir, "storyboard.json"),
+        JSON.stringify({
+          sourceId: "src-field",
+          title: "A field",
+          beats: [
+            {
+              id: "b1",
+              intent: "Show it.",
+              // Above short-9x16's 0.6 floor, or the cut leaves nothing to build.
+              weight: 0.9,
+              archetype: "stage",
+              seconds: 5,
+              params: { headline: "A field", figureId: "fig-field", placement: "none" },
+            },
+          ],
+        }),
+      );
+      await run(process.execPath, [
+        cli,
+        "build",
+        join(dir, "storyboard.json"),
+        "--source",
+        join(dir, "source.json"),
+        "-o",
+        deck,
+        "--format",
+        "short-9x16",
+        "--reserve-captions",
+        "--no-narration",
+        "--no-fidelity",
+      ]);
+      const report = await fidelity(deck);
+      // The reserve was read off the artifact, so every stop measured the strip...
+      expect(report.stops.length).toBeGreaterThan(0);
+      for (const s of report.stops) expect(s.reserveInk).toBe(0);
+      // ...and the gate has nothing to say about it.
+      expect(report.findings.filter((f) => f.rule === "ink_in_caption_reserve")).toEqual([]);
+    }, 300_000);
+  },
+);
