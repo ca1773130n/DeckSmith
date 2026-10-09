@@ -87,6 +87,15 @@ const ENDS = (id: string) =>
 const HANDWRITE = /\bhandwrite\s*\(/;
 
 /**
+ * `src` with its comments blanked to spaces, newlines kept, so a comment that
+ * NAMES handwrite is not refused as a call and line numbers still match.
+ */
+// ponytail: a "//" inside a string literal blanks the rest of that line too;
+// a tokenizer would be exact, but the scan is a name match an alias evades anyway.
+const uncommented = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (c) => c.replace(/[^\n]/g, " "));
+
+/**
  * The script for piece `id`, whose author file `name` (the figure's `src`)
  * holds `author`.
  *
@@ -94,7 +103,9 @@ const HANDWRITE = /\bhandwrite\s*\(/;
  * copy of the kit, shipped inside someone else's deck.
  */
 export async function assemblePiece(id: string, name: string, author: string): Promise<string> {
-  const line = author.split("\n").findIndex((l) => HANDWRITE.test(l));
+  const line = uncommented(author)
+    .split("\n")
+    .findIndex((l) => HANDWRITE.test(l));
   if (line >= 0) {
     throw new Error(
       `${name}:${line + 1} calls handwrite — it draws text as strokes the 40px type floor never reads (invariant 5); put the words in the claim`,

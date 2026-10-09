@@ -140,6 +140,17 @@ describe("assemblePiece", () => {
       /pieces\/p.js:6 calls handwrite — it draws text as strokes the 40px type floor never reads/,
     );
   });
+
+  it("does not refuse a comment that names handwrite, and still counts lines past one", async () => {
+    const named = AUTHOR.replace(
+      "const BRIDGES = [];",
+      "const BRIDGES = []; // never handwrite (a piece draws no text)\n/* handwrite(\n */",
+    );
+    await expect(assemblePiece("p", "pieces/p.js", named)).resolves.toContain("never handwrite");
+    await expect(
+      assemblePiece("p", "pieces/p.js", `${named}\nhandwrite('hi', 10, 10, 30);`),
+    ).rejects.toThrow(/pieces\/p.js:13 calls handwrite/);
+  });
 });
 
 describe("the dsAnimate plugin", () => {
