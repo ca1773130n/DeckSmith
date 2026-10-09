@@ -374,8 +374,17 @@ describe("pipeline: stair and column", () => {
   it("steps each stage down, and uses height the row leaves", () => {
     const row = emitScene(pipe(4), ctx());
     const stair = emitScene(pipe(4), ctx({ variant: "stair", placement: "top" }));
-    expect(stair.fill ?? 0).toBeGreaterThan(row.fill ?? 0);
     expect(stair.html).not.toEqual(row.html);
+  });
+
+  it("scores a stair as the ink it paints, not the height its rise was solved to span", () => {
+    // ko deck b03 (2026-10-09): pipeline:stair@foot reported fill 1 while its
+    // three boxes left two empty corners of the body. The rise is solved to
+    // spend whatever height the row leaves, so the extent was 1 by construction.
+    for (const placement of ["top", "foot"] as const) {
+      const stair = emitScene(pipe(3), { ...ctx({ variant: "stair", placement }), design: "v2" });
+      expect(stair.fill ?? 1, placement).toBeLessThan(0.7);
+    }
   });
 
   it("has no stair for a loop or for two stages", () => {

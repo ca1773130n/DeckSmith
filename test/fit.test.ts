@@ -453,6 +453,16 @@ describe("callout under v2", () => {
     ).toThrow(/not a table row/);
   });
 
+  it("scores a sparse rows table by its content, not the 75% it is opened out to, and says so", () => {
+    // ko deck b06 (2026-10-09): two two-line rows reported fill 0.75 — the
+    // share `ROWS_FILL` stretches the table to — with half the slide empty.
+    const rows = callout(short, { ...ctx("v2"), look: { variant: "rows", placement: "top" } });
+    expect(rows.fill ?? 1).toBeLessThan(0.7);
+    expect(rows.warnings?.join(" ")).toMatch(/opened out with air/);
+    // Panels never carry the rows warning.
+    expect(callout(short, ctx("v2")).warnings).toBeUndefined();
+  });
+
   it("splits a panel's air above and below its lines, and balances a wrapped line", () => {
     // ko deck b09 (2026-10-09): three panels to y≈655 with their text ending at
     // y≈445-500, and "= 0.9" alone on a line.

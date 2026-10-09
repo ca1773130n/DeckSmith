@@ -3,7 +3,7 @@
  * put in a figure: a contradiction between two tables, a caveat, a limit on what
  * was actually tested. Panels appear one at a time so each can be spoken to.
  */
-import { fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
+import { EMPTY_BELOW, fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { esc, lift, settle, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
@@ -263,8 +263,19 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     // `.panels` is `flex:1` under a `max-height` of `cap`, so it is exactly `cap`
     // tall whenever the box has that much; the note sits under it.
     ...(v2 ? { fit: fitOf(cap + noteH, region) } : {}),
-    // What the Director scores looks on: how much of its box the panels take.
-    ...(v2 ? { fill: Math.min(1, Math.round((cap / budget) * 1000) / 1000) } : {}),
+    // What the Director scores looks on: how much of its box the panels'
+    // CONTENT takes, with its air. Not `cap`: a `rows` table is opened out to
+    // `ROWS_FILL` of the box whatever it holds, so `cap / budget` reported 0.75
+    // for two two-line rows that left half the slide empty (ko deck b06,
+    // 2026-10-09) and the Director preferred it for a fullness it did not have.
+    ...(v2 ? { fill: Math.min(1, Math.round(((need * air) / budget) * 1000) / 1000) } : {}),
+    ...(v2 && rowsVariant && (need * air) / budget < EMPTY_BELOW
+      ? {
+          warnings: [
+            `callout ${beat.id}: the rows hold ${Math.round((100 * need * air) / budget)}% of their box and the table is opened out with air — give each row more to say, or draw the beat as another shape`,
+          ],
+        }
+      : {}),
     css: [
       chromeCss(theme),
       // Column count is set inline, so this block is identical for every callout

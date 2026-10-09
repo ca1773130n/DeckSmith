@@ -1030,7 +1030,13 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     // With a note, v2 hands the spare height to the gap above it (below), so the
     // body spans the region; without one the diagram is all there is.
     ...(v2 ? { fit: fitOf(p.note ? region - 38 : svgH, region) } : {}),
-    fill: Math.min(1, svgH / budget),
+    // A STAIR IS SCORED AS THE ROW IT IS. Its rise is solved to spend the
+    // height the row leaves (`stairRise`), so `svgH / budget` came out 1 by
+    // construction whatever was drawn — the 2026-10-09 ko deck reported b03, a
+    // three-step stair leaving two empty corners of the body, as 1.0 full and
+    // the Director chose it over every grown row. Stepping the boxes down adds
+    // no ink: the same classic-sized boxes paint the same area as their row.
+    fill: Math.min(1, (variant === "stair" ? L.svgH : svgH) / budget),
     css: [
       chromeCss(theme),
       ".pipewrap{margin-top:38px;display:flex;justify-content:center}",
