@@ -7,7 +7,9 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  isScene,
   MAX_ALTERNATION,
+  panelsAllowed,
   scenesRequired,
   stagesRequired,
   varietyFindings,
@@ -110,8 +112,47 @@ describe("varietyFindings", () => {
       "stage@center",
     ];
     expect(varietyFindings(deck(...cards), on)).toEqual([
-      expect.stringMatching(/8 beats carry 3 picture\(s\); at least 5 must be scenes/),
+      expect.stringMatching(/8 beats carry 3 scene\(s\); at least 5 must be scenes/),
     ]);
     expect(varietyFindings(deck(...cards), off)).toEqual([]);
+  });
+
+  it("counts a hero number and a kinetic claim as scenes without a picture", () => {
+    const [hero, claim] = deck("hero-number", "kinetic").beats;
+    expect(isScene(hero as never)).toBe(true);
+    expect(isScene(claim as never)).toBe(true);
+  });
+
+  it("caps the panels in a picture deck, backdrop or not, and names them", () => {
+    // Round 1 of the 2026-10-09 ko e2e: ten of fourteen beats were scenes and
+    // nine were still panels — pipelines, comparisons and callouts over pictures.
+    expect(panelsAllowed(14, on)).toBe(5);
+    expect(panelsAllowed(14, off)).toBe(Number.POSITIVE_INFINITY);
+    const round1 = [
+      "title",
+      "stage@bottom-left",
+      "pipeline+bd",
+      "split-compare+bd",
+      "pipeline",
+      "stage@right",
+      "split-compare+bd",
+      "pipeline+bd",
+      "stage@top-left",
+      "callout",
+      "split-compare",
+      "callout+bd",
+      "bar-compare+bd",
+      "stage@center",
+    ];
+    const findings = varietyFindings(deck(...round1), on);
+    expect(findings).toEqual([
+      expect.stringMatching(/^8 of 14 beats are panels \(b3 `pipeline`.*at most 5 may be/),
+    ]);
+    // The same deck with three panels redrawn as numbers and claims passes.
+    const redrawn = [...round1];
+    redrawn[4] = "hero-number";
+    redrawn[9] = "kinetic";
+    redrawn[10] = "hero-number";
+    expect(varietyFindings(deck(...redrawn), on)).toEqual([]);
   });
 });

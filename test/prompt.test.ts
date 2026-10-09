@@ -11,7 +11,12 @@ import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { ink } from "../src/emit/themes/index.js";
 import { REVEALS, renderSource, systemPrompt } from "../src/plan/prompt.js";
-import { MAX_ALTERNATION, STAGE_EVERY, STAGE_MIN_BEATS } from "../src/plan/variety.js";
+import {
+  MAX_ALTERNATION,
+  panelsAllowed,
+  STAGE_EVERY,
+  STAGE_MIN_BEATS,
+} from "../src/plan/variety.js";
 import type { Beat, Format, Source } from "../src/types.js";
 import { beatSchema, FORMATS, prefsSchema } from "../src/types.js";
 
@@ -483,6 +488,18 @@ describe("the prompt's illustrations block", () => {
     );
     expect(on).toMatch(/a 10-beat deck,\s+2\)/);
     expect(on).toMatch(/consecutive stages\s+different `placement`s/);
+  });
+
+  // Round 1's ten scenes in fourteen were nine panels over pictures; the cap
+  // is stated from the number the plan is checked against, and numbers and
+  // claims are named as scenes that spend no picture.
+  it("caps panels at the checked number and names what to draw instead", () => {
+    const images = prefsSchema.parse({ images: { enabled: true } }).images;
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(on).toContain("PANELS ARE THE EXCEPTION");
+    expect(on).toMatch(new RegExp(`a 14-beat deck, ${panelsAllowed(14, images)}\\)`));
+    expect(on).toMatch(/hero-number or kinetic beat WITHOUT a backdrop is still a scene/);
+    expect(systemPrompt(prefsSchema.parse({}))).not.toContain("PANELS ARE THE EXCEPTION");
   });
 });
 

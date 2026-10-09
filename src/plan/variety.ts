@@ -23,7 +23,7 @@
  * keeps the deck's content the planner's.
  */
 import type { Prefs } from "../prefs.js";
-import type { Beat, Storyboard } from "../types.js";
+import type { Archetype, Beat, Storyboard } from "../types.js";
 
 /** A deck this long must carry stage beats. Below it there is no room to spend one. */
 export const STAGE_MIN_BEATS = 8;
@@ -41,6 +41,28 @@ export const MAX_ALTERNATION = 3;
  */
 export const SCENE_SHARE = 0.6;
 
+/**
+ * The archetypes that draw boxes, cards or rows of them — what the founder
+ * means by slideware. A backdrop puts them in a scene but they are still
+ * panels: round 1 of the 2026-10-09 ko e2e had ten of fourteen beats as
+ * scenes, and nine of fourteen were still panels over pictures.
+ */
+export const PANEL_ARCHETYPES: ReadonlySet<Archetype> = new Set<Archetype>([
+  "pipeline",
+  "split-compare",
+  "callout",
+  "stack",
+  "data-table",
+]);
+/** At most this share of a picture deck's beats are panels: five of fourteen. */
+export const PANEL_SHARE = 0.36;
+
+/** How many panel beats a deck of `beats` may carry, given whether it may ask for pictures. */
+export function panelsAllowed(beats: number, images: Prefs["images"]): number {
+  if (!images.enabled || beats < STAGE_MIN_BEATS) return Number.POSITIVE_INFINITY;
+  return Math.max(2, Math.round(beats * PANEL_SHARE));
+}
+
 /** How many stage beats a deck of `beats` must carry, given the picture cap. */
 export function stagesRequired(beats: number, images: Prefs["images"]): number {
   if (!images.enabled || beats < STAGE_MIN_BEATS) return 0;
@@ -57,6 +79,8 @@ export function scenesRequired(beats: number, images: Prefs["images"]): number {
  * Whether a picture owns or backs this beat: a stage, a figure beat, a
  * split-compare side with a picture, or a diagram over a `backdrop`. A brief
  * counts as a figure does — it is a picture by the time anyone sees the deck.
+ * A hero number and a kinetic claim are scenes with or without one: with none
+ * they fill the frame with a field of colour, never the pale ground.
  */
 export function isScene(beat: Beat): boolean {
   const p = beat.params as Record<string, unknown>;
@@ -68,6 +92,8 @@ export function isScene(beat: Beat): boolean {
     case "stage":
     case "claim-figure":
     case "annotated-figure":
+    case "hero-number":
+    case "kinetic":
       return true;
     case "split-compare":
       return pictured(p.left) || pictured(p.right) || pictured(p.backdrop);
@@ -126,7 +152,14 @@ export function varietyFindings(storyboard: Storyboard, images: Prefs["images"])
   const pictured = beats.filter(isScene).length;
   if (pictured < scenes) {
     out.push(
-      `${beats.length} beats carry ${pictured} picture(s); at least ${scenes} must be scenes. Give the pipeline, split-compare, callout and bar-compare beats a \`backdrop\` with an \`illustration\` brief — a scene that fits the point, calm where the panels sit.`,
+      `${beats.length} beats carry ${pictured} scene(s); at least ${scenes} must be scenes. Set a number the source reports as a \`hero-number\` and a single strong claim as \`kinetic\`, or give the pipeline, split-compare, callout and bar-compare beats a \`backdrop\` with an \`illustration\` brief — a scene that fits the point, calm where the panels sit.`,
+    );
+  }
+  const panelCap = panelsAllowed(beats.length, images);
+  const panels = beats.filter((b) => PANEL_ARCHETYPES.has(b.archetype));
+  if (panels.length > panelCap) {
+    out.push(
+      `${panels.length} of ${beats.length} beats are panels (${panels.map((b) => `${b.id} \`${b.archetype}\``).join(", ")}); at most ${panelCap} may be. Redraw the rest: a number the source reports is a \`hero-number\`, a single strong claim is \`kinetic\`, a trend is a \`line-chart\`, magnitudes are \`bar-compare\`, a turn in the argument is a \`stage\`.`,
     );
   }
   for (let i = 1; i < stages.length; i++) {

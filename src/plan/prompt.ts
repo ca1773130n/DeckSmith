@@ -18,6 +18,8 @@ import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 import {
   MAX_ALTERNATION,
+  PANEL_SHARE,
+  panelsAllowed,
   SCENE_SHARE,
   STAGE_EVERY,
   STAGE_MIN_BEATS,
@@ -745,9 +747,13 @@ bar-compare, hero-number or kinetic beat may carry
 picture covers the whole frame behind the diagram, darkened, and the boxes,
 panels and bars are drawn over it as dark glass — the diagram keeps its shape
 and its words, and the slide becomes a scene instead of cards on a plain
-ground. Use them: a deck of ${STAGE_MIN_BEATS} beats or more has at least ${Math.round(SCENE_SHARE * 100)}% of its beats as
-scenes (a stage, a figure, a picture on a split-compare side, or a backdrop; a
+ground. A hero-number or kinetic beat WITHOUT a backdrop is still a scene: it
+fills the frame with a deep field of the deck's colour, and spends no picture.
+Use them: a deck of ${STAGE_MIN_BEATS} beats or more has at least ${Math.round(SCENE_SHARE * 100)}% of its beats as
+scenes (a stage, a figure, a picture on a split-compare side, a backdrop, a
+hero-number or a kinetic claim; a
 ${2 * STAGE_EVERY + 6}-beat deck, ${scenesRequired(2 * STAGE_EVERY + 6, images)}), within the picture cap.
+
   - The brief is the WORLD the beat's point happens in, specific to that point:
     the hazy coastline a dehazing step clears, the server hall a power figure is
     paid in, the neuron that does or does not fire. Never a generic texture,
@@ -760,6 +766,14 @@ ${2 * STAGE_EVERY + 6}-beat deck, ${scenesRequired(2 * STAGE_EVERY + 6, images)}
     The caption is alt text; nothing reads it aloud.
   - Leave \`backdrop\` off a split-compare whose sides carry pictures, and never
     point a backdrop at an inventory figure: a figure is shown, not wallpapered.
+
+PANELS ARE THE EXCEPTION. A pipeline, split-compare, callout, stack or
+data-table draws boxes, cards or rows of them, and a backdrop puts them in a
+scene without making them anything else. A deck of ${STAGE_MIN_BEATS} beats or more carries at
+most ${Math.round(PANEL_SHARE * 100)}% of them (a ${2 * STAGE_EVERY + 6}-beat deck, ${panelsAllowed(2 * STAGE_EVERY + 6, images)}). Every number the source
+reports that a beat exists to land is a \`hero-number\`; every strong claim with
+no shape is \`kinetic\`; a trend is a line-chart; a turn in the argument is a
+stage. A plan with more panels than this is sent back.
 
 STAGES ARE REQUIRED, not merely allowed. A deck of ${STAGE_MIN_BEATS} beats or more
 carries at least one \`stage\` beat for every ${STAGE_EVERY} beats (a ${2 * STAGE_EVERY + 2}-beat deck,
