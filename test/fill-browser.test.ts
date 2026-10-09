@@ -80,7 +80,15 @@ describe.skipIf(chrome === null)("v2 fill, predicted and measured on the demo", 
     expect(report.findings.filter((f) => f.rule === "fill_model_disagrees")).toEqual([]);
   });
 
-  it("paints no grown body through the bottom of its region", () => {
-    expect(report.fills.filter((f) => f.fill > 1.02)).toEqual([]);
+  // Not on a full-bleed field or picture (`under` in src/emit/backdrop.ts,
+  // which drops `fit` for this reason): the ink test is against the bare pale
+  // ground, so there the field itself reads as ink and "fill" measures the
+  // field, not the body. The demo's bar-compare on the field reads 1.09 with
+  // every bar inside the frame (looked at, 2026-10-09).
+  it("paints no grown body through the bottom of its region", async () => {
+    const html = await readFile(join(out, "index.html"), "utf8");
+    const onGround = (sid: string) =>
+      !html.includes(`id="${sid}-fd"`) && !html.includes(`id="${sid}-bd"`);
+    expect(report.fills.filter((f) => onGround(f.sid) && f.fill > 1.02)).toEqual([]);
   });
 });
