@@ -409,6 +409,17 @@ function regrade({ f, time, selector }: Timed, transit: Window[] = []): Finding 
     }
     return { ...f, severity: "error" };
   }
+  // A backdrop (src/emit/backdrop.ts) is z-index:-1 inside a scene that is its
+  // own stacking context (`z-index:0;isolation:isolate` on a positioned
+  // `.scene`). The rule reads CSS text and does not see that context; the
+  // frames do — the picture is there, under the glass, measured 2026-10-09.
+  if (f.rule === "negative_z_index" && /\.bd-m\b/.test(selector ?? f.message)) {
+    return {
+      ...f,
+      severity: "info",
+      message: `${f.message} — accepted: a backdrop, inside the scene's own stacking context.`,
+    };
+  }
   if (f.gate === "lint" && f.rule === "composition_file_too_large") {
     return { ...f, severity: "info", message: `${f.message} — accepted: generated, not authored.` };
   }

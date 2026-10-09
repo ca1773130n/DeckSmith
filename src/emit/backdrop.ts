@@ -236,7 +236,7 @@ export function overBackdrop(scene: Scene, fig: Figure, ctx: EmitContext, second
     html,
     tl,
     css: [
-      `#${sid},#${sid} .scene{isolation:isolate}`,
+      `#${sid},#${sid} .scene{z-index:0;isolation:isolate}`,
       `#${sid} .bd-m,#${sid} .bd-sc{position:absolute;left:0;top:0;right:0;bottom:${reserve}px;z-index:-1}`,
       `#${sid} .bd-m{overflow:hidden}`,
       `#${sid} .bd-m>img{display:block;width:100%;height:100%;object-fit:cover}`,

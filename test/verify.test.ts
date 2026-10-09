@@ -220,6 +220,19 @@ describe("parseCheckReport", () => {
     ]);
   });
 
+  it("accepts a backdrop's negative z-index, and only a backdrop's", () => {
+    const report = (selector: string) =>
+      PASS.replace('"composition_file_too_large"', '"negative_z_index"').replace(
+        '"selector": "[data-composition-id]"',
+        `"selector": "${selector}"`,
+      );
+    const [bd] = parseCheckReport(report("#s1 .bd-m,#s1 .bd-sc"), PASS_STDERR).findings;
+    expect(bd).toMatchObject({ severity: "info", rule: "negative_z_index" });
+    expect(bd?.message).toMatch(/accepted: a backdrop/);
+    const [other] = parseCheckReport(report("#s1 .glow"), PASS_STDERR).findings;
+    expect(other).toMatchObject({ severity: "warning", rule: "negative_z_index" });
+  });
+
   it("labels each finding with the gate that produced it and where it happened", () => {
     const verdict = parseCheckReport(FAIL);
 
@@ -946,6 +959,17 @@ describe("scanUnusedFigures", () => {
           evidence: [{ kind: "figure", id: "fig2" }],
         }),
         source(["fig1", "Figure 1 — The architecture."], ["fig2", "Figure 2 — The error maps."]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not count a picture illustrate drew as one the authors left out", () => {
+    // A backdrop cites nothing by design, so gen-b02-bd is never "cited" — and
+    // the old message called it a figure "the authors drew".
+    expect(
+      scanUnusedFigures(
+        deck(shows("b01", "fig1")),
+        source(["fig1", "Figure 1 — The architecture."], ["gen-b02-bd", "A misty coast"]),
       ),
     ).toEqual([]);
   });

@@ -20,6 +20,7 @@ import {
   type BeatOf,
   DIAGRAMMATIC,
   type Finding,
+  isGeneratedFigure,
   type Source,
   type Storyboard,
   type Term,
@@ -556,14 +557,17 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
  * citing it in evidence is a different defect, and not this scan's to report.
  */
 export function scanUnusedFigures(storyboard: Storyboard, source: Source): Finding[] {
-  if (!source.figures.length) return [];
+  // The AUTHORS' figures. One `illustrate` drew is the deck's own — a backdrop
+  // cites nothing by design — and "the authors drew them" would be false of it.
+  const figures = source.figures.filter((f) => !isGeneratedFigure(f.id));
+  if (!figures.length) return [];
 
   const used = new Set<string>();
   for (const beat of storyboard.beats) {
     for (const ref of beat.evidence) if (ref.kind === "figure") used.add(ref.id);
     for (const id of figuresShown(beat.params as Record<string, unknown>)) used.add(id);
   }
-  const unused = source.figures.filter((f) => !used.has(f.id));
+  const unused = figures.filter((f) => !used.has(f.id));
   if (!unused.length) return [];
 
   // The caption travels with the id, because "fig2 is unused" is not something
@@ -571,14 +575,14 @@ export function scanUnusedFigures(storyboard: Storyboard, source: Source): Findi
   const named = unused.map((f) => `${f.id} ("${f.caption}")`).join("; ");
   // Two words, not one: "1 of 4 source figures is" and "2 of 4 source figures are"
   // disagree about different things, and one variable cannot serve both.
-  const noun = source.figures.length === 1 ? "figure" : "figures";
+  const noun = figures.length === 1 ? "figure" : "figures";
   const verb = unused.length === 1 ? "is" : "are";
   return [
     {
       severity: "warning",
       gate: "storyboard",
       rule: "figure_unused",
-      message: `${unused.length} of ${source.figures.length} source ${noun} ${verb} never cited: ${named}. The authors drew them to carry the argument — a figure worth pointing into is an annotated-figure, one that argues on its own is a claim-figure — or say why this deck does not need it.`,
+      message: `${unused.length} of ${figures.length} source ${noun} ${verb} never cited: ${named}. The authors drew them to carry the argument — a figure worth pointing into is an annotated-figure, one that argues on its own is a claim-figure — or say why this deck does not need it.`,
     },
   ];
 }
