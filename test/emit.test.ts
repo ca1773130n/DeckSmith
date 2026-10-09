@@ -1170,7 +1170,7 @@ describe("pieces", () => {
     const doc = emitComposition(beats(claimOn("f-piece")), pieceSource(piece("f-piece")), deck16);
 
     expect(doc).toContain(
-      '<canvas id="s2-pc" width="1920" height="1080" role="img" aria-label="The feedback loop, drawn"></canvas>' +
+      '<canvas id="s2-pc" data-ds-piece width="1920" height="1080" role="img" aria-label="The feedback loop, drawn"></canvas>' +
         '<script src="assets/pieces/f-piece.js"></script>',
     );
     expect(doc).not.toContain('<img src="assets/pieces/');

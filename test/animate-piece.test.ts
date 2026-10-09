@@ -13,10 +13,12 @@
  * frame memo to the pixels, and runs `decksmith verify` on a piece that throws
  * while drawing, one that throws while loading, and one that writes text on
  * its offscreen layer — the three failures the spike found every gate passing.
+ * It also opens the deck in a browser with no WebGL, which once refused every
+ * piece and so skipped the fidelity gate.
  */
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,8 +27,15 @@ import vm from "node:vm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyAssets } from "../src/build/files.js";
 import { assemblePiece } from "../src/build/piece.js";
-import { DSAnimatePlugin, mount, pieces, pieceTime } from "../src/emit/animate-runtime.js";
+import {
+  DSAnimatePlugin,
+  mount,
+  PIECE_ATTR,
+  pieces,
+  pieceTime,
+} from "../src/emit/animate-runtime.js";
 import { chromePath, type DeckPage, openDeck } from "../src/render/capture.js";
+import { fidelity } from "../src/verify/fidelity.js";
 import { scanDeterminism } from "../src/verify/index.js";
 
 /** Accepts any property read, call or arithmetic, and is always itself. */
@@ -404,6 +413,75 @@ describe.skipIf(!built || chrome === null)("a piece in a built deck", () => {
       await page?.close();
     }
   }, 120_000);
+
+  /**
+   * A CHECKER WITHOUT WEBGL STILL MEASURES A PIECE (the spike's Q4). The browser
+   * is the renderer's own shell with `--disable-3d-apis`, reached through
+   * `DECKSMITH_CHROME` exactly as the spike reached it. Before the exemption
+   * `openDeck` refused this deck, and `fidelity` turned the refusal into a
+   * `not_measured` WARNING: the whole gate skipped, PASS printed. The control is
+   * the same deck with the mark stripped — still refused, which proves this
+   * browser really has no GL and that every other canvas is still guarded.
+   */
+  it.skipIf(process.platform === "win32")(
+    "measures a piece on a checker with no WebGL, and still refuses an unmarked canvas",
+    async () => {
+      const wrapper = join(dir, "glless-chrome.sh");
+      await writeFile(wrapper, `#!/bin/sh\nexec "${chrome}" "$@" --disable-3d-apis\n`, {
+        mode: 0o755,
+      });
+      const saved = {
+        hf: process.env.HYPERFRAMES_BROWSER_PATH,
+        ds: process.env.DECKSMITH_CHROME,
+      };
+      delete process.env.HYPERFRAMES_BROWSER_PATH;
+      process.env.DECKSMITH_CHROME = wrapper;
+      try {
+        const page = await openDeck(deck);
+        try {
+          await page.page.waitForFunction("window.__hfTimelinesBuilding === false");
+          await page.seek(6);
+          const got = await page.page.evaluate(() => {
+            const probe = document.createElement("canvas");
+            const cv = document.getElementById("s2-pc") as HTMLCanvasElement;
+            const px = cv.getContext("2d")?.getImageData(0, 0, cv.width, cv.height).data ?? [];
+            const colours = new Set<string>();
+            for (let i = 0; i < px.length; i += 4) {
+              colours.add(`${px[i]},${px[i + 1]},${px[i + 2]}`);
+            }
+            return {
+              gl: !!(probe.getContext("webgl2") ?? probe.getContext("webgl")),
+              colours: colours.size,
+            };
+          });
+          expect(got.gl, "the wrapper did not take GL away; this test measures nothing").toBe(
+            false,
+          );
+          // A blank or background-only canvas is one colour; the piece is many.
+          expect(got.colours).toBeGreaterThan(10);
+        } finally {
+          await page.close();
+        }
+
+        const report = await fidelity(deck);
+        expect(report.findings.filter((f) => f.rule === "not_measured")).toEqual([]);
+        expect(report.stops.length).toBeGreaterThan(0);
+
+        const unmarked = join(dir, "unmarked");
+        await cp(deck, unmarked, { recursive: true });
+        const html = await readFile(join(unmarked, "index.html"), "utf8");
+        expect(html).toContain(` ${PIECE_ATTR} `);
+        await writeFile(join(unmarked, "index.html"), html.replace(` ${PIECE_ATTR} `, " "));
+        await expect(openDeck(unmarked)).rejects.toThrow(/cannot create a WebGL context/);
+      } finally {
+        if (saved.hf === undefined) delete process.env.HYPERFRAMES_BROWSER_PATH;
+        else process.env.HYPERFRAMES_BROWSER_PATH = saved.hf;
+        if (saved.ds === undefined) delete process.env.DECKSMITH_CHROME;
+        else process.env.DECKSMITH_CHROME = saved.ds;
+      }
+    },
+    180_000,
+  );
 
   /**
    * A FAILING PIECE FAILS `verify`. Each is the deck above with its piece

@@ -73,6 +73,16 @@ export interface Piece {
 /** A piece's script registers one of these under its figure id. */
 export type PieceFactory = (cfg: PieceConfig & { width: number; height: number }) => Piece;
 
+/**
+ * The attribute `claim-figure` writes on a piece's `<canvas>`. It says the
+ * canvas is 2D by construction: `mount` takes its 2D context before anything
+ * draws, and a canvas holding a 2D context can never hold a WebGL one. The
+ * capture path (`openDeck`, src/render/capture.ts) reads it to exempt the
+ * canvas from its no-WebGL refusal, which otherwise refused every piece on a
+ * checker without GL and so skipped the whole fidelity gate (the spike's Q4).
+ */
+export const PIECE_ATTR = "data-ds-piece";
+
 /** Filled by each piece's script as the document parses. */
 export const pieces: Record<string, PieceFactory> = {};
 

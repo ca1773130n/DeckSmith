@@ -6,6 +6,7 @@
  * caption 200px off-canvas. Only a genuine strip earns the full width.
  */
 import type { Figure } from "../../types.js";
+import { PIECE_ATTR } from "../animate-runtime.js";
 import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween } from "../kit.js";
 import { esc, staggerFor, wordAtoms, words } from "../kit.js";
@@ -317,10 +318,11 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
   // piece's factory as the document parses; the scene's `measure` mounts it on
   // this canvas, and the `dsAnimate` tween draws it (see the emitter below).
   // `role="img"` and the caption as its label, because a canvas has no `alt`.
+  // `PIECE_ATTR` marks it 2D, so a checker without WebGL still measures it.
   if (fig.kind === "piece") {
     return {
       html:
-        `<canvas id="${sid}-pc" width="${fig.width}" height="${fig.height}" role="img" aria-label="${esc(fig.caption)}"></canvas>` +
+        `<canvas id="${sid}-pc" ${PIECE_ATTR} width="${fig.width}" height="${fig.height}" role="img" aria-label="${esc(fig.caption)}"></canvas>` +
         `<script src="assets/${esc(fig.src)}"></script>`,
       el: "canvas",
     };

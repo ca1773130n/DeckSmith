@@ -22,6 +22,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { PIECE_ATTR } from "../src/emit/animate-runtime.js";
 import { resolveChrome } from "../src/render/capture.js";
 
 const source = async () =>
@@ -72,7 +73,16 @@ describe("which Chrome the capture path opens", () => {
     // The guard, not merely the flags: flags can silently stop working, and a
     // blank frame that passes is the failure this file is named after.
     expect(s).toMatch(/cannot create a WebGL\s*` \+/);
-    expect(s).toContain('querySelector("canvas")');
+    expect(s).toContain("querySelector(`canvas:not([");
     expect(s).toContain('getContext("webgl2")');
+  });
+
+  it("exempts only a piece's canvas, and only by the attribute claim-figure writes", async () => {
+    const s = await source();
+    // The exemption is the one attribute, passed in — not a wider selector. A
+    // piece is 2D by construction; any other canvas may want WebGL. The
+    // behaviour under a GL-less browser is measured in test/animate-piece.test.ts.
+    expect(s).toContain("}, PIECE_ATTR);");
+    expect(PIECE_ATTR).toBe("data-ds-piece");
   });
 });

@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { PIECE_ATTR } from "../emit/animate-runtime.js";
 
 /**
  * The browser `render` already uses — which, until 2026-09-11, this did not find.
@@ -262,13 +263,19 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
     // renderer will never produce. Refuse instead. It is deliberately narrow: a
     // deck with no canvas is unaffected, so a machine that cannot do GL can
     // still look at every DOM deck in the repository.
-    const canvas = await page.evaluate(() => {
-      const el = document.querySelector("canvas");
+    //
+    // A PIECE'S CANVAS IS EXEMPT (`PIECE_ATTR`): it is 2D by construction and
+    // draws the same without GL. Refusing it was a false positive that `frames`
+    // reported and `verify`/`build` turned into a `not_measured` WARNING — the
+    // whole fidelity gate skipped, PASS printed (the spike's Q4). Every other
+    // canvas is still refused, because nothing says which context it wants.
+    const canvas = await page.evaluate((exempt) => {
+      const el = document.querySelector(`canvas:not([${exempt}])`);
       if (!el) return { present: false, gl: true };
       const probe = document.createElement("canvas");
       const gl = !!(probe.getContext("webgl2") ?? probe.getContext("webgl"));
       return { present: true, gl };
-    });
+    }, PIECE_ATTR);
     if (canvas.present && !canvas.gl) {
       throw new Error(
         `this deck draws on a <canvas> and ${chrome.path} cannot create a WebGL ` +
