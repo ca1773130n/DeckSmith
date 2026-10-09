@@ -434,6 +434,14 @@ export interface Scene {
    */
   parts?: Readonly<Record<string, string>>;
   /**
+   * Selectors of parts with no room to grow: `LIFT` about their centre would
+   * push their outline past the edge of the <svg> that draws them, which clips
+   * it (r1 s5, 2026-10-10: the last stage of a stair, flush with the svg's right
+   * and bottom edges, lost both borders for its pulse). The emphasis pass's
+   * `pulse` skips them; it glows or underlines them instead. In memory only.
+   */
+  noLift?: readonly string[];
+  /**
    * Tweens appended to this scene's own paused timeline, with times RELATIVE to
    * the scene's start. `Tween` is a `fromTo` by construction — `from()` records
    * its end state when the timeline is built and breaks under the arbitrary

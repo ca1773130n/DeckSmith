@@ -610,6 +610,8 @@ function emphasisTweens(
         entrance?.from.svgOrigin !== undefined ? { svgOrigin: entrance.from.svgOrigin } : {};
       const svg = !isHtml(scene.html, target);
       if (svg && origin.svgOrigin === undefined) return undefined;
+      // A part flush with its svg's edge would grow out of it and be clipped.
+      if (scene.noLift?.includes(target)) return undefined;
       if (!free(tl, target, "scale", 1, t, t1)) return undefined;
       return {
         tl: [

@@ -34,7 +34,7 @@
 import type { BeatOf } from "../../types.js";
 import { EMPTY_BELOW, fitOf, GROWTH, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { esc, spotlighter } from "../kit.js";
+import { esc, LIFT, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import {
   arrow,
@@ -1040,9 +1040,22 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   // owns `opacity` and `y`, so the breath takes `filter`.
   const focus = p.stages.reduce((acc, s, i) => (s.tone ? i : acc), last);
 
+  // The stages flush with the svg's edges: `pipeLayout` solves the boxes to fill
+  // the content width, so the first and the last (and a stair's lowest) have no
+  // room for the emphasis pass's `LIFT` — the stroke grows out of the svg.
+  const noLift = p.stages
+    .map((_, i) => ({ i, b: boxOf(i) }))
+    .filter(({ b }) => {
+      const grow = (LIFT - 1) / 2;
+      const room = Math.min(b.x, W - b.x - b.w, b.y, svgH - b.y - b.h);
+      return room < grow * Math.max(b.w, b.h) + 4;
+    })
+    .map(({ i }) => `#${id(sid, "stage", i)}`);
+
   return {
     html,
     parts,
+    ...(noLift.length ? { noLift } : {}),
     tl,
     holds: holdsWithin(holds, beat.seconds),
     // With a note, v2 hands the spare height to the gap above it (below), so the

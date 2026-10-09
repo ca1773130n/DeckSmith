@@ -534,6 +534,39 @@ describe("emphasis during the narration hold", () => {
     expect(added[0]?.at).toBeCloseTo(lastHold - 0.5 + 2.5, 3);
   });
 
+  it("never pulses a part flush with its svg's edge — its outline would be clipped (r1 s5)", () => {
+    const { sid, scene } = demoScenes().find((x) => x.scene.html.includes("-pulse0")) as {
+      sid: string;
+      scene: Scene;
+    };
+    const stages = [...scene.html.matchAll(/id="(s\d+-stage\d+)"/g)].map((m) => `#${m[1]}`);
+    // The first and the last stage fill the content width to its edges.
+    expect(scene.noLift).toEqual(expect.arrayContaining([stages[0], stages[stages.length - 1]]));
+    const run = (sc: Scene) => {
+      const lastHold = Math.max(...sc.holds);
+      const out = emphasize(sc, sid, {
+        segments: sc.holds.map((_, stop) => ({
+          stop,
+          seconds: 6,
+          cues: [{ start: 0 }, { start: 2.5 }],
+        })),
+        starts: sc.holds.map((h) => h - 0.5),
+        end: lastHold + 8,
+        kinds: ["pulse"],
+        accent: ink.accent,
+      }).scene;
+      return out.tl
+        .slice(sc.tl.length)
+        .filter((t) => "scale" in t.to)
+        .map((t) => t.target);
+    };
+    const pulsed = run(scene);
+    for (const t of scene.noLift ?? []) expect(pulsed).not.toContain(t);
+    // Without the list the same scene pulses an edge stage: the test can fail.
+    const unguarded = run({ ...scene, noLift: [] });
+    expect(unguarded.some((t) => (scene.noLift ?? []).includes(t))).toBe(true);
+  });
+
   it("is back at rest on every hold, so no gate frame changes", () => {
     for (const [sid, list] of sceneTweens(v2.composition)) {
       const slide = holdsOf(v2.page as string).slides.find((s) => s.sceneId === sid);
