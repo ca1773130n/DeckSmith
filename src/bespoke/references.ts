@@ -13,8 +13,10 @@
  * motion-design habits round 1 lacked:
  *
  *  - THE STAGE IS FILLED: every reference spans >= 85% of its box at the end.
- *  - HIERARCHY: one 88-120px focal element per cue; labels 48-60px; nothing
- *    under 44px.
+ *  - QUIET TYPE (the v2 scale, `V2_TYPE`, since 2026-10-10): one focal
+ *    label or number per cue at 56px at most; labels 40-44px; nothing under
+ *    40px. They were 88-120px focal and 48-60px labels, and the founder's
+ *    verdict on that was "the fonts are too large".
  *  - ONE FOCUS PER CUE: what the voice is naming is lit (accent, full opacity);
  *    what it is not is dimmed to ~0.3 — never removed, so the viewer keeps place.
  *  - IDENTITY IS KEPT: a thing that changes state moves or morphs into the new
@@ -70,7 +72,7 @@ const route: Reference = {
   fragment: {
     markup: `<svg id="SCENEID-svg" width="1700" height="732" viewBox="0 0 1700 732" style="position:absolute;left:0;top:0;overflow:visible">
   <g id="SCENEID-tokens" data-cue="1">
-    <text id="SCENEID-tokens-label" x="130" y="34" font-size="52" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">Tokens</text>
+    <text id="SCENEID-tokens-label" x="130" y="34" font-size="44" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">Tokens</text>
 ${TOKEN_Y.map((y, i) => `    <circle id="SCENEID-tok${i}" cx="130" cy="${y}" r="40" fill="{{${"abcda"[i]}}}"/>`).join("\n")}
   </g>
   <g id="SCENEID-stream" data-cue="1">
@@ -85,18 +87,18 @@ ${[0, 1, 2, 3, 4, 5].map((i) => `    <circle id="SCENEID-p${i}" cx="890" cy="370
   <g id="SCENEID-router" data-cue="1">
     <circle id="SCENEID-disc-fill" cx="700" cy="370" r="190" fill="{{bg}}"/>
     <circle id="SCENEID-disc" cx="700" cy="370" r="190" fill="{{accent}}" fill-opacity="0.22" stroke="{{accent}}" stroke-width="7"/>
-    <text id="SCENEID-router-label" x="700" y="370" font-size="80" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">Router</text>
+    <text id="SCENEID-router-label" x="700" y="370" font-size="56" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">Router</text>
   </g>
 ${EXPERT_Y.map(
   (y, i) => `  <g id="SCENEID-expert${i}" data-cue="2">
     <rect id="SCENEID-box${i}" x="1180" y="${y}" width="480" height="144" rx="22" fill="{{${"abcd"[i]}}}" fill-opacity="0.16" stroke="{{rule}}" stroke-width="5"/>
-    <text id="SCENEID-name${i}" x="1224" y="${y + 56}" font-size="60" font-weight="600" fill="{{fg}}" dominant-baseline="middle">Expert ${i + 1}</text>
+    <text id="SCENEID-name${i}" x="1224" y="${y + 56}" font-size="44" font-weight="600" fill="{{fg}}" dominant-baseline="middle">Expert ${i + 1}</text>
     <rect id="SCENEID-bar${i}" x="1224" y="${y + 100}" width="${Math.round(380 * (SCORES[i] as number))}" height="22" rx="11" fill="{{${"abcd"[i]}}}"/>
   </g>`,
 ).join("\n")}
   <g id="SCENEID-saving" data-cue="4">
-    <text id="SCENEID-count" x="770" y="660" font-size="120" font-weight="800" fill="{{accent}}" text-anchor="end" dominant-baseline="middle">100</text>
-    <text id="SCENEID-count-unit" x="786" y="668" font-size="60" fill="{{fg}}" dominant-baseline="middle">% compute</text>
+    <text id="SCENEID-count" x="770" y="660" font-size="56" font-weight="800" fill="{{accent}}" text-anchor="end" dominant-baseline="middle">100</text>
+    <text id="SCENEID-count-unit" x="786" y="668" font-size="44" fill="{{fg}}" dominant-baseline="middle">% compute</text>
   </g>
 </svg>`,
     css: "",
@@ -194,12 +196,12 @@ ${SLABS.map(
 ).join("\n")}
   </g>
   <g id="SCENEID-count" data-cue="1">
-    <text id="SCENEID-times" x="850" y="60" font-size="96" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">× 12</text>
-    <text id="SCENEID-in" x="122" y="664" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">input</text>
-    <text id="SCENEID-out" x="1574" y="664" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">output</text>
+    <text id="SCENEID-times" x="850" y="36" font-size="56" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">× 12</text>
+    <text id="SCENEID-in" x="122" y="700" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">input</text>
+    <text id="SCENEID-out" x="1574" y="700" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">output</text>
   </g>
   <g id="SCENEID-inside" data-cue="2" transform="${INSIDE}">
-    <text id="SCENEID-att" x="295" y="40" font-size="64" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">Attention</text>
+    <text id="SCENEID-att" x="295" y="40" font-size="44" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">Attention</text>
 ${[0, 1, 2, 3, 4].map((i) => `    <circle id="SCENEID-q${i}" cx="${55 + i * 120}" cy="150" r="34" fill="{{${"abcda"[i]}}}"/>`).join("\n")}
 ${[0, 1, 2, 3, 4].map((i) => `    <circle id="SCENEID-k${i}" cx="${55 + i * 120}" cy="400" r="34" fill="{{${"abcda"[i]}}}"/>`).join("\n")}
   </g>
@@ -298,8 +300,8 @@ const growth: Reference = {
   </defs>
   <g id="SCENEID-axes" data-cue="1">
     <path id="SCENEID-axis" d="M220 40 L220 600 L1640 600" fill="none" stroke="{{muted}}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-    <text id="SCENEID-xlab" x="930" y="668" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">training data</text>
-    <text id="SCENEID-ylab" x="110" y="320" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 110 320)">accuracy</text>
+    <text id="SCENEID-xlab" x="930" y="668" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">training data</text>
+    <text id="SCENEID-ylab" x="110" y="320" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 110 320)">accuracy</text>
   </g>
   <g id="SCENEID-gain-area" data-cue="3">
     <path id="SCENEID-ours-area" d="M220 600" fill="{{accent}}" fill-opacity="0.18"/>
@@ -309,13 +311,13 @@ const growth: Reference = {
     <circle id="SCENEID-base-dot" cx="220" cy="600" r="16" fill="{{b}}"/>
   </g>
   <g id="SCENEID-readout" data-cue="1">
-    <text id="SCENEID-read" x="1560" y="420" font-size="96" font-weight="700" fill="{{b}}" text-anchor="end" dominant-baseline="middle">0</text>
-    <text id="SCENEID-read-unit" x="1568" y="428" font-size="52" fill="{{b}}" dominant-baseline="middle">%</text>
+    <text id="SCENEID-read" x="1560" y="420" font-size="56" font-weight="700" fill="{{b}}" text-anchor="end" dominant-baseline="middle">0</text>
+    <text id="SCENEID-read-unit" x="1568" y="428" font-size="44" fill="{{b}}" dominant-baseline="middle">%</text>
   </g>
   <g id="SCENEID-plateau" data-cue="2">
     <rect id="SCENEID-ceiling" x="222" y="40" width="1418" height="254" fill="{{b}}" fill-opacity="0.16"/>
     <line id="SCENEID-plateau-line" x1="220" y1="296" x2="1640" y2="296" stroke="{{b}}" stroke-width="4" stroke-dasharray="14 14"/>
-    <text id="SCENEID-plateau-label" x="430" y="252" font-size="52" fill="{{b}}" text-anchor="middle" dominant-baseline="middle">plateau</text>
+    <text id="SCENEID-plateau-label" x="430" y="252" font-size="44" fill="{{b}}" text-anchor="middle" dominant-baseline="middle">plateau</text>
   </g>
   <g id="SCENEID-ours" data-cue="3">
     <path id="SCENEID-gap" d="M1380 307 L1640 301 L1640 158 L1380 167 Z" fill="{{accent}}" fill-opacity="0.22"/>
@@ -323,7 +325,7 @@ const growth: Reference = {
     <circle id="SCENEID-ours-dot" cx="220" cy="600" r="18" fill="{{accent}}"/>
   </g>
   <g id="SCENEID-gain" data-cue="4">
-    <text id="SCENEID-gain-n" x="470" y="124" font-size="120" font-weight="800" fill="{{bg}}" text-anchor="middle" dominant-baseline="middle">+12</text>
+    <text id="SCENEID-gain-n" x="470" y="124" font-size="56" font-weight="800" fill="{{bg}}" text-anchor="middle" dominant-baseline="middle">+12</text>
   </g>
 </svg>`,
     css: "",
@@ -437,11 +439,11 @@ const gather: Reference = {
     markup: `<svg id="SCENEID-svg" width="1700" height="732" viewBox="0 0 1700 732" style="position:absolute;left:0;top:0;overflow:visible">
   <g id="SCENEID-scale" data-cue="1">
     <line id="SCENEID-axis" x1="120" y1="652" x2="1580" y2="652" stroke="{{muted}}" stroke-width="5" stroke-linecap="round"/>
-    <text id="SCENEID-lo" x="120" y="702" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">−3σ</text>
-    <text id="SCENEID-mid" x="850" y="702" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">0</text>
-    <text id="SCENEID-hi" x="1580" y="702" font-size="48" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">+3σ</text>
-    <text id="SCENEID-sigma" x="850" y="60" font-size="96" font-weight="700" fill="{{fg}}" text-anchor="end" dominant-baseline="middle">σ =</text>
-    <text id="SCENEID-sigma-n" x="880" y="60" font-size="96" font-weight="700" fill="{{fg}}" dominant-baseline="middle">3.2</text>
+    <text id="SCENEID-lo" x="120" y="702" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">−3σ</text>
+    <text id="SCENEID-mid" x="850" y="702" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">0</text>
+    <text id="SCENEID-hi" x="1580" y="702" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">+3σ</text>
+    <text id="SCENEID-sigma" x="850" y="60" font-size="56" font-weight="700" fill="{{fg}}" text-anchor="end" dominant-baseline="middle">σ =</text>
+    <text id="SCENEID-sigma-n" x="880" y="60" font-size="56" font-weight="700" fill="{{fg}}" dominant-baseline="middle">3.2</text>
   </g>
   <g id="SCENEID-band" data-cue="4">
     <rect id="SCENEID-band-fill" x="700" y="130" width="300" height="500" rx="16" fill="{{accent}}" fill-opacity="0.16"/>
@@ -451,13 +453,13 @@ ${SPREAD.map((p, i) => `    <circle id="SCENEID-d${i}" cx="${p.x}" cy="${p.y}" r
   </g>
   <g id="SCENEID-outliers" data-cue="2">
 ${OUTLIERS.map((i, k) => `    <circle id="SCENEID-ring${k}" cx="${SPREAD[i]?.x}" cy="${SPREAD[i]?.y}" r="54" fill="none" stroke="{{d}}" stroke-width="6"/>`).join("\n")}
-    <text id="SCENEID-outlier-label" x="1600" y="60" font-size="52" fill="{{d}}" text-anchor="end" dominant-baseline="middle">outliers</text>
+    <text id="SCENEID-outlier-label" x="1600" y="60" font-size="44" fill="{{d}}" text-anchor="end" dominant-baseline="middle">outliers</text>
   </g>
   <g id="SCENEID-norm" data-cue="3">
-    <text id="SCENEID-norm-label" x="200" y="60" font-size="52" fill="{{accent}}" dominant-baseline="middle">normalized</text>
+    <text id="SCENEID-norm-label" x="200" y="60" font-size="44" fill="{{accent}}" dominant-baseline="middle">normalized</text>
   </g>
   <g id="SCENEID-band-tag" data-cue="4">
-    <text id="SCENEID-band-label" x="850" y="176" font-size="64" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">±1σ</text>
+    <text id="SCENEID-band-label" x="850" y="176" font-size="44" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">±1σ</text>
   </g>
 </svg>`,
     css: "",
@@ -578,8 +580,8 @@ const illustrated: Reference = {
   </g>
   <g id="SCENEID-sum" data-cue="4">
     <rect id="SCENEID-sum-plate" x="560" y="596" width="560" height="132" rx="30" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
-    <text id="SCENEID-n" x="630" y="662" font-size="88" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
-    <text id="SCENEID-sum-label" x="690" y="662" font-size="52" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
+    <text id="SCENEID-n" x="630" y="662" font-size="56" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
+    <text id="SCENEID-sum-label" x="690" y="662" font-size="44" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
   </g>
 </svg>`,
     css: "",

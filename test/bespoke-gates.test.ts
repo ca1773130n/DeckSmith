@@ -102,7 +102,7 @@ describe("the graders", () => {
       small: [],
       off: [],
       fill: 0.6,
-      maxType: 56,
+      maxType: 40,
       groups: [] as number[],
       cueStarts: [1, 4],
     };
@@ -118,7 +118,7 @@ describe("the graders", () => {
     ).toEqual([]);
     // A group naming a cue the scene does not have.
     expect(
-      gradeLayout([{ ...row, key: "end", fill: 0.9, maxType: 80, groups: [1, 3] }]).map(
+      gradeLayout([{ ...row, key: "end", fill: 0.9, maxType: 56, groups: [1, 3] }]).map(
         (f) => f.rule,
       ),
     ).toEqual(["cue_groups"]);
@@ -295,12 +295,12 @@ function narrate(): DeckNarration {
 /**
  * Fixtures sized to the beat's own body box (`bespokeRegion`), because the
  * stage-fill gate measures against it. Corner marks span the box, the label is
- * the scene's one 72px focal element, and every part sits in a cue group.
+ * the scene's one 56px focal element, and every part sits in a cue group.
  */
 type Box = { width: number; height: number };
 const SVG = (b: Box, inner: string, style = "") =>
   `<svg id="SCENEID-svg" width="${b.width}" height="${b.height}" viewBox="0 0 ${b.width} ${b.height}" style="position:absolute;left:0;top:0${style}">${inner}</svg>`;
-const LABEL = (b: Box, size = 72) =>
+const LABEL = (b: Box, size = 56) =>
   `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="${size}" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g>`;
 const CORNERS = (b: Box) =>
   `<g id="SCENEID-c" data-cue="1">${[
@@ -354,7 +354,7 @@ tl.fromTo("#SCENEID-lab", { opacity: 0.2 }, { opacity: 1, duration: 0.5 }, 6);`,
 const SMALL = (b: Box): Fragment => ({
   markup: SVG(
     b,
-    `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="300" y="80" font-size="48" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder</text></g><g id="SCENEID-m" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="200" r="24" fill="#f7c948"/></g>`,
+    `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="300" y="80" font-size="40" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder</text></g><g id="SCENEID-m" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="200" r="24" fill="#f7c948"/></g>`,
   ),
   css: "",
   script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
@@ -385,7 +385,7 @@ const EARLY = (b: Box): Fragment => ({
 const CLIPPED = (b: Box): Fragment => ({
   markup: SVG(
     b,
-    `${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-cl" data-cue="1"><text id="SCENEID-cut" x="${b.width - 160}" y="190" font-size="60" fill="#e7f1fb">Cut in two</text></g>`,
+    `${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-cl" data-cue="1"><text id="SCENEID-cut" x="${b.width - 160}" y="190" font-size="56" fill="#e7f1fb">Cut in two</text></g>`,
   ),
   css: "",
   script: MOVE(b),
@@ -832,13 +832,13 @@ describe("the staging graders (round 4)", () => {
     ]);
   });
 
-  it("type_hierarchy: an illustrated scene reads its picture first, so its 56px names pass; a diagram still needs 64px", () => {
+  it("type_hierarchy: an illustrated scene reads its picture first, so its 40px names pass; a diagram still needs 44px", () => {
     const end = (subjects: number) =>
       gradeLayout([
         row("end", 16, {
           subjects,
           fill: 0.95,
-          maxType: 56,
+          maxType: 40,
           groups: [1, 2],
           cueStarts: [1, 5],
           anchors: [
@@ -849,6 +849,28 @@ describe("the staging graders (round 4)", () => {
       ]).map((f) => f.rule);
     expect(end(3)).toEqual([]);
     expect(end(0)).toEqual(["type_hierarchy"]);
+  });
+
+  it("type_ceiling: no scene declares type over 56px, picture or not (founder, 2026-10-10)", () => {
+    const end = (subjects: number, maxDeclared: number) =>
+      gradeLayout([
+        row("end", 16, {
+          subjects,
+          fill: 0.95,
+          maxType: 80,
+          maxDeclared,
+          groups: [1, 2],
+          cueStarts: [1, 5],
+          anchors: [
+            { id: "a", k: 1, d: 0, o: 0 },
+            { id: "b", k: 2, d: 0, o: 0 },
+          ],
+        }),
+      ]).map((f) => f.rule);
+    // A 44px label a push-in draws at 80px is the camera, not the type.
+    expect(end(0, 56)).toEqual([]);
+    expect(end(0, 88)).toEqual(["type_ceiling"]);
+    expect(end(3, 64)).toEqual(["type_ceiling"]);
   });
 
   it("data_over_picture: a table's worth of numbers on the illustration fails, a counter does not", () => {

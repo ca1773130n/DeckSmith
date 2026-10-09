@@ -1089,7 +1089,14 @@ describe("the deck-order device pass", () => {
 
 describe("the rubric probe", () => {
   const kinds = ["flow", "counter", "focus"];
-  const ok = { fill: 0.9, cells: 0.8, maxType: 96, kinds, cueChange: [0.02, 0.03] };
+  const ok = {
+    fill: 0.9,
+    cells: 0.8,
+    maxType: 56,
+    maxDeclared: 56,
+    kinds,
+    cueChange: [0.02, 0.03],
+  };
   it("is clean only when every measurable criterion is", () => {
     expect(rubricProbe(ok)).toEqual([]);
     expect(rubricProbe(undefined)).toEqual(["nothing was measured"]);
@@ -1098,7 +1105,10 @@ describe("the rubric probe", () => {
     expect(rubricProbe({ ...ok, mass: 0.08 })).toHaveLength(1);
     expect(rubricProbe({ ...ok, dimmed: 0.3 })).toEqual([]);
     expect(rubricProbe({ ...ok, dimmed: 0.7 })).toHaveLength(1);
-    expect(rubricProbe({ ...ok, maxType: 70 })).toHaveLength(1);
+    // Quiet type (founder, 2026-10-10): one label reaches 44px, none passes 56.
+    expect(rubricProbe({ ...ok, maxType: 40 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, maxType: 70, maxDeclared: 44 })).toEqual([]);
+    expect(rubricProbe({ ...ok, maxDeclared: 88 })).toHaveLength(1);
     expect(rubricProbe({ ...ok, kinds: ["draw", "focus", "stagger"] })).toHaveLength(1);
     expect(rubricProbe({ ...ok, kinds: ["flow"] })).toHaveLength(1);
     expect(rubricProbe({ ...ok, cueChange: [0.02, 0.001] })).toHaveLength(1);

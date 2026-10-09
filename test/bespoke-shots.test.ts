@@ -234,7 +234,7 @@ describe("the shell's labels, on their subjects", () => {
   it("sets a label on one line, shrinks it, breaks it onto two, or refuses it", () => {
     const [z] = calloutZones([{ x: 600, y: 300, w: 400, h: 300 }], W);
     const zone = z as NonNullable<typeof z>;
-    expect(fitLabel("cup", { ...zone, w: 400 }, ink)).toEqual({ fs: 56, lines: ["cup"] });
+    expect(fitLabel("cup", { ...zone, w: 400 }, ink)).toEqual({ fs: 44, lines: ["cup"] });
     const two = fitLabel("image-based reasoning", { ...zone, w: 400 }, ink, H);
     expect(two?.lines).toEqual(["image-based", "reasoning"]);
     expect(
@@ -287,12 +287,13 @@ describe("the shell's labels, on their subjects", () => {
       `{ opacity: 1, duration: 0.3, ease: "power1.inOut", immediateRender: false }, ${Math.round((reveal.t + reveal.dur - 0.3) * 100) / 100});`,
     );
     // Built so that it is cut: a plate straddling the left edge of the second shot.
-    const plate = { x: Math.round(view.x0 - 60), y: 40, w: 200, h: 70 };
+    // At label 1's own height, so the first shot (on subject 1) shows it whole.
+    const plate = { x: Math.round(view.x0 - 60), y: z1.y, w: 200, h: 70 };
     const fx = labelFades(
       {
         plate,
-        lead: { x1: plate.x + 100, y1: 110, x2: plate.x + 100, y2: 140 },
-        dot: { x: plate.x + 100, y: 150 },
+        lead: { x1: plate.x + 100, y1: z1.y + 70, x2: plate.x + 100, y2: z1.y + 100 },
+        dot: { x: plate.x + 100, y: z1.y + 110 },
       },
       moves,
       5.66,

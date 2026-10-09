@@ -211,6 +211,7 @@ export function browserGate(deck: ProbeDeck): GateFn {
           ...(end?.fill !== undefined ? { fill: end.fill } : {}),
           ...(end?.cells !== undefined ? { cells: end.cells } : {}),
           ...(end?.maxType !== undefined ? { maxType: end.maxType } : {}),
+          ...(end?.maxDeclared !== undefined ? { maxDeclared: end.maxDeclared } : {}),
           ...(end?.mass !== undefined ? { mass: end.mass } : {}),
           ...(end?.dimmed !== undefined ? { dimmed: end.dimmed } : {}),
           cueChange,

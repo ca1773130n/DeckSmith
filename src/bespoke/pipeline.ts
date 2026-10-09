@@ -52,6 +52,7 @@ import {
   GATES_VERSION,
   KEY_TYPE_PX,
   type Layout,
+  MAX_TYPE_PX,
   type SceneWindow,
   STAGE_FILL,
   sceneWindows,
@@ -378,8 +379,6 @@ async function pool<T>(
 
 /** Below this share of the frame, a cue "barely moves" by the rubric's measure (static_hold's floor is 0.015%). */
 export const RUBRIC_CUE_CHANGE = 0.005;
-/** The focal size the prompt asks for; the gate's floor is `KEY_TYPE_PX`. */
-export const RUBRIC_FOCAL_PX = 88;
 /**
  * The share of its box a settled drawing should paint. MEASURED 2026-10-08:
  * round 1's sixteen scenes painted 3.9-15.6% (median ~9%) — thin outlines and
@@ -418,13 +417,12 @@ export function rubricProbe(
     out.push(`the end frame is mostly dimmed (${Math.round(100 * m.dimmed)}% of its parts)`);
   if (m.cells !== undefined && m.cells < 0.6)
     out.push(`something is drawn in only ${Math.round(100 * m.cells)}% of the 6x4 grid`);
-  // An illustrated scene's focus is its picture and the subject the camera is
-  // on; its names are the shell's 56px labels. The 88px focal word is a
-  // diagram's habit, and asking for one sent clean illustrated drafts to a
-  // critique call (MEASURED 2026-10-09: 2 of 4 passing drafts, ~100s each).
-  // The gate's own floor (`type_hierarchy`, 64px) still holds.
-  if (!art && (m.maxType ?? 0) < Math.max(KEY_TYPE_PX, RUBRIC_FOCAL_PX))
-    out.push(`no focal label reaches ${RUBRIC_FOCAL_PX}px`);
+  // The type is quiet (`V2_TYPE`): one label reaches the body size, none passes
+  // the headline's. The 88px focal word this asked for until 2026-10-10 is what
+  // the founder called "too large".
+  if (!art && (m.maxType ?? 0) < KEY_TYPE_PX) out.push(`no label reaches ${KEY_TYPE_PX}px`);
+  if ((m.maxDeclared ?? 0) > MAX_TYPE_PX + 0.5)
+    out.push(`a label is ${Math.round(m.maxDeclared ?? 0)}px — nothing over ${MAX_TYPE_PX}px`);
   const kinds = m.kinds ?? [];
   if (kinds.length < 3) out.push(`only ${kinds.length} kind(s) of motion`);
   // An illustrated scene's camera is the shell's (its shots), so it is not in the script's kinds.

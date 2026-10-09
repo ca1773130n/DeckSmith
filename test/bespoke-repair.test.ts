@@ -355,7 +355,7 @@ type Box = { width: number; height: number };
 const SVG = (b: Box, inner: string) =>
   `<svg id="SCENEID-svg" width="${b.width}" height="${b.height}" viewBox="0 0 ${b.width} ${b.height}" style="position:absolute;left:0;top:0">${inner}</svg>`;
 const BASE = (b: Box) =>
-  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="72" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g><g id="SCENEID-c" data-cue="1">${[
+  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="56" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g><g id="SCENEID-c" data-cue="1">${[
     [30, 30],
     [b.width - 30, 30],
     [30, b.height - 30],
@@ -372,7 +372,7 @@ tl.to("#SCENEID-dot", { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, 
 const COLLIDE = (b: Box): Fragment => ({
   markup: SVG(
     b,
-    `${BASE(b)}<g id="SCENEID-n" data-cue="1"><text id="SCENEID-note" x="${b.width / 2 + 160}" y="${b.height / 2 + 30}" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#f7c948">decoder</text></g><g id="SCENEID-w" data-cue="1"><line id="SCENEID-wire" x1="140" y1="${b.height / 2}" x2="${b.width / 2 - 360}" y2="${b.height / 2}" stroke="#4cc9f0" stroke-width="6"/><line id="SCENEID-wire2" x1="${b.width / 2 - 200}" y1="${b.height / 2 - 4}" x2="${b.width / 2 + 40}" y2="${b.height / 2 - 4}" stroke="#4cc9f0" stroke-width="6"/></g>`,
+    `${BASE(b)}<g id="SCENEID-n" data-cue="1"><text id="SCENEID-note" x="${b.width / 2 + 160}" y="${b.height / 2 + 30}" font-size="44" text-anchor="middle" dominant-baseline="middle" fill="#f7c948">decoder</text></g><g id="SCENEID-w" data-cue="1"><line id="SCENEID-wire" x1="140" y1="${b.height / 2}" x2="${b.width / 2 - 360}" y2="${b.height / 2}" stroke="#4cc9f0" stroke-width="6"/><line id="SCENEID-wire2" x1="${b.width / 2 - 200}" y1="${b.height / 2 - 4}" x2="${b.width / 2 + 40}" y2="${b.height / 2 - 4}" stroke="#4cc9f0" stroke-width="6"/></g>`,
   ),
   css: "",
   script: MOVE(b),

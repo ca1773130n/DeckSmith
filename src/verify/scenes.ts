@@ -16,7 +16,8 @@
  *     DrawSVG is checked only where it is visible at that instant.
  *     Round 2 adds what round 1's frames showed a person and no gate: the
  *     settled drawing must span `STAGE_FILL` of its box (`stage_fill`) and carry
- *     one label of `KEY_TYPE_PX` or more (`type_hierarchy`); an arrowhead must
+ *     one label of `KEY_TYPE_PX` or more (`type_hierarchy`), none over
+ *     `MAX_TYPE_PX` (`type_ceiling`, 2026-10-10); an arrowhead must
  *     not show where its line is not drawn (`stray_marker`); and a group the
  *     scene tags `data-cue="N"` must not show before cue N starts
  *     (`early_reveal`, with `cue_groups` failing a scene that tags nothing).
@@ -34,6 +35,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { V2_TYPE } from "../emit/type.js";
 import type { DeckPage } from "../render/capture.js";
 import type { Timing } from "../render/timing.js";
 import type { Finding } from "../types.js";
@@ -52,7 +54,7 @@ export const PIXEL_DELTA = 24;
  */
 export const SEEK_TOLERANCE_PX = 1500;
 /** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
-export const GATES_VERSION = "gates-6";
+export const GATES_VERSION = "gates-7";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
@@ -113,8 +115,17 @@ export function gradeStillCues(rows: readonly CueChange[], min = MIN_CHANGE): Fi
  * bottom band empty, at a size the founder called small.
  */
 export const STAGE_FILL = 0.8;
-/** The settled frame's largest label, px at 1080p: one thing on the stage is read first. */
-export const KEY_TYPE_PX = 64;
+/**
+ * The settled frame's largest label, px at 1080p: one label reaches the body
+ * size (`V2_TYPE`), so something is read first…
+ */
+export const KEY_TYPE_PX = V2_TYPE.body;
+/**
+ * …and nothing passes the headline's size. The founder's verdict on the 88-120px
+ * focal numbers this gate used to ASK for was "the fonts are too large"
+ * (2026-10-10): the picture is the focus, the subtitles carry the words.
+ */
+export const MAX_TYPE_PX = V2_TYPE.headline;
 /** A cue group may appear this long before its cue starts (the prompt's own sync window). */
 export const EARLY_SLACK = 0.5;
 /**
@@ -172,8 +183,15 @@ export interface Layout {
   fill?: number;
   /** Share of a 6x4 grid over the body box that something is drawn in. Reported, not graded. */
   cells?: number;
-  /** The largest visible label in the body box, px. */
+  /** The largest visible label in the body box, px as drawn (a camera push-in scales it). */
   maxType?: number;
+  /**
+   * The largest font-size a visible label in the body box DECLARES, KaTeX
+   * excluded (it sets itself at 1.21em of its box): what `type_ceiling` holds
+   * to `MAX_TYPE_PX`. Not `maxType`, which a camera push-in or a viewBox zoom
+   * grows past the size the scene asked for.
+   */
+  maxDeclared?: number;
   /** Share of the body box the settled drawing paints (`paintedShare`). Reported; the rubric probe reads it. */
   mass?: number;
   /** Share of the drawn labels and shapes in the body box at under 0.6 opacity. */
@@ -531,13 +549,21 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         `the drawing spans under ${100 * STAGE_FILL}% of its box —`,
       );
     // An illustrated scene reads its picture first; its names are the shell's
-    // 44-56px labels on the subjects (round 4), so it is not held to a 64px word.
+    // 40-44px labels on the subjects, so it is not held to a key word.
     if ((r.maxType ?? 0) < KEY_TYPE_PX && !(r.subjects ?? 0))
       add(
         "type_hierarchy",
         r,
         [`the largest is ${(r.maxType ?? 0).toFixed(0)}px`],
         `no label reaches ${KEY_TYPE_PX}px, so nothing reads first —`,
+      );
+    // Every scene, illustrated or not; a 0.5px allowance for a size that rounds.
+    if ((r.maxDeclared ?? 0) > MAX_TYPE_PX + 0.5)
+      add(
+        "type_ceiling",
+        r,
+        [`the largest is ${(r.maxDeclared ?? 0).toFixed(0)}px`],
+        `type over ${MAX_TYPE_PX}px — the picture is the focus, keep labels ${V2_TYPE.floor}-${V2_TYPE.body}px —`,
       );
     const groups = r.groups ?? [];
     if (groups.length === 0)
@@ -1168,11 +1194,12 @@ const MEASURE = `(sid, wantGeo) => {
       const o = alpha(el);
       if (r.width > 0 && r.height > 0 && o > 0.15) {
         let fs = parseFloat(getComputedStyle(el).fontSize) || 0;
+        const decl = katex ? 0 : fs;
         if (el instanceof SVGGraphicsElement && el.getScreenCTM) {
           const m = el.getScreenCTM();
           if (m) fs *= Math.hypot(m.a, m.b);
         }
-        texts.push({ el, id: name(el), x: r.x, y: r.y, w: r.width, h: r.height, fs, o });
+        texts.push({ el, id: name(el), x: r.x, y: r.y, w: r.width, h: r.height, fs, decl, o });
       }
       if (tag === "text" || katex) return;
     }
@@ -1287,7 +1314,7 @@ const MEASURE = `(sid, wantGeo) => {
   // The body box a bespoke scene draws in. Absent on an archetype's scene, and
   // then there is no stage to fill and no cue group to reveal.
   const box = document.getElementById(sid + "-g");
-  let fill, maxType, cells, groups, revealed, dimmed, faint;
+  let fill, maxType, maxDeclared, cells, groups, revealed, dimmed, faint;
   if (box) {
     const b = box.getBoundingClientRect();
     const mine = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, x: t.x, y: t.y, w: t.w, h: t.h }))
@@ -1316,6 +1343,7 @@ const MEASURE = `(sid, wantGeo) => {
       cells = n / 24;
     } else fill = 0;
     maxType = texts.filter((t) => box.contains(t.el)).reduce((a, t) => Math.max(a, t.fs), 0);
+    maxDeclared = texts.filter((t) => box.contains(t.el)).reduce((a, t) => Math.max(a, t.decl), 0);
     // dim_text: each visible word against what is painted behind it — the page's
     // own ground, then every filled shape before it in paint order that covers
     // its centre. A gradient, pattern or picture behind it cannot be read: skipped.
@@ -1512,7 +1540,7 @@ const MEASURE = `(sid, wantGeo) => {
       });
     geo = { w: Math.round(ob.width), h: Math.round(ob.height), labels, boxes, points, parts };
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint };
+  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, maxDeclared, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint };
 }`;
 
 /**
