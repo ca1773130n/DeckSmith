@@ -76,11 +76,16 @@ export function scenesRequired(beats: number, images: Prefs["images"]): number {
 }
 
 /**
- * Whether a picture owns or backs this beat: a stage, a figure beat, a
- * split-compare side with a picture, or a diagram over a `backdrop`. A brief
- * counts as a figure does — it is a picture by the time anyone sees the deck.
- * A hero number and a kinetic claim are scenes with or without one: with none
- * they fill the frame with a field of colour, never the pale ground.
+ * Whether a picture owns or backs this beat: a stage, a split-compare side
+ * with a picture, or a diagram over a `backdrop`. A brief counts as a figure
+ * does — it is a picture by the time anyone sees the deck. A hero number and a
+ * kinetic claim are scenes with or without one: with none they fill the frame
+ * with a field of colour, never the pale ground.
+ *
+ * NOT a claim-figure or an annotated-figure: both draw their figure as a card
+ * on the pack's pale ground (neither goes through `overBackdrop` or
+ * `overField`), so counting them let a plan meet `SCENE_SHARE` with exactly
+ * the cards-on-paper the share exists to refuse.
  */
 export function isScene(beat: Beat): boolean {
   const p = beat.params as Record<string, unknown>;
@@ -90,8 +95,6 @@ export function isScene(beat: Beat): boolean {
   };
   switch (beat.archetype) {
     case "stage":
-    case "claim-figure":
-    case "annotated-figure":
     case "hero-number":
     case "kinetic":
       return true;

@@ -123,6 +123,27 @@ describe("varietyFindings", () => {
     expect(isScene(claim as never)).toBe(true);
   });
 
+  it("does not count a figure card on the pale ground as a scene", () => {
+    // claim-figure and annotated-figure never go through overBackdrop or
+    // overField: counted as scenes, a plan met the share with cards on paper.
+    const [claim, annotated] = deck("claim-figure", "annotated-figure").beats;
+    expect(isScene(claim as never)).toBe(false);
+    expect(isScene(annotated as never)).toBe(false);
+    const figures = [
+      "title",
+      "stage@bottom-left",
+      "claim-figure",
+      "annotated-figure",
+      "stage@right",
+      "claim-figure",
+      "annotated-figure",
+      "stage@center",
+    ];
+    expect(varietyFindings(deck(...figures), on)).toEqual([
+      expect.stringMatching(/8 beats carry 3 scene\(s\); at least 5 must be scenes/),
+    ]);
+  });
+
   it("caps the panels in a picture deck, backdrop or not, and names them", () => {
     // Round 1 of the 2026-10-09 ko e2e: ten of fourteen beats were scenes and
     // nine were still panels — pipelines, comparisons and callouts over pictures.

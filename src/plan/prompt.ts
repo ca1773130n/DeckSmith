@@ -750,8 +750,9 @@ and its words, and the slide becomes a scene instead of cards on a plain
 ground. A hero-number or kinetic beat WITHOUT a backdrop is still a scene: it
 fills the frame with a deep field of the deck's colour, and spends no picture.
 Use them: a deck of ${STAGE_MIN_BEATS} beats or more has at least ${Math.round(SCENE_SHARE * 100)}% of its beats as
-scenes (a stage, a figure, a picture on a split-compare side, a backdrop, a
-hero-number or a kinetic claim; a
+scenes (a stage, a picture on a split-compare side, a backdrop, a hero-number
+or a kinetic claim — NOT a claim-figure or annotated-figure, which sit on the
+plain ground; a
 ${2 * STAGE_EVERY + 6}-beat deck, ${scenesRequired(2 * STAGE_EVERY + 6, images)}), within the picture cap.
 
   - The brief is the WORLD the beat's point happens in, specific to that point:

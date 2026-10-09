@@ -1064,7 +1064,9 @@ frame and drifts slowly, a uniform black scrim (0.62) darkens it, and the archet
 drawn unchanged in a glass palette: dark translucent panels, light ink, tones lifted just
 far enough to clear 4.5:1 over a pure-white pixel. Geometry and holds are the
 archetype's own, so a backdrop changes colours and nothing else. With `--images` the
-planner is held to making most of a deck scenes (60% of beats, within `images.max`), so
+planner is held to making most of a deck scenes (60% of beats, within `images.max`) — a
+stage, a backdrop, a pictured split-compare side, a hero-number or a kinetic claim; a
+`claim-figure` or `annotated-figure` sits on the pale ground and does not count — so
 a figure-less paper reads as a sequence of pictures rather than cards on one ground.
 
 `illustrate` turns each brief into a file under `assets/` beside `source.json`, registers
