@@ -8,7 +8,7 @@
  */
 import type { Term } from "../../types.js";
 import { fitOf, isV2 } from "../fit.js";
-import type { Emitter, Theme } from "../kit.js";
+import type { Emitter, Theme, Vars } from "../kit.js";
 import { contentW, esc, js, raw, spotlighter } from "../kit.js";
 import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
@@ -767,6 +767,14 @@ ${slide}`;
   // pulse, and on a 600px `G_\theta(x_t^i, x_{<i}^{gt}, t)` it is 48px of term
   // pushed over the `\big\|` and the minus either side of it.
   const swell = (t: Term) => raw(`dsSwell.${t.tone}`);
+  // THE TAKE-BACK IS THE SECOND fromTo ON ITS TERM, and a second `fromTo` with
+  // GSAP's default `immediateRender` writes its FROM state at build time — the
+  // swollen scale — so a page that seeks before the first swell for the first
+  // time shows the term already swollen, and one that came back from later
+  // shows it at rest. `seek_order` measured it: 13,958px on a ko deck's s8,
+  // depending only on what was seeked first. v2 only, so classic keeps
+  // v0.8.0's bytes (and its bug).
+  const later: Vars = v2 ? { immediateRender: false } : {};
   terms.forEach((term, i) => {
     const at = first + i * step;
     const colour = theme.tones[term.tone];
@@ -790,7 +798,12 @@ ${slide}`;
     const prev = terms[i - 1];
     if (prev) {
       tl.push(
-        tween(`#${sid} .t-${prev.tone}`, { scale: swell(prev) }, { scale: 1, duration: 0.4 }, at),
+        tween(
+          `#${sid} .t-${prev.tone}`,
+          { scale: swell(prev) },
+          { scale: 1, duration: 0.4, ...later },
+          at,
+        ),
       );
     }
     holds.push(at + 0.6);
@@ -800,7 +813,12 @@ ${slide}`;
   if (last) {
     const at = first + terms.length * step;
     tl.push(
-      tween(`#${sid} .t-${last.tone}`, { scale: swell(last) }, { scale: 1, duration: 0.4 }, at),
+      tween(
+        `#${sid} .t-${last.tone}`,
+        { scale: swell(last) },
+        { scale: 1, duration: 0.4, ...later },
+        at,
+      ),
       // The equation is one statement again before the beat ends: the walk was
       // the argument, and what it leaves behind is the whole line, readable.
       ...spot.restore(at),

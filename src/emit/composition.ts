@@ -11,6 +11,7 @@
  * timeline, wraps whatever the emitter returns, and closes the document.
  */
 import type { z } from "zod";
+import { type BespokeMap, bespokeHolds, bespokeScene } from "../bespoke/scene.js";
 import { markV2 } from "../deck/playback.js";
 import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
 import { embedUrl } from "../pack/media.js";
@@ -239,6 +240,12 @@ export interface DeckOptions {
    * (`vendorInter` in src/build/files.ts), for the same reason.
    */
   fontCss?: string;
+  /**
+   * `--design v2 --bespoke`: beats drawn by a generated scene, keyed by beat id
+   * (src/bespoke/). Absent on every other build, which is what keeps them
+   * byte-identical. A deck that carries one also carries `BESPOKE_CSP`.
+   */
+  bespoke?: BespokeMap;
 }
 
 /**
@@ -540,8 +547,11 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // same number either way — and so is `holdsFor`'s in src/render/timing.ts,
     // which re-emits without it.
     const emitted = emitScene(beat, ctx);
+    // A bespoke scene's entrance is its own; restyling it would rewrite tweens
+    // the shell did not author. Its chrome keeps the stock `chromeIn`.
+    const bespoke = opts.bespoke?.[beat.id] !== undefined;
     const { scene } = stageScene(
-      motion ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "rise") : emitted,
+      motion && !bespoke ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "rise") : emitted,
       speed,
     );
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);
@@ -565,7 +575,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // speech. So the sum stays raw and only `ctx.start` above is rounded.
     const start = at;
     at += duration;
-    return { beat, sid, scene, segments, inside, dive, duration, start, seconds };
+    return { beat, sid, scene, segments, inside, dive, duration, start, seconds, bespoke };
   });
 
   // Whether ANY scene deferred its timeline behind a measurement. `readyGate`
@@ -714,12 +724,18 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     looks,
     motion,
     holdMotion,
+    // Whether any scene runs generated code — the one thing that puts a CSP in
+    // the head. Classic and plain v2 decks never set it, so their heads are unchanged.
+    scripted: cuts.some((c) => c.bespoke),
   };
 }
 
-/** `design` for an emit context, only when stated — so a classic context is the object it always was. */
-function design(opts: DeckOptions): { design?: Design } {
-  return opts.design ? { design: opts.design } : {};
+/** `design` (and the bespoke map) for an emit context, only when stated — so a classic context is the object it always was. */
+function design(opts: DeckOptions): { design?: Design; bespoke?: BespokeMap } {
+  return {
+    ...(opts.design ? { design: opts.design } : {}),
+    ...(opts.bespoke ? { bespoke: opts.bespoke } : {}),
+  };
 }
 
 /**
@@ -741,6 +757,7 @@ function withMotion(
     duration: number;
     start: number;
     seconds: number;
+    bespoke?: boolean;
   },
   scene: Scene,
   accent: string,
@@ -756,7 +773,21 @@ function withMotion(
     const incoming = Number.isFinite(firstHold) ? seamIn(before, sid, over, firstHold) : [];
     if (incoming.length) out = { ...out, tl: [...out.tl, ...incoming] };
   }
-  if (cut.segments?.length) {
+  if (cut.segments?.length && cut.bespoke) {
+    // A bespoke scene is all emphasis already: it keeps moving for as long as
+    // its sentence runs. What the deck player needs is the stretch to seek
+    // through while each stop's audio plays — from the sentence's start to the
+    // next stop — so presented and rendered decks show the same motion.
+    const windows = bespokeWindows(out, cut.segments, cut.seconds);
+    if (windows.length) {
+      holdMotion[sid] = windows.map((w) => ({
+        stop: w.stop,
+        at: rnd(cut.start + w.at),
+        from: rnd(cut.start + w.from),
+        to: rnd(cut.start + w.to),
+      }));
+    }
+  } else if (cut.segments?.length) {
     const { scene: emphasised, windows } = emphasize(out, sid, {
       segments: cut.segments,
       starts: spokenStarts(out, cut.segments).starts,
@@ -774,6 +805,29 @@ function withMotion(
       }));
     }
   }
+  return out;
+}
+
+/**
+ * A bespoke scene's hold windows: each speaking stop seeks from where its
+ * sentence starts to just before the next stop (or the end of the beat), on the
+ * audio's clock. Scene-relative, like `emphasize`'s.
+ */
+function bespokeWindows(scene: Scene, segments: readonly Segment[], end: number): HoldWindow[] {
+  const holds = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+    (a, b) => a - b,
+  );
+  const { starts } = spokenStarts(scene, segments);
+  const out: HoldWindow[] = [];
+  segments.forEach((segment, i) => {
+    const index = Math.min(segment.stop, holds.length - 1);
+    const at = holds[index];
+    if (at === undefined) return;
+    const next = holds[index + 1];
+    const to = rnd((next ?? end) - 0.001);
+    if (to <= at) return;
+    out.push({ stop: segment.stop, at, from: rnd(starts[i] ?? at), to });
+  });
   return out;
 }
 
@@ -998,6 +1052,37 @@ export function speechPlan(
   return { starts, end: at };
 }
 
+/**
+ * Where a bespoke scene's stops go and when its sentences are spoken, worked out
+ * with the same functions `layout` stages with — so the cue times the model is
+ * given are the times the deck will have. See `bespokeHolds` for why the voice
+ * does not move.
+ *
+ * `ctx` must not carry the bespoke map: this stages the ARCHETYPE first.
+ */
+export function bespokeStaging(
+  beat: Beat,
+  ctx: EmitContext,
+  segments: readonly Segment[],
+  speed: number,
+): { holds: number[]; open: number } {
+  const { scene: archetype } = stageScene(emitScene(beat, ctx), speed);
+  const holds = [...new Set(archetype.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+    (a, b) => a - b,
+  );
+  // The shell's own chrome decides `open`, exactly as it will in the deck.
+  const { open } = stageScene(
+    bespokeScene(beat, ctx, { fragment: { markup: "", css: "", script: "" }, holds }),
+    speed,
+  );
+  const { starts, end } = speechPlan(open, holds, segments);
+  const byStop = new Map<number, number>();
+  segments.forEach((s, i) => {
+    if (i > 0 && starts[i] !== undefined) byStop.set(Math.min(s.stop, holds.length - 1), starts[i]);
+  });
+  return { holds: bespokeHolds(holds, byStop, end), open };
+}
+
 export function emitComposition(
   storyboard: Storyboard,
   source: Source,
@@ -1045,7 +1130,7 @@ function renderComposition(storyboard: Storyboard, format: Format, laid: Layout)
   return `<!doctype html>
 <html lang="${esc(storyboard.lang)}" data-resolution="${orientation}">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8" />${laid.scripted ? `\n    <meta http-equiv="Content-Security-Policy" content="${BESPOKE_CSP}" />` : ""}
     <title>${esc(storyboard.title)}</title>
     <meta name="viewport" content="width=${format.width}, height=${format.height}" />
     <script src="${GSAP_SRC}"></script>
@@ -1081,6 +1166,47 @@ ${scenes.join("\n")}
   </body>
 </html>
 `;
+}
+
+/**
+ * The policy a composition carrying a generated scene runs under.
+ *
+ * The static walk in src/bespoke/contract.ts refuses every NAME that reaches the
+ * network, eval, storage or navigation; this refuses the BEHAVIOUR, so a scene
+ * that spelled its way past the walk still gets nothing. No `connect-src`, no
+ * frames, no plugins, and no `unsafe-eval` — `Function("…")` assembled from
+ * fragments throws here. `'unsafe-inline'` stays because every scene's timeline
+ * is an inline script, as it is in every deck; what it buys an attacker is
+ * nothing a scene could not already write. Local files only (`'self'`), which is
+ * every vendored script, stylesheet, font and figure a deck ships.
+ *
+ * Only on a deck with a bespoke scene: a `<meta>` in every head would move the
+ * bytes of every deck ever built.
+ */
+export const BESPOKE_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; " +
+  "connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+/**
+ * A bespoke scene's script, called with the scene's timeline and its root.
+ *
+ * Strict mode, so a bare function's `this` is undefined rather than `window`;
+ * `closeSafe`, so a `</script` in a string cannot end the tag that carries it.
+ * Only ever a bespoke scene's, so no other deck carries this text.
+ */
+function bespokeCall(sid: string, script: string): string {
+  // Caught and NAMED: a scene that throws while building keeps its chrome and
+  // its timeline (registered below), and the gates see whose error it was —
+  // `probeScenes` fails the scene on any page error that names it.
+  return `try {
+  (function (tl, root) {
+    "use strict";
+${closeSafe(script)}
+  })(tl, document.getElementById("${sid}"));
+} catch (e) {
+  console.error("decksmith bespoke #${sid}: " + (e && e.message));
+}`;
 }
 
 /**
@@ -1419,6 +1545,9 @@ function sceneHtml(
       `// times relative to its start — one absolute root timeline yields a`,
       `// deck the slideshow controller cannot bind to.`,
       `var tl = gsap.timeline({ paused: true });`,
+      // A bespoke scene's generated script, checked before it got here. Before
+      // the shell's tweens so its `gsap.set` baselines are in place first.
+      ...(scene.script ? [bespokeCall(sid, scene.script)] : []),
       // `tweenText` is the ONLY place a tween becomes GSAP source. Everything
       // above this line is a typed object the checker can see; below it is text.
       ...scene.tl.map(tweenText),

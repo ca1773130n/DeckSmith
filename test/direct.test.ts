@@ -336,8 +336,11 @@ describe("design: the switch", () => {
     // with balanced lines, and the stage headline is balanced.
     // Then round 3 of that review: s10's bar-compare stands on the field in
     // glass (read at its last hold, 83.45s), with dim below the lifted tones.
+    // Then, merged from main, the seek_order gate: s6's two swell take-backs gain
+    // `immediateRender: false` (the only diff), so a cold seek before the walk
+    // no longer shows a swollen term.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "64d9378a066d5bd114710d5dfca8ed8900fd25913489bfaaf6dab698a86a6e13",
+      "95fab4a7feb1448172f20b9f266083c61af2f98291e6336860c2b94629b0844a",
     );
   });
 

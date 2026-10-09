@@ -87,11 +87,16 @@ export async function check(dir: string, opts: CheckOptions = {}): Promise<Verdi
   // Read before the run, not after: the windows describe the artifact we are
   // about to gate, and a concurrent rebuild between the two would grade this
   // report against another deck's camera.
-  const { transit, duration } = await readComposition(dir);
+  const { transit, duration, clipped } = await readComposition(dir);
   if (opts.at?.length) args.push(`--at=${sampleTimes(opts.at, duration).join(",")}`);
   try {
     const { stdout, stderr } = await run("npx", args, { timeout: timeoutMs, maxBuffer: 32 << 20 });
-    return interpret(stdout, stderr, { timeoutMs, elapsed: Date.now() - started, transit });
+    return interpret(stdout, stderr, {
+      timeoutMs,
+      elapsed: Date.now() - started,
+      transit,
+      clipped,
+    });
   } catch (err) {
     // A failing gate exits non-zero but still prints the whole report on stdout.
     const e = err as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
@@ -100,6 +105,7 @@ export async function check(dir: string, opts: CheckOptions = {}): Promise<Verdi
       elapsed: Date.now() - started,
       failure: e.message.trim(),
       transit,
+      clipped,
     });
   }
 }
@@ -118,17 +124,26 @@ export async function check(dir: string, opts: CheckOptions = {}): Promise<Verdi
  * supplies stops (`verify`) has no more claim to know the composition's own
  * length than this module does.
  *
+ * CLIPPED — a bespoke scene whose camera moves draws inside a body box that
+ * clips (`data-ds-clip` on `#sN-g`, src/bespoke/scene.ts): a label the camera
+ * pushes past the box's edge is not painted, whatever its own box says.
+ *
  * A deck we cannot read yields no windows and no duration, which grades exactly
  * as it did before this existed — the strict direction. Never the permissive
  * one: a missing file must not become a blanket exemption.
  */
-async function readComposition(dir: string): Promise<{ transit: Window[]; duration: number }> {
+async function readComposition(
+  dir: string,
+): Promise<{ transit: Window[]; duration: number; clipped: string[] }> {
   let html: string;
   try {
     html = await readFile(join(dir, "index.html"), "utf8");
   } catch {
-    return { transit: [], duration: 0 };
+    return { transit: [], duration: 0, clipped: [] };
   }
+  const clipped = [...html.matchAll(/id="(s\d+)-g"[^>]*?\sdata-ds-clip\b/g)].map(
+    (m) => m[1] as string,
+  );
   const out: Window[] = [];
   // The id and the window live in the same tag, so one match gets both. `[^>]*`
   // rather than `.*` so a second scene's attributes cannot be spliced onto the
@@ -139,7 +154,11 @@ async function readComposition(dir: string): Promise<{ transit: Window[]; durati
     if (Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0)
       out.push({ sid: m[1] as string, t0, t1 });
   }
-  return { transit: out, duration: Number(/data-duration="([\d.]+)"/.exec(html)?.[1] ?? 0) };
+  return {
+    transit: out,
+    duration: Number(/data-duration="([\d.]+)"/.exec(html)?.[1] ?? 0),
+    clipped,
+  };
 }
 
 /**
@@ -181,8 +200,13 @@ export function sampleTimes(stops: readonly number[], duration: number): number[
  * not supply the deck's camera windows gets every off-canvas finding as an
  * error, exactly as before the camera existed.
  */
-export function parseCheckReport(stdout: string, stderr = "", transit: Window[] = []): Verdict {
-  return interpret(stdout, stderr, { transit });
+export function parseCheckReport(
+  stdout: string,
+  stderr = "",
+  transit: Window[] = [],
+  clipped: string[] = [],
+): Verdict {
+  return interpret(stdout, stderr, { transit, clipped });
 }
 
 interface RunContext {
@@ -192,6 +216,8 @@ interface RunContext {
   failure?: string;
   /** Camera transit windows read off the composition; see `readTransit`. */
   transit?: Window[];
+  /** Bespoke scenes whose body box clips (a moving camera); see `readComposition`. */
+  clipped?: string[];
 }
 
 /** One camera transit, `[t0, t1]` in absolute deck seconds. */
@@ -273,7 +299,7 @@ function interpret(stdout: string, stderr: string, ctx: RunContext): Verdict {
     ...staticGuardFindings(stderr).map((f) => ({ f, time: undefined, selector: undefined })),
   );
 
-  const graded = findings.map((t) => regrade(t, ctx.transit));
+  const graded = findings.map((t) => regrade(t, ctx.transit, ctx.clipped));
   // `ok` is upstream's verdict at upstream's severities; ours is that verdict
   // AND our own re-grading. It cannot be left to `ok` alone, because the whole
   // point of `regrade` is that some findings matter more here than there — a
@@ -381,7 +407,28 @@ function interpret(stdout: string, stderr: string, ctx: RunContext): Verdict {
  * always on is one nobody reads. Revisit only if upstream starts measuring
  * something that tracks a real cost, like bytes or parse time.
  */
-function regrade({ f, time, selector }: Timed, transit: Window[] = []): Finding {
+function regrade(
+  { f, time, selector }: Timed,
+  transit: Window[] = [],
+  clipped: string[] = [],
+): Finding {
+  // INSIDE A CLIPPING BESPOKE BODY. Upstream measures an element's own box;
+  // a bespoke scene with a camera clips its body to its box, so what a push-in
+  // carries past the canvas edge is not painted. The element must be the
+  // scene's own drawing (`#sN-<name>`, not the chrome's `-e`/`-h`), and what it
+  // DOES paint is held to the bespoke gates' clip-aware `off_canvas`.
+  const inBody = /#(s\d+)-([\w-]+)/.exec(selector ?? "");
+  if (
+    inBody &&
+    clipped.includes(inBody[1] as string) &&
+    !["e", "h"].includes(inBody[2] as string) &&
+    (OFF_CANVAS.has(f.rule) || f.rule === "container_overflow")
+  )
+    return {
+      ...f,
+      severity: "info",
+      message: `${f.message} — accepted: inside ${inBody[1]}'s clipped camera box; what it paints is gated by off_canvas.`,
+    };
   if (OFF_CANVAS.has(f.rule)) {
     // Scoped to the DIPPING scene where the selector names a scene at all. The
     // emitter's guarantee is about that scene's own stops, so excusing a finding

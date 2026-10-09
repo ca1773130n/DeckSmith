@@ -87,6 +87,34 @@ describe("backdrop", () => {
     expect(plain.html).not.toContain("bd-m");
   });
 
+  it("yields to a bespoke scene: a bespoke beat draws its own scene, not its backdrop or field", () => {
+    // Merge of main's bespoke pass into the backdrop work: a bespoke scene is
+    // staged around its own illustration, so the shell's picture, scrim and
+    // glass would paint a second, unrelated world under it.
+    const bespoke = {
+      b1: {
+        fragment: {
+          markup:
+            '<svg id="SCENEID-svg" width="400" height="300"><circle id="SCENEID-dot" cx="10" cy="10" r="5"/></svg>',
+          css: "",
+          script: "",
+        },
+        holds: [1, 3],
+      },
+    };
+    const over = emitScene(callout({ figureId: "gen-b1-bd" }), { ...ctx(), bespoke });
+    expect(over.html).toContain('id="s1-svg"');
+    expect(over.html).not.toContain("s1-bdi");
+    expect(over.holds).toEqual([1, 3]);
+    const hero = {
+      ...callout(),
+      archetype: "hero-number",
+      params: { headline: "h", value: "42", label: "l" },
+    } as unknown as Beat;
+    expect(emitScene(hero, ctx()).html).toContain('id="s1-fd"');
+    expect(emitScene(hero, { ...ctx(), bespoke }).html).not.toContain('id="s1-fd"');
+  });
+
   it("sets the scene over the picture and a scrim, keeping its holds and its geometry", () => {
     const plain = emitScene(callout(), ctx());
     const over = emitScene(callout({ figureId: "gen-b1-bd" }), ctx());

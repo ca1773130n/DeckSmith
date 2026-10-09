@@ -20,6 +20,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import type { z } from "zod";
+import { copyArt } from "./bespoke/art.js";
+import { type BespokeResult, bespokePass } from "./bespoke/pipeline.js";
+import { browserGate } from "./bespoke/probe.js";
+import { BESPOKE_FILE } from "./bespoke/scene.js";
 import {
   AUDIO_DIR,
   audioNames,
@@ -208,6 +212,30 @@ function lookFlags(cmd: Command): Command {
     .option("--speed <x>", "multiply every animation duration (0.25–3)");
 }
 
+/**
+ * `--bespoke`: a few mechanism beats per deck drawn by a Codex-written scene
+ * (src/bespoke/). `--design v2` only, and off unless asked for.
+ */
+function bespokeFlags(cmd: Command): Command {
+  return cmd
+    .option(
+      "--bespoke",
+      "v2: generated scenes for 4-6 mechanism beats (Codex; falls back per beat)",
+    )
+    .option("--bespoke-calls <n>", "hard cap on Codex calls for this deck (default 12; 2 per beat)")
+    .option("--bespoke-seconds <s>", "hard cap on the bespoke pass's wall time (default 1800)")
+    .option("--bespoke-model <id>", "codex exec --model for the scenes (default: the account's)")
+    .option("--bespoke-cli <path>", "the Codex CLI to run (default: codex on PATH)")
+    .option(
+      "--bespoke-cache <dir>",
+      "where generated scenes are cached (default ~/.cache/decksmith/bespoke)",
+    )
+    .option(
+      "--bespoke-art <n>",
+      "illustrations per deck from the account's image tool (default 6; 0 = none)",
+    );
+}
+
 /** Flags that change how it *sounds*. */
 function voiceFlags(cmd: Command): Command {
   return cmd
@@ -263,12 +291,19 @@ function flags(o: Record<string, unknown>): PrefFlags {
     "imageModel",
     "imageStyle",
     "imageMax",
+    "bespokeCalls",
+    "bespokeSeconds",
+    "bespokeModel",
+    "bespokeCli",
+    "bespokeCache",
+    "bespokeArt",
   ] as const) {
     const value = o[key];
     if (value !== undefined) patch[key] = value as string;
   }
   if (o.subtitles === false) patch.subtitles = false;
   if (o.images === true) patch.images = true;
+  if (o.bespoke === true) patch.bespoke = true;
   return patch;
 }
 
@@ -446,7 +481,8 @@ imageFlags(
       lengthFlags(program.command("plan"))
         .description("Ask Codex for a storyboard. Read and edit the result before building.")
         .argument("<source>", "source.json from ingest")
-        .requiredOption("-o, --out <file>", "where to write storyboard.json"),
+        .requiredOption("-o, --out <file>", "where to write storyboard.json")
+        .option("--bespoke", "let the planner mark the beats a generated scene should draw"),
     ),
   ),
 ).action(async (src: string, o: { out: string } & Record<string, unknown>) => {
@@ -647,27 +683,29 @@ voiceFlags(
   );
 });
 
-lookFlags(
-  sizeFlags(
-    lengthFlags(program.command("build"))
-      .description("Emit the composition, write its assets, and run the gates.")
-      .argument("<storyboard>", "storyboard.json, edited to taste")
-      .requiredOption("--source <file>", "source.json the storyboard was planned from")
-      .requiredOption("-o, --out <dir>", "directory to write the deck into")
-      .option("--format <id>", `output profile: ${Object.keys(FORMATS).join(" | ")}`, "deck-16x9")
-      .option("--min-weight <n>", "keep only beats at or above this weight — see the budget gate")
-      // On `build` as well as `plan`, so a deck planned as a paper is checked
-      // as one without a config file having to exist. It changes nothing about
-      // what is emitted — the arc is advisory here, and `plan` is where it
-      // shapes the prompt.
-      .option("--genre <genre>", "general | paper — report when a paper deck lacks its arc")
-      .option("--narration <file>", `${NARRATION_FILE} from \`decksmith narrate\``)
-      .option("--no-narration", "ignore narration sitting beside the storyboard")
-      .option(
-        "--reserve-captions",
-        "keep the bottom of the frame clear for a burned caption — required by `render --subtitles burn`",
-      )
-      .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
+bespokeFlags(
+  lookFlags(
+    sizeFlags(
+      lengthFlags(program.command("build"))
+        .description("Emit the composition, write its assets, and run the gates.")
+        .argument("<storyboard>", "storyboard.json, edited to taste")
+        .requiredOption("--source <file>", "source.json the storyboard was planned from")
+        .requiredOption("-o, --out <dir>", "directory to write the deck into")
+        .option("--format <id>", `output profile: ${Object.keys(FORMATS).join(" | ")}`, "deck-16x9")
+        .option("--min-weight <n>", "keep only beats at or above this weight — see the budget gate")
+        // On `build` as well as `plan`, so a deck planned as a paper is checked
+        // as one without a config file having to exist. It changes nothing about
+        // what is emitted — the arc is advisory here, and `plan` is where it
+        // shapes the prompt.
+        .option("--genre <genre>", "general | paper — report when a paper deck lacks its arc")
+        .option("--narration <file>", `${NARRATION_FILE} from \`decksmith narrate\``)
+        .option("--no-narration", "ignore narration sitting beside the storyboard")
+        .option(
+          "--reserve-captions",
+          "keep the bottom of the frame clear for a burned caption — required by `render --subtitles burn`",
+        )
+        .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
+    ),
   ),
 ).action(
   async (
@@ -781,11 +819,27 @@ lookFlags(
     for (const f of scanBeatCount(storyboard, prefs)) step(`build: ${f.message}`);
     for (const w of paced.warnings) step(`build: ${w}`);
 
+    // THE BESPOKE PASS, before anything is emitted: it decides which beats are
+    // drawn by a generated scene, and every artifact below must agree on that.
+    // It never fails the build — a beat it cannot draw keeps its archetype.
+    const bespoke = await runBespoke(prefs, {
+      design,
+      storyboard,
+      source,
+      format,
+      narration,
+      theme,
+      speed: paced.speed,
+      assetsFrom: dirname(resolve(o.source)),
+    });
+    const generated = bespoke && Object.keys(bespoke.map).length ? { bespoke: bespoke.map } : {};
+
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
     const fontCss = await refreshFont(storyboard, source, out, step, theme);
 
     const deck = emitDeck(storyboard, source, format, await deckRuntime(), {
+      ...generated,
       theme,
       design,
       ...(fontCss ? { fontCss } : {}),
@@ -815,7 +869,18 @@ lookFlags(
         `build: design v2 — ${s.distinct} layouts over ${s.beats} beats, chrome on top in ${Math.round(100 * s.modalChrome)}%, ${s.adjacentRepeats} adjacent repeat(s) → ${LOOK_FILE}`,
       );
     }
+    // What the bespoke pass did, beside the deck — like look.json, nothing loads
+    // it, but `verify` reads which scenes were generated to gate them.
+    if (bespoke) {
+      const sidOf = new Map(deck.cut.kept.map((b, i) => [b.id, `s${i + 1}`]));
+      const report = {
+        ...bespoke.report,
+        scenes: bespoke.report.scenes.map((sc) => ({ ...sc, sid: sidOf.get(sc.beat) })),
+      };
+      await writeFile(join(out, BESPOKE_FILE), `${JSON.stringify(report, null, 2)}\n`);
+    }
     await writeTiming(out, {
+      ...generated,
       storyboard,
       source,
       format,
@@ -836,6 +901,7 @@ lookFlags(
     await vendorKatex(out);
     await vendorScripts(out, deck.composition);
     await copyAssets(dirname(resolve(o.source)), out, source.figures, step);
+    if (bespoke) await copyArt(Object.values(bespoke.map), out);
     if (found && narration) await copyAudio(dirname(found), narration, out, step);
     const look = [
       theme,
@@ -873,7 +939,16 @@ lookFlags(
     reportCut(cut);
     if (deck.page) step(`build: navigable deck → ${join(out, DECK_PAGE)}`);
 
-    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source);
+    // The scenes the pass already gated in full at this very id: seeked, not re-probed.
+    const probed = new Set(
+      (bespoke?.report.scenes ?? [])
+        .filter((sc) => sc.status === "bespoke" && sc.gatedAt !== undefined)
+        .filter((sc) => sc.gatedAt === `s${cut.kept.findIndex((b) => b.id === sc.beat) + 1}`)
+        .map((sc) => sc.gatedAt as string),
+    );
+    const t0 = Date.now();
+    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source, probed);
+    step(`build: verify in ${Math.round((Date.now() - t0) / 1000)}s`);
   },
 );
 
@@ -1223,11 +1298,18 @@ async function gate(
   kept?: readonly Beat[],
   fidelity = true,
   source?: Source,
+  probed?: ReadonlySet<string>,
 ): Promise<void> {
   step(
-    `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute`,
+    `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute${probed?.size ? ` (${probed.size} generated scene(s) the bespoke pass gated in full are seeked, not re-probed)` : ""}`,
   );
-  const verdict = await verify(dir, { snapshots, fidelity }, storyboard, kept, source);
+  const verdict = await verify(
+    dir,
+    { snapshots, fidelity, ...(probed?.size ? { probed } : {}) },
+    storyboard,
+    kept,
+    source,
+  );
   process.stdout.write(report(verdict));
   if (snapshots) step(`verify: snapshots in ${join(dir, "snapshots")}`);
   // Non-zero, but let the process unwind: exitCode beats process.exit() here.
@@ -1324,6 +1406,65 @@ function wrapScript(text: string, width: number): string[] {
  * says loudly what went wrong and writes nothing, and `render` then refuses to
  * guess.
  */
+/**
+ * `build --bespoke`, or nothing. Says why when it does nothing, because a flag
+ * that was asked for and silently ignored looks exactly like a flag that works.
+ */
+async function runBespoke(
+  prefs: Prefs,
+  deck: {
+    design: string;
+    storyboard: Storyboard;
+    source: Source;
+    format: Format;
+    narration: DeckNarration | undefined;
+    theme: string;
+    speed: number;
+    assetsFrom: string;
+  },
+): Promise<BespokeResult | undefined> {
+  const want = prefs.bespoke;
+  if (!want?.enabled) return undefined;
+  if (deck.design !== "v2") {
+    step("build: --bespoke needs --design v2, so every beat keeps its archetype");
+    return undefined;
+  }
+  if (!deck.narration) {
+    step(
+      "build: --bespoke needs narration — its cues are the keyframes — so every beat keeps its archetype",
+    );
+    return undefined;
+  }
+  if (!deck.format.navigable || deck.format.width <= deck.format.height) {
+    step(`build: --bespoke draws 16:9 decks only, and ${deck.format.id} is not one`);
+    return undefined;
+  }
+  // Scratch for prompts, replies, probe decks and contact sheets. Kept only when
+  // DECKSMITH_BESPOKE_WORK names a directory — the evidence for a review.
+  const keep = process.env.DECKSMITH_BESPOKE_WORK;
+  const work = keep ? resolve(keep) : await mkdtemp(join(tmpdir(), "decksmith-bespoke-"));
+  await mkdir(work, { recursive: true });
+  const narration = deck.narration;
+  try {
+    return await bespokePass({
+      ...deck,
+      narration,
+      prefs: want,
+      work,
+      onStep: step,
+      gate: browserGate({ ...deck, narration, work, onStep: step }),
+    });
+  } catch (err) {
+    // The pass must never be what fails a build: every beat keeps its archetype.
+    step(
+      `build: the bespoke pass stopped (${err instanceof Error ? err.message.split("\n")[0] : err}), so every beat keeps its archetype`,
+    );
+    return undefined;
+  } finally {
+    if (!keep) await rm(work, { recursive: true, force: true });
+  }
+}
+
 async function writeTiming(out: string, input: Parameters<typeof planTiming>[0]): Promise<void> {
   try {
     const timing = planTiming(input);
