@@ -119,6 +119,13 @@ describe("kinetic", () => {
     expect(long).toBeGreaterThan(MIN_FONT);
   });
 
+  it("sets the same phrases in a portrait frame, flush left, above the floor", () => {
+    const scene = kinetic(beat(three), ctx(FORMATS["short-9x16"] as Format));
+    expect(scene.html).not.toContain("margin-left");
+    const size = Number(/\.kn-p\{font-size:(\d+)px/.exec(scene.css ?? "")?.[1]);
+    expect(size).toBeGreaterThanOrEqual(64);
+  });
+
   it("refuses phrases it cannot set in two lines inside the frame, rather than shrinking them", () => {
     const essay = "a phrase that runs on and on well past anything a speaker says in one breath ";
     expect(() => kinetic(beat([{ text: essay.repeat(2) }, { text: "and" }]), ctx())).toThrow(

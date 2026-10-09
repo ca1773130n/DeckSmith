@@ -155,6 +155,16 @@ describe("hero-number", () => {
     for (const t of scene.tl) expect(t.at).toBeLessThan(scene.holds[0] as number);
   });
 
+  it("fits a portrait and a square frame, number and bars, above the floor", () => {
+    for (const id of ["short-9x16", "post-1x1"] as const) {
+      const scene = heroNumber(
+        beat({ eyebrow: "Energy", compare: { value: "175.21", label: "SFRDP-Net" } }),
+        ctx(FORMATS[id] as Format),
+      );
+      for (const n of sizes(scene.css ?? "")) expect(n, id).toBeGreaterThanOrEqual(MIN_FONT);
+    }
+  });
+
   it("refuses what it cannot draw, by name, rather than shrinking it", () => {
     expect(() => heroNumber(beat({ value: "about half" }), ctx())).toThrow(/no digit to roll/);
     expect(() => heroNumber(beat({ value: "1234567890123456" }), ctx())).toThrow(
