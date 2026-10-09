@@ -1153,7 +1153,9 @@ the whole `build` 466-812s on a Mac with 9-23% memory free — three builds of e
 minutes. The pictures add 128-348 KB of WebP to a deck (round 3: 6-7 MB of PNG). Round 3
 took 593-742s and 214-325k tokens; round 1 13-31 minutes and 540-705k. A rebuild from the
 cache makes 0 calls. Those are 4-6-beat passes at five calls in flight; drawing every beat
-of a deck at two in flight costs several times that.
+of a deck at two in flight costs several times that: MEASURED 2026-10-10 on one 14-beat ko
+deck, 11 of 14 drawn bespoke, 21 scene calls + 1 device call + 3 pictures, 574k tokens, a
+1508s pass and a 1567s `build`.
 None of it fits a 300-second build timeout: a host that builds v2 decks on its request path
 — HypePaper's build step — must pass `--no-bespoke`, or give `build` that long off the
 request path.
