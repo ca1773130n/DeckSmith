@@ -6,6 +6,7 @@
  * did before packs existed, and a PACK is measured in the face it is drawn in.
  */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,9 +51,10 @@ import {
   stackFor,
   TYPES,
   typeForStack,
+  V2_TYPE,
 } from "../src/emit/type.js";
 import { loadPrefs, prefsFromFlags } from "../src/prefs.js";
-import { FORMATS, type Format, storyboardSchema } from "../src/types.js";
+import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 import narratedStoryboard from "./fixtures/narrated-storyboard.json" with { type: "json" };
 
 /** A pack face whose Latin glyphs are `glyphs`, whatever spec carries it. */
@@ -196,6 +198,20 @@ describe("type specs", () => {
     expect(t.headline.size).toBeGreaterThanOrEqual(40);
     expect(t.title.lo).toBeGreaterThanOrEqual(t.headline.size);
   });
+
+  it.each(Object.keys(TYPES))(
+    "%s sets the founder's scale: kicker 40, headline 56, title 56",
+    (key) => {
+      // Confirmed 2026-10-10 after "the fonts are too large". Size is no longer
+      // part of a pack's voice; face, weight, tracking and case are.
+      const t = TYPES[key];
+      if (!t) throw new Error(key);
+      expect(V2_TYPE).toMatchObject({ headline: 56, kicker: 40, body: 44, floor: 40 });
+      expect(t.eyebrow.size).toBe(V2_TYPE.kicker);
+      expect(t.headline.size).toBe(V2_TYPE.headline);
+      expect([t.title.lo, t.title.hi]).toEqual([V2_TYPE.headline, V2_TYPE.headline]);
+    },
+  );
 
   it.each(Object.keys(TYPES))("%s's one-line chrome costs no more than classic's", (key) => {
     const h = (t: typeof CLASSIC_TYPE) =>
@@ -788,14 +804,16 @@ describe("v2 pack goldens", () => {
     ],
   });
   // Re-pinned 2026-10-08 (review fix round): each pack now draws its own bar
-  // corners and tracks and its own title composition, in the skin.
+  // corners and tracks and its own title composition, in the skin. Re-pinned
+  // 2026-10-10 for the founder's type scale (every spec's kicker 40, headline
+  // and title 56), after reading the hold frames of folio and signal.
   const GOLDEN: Record<string, string> = {
-    atlas: "e386cf4a9cec913da403052d093dc492e073623768a38fd1a90c57d1b740d5a1",
-    blueprint: "b27c387005b3e644f6689307f8c358b81944327605c3439bec5c78b8150e993a",
-    chalk: "b8eca602cbc18709cc2aa7f49d06debe28ec857a5164e499477810f8fcde695d",
-    folio: "7f0a7aaf15cef6d6f6aa3686899c0778793a0b22c20a2f41f8c8c9fdfbf7a64d",
-    journal: "e77aadd0c1c514b235fe8b349b1f59f67c9de4b0dc9965c08382b13bab2a1e36",
-    signal: "454fc4fd93245904212bd01dea1a49880e1252fec5428c3d821ea12efd066cf6",
+    atlas: "236b5efe9b7cd34bc3bdbb13b38a199539aed2c926c3b0daefdec5c402b5b227",
+    blueprint: "ee101379f7a843755ef88492710189b96c31582d255ec10e4c71bb20b0df74bd",
+    chalk: "75d46f9754fdfff0226d10950fb729fc294f2f515716d2a135a0088bcebcda33",
+    folio: "da29c3837fc6b655dff9895955e6cae612260f990e917cb5c3259121539e0fa1",
+    journal: "720fb6d56ac6c56c60e813be62fa0a5fbbabb821d64ec88354b2a2290533334b",
+    signal: "3cad157e0e54a40e6c260326eb8bc91f6a8995c36757d17feb6ace29905fb918",
   };
 
   it.each(Object.keys(PACKS))("%s emits the composition it emitted when pinned", (name) => {
@@ -803,4 +821,48 @@ describe("v2 pack goldens", () => {
     const digest = createHash("sha256").update(html).digest("hex");
     expect(digest).toBe(GOLDEN[name]);
   });
+});
+
+describe("the v2 type scale, on every archetype the demo draws", () => {
+  const repo = (p: string) => new URL(`../${p}`, import.meta.url);
+  const demo = storyboardSchema.parse(
+    JSON.parse(readFileSync(repo("demo/storyboard.json"), "utf8")),
+  );
+  const source = sourceSchema.parse(JSON.parse(readFileSync(repo("demo/source.json"), "utf8")));
+  /** Every px font size the composition declares, CSS and SVG attribute alike, with where. */
+  const declared = (html: string) => [
+    ...[...html.matchAll(/([^{};"]*)\{[^}]*?font-size:\s*([\d.]+)px/g)].map((m) => ({
+      where: (m[1] ?? "").trim().slice(-60),
+      px: Number(m[2]),
+    })),
+    ...[...html.matchAll(/<([a-z]+)([^>]*?)style="[^"]*?font-size:\s*([\d.]+)px/g)].map((m) => ({
+      where: `<${m[1]}${(m[2] ?? "").slice(0, 50)}`,
+      px: Number(m[3]),
+    })),
+    ...[...html.matchAll(/font-size="([\d.]+)"/g)].map((m) => ({
+      where: "svg text",
+      px: Number(m[1]),
+    })),
+  ];
+
+  it.each(Object.keys(PACKS))(
+    "%s: headline 56, labels 40-44, nothing over 56 but a display equation",
+    (name) => {
+      const html = emitComposition(demo, source, FORMATS["deck-16x9"] as Format, {
+        theme: name,
+        design: "v2",
+      });
+      const sizes = declared(html);
+      expect(sizes.length).toBeGreaterThan(50);
+      for (const { where, px } of sizes) {
+        expect(px, where).toBeGreaterThanOrEqual(V2_TYPE.floor);
+        // A KaTeX display may be asked at up to `V2_TYPE.math` so its scripts
+        // land on the body scale; nothing else passes the headline's 56.
+        const cap = /class="(eq|morph)\b/.test(where) ? V2_TYPE.math : V2_TYPE.headline;
+        expect(px, where).toBeLessThanOrEqual(cap);
+      }
+      expect(html).toMatch(new RegExp(`\\.headline\\{[^}]*font-size:${V2_TYPE.headline}px`));
+      expect(html).toMatch(new RegExp(`\\.eyebrow\\{[^}]*font-size:${V2_TYPE.kicker}px`));
+    },
+  );
 });

@@ -573,12 +573,16 @@ describe("split-compare under v2", () => {
     right: { label: "SSM", lines: ["Sobel 기반 구조 단서", "채널 및 공간 특징 조절"] },
   });
 
-  it("grows a short list's type past the classic 52px head, never past its heading", () => {
+  it("sets a short list on the v2 scale, 44px at most, never past its heading", () => {
+    // Founder, 2026-10-10: "the fonts are too large". Items grew to 60px here.
     const html = splitCompare(short, v2({ variant: "columns", placement: "foot" })).html;
     const body = /<g id="s8-side0">([\s\S]*?)<\/g>/.exec(html)?.[1] ?? "";
     const sizes = [...body.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
     const [label, ...items] = sizes;
-    expect(Math.min(...items)).toBeGreaterThan(52);
+    expect(items.length).toBeGreaterThan(0);
+    expect(Math.max(...items)).toBeLessThanOrEqual(44);
+    expect(Math.min(...items)).toBeGreaterThanOrEqual(40);
+    expect(label).toBeLessThanOrEqual(44);
     expect(Math.max(...items)).toBeLessThanOrEqual(label ?? 0);
     // Classic is untouched.
     const classic = splitCompare(short, ctx("s8")).html;
@@ -599,7 +603,8 @@ describe("split-compare under v2", () => {
     expect(divEnd).toBeGreaterThanOrEqual(lowest - 1);
     expect(scene.fit?.ink).toBeCloseTo(divEnd, 0);
     expect(divEnd).toBeLessThanOrEqual(lowest + 1);
-    // Grown, the two short lists now do reach the foot of their column.
-    expect(scene.fit?.fill).toBeGreaterThan(0.9);
+    // Two short lists at quiet type stay short (they filled 0.9+ grown to
+    // 60px); what holds is that the report is the painted extent, above.
+    expect(scene.fit?.fill).toBeGreaterThan(0);
   });
 });

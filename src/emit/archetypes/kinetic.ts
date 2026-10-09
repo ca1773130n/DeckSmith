@@ -11,6 +11,12 @@
  * it and lifting slightly — and the deck stops: one stop per phrase, so the
  * narration says one sentence per phrase and the type keeps pace with the voice.
  *
+ * UNDER v2 THE TYPE DOES NO TRICKS (founder, 2026-10-10: "graphic animation by
+ * animated UI elements is old-fashioned, and the fonts are too large"). Phrases
+ * are set at most at the headline's 56px (`SIZES_V2`), every word fades in in
+ * place, and the key word turns the accent instead of being swept by a chip.
+ * The motion is the backdrop's or the field's. Classic is unchanged.
+ *
  * THE MOVES ARE THE CONTENT, so the scene says so (`Scene.ownEntrances`): the
  * v2 motion grammar would otherwise re-voice every phrase into the deck's one
  * verb for the scene, and four phrases arriving the same way are a paragraph
@@ -25,16 +31,23 @@
  * on two lines or fewer in its column and the stack fits the frame; at the
  * smallest size that still fails it is refused by name.
  */
-import { MEASURE_SLACK } from "../fit.js";
+import { isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween, Vars } from "../kit.js";
 import { contentH, contentW, esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { fnv1a } from "../motion.js";
 import { displayFace, faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE } from "../type.js";
 import { holdsWithin, isPortrait, tween } from "./title.js";
 
 /** Type sizes tried in order, reference px. The smallest is still half again the floor. */
 const SIZES = [120, 108, 96, 88, 80, 72, 64] as const;
+/**
+ * v2: the confirmed scale (`V2_TYPE`) — a phrase is a headline, 56px at most,
+ * and steps down to the body size before it is refused. "No 64px+ kinetic
+ * type" (founder, 2026-10-10).
+ */
+const SIZES_V2 = [V2_TYPE.headline, 52, 48, V2_TYPE.body] as const;
 const LH = 1.1;
 const MAX_LINES = 2;
 /** Space between phrases, as a share of the size. */
@@ -66,14 +79,30 @@ const MOVES: readonly { from: Vars; ease: string }[] = [
   { from: { opacity: 0, scale: 1.35 }, ease: "power4.out" },
 ];
 
+/**
+ * v2: every phrase arrives the one way — its words fade in, in reading order,
+ * in place. Four different MOVES (rise, slide, drop, zoom) and a chip swept
+ * behind the key word were type doing tricks, which is the "animated UI
+ * elements" the founder called old-fashioned (2026-10-10). The key word is
+ * still marked: it turns the accent, a colour change, nothing moving.
+ */
+const FADE = { from: { opacity: 0 }, ease: "sine.out" } as const;
+
 /** `text` as word spans, with `key` (if any) as one struck span. */
-function phraseHtml(sid: string, i: number, text: string, key: string | undefined): string {
+function phraseHtml(
+  sid: string,
+  i: number,
+  text: string,
+  key: string | undefined,
+  chip = true,
+): string {
   const w = (s: string) => words(s, "kn-w", { unspaced: true });
   if (key === undefined) return w(text);
   const at = text.indexOf(key);
   const before = text.slice(0, at);
   const after = text.slice(at + key.length);
-  const struck = `<span class="kn-w kn-k" id="${sid}-k${i}"><span class="kn-hl" id="${sid}-hl${i}"></span><span class="kn-kt" id="${sid}-kt${i}">${esc(key)}</span></span>`;
+  const hl = chip ? `<span class="kn-hl" id="${sid}-hl${i}"></span>` : "";
+  const struck = `<span class="kn-w kn-k" id="${sid}-k${i}">${hl}<span class="kn-kt" id="${sid}-kt${i}">${esc(key)}</span></span>`;
   return [
     before.trim() ? w(before) : "",
     /\s$/.test(before) ? " " : "",
@@ -91,6 +120,8 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
   const W = contentW(format);
   const H = contentH(format);
   const step = isPortrait(format) ? 0 : STEP;
+  const v2 = isV2(ctx);
+  const sizes: readonly number[] = v2 ? SIZES_V2 : SIZES;
 
   // THE SIZE: the largest at which every phrase sets in two lines in its own
   // column of the stair, and the stack fits down the frame.
@@ -101,9 +132,9 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
   const heightAt = (size: number) =>
     linesAt(size).reduce((h, n) => h + n * Math.round(size * LH), 0) +
     (p.phrases.length - 1) * Math.round(size * GAP);
-  const size = SIZES.find((s) => linesAt(s).every((n) => n <= MAX_LINES) && heightAt(s) <= H);
+  const size = sizes.find((s) => linesAt(s).every((n) => n <= MAX_LINES) && heightAt(s) <= H);
   if (size === undefined) {
-    const last = SIZES[SIZES.length - 1] as number;
+    const last = sizes[sizes.length - 1] as number;
     throw new Error(
       `${who}: the phrases do not set in ${MAX_LINES} lines each, stacked inside the frame, even at ${last}px — shorten them or use fewer`,
     );
@@ -114,7 +145,7 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
   const holds: number[] = [];
   let at = FIRST_AT;
   const html = p.phrases.map((ph, i) => {
-    const move = MOVES[(seed + i) % MOVES.length] as (typeof MOVES)[number];
+    const move = v2 ? FADE : (MOVES[(seed + i) % MOVES.length] as (typeof MOVES)[number]);
     const atoms = wordAtoms(ph.text).length;
     const stagger = staggerFor(atoms, WORD_STAGGER);
     tl.push(
@@ -134,7 +165,20 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
     );
     // Where the last word has landed. Two decimals, as `tween` places things.
     let stop = Math.round((at + WORD_IN + stagger * (atoms - 1)) * 100) / 100;
-    if (ph.key !== undefined) {
+    if (ph.key !== undefined && v2) {
+      // The key turns the accent where it stands. Same strike, same stop, so
+      // the voice and the holds are where they were.
+      const strike = Math.round((stop + KEY_AFTER) * 100) / 100;
+      tl.push(
+        tween(
+          `#${sid}-kt${i}`,
+          { color: theme.fg },
+          { color: theme.accent, duration: KEY_IN, ease: "sine.out", immediateRender: false },
+          strike,
+        ),
+      );
+      stop = Math.round((strike + KEY_IN) * 100) / 100;
+    } else if (ph.key !== undefined) {
       const strike = Math.round((stop + KEY_AFTER) * 100) / 100;
       tl.push(
         // The chip's only tween, so it renders its `from` at build: swept shut
@@ -170,7 +214,7 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
     holds.push(stop);
     at = stop + AFTER_STOP;
     const indent = Math.round(W * step * i);
-    return `<p class="kn-p" id="${sid}-p${i}"${indent ? ` style="margin-left:${indent}px"` : ""}>${phraseHtml(sid, i, ph.text, ph.key)}</p>`;
+    return `<p class="kn-p" id="${sid}-p${i}"${indent ? ` style="margin-left:${indent}px"` : ""}>${phraseHtml(sid, i, ph.text, ph.key, !v2)}</p>`;
   });
 
   const family =
@@ -208,7 +252,11 @@ export const kinetic: Emitter<"kinetic"> = (beat, ctx) => {
       // The phrase's ink until the strike tweens it to the chip's.
       `.kn-kt{color:${theme.fg}}`,
       // The last struck word is what the beat lands on; with none, the last phrase.
-      ambient(sid, lastKey >= 0 ? `-hl${lastKey}` : `-p${p.phrases.length - 1}`, BREATHE),
+      ambient(
+        sid,
+        lastKey >= 0 ? `-${v2 ? "kt" : "hl"}${lastKey}` : `-p${p.phrases.length - 1}`,
+        BREATHE,
+      ),
     ].join("\n"),
   };
 };

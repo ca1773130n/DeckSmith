@@ -38,6 +38,7 @@ import type { EmitContext, Scene, Theme } from "../src/emit/kit.js";
 import { contentW } from "../src/emit/kit.js";
 import { cutsWord, faceOf, textWidth, typeOf } from "../src/emit/svg.js";
 import { PACKS } from "../src/emit/themes/packs.js";
+import { V2_TYPE } from "../src/emit/type.js";
 import {
   type Beat,
   type BeatOf,
@@ -326,12 +327,15 @@ describe("pipeline under v2", () => {
   ];
   const W = contentW(deck);
 
-  it("sets the labels bigger than classic's 52px and grows the boxes with them", () => {
+  it("sets the labels on the v2 scale, 44px at most, and grows the boxes instead", () => {
+    // Founder, 2026-10-10: "the fonts are too large". The boxes still grow into
+    // the region; the type no longer does (it reached 83px).
     const c = pipeLayout(W, stages);
     const v = pipeLayout(W, stages, undefined, "latin", { budget: 700, region: 838 });
     expect(c.size).toBeLessThanOrEqual(52);
-    expect(v.size).toBeGreaterThan(c.size);
-    expect(v.note).toBeGreaterThan(c.note);
+    expect(v.size).toBeLessThanOrEqual(V2_TYPE.body);
+    expect(v.size).toBeGreaterThanOrEqual(V2_TYPE.floor);
+    expect(v.note).toBe(V2_TYPE.floor);
     expect(v.boxH).toBeGreaterThan(c.boxH);
   });
 
@@ -363,7 +367,7 @@ describe("pipeline under v2", () => {
     expect(v.labelLines.flat().some((l) => /Rectified-flo$/.test(l))).toBe(false);
   });
 
-  it("lifts a five-stage row out of the empty band, past the aspect cap and no further", () => {
+  it("lifts a five-stage row toward the band, past the aspect cap but not the air cap", () => {
     // The 2026-10-09 ko deck, b05: five ~315px boxes, the label held at 56px by
     // the unbreakable "멀티스케일", and the 1.2 aspect stopping the boxes at
     // ~380px — 56% of a 698px region, measured as hollow_at_hold.
@@ -378,18 +382,17 @@ describe("pipeline under v2", () => {
     const region = 698;
     const v = pipeLayout(1700, five, undefined, face, { budget: region, region });
     const fill = v.svgH / region;
-    expect(fill).toBeGreaterThanOrEqual(EMPTY_BELOW);
-    // ...and no further: the target is EMPTY_BELOW + 0.05, not the region caps.
+    // Since the labels stopped at 44px (2026-10-10) the AIR cap binds first: the
+    // box passes the aspect cap toward the band, but never becomes a tall card
+    // around two short words. A quiet row under the band is a warning, by design.
+    expect(fill).toBeGreaterThan(0.5);
     expect(fill).toBeLessThanOrEqual(EMPTY_BELOW + 0.05);
     expect(v.boxH).toBeGreaterThan(v.boxW * 1.2);
+    expect(v.boxH).toBeLessThanOrEqual(0.8 * region);
     for (const s of five) expect(cutsWord(s.label, v.size, v.innerW, 600, face)).toBe(false);
-    // A row the aspect cap already lands in the band (four stages in 680px:
-    // 0.71 fill with the box at exactly 1.2 x its width) keeps its shape. Only
-    // a row under EMPTY_BELOW may pass the cap.
+    // Four stages in 680px: the same caps, the same answer — never past the band's target.
     const four = pipeLayout(1700, five.slice(0, 4), undefined, face, { budget: 680, region: 680 });
-    expect(four.svgH / 680).toBeGreaterThanOrEqual(EMPTY_BELOW);
     expect(four.svgH / 680).toBeLessThan(EMPTY_BELOW + 0.05);
-    expect(four.boxH).toBeLessThanOrEqual(four.boxW * 1.2);
   });
 
   it("predicts a filled region for a three-stage row with a note", () => {
@@ -439,7 +442,10 @@ describe("callout under v2", () => {
     // Rows share the height, and none is lifted out of line with the others.
     expect(rows.css).toContain("grid-auto-rows:1fr");
     expect(rows.tl.some((t) => t.to.scale !== undefined)).toBe(false);
-    expect(panels.tl.some((t) => t.to.scale !== undefined)).toBe(true);
+    // …and under v2 no panel is lifted either: a card popping up as it is read
+    // is the UI-element motion the founder called old-fashioned (2026-10-10).
+    expect(panels.tl.some((t) => t.to.scale !== undefined)).toBe(false);
+    expect(callout(short, ctx()).tl.some((t) => t.to.scale !== undefined)).toBe(true);
     expect(rows.fill ?? 0).toBeGreaterThan(panels.fill ?? 0);
     const long = beat("callout", {
       headline: "A long one",
@@ -553,9 +559,15 @@ describe("claim-figure under v2", () => {
     expect(v.figureArea ?? 0).toBeGreaterThanOrEqual(c.figureArea ?? 0);
   });
 
-  it("grows the claim without adding a line to it", () => {
-    const v = claimFigure(claim, ctx("v2", withFigure(1000, 750)));
-    expect(Number(/#s1 \.claim\{font-size:(\d+)px/.exec(v.css ?? "")?.[1])).toBeGreaterThan(50);
+  it("sets the claim as a body line on the v2 scale, in every arrangement", () => {
+    for (const fig of [withFigure(1000, 750), withFigure(1150, 500), withFigure(400, 900)]) {
+      const v = claimFigure(claim, ctx("v2", fig));
+      const sizes = [...(v.css ?? "").matchAll(/\.claim\{font-size:(\d+)px/g)].map((m) =>
+        Number(m[1]),
+      );
+      expect(sizes.length).toBeGreaterThan(0);
+      for (const n of sizes) expect(n).toBe(V2_TYPE.body);
+    }
   });
 
   it("moves a 2.3:1 figure under its claim, where beside it is width-bound", () => {
@@ -563,20 +575,25 @@ describe("claim-figure under v2", () => {
     expect(claimFigure(claim, ctx(undefined, src)).html).toContain("cf-beside");
     const v = claimFigure(claim, ctx("v2", src));
     expect(v.html).toContain("cf-under");
-    expect(fillBand(v.fit?.fill ?? 0)).toBe("full");
+    // Sparse, not full, since the claim stopped growing to 72px (2026-10-10).
+    expect(fillBand(v.fit?.fill ?? 0)).not.toBe("empty");
   });
 });
 
 describe("equation-walk under v2", () => {
-  it("asks for a bigger display and a bigger legend, scoped to the scene", async () => {
+  it("asks for a display no larger than V2_TYPE.math, and sets the legend as body lines", async () => {
+    // The display was grown to 1.3x classic's 68-108px and the legend to 60px;
+    // the founder's verdict on that scale was "too large" (2026-10-10).
     const { storyboard, source } = await demo();
     const walk = storyboard.beats.find((b) => b.archetype === "equation-walk") as Beat;
     const c = emitScene(walk, ctx(undefined, source));
     const v = emitScene(walk, ctx("v2", source));
     const size = (s: Scene) => Number(/id="s1-eq" style="font-size:(\d+)px/.exec(s.html)?.[1]);
-    expect(size(v)).toBeGreaterThan(size(c));
-    expect(c.css).not.toContain("#s1 .leg{");
-    expect(v.css).toContain("#s1 .leg{font-size:60px}");
+    expect(size(c)).toBeGreaterThan(V2_TYPE.math);
+    expect(size(v)).toBeLessThanOrEqual(V2_TYPE.math);
+    expect(size(v)).toBeGreaterThanOrEqual(V2_TYPE.floor);
+    expect(c.css).toMatch(/\.leg\{[^}]*font-size:48px/);
+    expect(v.css).toMatch(new RegExp(`\\.leg\\{[^}]*font-size:${V2_TYPE.body}px`));
     expect(v.fit?.fill).toBeGreaterThan(0);
   });
 });

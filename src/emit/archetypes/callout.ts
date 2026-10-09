@@ -7,8 +7,9 @@ import { EMPTY_BELOW, fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { esc, lift, settle, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
-import { faceOf, typeOf, wrap } from "../svg.js";
+import { faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE, v2Text } from "../type.js";
 import {
   BODY_LH,
   BODY_SIZE,
@@ -30,21 +31,9 @@ const PANEL_PAD_Y = 36;
 const LABEL_SIZE = 50;
 const LABEL_GAP = 24;
 const LINE_TOP = 10;
-/**
- * v2: how far a callout's TYPE may grow to meet its box. 1.4, under the fit
- * engine's 1.6, because this is running prose: 56px body copy is already a
- * headline's weight, and past it a panel stops reading as a panel.
- */
-const TYPE_GROWTH = 1.4;
 /** The panel's air over its content, from the cap below — the same 1.22 / 1.1. */
 const AIR_ACROSS = 1.22;
 const AIR_DOWN = 1.1;
-/**
- * v2: grown body type never passes this share of the headline. Panel titles
- * grown to 70px under a 62px headline flipped the slide's hierarchy (ja s3,
- * s14, review 2026-10-08).
- */
-const HEADLINE_CAP = 0.9;
 /** `rows`: the label column's share of the box, the gutter beside it, and a row's air. */
 const ROW_LABEL_SHARE = 0.32;
 const ROW_GUTTER = 56;
@@ -111,9 +100,12 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   const column = (box - PANEL_GAP * (cols - 1)) / cols;
   const inner = column - 2 * PANEL_PAD_X;
   /** The two type sizes at scale `k`, floored so the CSS and this arithmetic agree to the px. */
+  // v2 holds both inside the confirmed scale (`V2_TYPE`): the label is a body
+  // line set bold, not a second headline, and growth stops at 44px.
+  const v2 = isV2(ctx);
   const sizes = (k: number) => ({
-    label: Math.floor(LABEL_SIZE * k),
-    body: Math.floor(BODY_SIZE * k),
+    label: v2Text(v2, Math.floor(LABEL_SIZE * k)),
+    body: v2Text(v2, Math.floor(BODY_SIZE * k)),
   });
   /** `measure` under 1 is v2's conservative count — see `MEASURE_SLACK`. */
   const labelW = Math.round(box * ROW_LABEL_SHARE);
@@ -150,7 +142,6 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
     // the panels ARE, before any slack.
     return cols === 1 ? stackedH : Math.max(...heights);
   };
-  const v2 = isV2(ctx);
   // …and this is the height the slide has for them, which every other archetype
   // here asks for and this one did not. The cap below is derived from the content
   // alone, so it grows with the text and walks straight past the box: at 16:9,
@@ -183,10 +174,8 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // panel stays proportional to its content (the reason for the cap above) and
   // the content is what gets bigger. Checked only after classic's own refusal,
   // so v2 refuses exactly the beats classic does.
-  const growth = Math.max(
-    1,
-    Math.min(TYPE_GROWTH, (HEADLINE_CAP * typeOf(face).headline.size) / LABEL_SIZE),
-  );
+  // Body copy grows from 40 to the scale's 44 at most; the label is already there.
+  const growth = V2_TYPE.body / BODY_SIZE;
   const k = v2 ? growToFit((x) => needAt(x, MEASURE_SLACK) * air, budget, 1, growth) : 1;
   const need = k === 1 ? need1 : needAt(k, MEASURE_SLACK);
   // A table's rows may take more air than a box's panels: the rules between them
@@ -237,11 +226,13 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       const finale = v2 && i === p.panels.length - 1;
       if (!finale) tl.push(...spot.dim(`p${i - 1}`, at + 0.15));
       else if (i > 1) tl.push(...spot.restore(at + 0.15));
-      if (!rowsVariant) tl.push(settle(`#${sid}-p${i - 1}`, at, emph));
+      if (!rowsVariant && !v2) tl.push(settle(`#${sid}-p${i - 1}`, at, emph));
     }
     // A table's rows do not stand proud: a lifted row is wider than the rules
-    // of the rows around it, and the table reads as misaligned.
-    if (!rowsVariant) tl.push(lift(`#${sid}-p${i}`, at, emph));
+    // of the rows around it, and the table reads as misaligned. v2 lifts no
+    // panel at all: a card popping up as it is read is the UI-element motion
+    // the founder called old-fashioned (2026-10-10). The dim does the pointing.
+    if (!rowsVariant && !v2) tl.push(lift(`#${sid}-p${i}`, at, emph));
     holds.push(at + 0.65);
   });
 
@@ -291,7 +282,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       `.panel{background:${theme.panel};border:1px solid ${theme.rule};border-left:6px solid ${theme.accent};border-radius:14px;padding:${PANEL_PAD_Y}px ${PANEL_PAD_X}px;font-size:${BODY_SIZE}px;line-height:${BODY_LH};color:${theme.fg}}`,
       // The label is the panel's headline, so it is sized as one rather than as
       // bold body copy that happens to sit on the first line.
-      `.plabel{font-size:${LABEL_SIZE}px;line-height:1.2;font-weight:600;margin-bottom:${LABEL_GAP}px}`,
+      `.plabel{font-size:${v2Text(v2, LABEL_SIZE)}px;line-height:1.2;font-weight:600;margin-bottom:${LABEL_GAP}px}`,
       `.pline{color:${theme.muted};margin-top:${LINE_TOP}px}`,
       noteCss("conote", theme),
       // Scene-scoped: two callouts in one deck grow by different amounts, and the
@@ -307,7 +298,7 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
               : [`#${sid} .panel{display:flex;flex-direction:column;justify-content:center}`]),
           ]
         : []),
-      ...(v2 && k > 1
+      ...(v2
         ? [
             `#${sid} .panel{font-size:${grown.body}px}`,
             `#${sid} .plabel{font-size:${grown.label}px}`,

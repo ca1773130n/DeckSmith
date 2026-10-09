@@ -19,6 +19,7 @@
  * See `src/emit/morph-runtime.ts` for why that, and not a callback.
  */
 import type { BeatOf, Source, Term } from "../../types.js";
+import { isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, js } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
@@ -144,7 +145,7 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
   const size = Math.max(
     MIN_FONT,
     Math.min(
-      equationSize(a.tex.length > b.tex.length ? a.tex : b.tex),
+      equationSize(a.tex.length > b.tex.length ? a.tex : b.tex, isV2(ctx)),
       Math.floor(contentW(ctx.format) / Math.max(texUnits(a.tex), texUnits(b.tex))),
     ),
   );
@@ -234,7 +235,8 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
       ...(["a", "b", "c", "d"] as const).map(
         (tone) => `.morph .t-${tone}{color:${theme.tones[tone]}}`,
       ),
-      legendCss(theme),
+      // v2: the legend is a body line (`V2_TYPE`), not 48px.
+      legendCss(theme, isV2(ctx)),
       ambient(sid, "-morph", BREATHE),
     ].join("\n"),
   };

@@ -13,6 +13,7 @@ import { esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
+import { V2_TYPE } from "../type.js";
 import {
   BODY_LH,
   BODY_SIZE,
@@ -80,8 +81,13 @@ const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
 
 /* ------------------------------------------------------------------ v2 fit */
 
-/** v2: the claim may grow to this, never to more lines than it set on at `CLAIM_SIZE`. */
-const CLAIM_MAX = 72;
+/**
+ * v2: the claim is a body line on the confirmed scale (`V2_TYPE`), in every
+ * arrangement. It used to grow to 72px to fill its column; the founder's
+ * verdict on that was "the fonts are too large" (2026-10-10), so the FIGURE
+ * takes the room now and the claim stays quiet.
+ */
+const V2_CLAIM = V2_TYPE.body;
 /**
  * v2: a figure is drawn up to this many times its natural pixel size. The plate
  * used to be `width:auto;height:auto`, so a 632px figure stayed 632px in a
@@ -181,14 +187,6 @@ function arrangements(
     16 +
     wrap(caption, BODY_SIZE, width * MEASURE_SLACK, 400, 0, face).length *
       Math.round(BODY_SIZE * BODY_LH);
-  /** Grow the claim without adding a line, and without passing `room`. */
-  const grownClaim = (width: number, room: number) => {
-    const lines = claimLines(width, CLAIM_SIZE);
-    let size = CLAIM_MAX;
-    while (size > CLAIM_SIZE && (claimLines(width, size) > lines || claimH(width, size) > room))
-      size--;
-    return size;
-  };
   const plateIn = (w: number, h: number) => {
     const k = Math.max(0, Math.min(w / fig.width, h / fig.height, UPSCALE_MAX));
     return { w: Math.floor(fig.width * k), h: Math.floor(fig.height * k) };
@@ -199,7 +197,7 @@ function arrangements(
       const col = box - BESIDE_COL - 56;
       const cap = capH(col);
       const plate = plateIn(col - PLATE_PAD, region - 34 - 26 - PLATE_PAD - cap);
-      const claimSize = grownClaim(BESIDE_COL, region - 34);
+      const claimSize = V2_CLAIM;
       const right = 26 + plate.h + PLATE_PAD + cap;
       out.push({
         mode,
@@ -209,25 +207,20 @@ function arrangements(
       });
     } else if (mode === "wide") {
       const half = (box - 56) / 2;
-      // The claim grows only into height the figure does not need at its classic
-      // size (its own pixels, or the box's width). Grown without a bound, a
-      // 120-character claim took the plate down to 206px tall — 40% of what
-      // v0.8.0 drew (set20 8872a314 s3, fix-round Tier A).
-      const classicH = Math.min(fig.height, ((box - PLATE_PAD) * fig.height) / fig.width);
-      const claimSize = grownClaim(half, Math.max(0, region - 26 - PLATE_PAD - 26 - classicH));
+      const claimSize = V2_CLAIM;
       const row = Math.max(claimH(half, claimSize), capH(half) - 16);
       const plate = plateIn(box - PLATE_PAD, region - 26 - PLATE_PAD - 26 - row);
       out.push({ mode, claimSize, plate, fit: fitOf(plate.h + PLATE_PAD + 26 + row, region) });
     } else {
-      // Stacked: the claim takes the figure's height, so it does not grow here.
-      const band = claimH(box, CLAIM_SIZE);
+      // Stacked: the claim takes the figure's height.
+      const band = claimH(box, V2_CLAIM);
       const cap = capH(box);
       const plate = plateIn(box - PLATE_PAD, region - 34 - band - 26 - PLATE_PAD - cap);
       const used = band + 26 + plate.h + PLATE_PAD + cap;
       // `.cf-stack` is `space-evenly`: of the slack, the two gaps between its
       // children are inside the painted extent and the two ends are not.
       const slack = Math.max(0, region - 34 - used);
-      out.push({ mode, claimSize: CLAIM_SIZE, plate, fit: fitOf(used + slack / 3, region) });
+      out.push({ mode, claimSize: V2_CLAIM, plate, fit: fitOf(used + slack / 3, region) });
     }
   };
   add(classic);
@@ -697,7 +690,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // 350px hole between the headline and the claim and half that under the
       // caption. Evenly divided, the same slack reads as three equal margins.
       ".cf-stack{display:flex;flex-direction:column;justify-content:space-evenly;flex:1;min-height:0;margin-top:34px}",
-      `.claim{font-size:${CLAIM_SIZE}px;line-height:${CLAIM_LH};color:${theme.fg};border-left:${CLAIM_RULE - 32}px solid ${theme.accent};padding-left:32px}`,
+      `.claim{font-size:${v2 ? V2_CLAIM : CLAIM_SIZE}px;line-height:${CLAIM_LH};color:${theme.fg};border-left:${CLAIM_RULE - 32}px solid ${theme.accent};padding-left:32px}`,
       // The words rise, so they have to be blocks; `inline-block` on an inline
       // run is what makes a transform apply at all.
       ".claim .w{display:inline-block}",

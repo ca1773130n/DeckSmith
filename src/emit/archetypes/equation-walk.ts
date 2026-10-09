@@ -14,6 +14,7 @@ import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
 import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE } from "../type.js";
 import {
   bodyBudget,
   chrome,
@@ -24,16 +25,8 @@ import {
   tween,
 } from "./title.js";
 
-/**
- * v2: the equation's wanted size, grown. `mathFit` measures the rendered line in
- * the browser and steps it DOWN until it fits the box, so a bigger ask can only
- * cost a few measuring steps — never a clipped equation. 1.3 rather than the fit
- * engine's 1.6: a 108px display asked at 173 would be a single symbol per line
- * on most of the corpus' equations, and the walk reads the terms, not the glyphs.
- */
-const EQ_GROWTH = 1.3;
-/** v2: the legend's type, and the air between its rows. Classic is 48 and 30. */
-const LEG_SIZE_V2 = 60;
+/** v2: the legend's type — a body line (`V2_TYPE`) — and the air between its rows. Classic is 48 and 30. */
+const LEG_SIZE_V2 = V2_TYPE.body;
 const LEG_GAP_V2 = 36;
 /** `.eqslide`'s minimum gap between the equation and its legend. */
 const EQ_GAP = 64;
@@ -395,8 +388,10 @@ export function chipSetup(sid: string, term: Term): string {
  * asserted something false. `statements` and the `size` cap below are what make
  * the claim true.
  */
-export function equationSize(tex: string): number {
-  return tex.length > 120 ? 68 : tex.length > 90 ? 80 : tex.length > 55 ? 92 : 108;
+export function equationSize(tex: string, v2 = false): number {
+  const size = tex.length > 120 ? 68 : tex.length > 90 ? 80 : tex.length > 55 ? 92 : 108;
+  // v2: at most `V2_TYPE.math` — see there for why it is not the headline's 56.
+  return v2 ? Math.min(size, V2_TYPE.math) : size;
 }
 
 /**
@@ -449,6 +444,7 @@ function statements(tex: string, stacked: boolean): string[] {
 
 /** The size an equation shown as plain source is set at: the legend's own size. */
 const PLAIN_FONT = 48;
+const PLAIN_FONT_V2 = V2_TYPE.body;
 
 /**
  * Fit the rendered display to its box, measured — SEAM B, after fonts.
@@ -617,14 +613,14 @@ export function legendRows(sid: string, terms: Term[], theme: Theme): string {
     .join("\n    ");
 }
 
-export function legendCss(theme: Theme): string {
+export function legendCss(theme: Theme, v2 = false): string {
   return [
     // `width:fit-content` + auto margins, not `align-items:center`: centring
     // each row individually gave the legend a ragged left edge, because a short
     // label indented its own chip further than a long one did. The column is
     // centred as one block and the rows start on a shared spine.
     ".legend{display:flex;flex-direction:column;gap:30px;width:fit-content;margin-inline:auto}",
-    `.leg{display:flex;gap:26px;align-items:baseline;max-width:1400px;font-size:48px;color:${theme.muted}}`,
+    `.leg{display:flex;gap:26px;align-items:baseline;max-width:1400px;font-size:${v2 ? LEG_SIZE_V2 : 48}px;color:${theme.muted}}`,
     // A common chip width, so the labels share a spine too — the glyphs inside
     // are one symbol each and their natural widths differ by a few pixels.
     // `flex:none`: beside a long label the chip used to SHRINK below its own
@@ -653,7 +649,8 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   const terms = walk.used;
   const v2 = isV2(ctx);
   /** The equation's height once the fit has settled — ESTIMATED, for the prediction only. */
-  let eqH = 2 * PLAIN_FONT * 1.5;
+  const plainFont = v2 ? PLAIN_FONT_V2 : PLAIN_FONT;
+  let eqH = 2 * plainFont * 1.5;
 
   const legend = legendRows(sid, terms, theme);
   const chips = terms.map((t) => chipSetup(sid, t));
@@ -664,7 +661,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
   if (walk.plain) {
     // KaTeX refuses this equation even repaired. Its source, as text, with the
     // terms marked — the walk still walks, and nothing on the slide throws.
-    eqHtml = `<div class="eq eq-plain" id="${sid}-eq" style="font-size:${PLAIN_FONT}px">${plainHtml(eq.tex, terms)}</div>`;
+    eqHtml = `<div class="eq eq-plain" id="${sid}-eq" style="font-size:${plainFont}px">${plainHtml(eq.tex, terms)}</div>`;
     setup = chips;
     measure = [...chipFit(sid, terms), ...swellFit(sid, terms)];
   } else {
@@ -694,7 +691,7 @@ export const equationWalk: Emitter<"equation-walk"> = (beat, ctx) => {
     // This is still an ESTIMATE, from a glyph count. `mathFit` below measures the
     // rendered line and corrects it; see there for what happens when it is wrong.
     const longest = raw.reduce((a, b) => (b.length > a.length ? b : a));
-    const want = v2 ? Math.round(equationSize(longest) * EQ_GROWTH) : equationSize(longest);
+    const want = equationSize(longest, v2);
     const size = Math.max(
       MIN_FONT,
       Math.min(want, Math.floor(contentW(ctx.format) / Math.max(...raw.map(texUnits)))),
@@ -838,7 +835,9 @@ ${slide}`;
   // refused outright: the equation and legend spilled into the foot chrome on an
   // en deck (3b9eaf0b s4, content_overlap at the gate) once a pack's affinity
   // picked that look, and the Director has the top look to fall back on.
-  const grows = v2 && eqH + EQ_GAP + legHeight(LEG_SIZE_V2, LEG_GAP_V2) <= region;
+  // v2's legend is always on v2's scale; it no longer grows, so it always fits
+  // where classic's 48px one did.
+  const grows = v2;
   if (F && eqH + EQ_GAP + legHeight(grows ? LEG_SIZE_V2 : 48, grows ? LEG_GAP_V2 : 30) > region) {
     throw new Error(
       `equation-walk ${beat.id}: the display and its legend need more than the ${Math.round(region)}px a foot headline leaves`,
@@ -886,11 +885,9 @@ ${slide}`;
       ".eq-plain{white-space:pre-wrap;overflow-wrap:anywhere}",
       // Transforms do not apply to inline boxes, and KaTeX spans are inline.
       ".term{display:inline-block}",
-      legendCss(theme),
+      legendCss(theme, v2),
       // Scoped, because `legendCss` is the shared block every walk emits once.
-      ...(grows
-        ? [`#${sid} .legend{gap:${LEG_GAP_V2}px}`, `#${sid} .leg{font-size:${LEG_SIZE_V2}px}`]
-        : []),
+      ...(grows ? [`#${sid} .legend{gap:${LEG_GAP_V2}px}`] : []),
       // The block, not the term under discussion: which term that is, is a fact
       // about the paused timeline, and CSS cannot see it. The terms are also the
       // one thing here GSAP tints and swells, so a rule on them would win the

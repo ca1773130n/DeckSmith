@@ -21,7 +21,6 @@ import type { Scene, Tween } from "../src/emit/kit.js";
 import {
   EMPH_TOTAL,
   ENTRANCES,
-  type Entrance,
   emphasize,
   ensureSeamKinds,
   fnv1a,
@@ -29,13 +28,11 @@ import {
   MOTION_EASES,
   type MotionBeat,
   planMotion,
-  RISE_SHARE,
   restyleEntrance,
   SEAM_CLEAR,
   SEAMS,
   seamIn,
   seamOut,
-  tagOf,
 } from "../src/emit/motion.js";
 import { resolveTheme } from "../src/emit/theme.js";
 import { stopCount } from "../src/narrate/narrate.js";
@@ -167,14 +164,14 @@ describe("planMotion", () => {
     expect(planMotion("paper-a", beats)).not.toEqual(planMotion("paper-b", beats));
   });
 
-  it("never repeats an entrance or a seam back to back, and caps the stock rise", () => {
+  it("fades every beat in, and never repeats a seam back to back", () => {
+    // One entrance verb since 2026-10-10 ("animated UI elements" are the
+    // founder's old-fashioned): variety between scenes is the seams' job.
     for (let k = 0; k < 300; k++) {
       const beats = beatsFor(k, 6 + (k % 20));
       const { entrances, seams } = planMotion(`seed-${k}`, beats);
-      for (let i = 1; i < entrances.length; i++) expect(entrances[i]).not.toBe(entrances[i - 1]);
+      expect(new Set(entrances)).toEqual(new Set(["fade"]));
       for (let i = 1; i < seams.length; i++) expect(seams[i]).not.toBe(seams[i - 1]);
-      const rises = entrances.filter((e) => e === "rise").length;
-      expect(rises).toBeLessThanOrEqual(Math.floor(beats.length * RISE_SHARE));
     }
   });
 
@@ -264,25 +261,41 @@ describe("restyleEntrance", () => {
     }
   });
 
-  it("gives each verb a visibly different arrival on the chrome", () => {
+  it("fades the chrome in place: opacity alone, on a gentle ease", () => {
     const { sid, scene } = demoScenes()[2] as { sid: string; scene: Scene };
-    const shapes = ENTRANCES.map((verb) => {
-      const h = restyleEntrance(scene, sid, verb).tl.find((t) => t.target === `#${sid}-h`) as Tween;
-      return JSON.stringify([Object.keys(h.from).sort(), h.to.ease]);
-    });
-    expect(new Set(shapes).size).toBe(ENTRANCES.length);
+    const h = restyleEntrance(scene, sid, "fade").tl.find((t) => t.target === `#${sid}-h`) as Tween;
+    expect(h.from).toEqual({ opacity: 0 });
+    expect(h.to.ease).toBe("sine.out");
+    expect(Object.keys(h.to).sort()).toEqual(["duration", "ease", "opacity"]);
   });
 
-  it("only clips or blurs an element it can see is HTML", () => {
+  it("takes every slide, pop and grow out of an entrance, on every archetype", () => {
+    // The founder, 2026-10-10: no plates, chips, cards, labels or boxes sliding
+    // or popping in as the motion. Includes the `immediateRender: false`
+    // reveals of a card's own lines, which used to be skipped.
+    const moves = /^(x|y|xPercent|yPercent|scale|scaleX|scaleY|rotation|clipPath|filter)$/;
+    let entrances = 0;
     for (const { sid, scene } of demoScenes()) {
-      for (const verb of ["focus", "wipe", "mask"] as Entrance[]) {
-        for (const t of restyleEntrance(scene, sid, verb).tl) {
-          if (!("clipPath" in t.from) && !("filter" in t.from)) continue;
-          const tag = tagOf(scene.html, t.target) ?? (t.target.endsWith(`${sid}-h`) ? "h2" : "");
-          expect(["div", "h2", "p", "span", "figure", "img", "figcaption", "li"]).toContain(tag);
-        }
-      }
+      const out = restyleEntrance(scene, sid, "fade");
+      out.tl.forEach((t, j) => {
+        const before = scene.tl[j] as Tween;
+        if (!isEntrance(before)) return;
+        const transient = scene.tl.some(
+          (o) => o !== before && o.target === before.target && o.to.opacity === 0,
+        );
+        if (transient) return;
+        entrances++;
+        expect(
+          Object.keys(t.from).filter((k) => moves.test(k)),
+          `${sid} ${t.target}`,
+        ).toEqual([]);
+        expect(
+          Object.keys(t.to).filter((k) => moves.test(k)),
+          `${sid} ${t.target}`,
+        ).toEqual([]);
+      });
     }
+    expect(entrances).toBeGreaterThan(40);
   });
 
   it("leaves a transient part's path alone (pipeline's travelling pulse)", () => {
@@ -300,7 +313,7 @@ describe("restyleEntrance", () => {
 
   it("starts the chrome no sooner than SEAM_CLEAR and ends it where it ended", () => {
     for (const { sid, scene } of demoScenes()) {
-      const out = restyleEntrance(scene, sid, "slide");
+      const out = restyleEntrance(scene, sid, "fade");
       for (const t of out.tl.filter((x) => /-[eh]$/.test(x.target))) {
         expect(t.at).toBeGreaterThanOrEqual(SEAM_CLEAR);
       }
@@ -410,8 +423,25 @@ describe("a v2 deck, against the plan's M4 targets", () => {
     expect(new Set(motionStats(v2.composition).seams).size).toBeGreaterThanOrEqual(3);
   });
 
-  it("puts at most 60% of tweens on its two commonest eases", () => {
-    expect(topTwoEaseShare(motionStats(v2.composition))).toBeLessThanOrEqual(0.6);
+  it("slides, pops and sweeps nothing in: every reveal in the deck is an opacity fade", () => {
+    // Founder, 2026-10-10. Every opacity 0 → 1 reveal in the v2 composition,
+    // chrome and parts alike, carries no travel, scale, clip or blur — except a
+    // transient that leaves again (pipeline's travelling pulse is the figure's
+    // own motion, not an arrival).
+    const moves = /^(x|y|xPercent|yPercent|scale|scaleX|scaleY|rotation|clipPath|filter)$/;
+    let reveals = 0;
+    for (const [sid, list] of sceneTweens(v2.composition)) {
+      for (const t of list) {
+        if (t.from.opacity !== 0 || t.to.opacity !== 1 || t.target === `#${sid}`) continue;
+        if (list.some((o) => o.target === t.target && o.to.opacity === 0)) continue;
+        reveals++;
+        expect(
+          Object.keys(t.from).filter((k) => moves.test(k)),
+          `${sid} ${t.target}`,
+        ).toEqual([]);
+      }
+    }
+    expect(reveals).toBeGreaterThan(40);
   });
 
   it("writes only eases from the allow-list, and no tween of its own over a second", () => {
@@ -517,14 +547,14 @@ describe("emphasis during the narration hold", () => {
 
   it("times each emphasis to a cue boundary of the sentence about it", () => {
     const sid = "s3";
-    const scene = restyleEntrance(demoScenes()[2]?.scene as Scene, sid, "rise");
+    const scene = restyleEntrance(demoScenes()[2]?.scene as Scene, sid, "fade");
     const seg = { stop: 0, seconds: 6, cues: [{ start: 0 }, { start: 2.5 }] };
     const lastHold = Math.max(...scene.holds);
     const { scene: out } = emphasize(scene, sid, {
       segments: [seg],
       starts: [lastHold - 0.5],
       end: lastHold + 8,
-      kinds: ["glow", "pulse", "underline"],
+      kinds: ["glow"],
       accent: ink.accent,
     });
     const added = out.tl.slice(scene.tl.length);
@@ -532,39 +562,6 @@ describe("emphasis during the narration hold", () => {
     // The sentence starts before the build has settled, so its first boundary
     // is skipped and the second (2.5s in) is the one used.
     expect(added[0]?.at).toBeCloseTo(lastHold - 0.5 + 2.5, 3);
-  });
-
-  it("never pulses a part flush with its svg's edge — its outline would be clipped (r1 s5)", () => {
-    const { sid, scene } = demoScenes().find((x) => x.scene.html.includes("-pulse0")) as {
-      sid: string;
-      scene: Scene;
-    };
-    const stages = [...scene.html.matchAll(/id="(s\d+-stage\d+)"/g)].map((m) => `#${m[1]}`);
-    // The first and the last stage fill the content width to its edges.
-    expect(scene.noLift).toEqual(expect.arrayContaining([stages[0], stages[stages.length - 1]]));
-    const run = (sc: Scene) => {
-      const lastHold = Math.max(...sc.holds);
-      const out = emphasize(sc, sid, {
-        segments: sc.holds.map((_, stop) => ({
-          stop,
-          seconds: 6,
-          cues: [{ start: 0 }, { start: 2.5 }],
-        })),
-        starts: sc.holds.map((h) => h - 0.5),
-        end: lastHold + 8,
-        kinds: ["pulse"],
-        accent: ink.accent,
-      }).scene;
-      return out.tl
-        .slice(sc.tl.length)
-        .filter((t) => "scale" in t.to)
-        .map((t) => t.target);
-    };
-    const pulsed = run(scene);
-    for (const t of scene.noLift ?? []) expect(pulsed).not.toContain(t);
-    // Without the list the same scene pulses an edge stage: the test can fail.
-    const unguarded = run({ ...scene, noLift: [] });
-    expect(unguarded.some((t) => (scene.noLift ?? []).includes(t))).toBe(true);
   });
 
   it("is back at rest on every hold, so no gate frame changes", () => {

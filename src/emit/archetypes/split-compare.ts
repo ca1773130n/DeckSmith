@@ -22,7 +22,7 @@
  * device, same order, same claim that these are one question answered twice.
  */
 import type { Figure } from "../../types.js";
-import { fitOf, GROWTH, isV2 } from "../fit.js";
+import { fitOf, isV2 } from "../fit.js";
 import type { Emitter, ListForm, Theme } from "../kit.js";
 import { esc, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
@@ -45,6 +45,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE } from "../type.js";
 import {
   chromeCss,
   chromeIn,
@@ -77,14 +78,6 @@ const ITEM_GAP = 0.45;
  * a 476x812 hole down the right of the canvas.
  */
 const ITEM_SIZES = [52, 50, 48, 46, 44, 42, MIN_FONT];
-/**
- * v2 only: how many lines a grown item may take, unless it already took more
- * at the classic head size. Two short lists in a ~700px region set at 52px
- * filled about half of it (2026-10-09 ko deck, b04: rows ending at y≈425 of a
- * 698px region); growing the type is the fill, and two lines is as far as a
- * bullet can wrap before it stops reading as one item.
- */
-const GROWN_ITEM_LINES = 2;
 
 const NAME = ["left", "right"] as const;
 
@@ -213,19 +206,13 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   // svg's bottom edge: the 2026-10-09 ko deck's b08 (rows, chalk) drew its
   // third card to 830.5 in an 820px svg, a `container_overflow` that shipped.
   const tail = (size: number) => (form === "card" ? size * 0.3 : 0);
-  const head = ITEM_SIZES[0] ?? MIN_FONT;
-  const lines = sides.flatMap((s) => s.lines ?? []);
-  // v2 tries item sizes above the classic head, up to the heading's own size,
-  // as long as no item wraps past GROWN_ITEM_LINES that did not already at head.
-  const wrapsWell = (size: number) =>
-    lines.every(
-      (t) =>
-        wrap(t, size, itemW, 400, 0, face).length <=
-        Math.max(GROWN_ITEM_LINES, wrap(t, head, itemW, 400, 0, face).length),
-    );
-
+  // v2 sets headings and items on the confirmed scale (`V2_TYPE`): 44px at
+  // most, never grown. They used to grow by `GROWTH` to fill the region (90px
+  // headings, 60px items), which is the "fonts are too large" the founder named.
+  const v2 = isV2(ctx);
+  const items = v2 ? ITEM_SIZES.filter((size) => size <= V2_TYPE.body) : ITEM_SIZES;
   /** The headings at the largest size up to `cap` that clears the gutter, and one item size under them. */
-  const solve = (cap: number, grow: boolean) => {
+  const solve = (cap: number) => {
     // The labels are the one thing that can collide with the divider, so solve the
     // size against the half-width rather than picking one and hoping. `textWidth`
     // is linear in size, so the largest that clears the gutter is a division. At
@@ -255,22 +242,12 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
         const fig = figs[i] ? MIN_FIG + (list > 0 ? STACK_GAP : 0) : 0;
         return list + fig + (list > 0 ? tail(size) : 0) <= contentH;
       });
-    const grown: number[] = [];
-    if (grow) {
-      for (let s = Math.min(Math.floor(head * GROWTH), labelSize); s > head; s -= 2) grown.push(s);
-    }
-    const itemSize = grown.find((s) => wrapsWell(s) && fits(s)) ?? ITEM_SIZES.find(fits);
+    const itemSize = items.find(fits);
     return { labelSize, labelLh, hairY, contentY, contentH, itemSize };
   };
-  // v2 GROWS the headings and the lists under them by the factor every
-  // archetype's type grows by — but a taller heading band is room the lists
-  // lose, so the grown heading is kept only while the lists still set at the
-  // classic head size or larger. Otherwise the classic heading, as before:
-  // b08's rows lanes are ~364px, and a 90px "학습" left three items no room.
-  const v2 = isV2(ctx);
-  const big = v2 ? solve(LABEL_MAX * GROWTH, true) : undefined;
-  const { labelSize, labelLh, hairY, contentY, contentH, itemSize } =
-    big?.itemSize !== undefined && big.itemSize >= head ? big : solve(LABEL_MAX, false);
+  const { labelSize, labelLh, hairY, contentY, contentH, itemSize } = solve(
+    v2 ? V2_TYPE.body : LABEL_MAX,
+  );
   if (itemSize === undefined) {
     throw new Error(
       `split-compare ${beat.id}: the panels do not fit beside each other at the ${MIN_FONT}px floor — shorten the lines or split the beat`,
@@ -456,7 +433,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
 
   const note = p.note ? `\n<div class="sc-note" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html = F.compose(
-    `<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`,
+    `<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + (isV2(ctx) ? "" : highlight))}</div>${note}`,
   );
 
   const at = [1.15, 2.05];
@@ -520,29 +497,32 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       // exactly then: it is the only element on the slide that belongs to
       // neither side.
       const span = (tall ? W : divEnd) - HIGHLIGHT;
-      tl.push(
-        tween(`#${sid}-divhi`, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t),
-        ...travel(
-          `#${sid}-divhi`,
-          tall
-            ? [
-                { x: 0, y: 0 },
-                { x: span, y: 0 },
-              ]
-            : [
-                { x: 0, y: 0 },
-                { x: 0, y: span },
-              ],
-          t,
-          0.9,
-        ),
-        tween(
-          `#${sid}-divhi`,
-          { opacity: 1 },
-          { opacity: 0, duration: 0.3, immediateRender: false },
-          t + 0.9,
-        ),
-      );
+      // v2 sweeps no highlight down the divider: a light running along a rule
+      // is UI-element motion (founder, 2026-10-10). The divider just is.
+      if (!isV2(ctx))
+        tl.push(
+          tween(`#${sid}-divhi`, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t),
+          ...travel(
+            `#${sid}-divhi`,
+            tall
+              ? [
+                  { x: 0, y: 0 },
+                  { x: span, y: 0 },
+                ]
+              : [
+                  { x: 0, y: 0 },
+                  { x: 0, y: span },
+                ],
+            t,
+            0.9,
+          ),
+          tween(
+            `#${sid}-divhi`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.3, immediateRender: false },
+            t + 0.9,
+          ),
+        );
     }
     holds.push(t + 0.8);
   });

@@ -33,11 +33,12 @@
  * reaches the strip either.
  */
 import type { Figure, STAGE_PLACEMENTS } from "../../types.js";
-import { MEASURE_SLACK } from "../fit.js";
+import { isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween } from "../kit.js";
 import { contentW, esc, PAD_X, PAD_Y, refHeight, refWidth, reserveRef } from "../kit.js";
 import { displayFace, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE } from "../type.js";
 import { pieceTimeline, plate } from "./claim-figure.js";
 import { holdsWithin, isPortrait, tween } from "./title.js";
 
@@ -233,6 +234,8 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
   const placement = p.placement === "none" ? undefined : p.placement;
   const face = faceOf(theme.fontStack);
   const type = typeOf(face);
+  // v2: the headline is the deck's headline size (`V2_TYPE`), picture or not.
+  const headSize = isV2(ctx) ? V2_TYPE.headline : HEAD_SIZE;
   let col = 0;
   let textH = 0;
   let textW = 0;
@@ -247,13 +250,13 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
     for (const share of shares) {
       col = Math.round(full * share);
       const measure = col * MEASURE_SLACK;
-      head = wrap(p.headline, HEAD_SIZE, measure, type.headline.weight, 0, displayFace(face));
+      head = wrap(p.headline, headSize, measure, type.headline.weight, 0, displayFace(face));
       lines = p.line ? wrap(p.line, LINE_SIZE, measure, 400, 0, face) : [];
       if (head.length <= MAX_HEAD_LINES && lines.length <= MAX_LINE_LINES) break;
     }
     if (head.length > MAX_HEAD_LINES) {
       throw new Error(
-        `${who}: the headline sets on ${head.length} lines in the ${placement} column at ${HEAD_SIZE}px, ` +
+        `${who}: the headline sets on ${head.length} lines in the ${placement} column at ${headSize}px, ` +
           `and the overlay holds ${MAX_HEAD_LINES} even across the full width — shorten it`,
       );
     }
@@ -272,13 +275,11 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
     // Widened by the slack the wrap allowed for (the measure is an estimate),
     // and never past the column the browser sets the lines in.
     const widest = Math.max(
-      ...head.map((l) =>
-        textWidth(l, HEAD_SIZE, type.headline.weight, 0, false, displayFace(face)),
-      ),
+      ...head.map((l) => textWidth(l, headSize, type.headline.weight, 0, false, displayFace(face))),
       ...lines.map((l) => textWidth(l, LINE_SIZE, 400, 0, false, face)),
     );
     textW = Math.min(col, Math.ceil(widest / MEASURE_SLACK));
-    textH = head.length * Math.round(HEAD_SIZE * HEAD_LH);
+    textH = head.length * Math.round(headSize * HEAD_LH);
     if (lines.length) textH += LINE_GAP + lines.length * Math.round(LINE_SIZE * LINE_LH);
   }
   const scrim = placement && scrimFor(placement, textH, textW, refWidth(format), boxH);
@@ -364,7 +365,7 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
             // is where the column's free space goes.
             `.stg-t{position:relative;display:flex;flex-direction:column}`,
             `#${sid} .stg-t{max-width:${col}px;${BLOCK[placement]}}`,
-            `.stg-h{${family}font-size:${HEAD_SIZE}px;line-height:${HEAD_LH};font-weight:${type.headline.weight};color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45);text-wrap:balance}`,
+            `.stg-h{${family}font-size:${headSize}px;line-height:${HEAD_LH};font-weight:${type.headline.weight};color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45);text-wrap:balance}`,
             `.stg-l{font-size:${LINE_SIZE}px;line-height:${LINE_LH};color:#ececec;margin-top:${LINE_GAP}px;text-shadow:0 2px 10px rgba(0,0,0,.45)}`,
           ]
         : []),

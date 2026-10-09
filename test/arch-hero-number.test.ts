@@ -51,6 +51,11 @@ const ctx = (format: Format = FORMATS["deck-16x9"] as Format): EmitContext => ({
   start: 0,
   design: "v2",
 });
+/** The odometer is classic's: v2 sets the figure as a 56px statement. */
+const classic = (format?: Format): EmitContext => {
+  const { design: _v2, ...rest } = ctx(format);
+  return rest;
+};
 
 type Params = BeatOf<"hero-number">["params"];
 const beat = (params: Partial<Params> = {}): BeatOf<"hero-number"> => ({
@@ -73,8 +78,8 @@ const beat = (params: Partial<Params> = {}): BeatOf<"hero-number"> => ({
 const sizes = (css: string) => [...css.matchAll(/font-size:(\d+)px/g)].map((m) => Number(m[1]));
 
 describe("hero-number", () => {
-  it("rolls each digit's reel a whole number of cells to that digit, with tweens alone", () => {
-    const scene = heroNumber(beat(), ctx());
+  it("classic: rolls each digit's reel a whole number of cells to that digit, with tweens alone", () => {
+    const scene = heroNumber(beat(), classic());
     const cell = Number(/\.hn-s>span\{height:(\d+)px/.exec(scene.css ?? "")?.[1]);
     expect(cell).toBeGreaterThan(0);
     const reels = scene.tl.filter((t) => /-r\d+$/.test(t.target));
@@ -99,23 +104,23 @@ describe("hero-number", () => {
     expect(code).not.toMatch(/textContent|innerHTML|innerText/);
   });
 
-  it("lands the most significant reel first and turns the least significant most", () => {
+  it("classic: lands the most significant reel first and turns the least significant most", () => {
     expect([0, 1, 2, 3].map((i) => turnsOf(i))).toEqual([1, 2, 3, 3]);
-    const scene = heroNumber(beat(), ctx());
+    const scene = heroNumber(beat(), classic());
     const ends = scene.tl
       .filter((t) => /-r\d+$/.test(t.target))
       .map((t) => t.at + Number(t.to.duration));
     expect([...ends].sort((a, b) => a - b)).toEqual(ends);
   });
 
-  it("leaves a character that is not a digit standing still", () => {
-    const scene = heroNumber(beat({ value: "1/4", unit: undefined }), ctx());
+  it("classic: leaves a character that is not a digit standing still", () => {
+    const scene = heroNumber(beat({ value: "1/4", unit: undefined }), classic());
     expect(scene.html).toContain('<span class="hn-c">/</span>');
     expect(scene.tl.filter((t) => /-r\d+$/.test(t.target))).toHaveLength(2);
   });
 
-  it("clips the reels with a clip-path the audits read, and tells them the overflow is meant", () => {
-    const scene = heroNumber(beat(), ctx());
+  it("classic: clips the reels with a clip-path the audits read, and tells them the overflow is meant", () => {
+    const scene = heroNumber(beat(), classic());
     expect(scene.css).toMatch(/\.hn-r\{height:\d+px;clip-path:inset\(0\)\}/);
     expect(scene.css).not.toMatch(/\.hn-r\{[^}]*overflow:hidden/);
     expect(scene.html).toMatch(
@@ -123,23 +128,23 @@ describe("hero-number", () => {
     );
   });
 
-  it("sets a short number larger than a long one, and every size at or above the floor", () => {
+  it("classic: sets a short number larger than a long one, and every size at or above the floor", () => {
     const big = (s: string) => Number(/\.hn-n\{font-size:(\d+)px/.exec(s)?.[1]);
-    const one = heroNumber(beat({ value: "1", unit: undefined }), ctx());
-    const long = heroNumber(beat({ value: "175.21" }), ctx());
+    const one = heroNumber(beat({ value: "1", unit: undefined }), classic());
+    const long = heroNumber(beat({ value: "175.21" }), classic());
     expect(big(one.css ?? "")).toBeGreaterThan(big(long.css ?? ""));
     for (const s of [one, long])
       for (const n of sizes(s.css ?? "")) expect(n).toBeGreaterThanOrEqual(MIN_FONT);
   });
 
-  it("scopes every rule that changes with the beat to its own scene", () => {
+  it("classic: scopes every rule that changes with the beat to its own scene", () => {
     // The shell emits each distinct rule once for the whole deck. An unscoped
     // `.hn-r{height:…}` from one beat would set every hero-number's cells to the
     // last height emitted, and the reels would land between digits.
-    const a = heroNumber(beat({ value: "1", unit: undefined }), ctx());
+    const a = heroNumber(beat({ value: "1", unit: undefined }), classic());
     const b = heroNumber(
       beat({ value: "175.21", compare: { value: "29.73", label: "DehazeFormer-b" } }),
-      ctx(),
+      classic(),
     );
     const lines = (s: { css?: string }) => new Set((s.css ?? "").split("\n"));
     const [la, lb] = [lines(a), lines(b)];
@@ -242,12 +247,54 @@ describe("hero-number", () => {
 
   it("refuses what it cannot draw, by name, rather than shrinking it", () => {
     expect(() => heroNumber(beat({ value: "about half" }), ctx())).toThrow(/no digit to roll/);
-    expect(() => heroNumber(beat({ value: "1234567890123456" }), ctx())).toThrow(
+    expect(() => heroNumber(beat({ value: "1234567890123456" }), classic())).toThrow(
       /does not fit across/,
+    );
+    expect(() => heroNumber(beat({ value: "1234567890".repeat(5) }), ctx())).toThrow(
+      /does not fit across the frame at 56px/,
     );
     expect(() =>
       heroNumber(beat({ headline: "A sentence that goes on ".repeat(8) }), ctx()),
     ).toThrow(/headline sets on \d+ lines/);
+  });
+
+  it("v2: sets the figure as a 56px statement, with no reels", () => {
+    // Founder, 2026-10-10: "the fonts are too large" — no 160-560px numerals.
+    for (const value of ["1", "43.63", "175.21"]) {
+      const scene = heroNumber(beat({ value }), ctx());
+      expect(scene.css).toContain("#s3 .hn-n{font-size:56px;");
+      expect(scene.html).not.toContain("hn-r");
+      expect(scene.html).toContain(`>${value}<span class="hn-u"`);
+    }
+  });
+
+  it("v2: brings every part in by opacity alone — nothing rolls, slides or grows", () => {
+    // "Graphic animation by animated UI elements is old-fashioned" (2026-10-10).
+    const all = [
+      beat(),
+      beat({ eyebrow: "Energy", compare: { value: "175.21", label: "SFRDP-Net" } }),
+      beat({ value: "30.56", unit: "dB", compare: { value: "29.73", label: "DehazeFormer-b" } }),
+    ];
+    for (const b of all) {
+      for (const t of heroNumber(b, ctx()).tl) {
+        expect(Object.keys(t.from), t.target).toEqual(["opacity"]);
+        expect(Object.keys(t.to).filter((k) => /^(x|y|scale|scaleX|scaleY)$/.test(k))).toEqual([]);
+      }
+    }
+  });
+
+  it("v2: keeps every declared size on the confirmed scale, 40 to 56px", () => {
+    for (const id of ["deck-16x9", "short-9x16", "post-1x1"] as const) {
+      for (const b of [
+        beat({ eyebrow: "Energy", compare: { value: "175.21", label: "SFRDP-Net" } }),
+        beat({ value: "30.56", unit: "dB", compare: { value: "29.73", label: "DehazeFormer-b" } }),
+      ]) {
+        for (const n of sizes(heroNumber(b, ctx(FORMATS[id] as Format)).css ?? "")) {
+          expect(n, id).toBeGreaterThanOrEqual(MIN_FONT);
+          expect(n, id).toBeLessThanOrEqual(56);
+        }
+      }
+    }
   });
 
   it("stands on a field of the pack's colours without a backdrop, and on its picture with one", () => {

@@ -32,15 +32,24 @@
  * either way — so every ink here is light, and its contrast is that module's
  * proof rather than this one's.
  *
+ * UNDER v2 IT IS A STATEMENT, NOT A SPECTACLE. The founder (2026-10-10): the
+ * fonts are too large, and UI elements doing moves are old-fashioned. So a v2
+ * hero number is set at the headline's 56px (`V2_TYPE`) in the accent, with no
+ * reels; its label and comparison are body lines; bars are drawn at their
+ * length; and every part simply fades in where it stands. What moves is the
+ * picture under it — the backdrop's drift, the field. Classic keeps the
+ * odometer below, byte for byte.
+ *
  * NOTHING SHRINKS BELOW THE FLOOR. The number steps down from `NUM_MAX` until
  * the whole block fits the frame; a value that does not fit at `NUM_MIN`, or a
  * headline past two lines, is refused by name, never squeezed.
  */
-import { MEASURE_SLACK } from "../fit.js";
-import type { Emitter, Tween } from "../kit.js";
+import { isV2, MEASURE_SLACK } from "../fit.js";
+import type { Emitter, Tween, Vars } from "../kit.js";
 import { contentH, contentW, esc } from "../kit.js";
 import { displayFace, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE, v2Text } from "../type.js";
 import { holdsWithin, tween } from "./title.js";
 
 /**
@@ -98,6 +107,8 @@ const BAR_IN = 0.7;
 const HERO_BAR_AT = 2.1;
 const HEAD_AFTER = 0.4;
 const HEAD_IN = 0.6;
+/** v2: the figure's fade, in place of the roll. */
+const NUM_FADE = 0.6;
 
 /** The value's characters: a digit is a reel, anything else stands still. */
 type Glyph = { reel: true; digit: number } | { reel: false; char: string };
@@ -154,6 +165,13 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   const W = contentW(format);
   const H = contentH(format);
 
+  // v2: a STATEMENT, not a spectacle (founder, 2026-10-10: no 160-560px
+  // numerals, no UI elements doing moves). The figure is set at the headline's
+  // size in the accent, with no reels; every part fades in where it stands,
+  // and the motion is the backdrop's or the field's. Classic keeps the odometer.
+  const v2 = isV2(ctx);
+  const labelSize = v2Text(v2, LABEL_SIZE);
+  const versusSize = v2Text(v2, VERSUS_SIZE);
   const marks = glyphs(p.value);
   const reels = marks.filter((g) => g.reel).length;
   if (reels === 0) {
@@ -174,7 +192,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
       `${who}: the headline sets on ${head.length} lines at ${HEAD_SIZE}px and the frame holds ${MAX_HEAD_LINES} under the number — shorten it`,
     );
   }
-  const label = wrap(p.label, LABEL_SIZE, W * MEASURE_SLACK, 500, 0, face);
+  const label = wrap(p.label, labelSize, W * MEASURE_SLACK, 500, 0, face);
   const rowLine = Math.round(ROW_SIZE * ROW_LH);
   const valueColW = Math.round(W * VALUE_COL);
   const rowLabels = bars && p.compare ? [p.compare.label, p.label] : [];
@@ -196,7 +214,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
     p.compare && !bars
       ? wrap(
           `${p.compare.value}${p.unit ? ` ${p.unit}` : ""} · ${p.compare.label}${delta ? ` · ${delta}` : ""}`,
-          VERSUS_SIZE,
+          versusSize,
           W * MEASURE_SLACK,
           500,
           0,
@@ -210,40 +228,40 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   }
   const words =
     (p.eyebrow ? Math.round(eb.size * eb.lh) + GAP : 0) +
-    (bars ? 0 : GAP + label.length * Math.round(LABEL_SIZE * LABEL_LH)) +
+    (bars ? 0 : GAP + label.length * Math.round(labelSize * LABEL_LH)) +
     (bars
       ? BARS_TOP + rowLines.reduce((h, n) => h + Math.max(n * rowLine, BAR_H), 0) + ROW_GAP
       : 0) +
-    (versus.length ? GAP + Math.round(VERSUS_SIZE * 1.2) : 0) +
+    (versus.length ? GAP + Math.round(versusSize * 1.2) : 0) +
     HEAD_GAP +
     head.length * Math.round(HEAD_SIZE * HEAD_LH);
 
   // THE NUMBER: the largest size at which value and unit fit across, and the
   // whole block fits down.
+  const unitOf = (size: number) => v2Text(v2, Math.round(size * UNIT_SHARE), V2_TYPE.body);
   const across = (size: number) =>
     textWidth(p.value, size, 800, 0, true, dFace) +
-    (p.unit
-      ? size * UNIT_GAP + textWidth(p.unit, Math.round(size * UNIT_SHARE), 600, 0, false, face)
-      : 0);
-  let size = NUM_MAX;
+    (p.unit ? size * UNIT_GAP + textWidth(p.unit, unitOf(size), 600, 0, false, face) : 0);
+  const numMin = v2 ? V2_TYPE.headline : NUM_MIN;
+  let size = v2 ? V2_TYPE.headline : NUM_MAX;
   while (
-    size > NUM_MIN &&
+    size > numMin &&
     (across(size) > W * MEASURE_SLACK || Math.round(size * CELL_LH) + GAP + words > H)
   ) {
     size -= NUM_STEP;
   }
   if (across(size) > W * MEASURE_SLACK) {
     throw new Error(
-      `${who}: "${p.value}${p.unit ? ` ${p.unit}` : ""}" does not fit across the frame at ${NUM_MIN}px — a hero number is a figure, not a phrase`,
+      `${who}: "${p.value}${p.unit ? ` ${p.unit}` : ""}" does not fit across the frame at ${numMin}px — a hero number is a figure, not a phrase`,
     );
   }
   if (Math.round(size * CELL_LH) + GAP + words > H) {
     throw new Error(
-      `${who}: the number, its label${p.compare ? ", the comparison" : ""} and the headline do not fit the frame with the number at ${NUM_MIN}px — shorten the words`,
+      `${who}: the number, its label${p.compare ? ", the comparison" : ""} and the headline do not fit the frame with the number at ${numMin}px — shorten the words`,
     );
   }
   const cell = Math.round(size * CELL_LH);
-  const unitSize = Math.round(size * UNIT_SHARE);
+  const unitSize = unitOf(size);
 
   // THE REELS. Clipped by `clip-path`, not `overflow`: a reel's other digits
   // are drawn outside its cell on purpose, and both hyperframes audits skip
@@ -255,28 +273,33 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   // cell and the canvas while it rolls.
   let r = 0;
   const reelTl: Tween[] = [];
-  const num = marks
-    .map((g) => {
-      if (!g.reel) return `<span class="hn-c">${esc(g.char)}</span>`;
-      const i = r++;
-      const stops = turnsOf(i) * 10 + g.digit;
-      const strip = Array.from({ length: stops + 1 }, (_, k) => `<span>${k % 10}</span>`).join("");
-      reelTl.push(
-        tween(
-          `#${sid}-r${i}`,
-          { y: 0 },
-          {
-            y: -stops * cell,
-            duration: Math.round((ROLL_BASE + ROLL_PER_REEL * i) * 1000) / 1000,
-            ease: "power3.out",
-          },
-          NUM_AT,
-        ),
-      );
-      return `<span class="hn-r" data-layout-allow-overflow data-layout-allow-occlusion><span class="hn-s" id="${sid}-r${i}">${strip}</span></span>`;
-    })
-    .join("");
-  const landed = NUM_AT + ROLL_BASE + ROLL_PER_REEL * (reels - 1);
+  const num = v2
+    ? esc(p.value)
+    : marks
+        .map((g) => {
+          if (!g.reel) return `<span class="hn-c">${esc(g.char)}</span>`;
+          const i = r++;
+          const stops = turnsOf(i) * 10 + g.digit;
+          const strip = Array.from({ length: stops + 1 }, (_, k) => `<span>${k % 10}</span>`).join(
+            "",
+          );
+          reelTl.push(
+            tween(
+              `#${sid}-r${i}`,
+              { y: 0 },
+              {
+                y: -stops * cell,
+                duration: Math.round((ROLL_BASE + ROLL_PER_REEL * i) * 1000) / 1000,
+                ease: "power3.out",
+              },
+              NUM_AT,
+            ),
+          );
+          return `<span class="hn-r" data-layout-allow-overflow data-layout-allow-occlusion><span class="hn-s" id="${sid}-r${i}">${strip}</span></span>`;
+        })
+        .join("");
+  // v2 has no roll: the figure has landed when its fade has.
+  const landed = v2 ? NUM_AT + NUM_FADE : NUM_AT + ROLL_BASE + ROLL_PER_REEL * (reels - 1);
 
   // THE COMPARISON. The longer bar takes the whole track; the other its share.
   const longest = bars ? Math.max(a as number, b as number) : 1;
@@ -307,45 +330,70 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
     .join("\n");
 
   const tl: Tween[] = [];
+  /**
+   * An arrival: classic's own move, or under v2 the same opacity reveal at the
+   * same time and length with the move taken out — so holds stay where they
+   * were and nothing slides.
+   */
+  const enter = (target: string, from: Vars, to: Vars, at: number): Tween => {
+    if (!v2) return tween(target, from, to, at);
+    const keep = Object.fromEntries(
+      Object.entries(to).filter(([k]) => k !== "x" && k !== "y" && k !== "ease"),
+    ) as Vars;
+    return tween(target, { opacity: 0 }, { ...keep, opacity: 1, ease: "sine.out" }, at);
+  };
   if (p.eyebrow) {
     tl.push(
-      tween(`#${sid}-e`, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, EYEBROW_AT),
+      enter(`#${sid}-e`, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, EYEBROW_AT),
     );
   }
   tl.push(
-    tween(`#${sid}-n`, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power1.out" }, NUM_AT),
+    tween(
+      `#${sid}-n`,
+      { opacity: 0 },
+      { opacity: 1, duration: v2 ? NUM_FADE : 0.4, ease: v2 ? "sine.out" : "power1.out" },
+      NUM_AT,
+    ),
   );
-  tl.push(...reelTl);
+  if (!v2) tl.push(...reelTl);
   if (p.unit) {
     tl.push(
-      tween(`#${sid}-u`, { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.5 }, landed - 0.3),
+      enter(`#${sid}-u`, { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.5 }, landed - 0.3),
     );
   }
   let settled = landed;
   if (bars) {
-    // The baseline, then the value against it: the bar that is the point grows last.
+    // The baseline, then the value against it: the bar that is the point grows
+    // last — in classic. v2 draws each bar at its length and fades it in.
     const at = [COMPARE_AT, HERO_BAR_AT] as const;
     for (const k of [0, 1] as const) {
       tl.push(
-        tween(`#${sid}-rl${k}`, { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.5 }, at[k]),
-        tween(
-          `#${sid}-b${k}`,
-          { scaleX: 0 },
-          { scaleX: 1, duration: BAR_IN, ease: "power2.out" },
-          at[k],
-        ),
+        enter(`#${sid}-rl${k}`, { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.5 }, at[k]),
+        v2
+          ? tween(
+              `#${sid}-b${k}`,
+              { opacity: 0 },
+              { opacity: 1, duration: BAR_IN, ease: "sine.out" },
+              at[k],
+            )
+          : tween(
+              `#${sid}-b${k}`,
+              { scaleX: 0 },
+              { scaleX: 1, duration: BAR_IN, ease: "power2.out" },
+              at[k],
+            ),
         tween(`#${sid}-rv${k}`, { opacity: 0 }, { opacity: 1, duration: 0.4 }, at[k] + 0.3),
       );
     }
     settled = Math.max(settled, HERO_BAR_AT + BAR_IN);
   } else {
     tl.push(
-      tween(`#${sid}-l`, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 }, LABEL_AT),
+      enter(`#${sid}-l`, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 }, LABEL_AT),
     );
     settled = Math.max(settled, LABEL_AT + 0.5);
     if (versus.length) {
       tl.push(
-        tween(`#${sid}-vs`, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 }, COMPARE_AT),
+        enter(`#${sid}-vs`, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 }, COMPARE_AT),
       );
       settled = Math.max(settled, COMPARE_AT + 0.5);
     }
@@ -353,7 +401,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   // Two decimals, as `tween` places it, so the hold is where the headline lands.
   const headAt = Math.round((settled - HEAD_IN + HEAD_AFTER) * 100) / 100;
   tl.push(
-    tween(
+    enter(
       `#${sid}-h`,
       { opacity: 0, y: 24 },
       { opacity: 1, y: 0, duration: HEAD_IN, ease: "power3.out" },
@@ -382,7 +430,7 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
       `.hn{display:flex;flex-direction:column;align-items:flex-start;width:100%}`,
       // The deck's own eyebrow, as the chrome sets it (`chromeCss`), in glass ink.
       `.hn-e{${family}font-size:${eb.size}px;line-height:${eb.lh};letter-spacing:${eb.tracking}em;text-transform:${eb.upper ? "uppercase" : "none"};color:${eb.color === "accent" ? theme.accent : theme.muted};font-weight:${eb.weight};margin-bottom:${GAP}px}`,
-      `.hn-n{${family}display:flex;align-items:flex-end;font-weight:800;color:${theme.fg};font-variant-numeric:tabular-nums;letter-spacing:-0.02em}`,
+      `.hn-n{${family}display:flex;align-items:flex-end;font-weight:800;color:${v2 ? theme.accent : theme.fg};font-variant-numeric:tabular-nums;letter-spacing:-0.02em}`,
       `#${ctx.sid} .hn-n{font-size:${size}px;line-height:${cell}px;height:${cell}px}`,
       `.hn-r,.hn-c{display:inline-block;vertical-align:top}`,
       `#${ctx.sid} .hn-r{height:${cell}px;clip-path:inset(0)}`,
@@ -391,8 +439,8 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
       `.hn-s,.hn-s>span{display:block}`,
       `#${ctx.sid} .hn-s>span{height:${cell}px;line-height:${cell}px}`,
       `#${ctx.sid} .hn-u{font-size:${unitSize}px;line-height:1;margin-left:${Math.round(size * UNIT_GAP)}px;margin-bottom:${Math.round(cell * 0.16)}px;font-weight:600;color:${theme.accent}}`,
-      `.hn-l{font-size:${LABEL_SIZE}px;line-height:${LABEL_LH};font-weight:500;color:${theme.muted};margin-top:${GAP}px}`,
-      `.hn-vs{font-size:${VERSUS_SIZE}px;line-height:1.2;font-weight:500;color:${theme.muted};margin-top:${GAP}px}`,
+      `.hn-l{font-size:${labelSize}px;line-height:${LABEL_LH};font-weight:500;color:${theme.muted};margin-top:${GAP}px}`,
+      `.hn-vs{font-size:${versusSize}px;line-height:1.2;font-weight:500;color:${theme.muted};margin-top:${GAP}px}`,
       `.hn-d{font-weight:700;color:${theme.accent}}`,
       `.hn-bars{width:100%;margin-top:${BARS_TOP}px;display:flex;flex-direction:column;gap:${ROW_GAP}px}`,
       `.hn-row{display:grid;align-items:center;font-size:${ROW_SIZE}px;line-height:${ROW_LH}}`,

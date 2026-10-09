@@ -319,7 +319,7 @@ describe("bar-compare: columns", () => {
 describe("bar-compare: versus", () => {
   const vs = { variant: "versus", placement: "top" } as const;
 
-  it("sets two values as the slide's largest type, on the rows' own clock", () => {
+  it("sets two values as the slide's largest type — 56px, the headline's — on the rows' own clock", () => {
     const rows = emitScene(bars(2, [58.4, 87.6]), ctx());
     const v = emitScene(bars(2, [58.4, 87.6]), ctx(vs));
     // Same stops: a look moves geometry, never time.
@@ -328,11 +328,15 @@ describe("bar-compare: versus", () => {
       Number(m[1]),
     );
     expect(sizes).toHaveLength(2);
-    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(96);
+    // The headline's size, not 96-200px (founder, 2026-10-10: no giant numerals).
+    for (const size of sizes) expect(size).toBeLessThanOrEqual(56);
+    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(44);
     // The bar keeps the ratio: it grows along x.
     const grow = v.tl.find((t) => t.target === "#s1-bar0");
     expect(Object.keys(grow?.to.attr ?? {})).toEqual(["width"]);
-    expect(v.fill).toBeGreaterThan(rows.fill ?? 0);
+    // It no longer out-fills the rows (its figures were 96-200px): the
+    // Director weighs the two on fill like any other pair of looks.
+    expect(v.fill).toBeGreaterThan(0);
   });
 
   it("sets each figure's whole glyph box inside the chart", () => {

@@ -242,8 +242,10 @@ describe("direct", () => {
   });
 
   it("prefers the look that fills its body", () => {
-    // Two bars: rows draw a thin band, two columns leave the plot empty, and a
-    // versus sets the two values as the slide's figures.
+    // Two bars: two columns leave the plot empty. A versus (two 56px figures
+    // since 2026-10-10; they were 96-200px and won this outright) and the rows
+    // (bars grown into the region) now fill about alike, so the seed's taste
+    // decides between those two — and never picks the empty columns.
     const twoBars = {
       id: "b1",
       archetype: "bar-compare",
@@ -262,7 +264,9 @@ describe("direct", () => {
     } as Beat;
     // Over many papers, not one: one seed's taste could land on columns by luck.
     for (let k = 0; k < 12; k++) {
-      expect(direct([twoBars], { ...opts, seed: `paper-${k}` }).beats[0]?.variant).toBe("versus");
+      expect(["bars", "versus"]).toContain(
+        direct([twoBars], { ...opts, seed: `paper-${k}` }).beats[0]?.variant,
+      );
     }
   });
 });
@@ -339,8 +343,12 @@ describe("design: the switch", () => {
     // Then, merged from main, the seek_order gate: s6's two swell take-backs gain
     // `immediateRender: false` (the only diff), so a cold seek before the walk
     // no longer shows a swollen term.
+    // Then the founder's type scale and quiet motion (2026-10-10), re-pinned
+    // after reading all 46 hold frames of the v2 demo: headline 56, kicker 40,
+    // labels and body 40-44, display equations at most 64; entrances are
+    // opacity fades, no panel or slab lifts, no divider sweep, glow-only emphasis.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "95fab4a7feb1448172f20b9f266083c61af2f98291e6336860c2b94629b0844a",
+      "d122fb13367926ecccac40c627af55d2d2f6c6acb1514e8a677cc2fa534e4b5d",
     );
   });
 

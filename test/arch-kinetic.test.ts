@@ -42,6 +42,11 @@ const ctx = (format: Format = FORMATS["deck-16x9"] as Format): EmitContext => ({
   start: 0,
   design: "v2",
 });
+/** Classic keeps the moves, the chip and the 64-120px sizes. */
+const classic = (format?: Format): EmitContext => {
+  const { design: _v2, ...rest } = ctx(format);
+  return rest;
+};
 
 type Params = BeatOf<"kinetic">["params"];
 const beat = (phrases: Params["phrases"], seconds = 10): BeatOf<"kinetic"> => ({
@@ -76,8 +81,8 @@ describe("kinetic", () => {
     });
   });
 
-  it("brings each phrase in with a different move, and the motion grammar leaves them alone", () => {
-    const scene = kinetic(beat(three), ctx());
+  it("classic: brings each phrase in with a different move, and the motion grammar leaves them alone", () => {
+    const scene = kinetic(beat(three), classic());
     const moves = three.map((_, i) => {
       const t = scene.tl.find((x) => x.target === `#s2-p${i} .kn-w`);
       return JSON.stringify(t?.from);
@@ -86,13 +91,13 @@ describe("kinetic", () => {
     expect(scene.ownEntrances).toBe(true);
     for (const verb of ENTRANCES) expect(restyleEntrance(scene, "s2", verb)).toBe(scene);
     // Over the field too: the wrapper keeps the flag.
-    expect(emitScene(beat(three), { ...ctx(), theme: PACKS.chalk as Theme }).ownEntrances).toBe(
+    expect(emitScene(beat(three), { ...classic(), theme: PACKS.chalk as Theme }).ownEntrances).toBe(
       true,
     );
   });
 
-  it("strikes the key with a chip swept in and its ink turned, all fromTo, no callback", () => {
-    const scene = kinetic(beat(three), ctx());
+  it("classic: strikes the key with a chip swept in and its ink turned, all fromTo, no callback", () => {
+    const scene = kinetic(beat(three), classic());
     expect(scene.html).toContain('<span class="kn-kt" id="s2-kt0">contrast</span>');
     const chip = scene.tl.find((t) => t.target === "#s2-hl0");
     expect(chip?.from).toEqual({ scaleX: 0 });
@@ -101,16 +106,16 @@ describe("kinetic", () => {
     // strike showed a full highlight fading in with the words (ko e2e).
     expect(chip?.to.immediateRender).toBeUndefined();
     const ink = scene.tl.find((t) => t.target === "#s2-kt0");
-    expect(ink?.to.color).toBe(ctx().theme.bg);
+    expect(ink?.to.color).toBe(classic().theme.bg);
     // The unstruck phrase has no chip.
     expect(scene.html).not.toContain('id="s2-hl2"');
     const code = scene.tl.map(tweenText).join("\n");
     expect(code).not.toMatch(/on(Update|Start|Complete|Repeat)/);
   });
 
-  it("sets short phrases larger than long ones, and never below its smallest size", () => {
+  it("classic: sets short phrases larger than long ones, and never below its smallest size", () => {
     const size = (p: Params["phrases"]) =>
-      Number(/\.kn-p\{font-size:(\d+)px/.exec(kinetic(beat(p), ctx()).css ?? "")?.[1]);
+      Number(/\.kn-p\{font-size:(\d+)px/.exec(kinetic(beat(p), classic()).css ?? "")?.[1]);
     const short = size([{ text: "Sparse" }, { text: "and fast" }]);
     const long = size([
       { text: "Spiking networks stay sparse at inference time" },
@@ -122,17 +127,17 @@ describe("kinetic", () => {
     expect(long).toBeGreaterThan(MIN_FONT);
   });
 
-  it("scopes its size to its own scene, and makes every word a box a transform moves", () => {
+  it("classic: scopes its size to its own scene, and makes every word a box a transform moves", () => {
     // An unscoped `.kn-p{font-size}` from one beat sets every kinetic beat in
     // the deck at the last size emitted; an inline `.kn-w` takes no transform,
     // so every per-word move would be a fade in place.
-    const a = kinetic(beat([{ text: "Sparse" }, { text: "and fast" }]), ctx());
+    const a = kinetic(beat([{ text: "Sparse" }, { text: "and fast" }]), classic());
     const b = kinetic(
       beat([
         { text: "Spiking networks stay sparse at inference time" },
         { text: "even when the haze thickens over the whole scene" },
       ]),
-      ctx(),
+      classic(),
     );
     const lines = (s: { css?: string }) => new Set((s.css ?? "").split("\n"));
     const [la, lb] = [lines(a), lines(b)];
@@ -142,11 +147,45 @@ describe("kinetic", () => {
     for (const s of [a, b]) expect(s.css).toMatch(/(^|\n)\.kn-w\{display:inline-block\}/);
   });
 
-  it("sets the same phrases in a portrait frame, flush left, above the floor", () => {
-    const scene = kinetic(beat(three), ctx(FORMATS["short-9x16"] as Format));
+  it("classic: sets the same phrases in a portrait frame, flush left, above the floor", () => {
+    const scene = kinetic(beat(three), classic(FORMATS["short-9x16"] as Format));
     expect(scene.html).not.toContain("margin-left");
     const size = Number(/\.kn-p\{font-size:(\d+)px/.exec(scene.css ?? "")?.[1]);
     expect(size).toBeGreaterThanOrEqual(64);
+  });
+
+  it("v2: fades every word in where it stands, and marks the key by colour, not a chip", () => {
+    // Founder, 2026-10-10: "graphic animation by animated UI elements is old-fashioned".
+    const scene = kinetic(beat(three), ctx());
+    for (const t of scene.tl) {
+      expect(Object.keys(t.to).filter((k) => /^(x|y|scale|scaleX|scaleY)$/.test(k))).toEqual([]);
+    }
+    three.forEach((_, i) => {
+      expect(scene.tl.find((x) => x.target === `#s2-p${i} .kn-w`)?.from).toEqual({ opacity: 0 });
+    });
+    expect(scene.html).not.toContain("kn-hl");
+    expect(scene.tl.some((t) => /-hl\d|-k\d$/.test(t.target))).toBe(false);
+    const ink = scene.tl.find((t) => t.target === "#s2-kt0");
+    expect(ink?.to.color).toBe(ctx().theme.accent);
+    expect(ink?.to.immediateRender).toBe(false);
+    expect(scene.tl.map(tweenText).join("\n")).not.toMatch(/on(Update|Start|Complete|Repeat)/);
+  });
+
+  it("v2: sets every phrase on the confirmed scale, 56px at most and never under 40", () => {
+    const size = (p: Params["phrases"], f?: Format) =>
+      Number(/\.kn-p\{font-size:(\d+)px/.exec(kinetic(beat(p), ctx(f)).css ?? "")?.[1]);
+    const long = [
+      { text: "Spiking networks stay sparse at inference time" },
+      { text: "even when the haze thickens over the whole scene" },
+      { text: "and the weak edges are the first thing to go" },
+    ];
+    for (const f of [undefined, FORMATS["short-9x16"] as Format]) {
+      for (const p of [[{ text: "Sparse" }, { text: "and fast" }], three, long]) {
+        expect(size(p, f)).toBeLessThanOrEqual(56);
+        expect(size(p, f)).toBeGreaterThanOrEqual(MIN_FONT);
+      }
+    }
+    expect(size([{ text: "Sparse" }, { text: "and fast" }])).toBe(56);
   });
 
   it("refuses phrases it cannot set in two lines inside the frame, rather than shrinking them", () => {

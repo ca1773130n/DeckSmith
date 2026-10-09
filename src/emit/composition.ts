@@ -551,7 +551,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // the shell did not author. Its chrome keeps the stock `chromeIn`.
     const bespoke = opts.bespoke?.[beat.id] !== undefined;
     const { scene } = stageScene(
-      motion && !bespoke ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "rise") : emitted,
+      motion && !bespoke ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "fade") : emitted,
       speed,
     );
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);

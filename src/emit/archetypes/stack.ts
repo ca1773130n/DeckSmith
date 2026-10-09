@@ -44,6 +44,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { V2_TYPE } from "../type.js";
 import {
   chrome,
   chromeCss,
@@ -208,19 +209,26 @@ export function stackLayout(
   // (746 -> 669px) by reserving a bigger plane than it drew. Taken only when it
   // fits and is taller; otherwise the classic answer, so v2 refuses exactly
   // what classic refuses.
+  // Labels are body lines on v2's scale (`V2_TYPE`): 44px at most, not 46.
   if (grow) {
-    const classic = stackLayout(p, format, face, false);
+    const classic = solveEither(p, format, face, 1, V2_TYPE.body);
     if (!classic.fits) return classic;
-    const big = solveEither(p, format, face, GROWTH);
+    const big = solveEither(p, format, face, GROWTH, V2_TYPE.body);
     return big.fits && big.height > classic.height ? big : classic;
   }
   return solveEither(p, format, face, 1);
 }
 
-function solveEither(p: Params, format: Format, face: Face, growth: number): StackLayout {
-  const stacked = solve(p, format, false, face, growth);
+function solveEither(
+  p: Params,
+  format: Format,
+  face: Face,
+  growth: number,
+  labelMax = LABEL_SIZE,
+): StackLayout {
+  const stacked = solve(p, format, false, face, growth, labelMax);
   if (stacked.fits || !p.layers.some((l) => l.note)) return stacked;
-  const inline = solve(p, format, true, face, growth);
+  const inline = solve(p, format, true, face, growth, labelMax);
   if (inline.fits) return inline;
   // Neither composition fits. Prefer the shorter one — but only if its width is
   // honest: an inline layout is often shorter precisely BECAUSE its note is a
@@ -259,7 +267,14 @@ function floorFor(p: Params, format: Format): number {
   return tiltedFloor({ ...DEFAULT_POSE, rotateX: p.tilt }, contentH(format), MIN_FONT);
 }
 
-function solve(p: Params, format: Format, inline: boolean, face: Face, growth = 1): StackLayout {
+function solve(
+  p: Params,
+  format: Format,
+  inline: boolean,
+  face: Face,
+  growth = 1,
+  labelMax = LABEL_SIZE,
+): StackLayout {
   const width = contentW(format);
   const boxH = contentH(format);
   const floor = floorFor(p, format);
@@ -277,7 +292,7 @@ function solve(p: Params, format: Format, inline: boolean, face: Face, growth = 
     inline && l.note !== undefined ? textWidth(l.note, floor, 400, 0, false, face) + 28 : 0;
   const want = Math.max(
     ...p.layers.map(
-      (l, i) => textWidth(l.label, LABEL_SIZE, labelWeight(i, count), 0, false, face) + noteW(l),
+      (l, i) => textWidth(l.label, labelMax, labelWeight(i, count), 0, false, face) + noteW(l),
     ),
   );
   const colCap = inline ? width * 0.56 : width * 0.5;
@@ -298,7 +313,7 @@ function solve(p: Params, format: Format, inline: boolean, face: Face, growth = 
         Math.max(1, textWidth(l.label, 1, labelWeight(i, count), 0, false, face)),
     ),
   );
-  const labelSize = Math.max(floor, Math.min(LABEL_SIZE, labelRoom));
+  const labelSize = Math.max(floor, Math.min(labelMax, labelRoom));
 
   const lines = p.layers.map((l, i) => {
     const nw = noteW(l);
@@ -603,10 +618,11 @@ export const stack: Emitter<"stack"> = (beat, ctx) => {
       const finale = v2 && i === count - 1;
       if (!finale) tl.push(...spot.dim(`lay${i - 1}`, at + 0.15));
       else if (i > 1) tl.push(...spot.restore(at + 0.15));
-      tl.push(settle(`#${sid}-lay${i - 1}`, at, emph));
+      if (!v2) tl.push(settle(`#${sid}-lay${i - 1}`, at, emph));
     }
-    // The slab being read stands proud of the pile under it.
-    tl.push(lift(`#${sid}-lay${i}`, at, emph));
+    // The slab being read stands proud of the pile under it — in classic. v2
+    // pops no slab (founder, 2026-10-10); the dim and the probe do the pointing.
+    if (!v2) tl.push(lift(`#${sid}-lay${i}`, at, emph));
     holds.push(at + 0.62);
   });
 
