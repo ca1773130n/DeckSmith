@@ -19,7 +19,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { Prefs } from "../prefs.js";
+import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
 import { paperArcRequested } from "./arc.js";
 import { renderSource, systemPrompt } from "./prompt.js";
@@ -139,12 +139,13 @@ const PLANNER_INVISIBLE = new Set(["tilt"]);
  * back carrying one, so no post-hoc check is needed to reject what the model was
  * never offered, and the schema bytes are identical to what they were.
  */
-function plannerInvisible(prefs: Pick<Prefs, "genre" | "bespoke">): ReadonlySet<string> {
+function plannerInvisible(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): ReadonlySet<string> {
   const hidden = new Set(PLANNER_INVISIBLE);
   if (!paperArcRequested(prefs)) hidden.add("role");
-  // `bespoke` for the same reason as `role`: shown only to a plan asked for with
-  // `--bespoke`, so every other plan's schema bytes are what they were.
-  if (!prefs.bespoke?.enabled) hidden.add("bespoke");
+  // `bespoke` for the same reason as `role`: shown only to a plan whose build
+  // will draw bespoke scenes (v2, unless `--no-bespoke`), so a classic plan's
+  // schema bytes are what they were.
+  if (!bespokeFor(prefs, designFor(prefs))) hidden.add("bespoke");
   return hidden;
 }
 
@@ -172,7 +173,7 @@ function hideFromPlanner(node: unknown, hidden: ReadonlySet<string>): unknown {
 }
 
 /** The schema for one run. `role` is present only when the paper arc was asked for. */
-export function schemaFor(prefs: Pick<Prefs, "genre">): unknown {
+export function schemaFor(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): unknown {
   return hideFromPlanner(
     forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
     plannerInvisible(prefs),

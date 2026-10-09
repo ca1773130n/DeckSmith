@@ -163,16 +163,14 @@ export function designFor(prefs: Pick<Prefs, "design">, recorded?: Design): Desi
  * ON BY DEFAULT UNDER V2: every beat is drawn by a generated scene and the
  * archetype is only its fallback. `--no-bespoke` (`"bespoke": {"enabled":
  * false}`) turns it off; classic never runs it, so a classic deck keeps its
- * bytes. `asked` is whether it was asked for in so many words — `build` says
- * why it does nothing only then, or when v2 would have run it.
+ * bytes.
  */
 export function bespokeFor(
   prefs: Pick<Prefs, "bespoke">,
   design: Design,
-): { prefs: NonNullable<Prefs["bespoke"]>; asked: boolean } | undefined {
-  const asked = prefs.bespoke?.enabled === true;
+): { prefs: NonNullable<Prefs["bespoke"]> } | undefined {
   if (prefs.bespoke?.enabled === false || design !== "v2") return undefined;
-  return { prefs: prefsSchema.shape.bespoke.unwrap().parse(prefs.bespoke ?? {}), asked };
+  return { prefs: prefsSchema.shape.bespoke.unwrap().parse(prefs.bespoke ?? {}) };
 }
 
 /** The flag surface the CLI exposes. Every one optional: absent means unstated. */
@@ -210,6 +208,51 @@ export interface PrefFlags {
   bespokeCli?: string;
   bespokeCache?: string;
   bespokeArt?: string | number;
+}
+
+/**
+ * Commander gives a plain `--flag` `undefined` until it is passed, which is
+ * exactly the "unstated" that `prefsFromFlags` needs — except for `--no-x`,
+ * which defaults to `true` and would therefore outrank the config file on every
+ * run. So the negation is read as a negation and nothing else. `--images` is
+ * the other one read by hand: it is a boolean, and the loop below only knows
+ * strings.
+ */
+export function flagsFromOptions(o: Record<string, unknown>): PrefFlags {
+  const patch: PrefFlags = {};
+  for (const key of [
+    "slides",
+    "lang",
+    "tone",
+    "density",
+    "genre",
+    "duration",
+    "narrationDensity",
+    "theme",
+    "design",
+    "packSeed",
+    "speed",
+    "voice",
+    "rate",
+    "pitch",
+    "imageProvider",
+    "imageModel",
+    "imageStyle",
+    "imageMax",
+    "bespokeCalls",
+    "bespokeSeconds",
+    "bespokeModel",
+    "bespokeCli",
+    "bespokeCache",
+    "bespokeArt",
+  ] as const) {
+    const value = o[key];
+    if (value !== undefined) patch[key] = value as string;
+  }
+  if (o.subtitles === false) patch.subtitles = false;
+  if (o.images === true) patch.images = true;
+  if (o.bespoke !== undefined) patch.bespoke = o.bespoke === true;
+  return patch;
 }
 
 /* ------------------------------------------------------------------ internals */

@@ -96,6 +96,11 @@ describe("the illustration call", () => {
       a,
     );
     expect(artKey(brief, "gpt-x")).not.toBe(a);
+    // The device is in the art prompt ("draw the subjects that device acts on").
+    expect(artKey({ ...brief, device: "fog-lift" }, "default")).not.toBe(a);
+    expect(artKey({ ...brief, device: "fog-lift" }, "default")).not.toBe(
+      artKey({ ...brief, device: "edge-sweep" }, "default"),
+    );
     expect(artKey({ ...brief, theme: resolveTheme("paper") }, "default")).not.toBe(a);
   });
 

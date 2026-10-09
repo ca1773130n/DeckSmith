@@ -74,7 +74,6 @@ describe("the references, statically", () => {
       theme: ink,
       pack: "ink",
       device: "growth-curve",
-      priorDevices: [],
     });
     expect(prompt).toContain('Reference 1: "growth"');
     expect(prompt).toContain(ink.accent);
@@ -102,7 +101,6 @@ describe("the references, statically", () => {
       theme: ink,
       pack: "ink",
       device: "growth-curve",
-      priorDevices: [],
       art: { depicts: "a robot at a table", width: 1536, height: 1024 },
     });
     expect(prompt).toContain("THE ILLUSTRATION (attached image)");

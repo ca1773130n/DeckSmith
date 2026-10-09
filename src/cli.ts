@@ -55,8 +55,8 @@ import type { Cut } from "./plan/select.js";
 import {
   bespokeFor,
   designFor,
+  flagsFromOptions,
   loadPrefs,
-  type PrefFlags,
   type Prefs,
   prefsFromFlags,
 } from "./prefs.js";
@@ -273,51 +273,6 @@ function imageFlags(cmd: Command): Command {
 }
 
 /**
- * Commander gives a plain `--flag` `undefined` until it is passed, which is
- * exactly the "unstated" that `prefsFromFlags` needs — except for `--no-x`,
- * which defaults to `true` and would therefore outrank the config file on every
- * run. So the negation is read as a negation and nothing else. `--images` is
- * the other one read by hand: it is a boolean, and the loop below only knows
- * strings.
- */
-function flags(o: Record<string, unknown>): PrefFlags {
-  const patch: PrefFlags = {};
-  for (const key of [
-    "slides",
-    "lang",
-    "tone",
-    "density",
-    "genre",
-    "duration",
-    "narrationDensity",
-    "theme",
-    "design",
-    "packSeed",
-    "speed",
-    "voice",
-    "rate",
-    "pitch",
-    "imageProvider",
-    "imageModel",
-    "imageStyle",
-    "imageMax",
-    "bespokeCalls",
-    "bespokeSeconds",
-    "bespokeModel",
-    "bespokeCli",
-    "bespokeCache",
-    "bespokeArt",
-  ] as const) {
-    const value = o[key];
-    if (value !== undefined) patch[key] = value as string;
-  }
-  if (o.subtitles === false) patch.subtitles = false;
-  if (o.images === true) patch.images = true;
-  if (o.bespoke !== undefined) patch.bespoke = o.bespoke === true;
-  return patch;
-}
-
-/**
  * Whether anyone actually chose this preference.
  *
  * `loadPrefs` returns a fully-populated object, so a field sitting at its schema
@@ -503,7 +458,7 @@ imageFlags(
   // The source goes in as well, and this is the one verb that can pass it: a
   // beat count nobody stated is a question about how much the document has to
   // say, and `slidesFor` cannot answer it from a clock alone.
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
+  const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
@@ -604,7 +559,7 @@ imageFlags(
   assertRefsResolve(storyboard, source, { pending: "allow" });
   // Running the verb is asking for pictures: `--images` is implied, so the
   // config file's `false` cannot make it a no-op.
-  const prefs = await loadPrefs(prefsFromFlags({ ...flags(o), images: true }));
+  const prefs = await loadPrefs(prefsFromFlags({ ...flagsFromOptions(o), images: true }));
 
   const briefs = pendingIllustrations(storyboard).length;
   if (briefs === 0) {
@@ -661,7 +616,7 @@ voiceFlags(
     pickFormat(String(o.format), o.width as string, o.height as string),
     o.reserveCaptions === true,
   );
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)));
+  const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)));
   // The words already exist and are in the storyboard's language; asking for a
   // voice in another one would read them with the wrong mouth.
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: storyboard.lang };
@@ -762,7 +717,7 @@ bespokeFlags(
     // derived from what the document contains, so preferences resolved without
     // it fall back to the schema's flat default and `scanBeatCount` then measures
     // this plan against a floor nobody ever asked for.
-    const prefs = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
+    const prefs = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
     // The storyboard records the theme it was planned under; `--theme` or a
     // config file restates it. Language is not overridable here — it describes
     // the copy that is already written, not a wish. Under `--design v2` a pack
@@ -1154,7 +1109,7 @@ voiceFlags(
   assertRefsResolve(storyboard, source);
   if (o.bake && o.link) throw new Error("Choose --bake or --link, not both.");
 
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)));
+  const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)));
   // A pack records what the deck actually is, so the artifacts win over a
   // default: reopening it a year later must rebuild the same deck.
   const prefs: Prefs = {

@@ -956,9 +956,15 @@ visual device its scene is built on (`spike-train`, `fog-lift`, `edge-sweep`,
 illustration (never a data beat or a one-cue beat, at most `--bespoke-art`; the rest are pure
 motion graphics, so the deck varies). A name the model repeats, garbles or leaves out, and
 every name when there is no call, comes from a rule catalogue; no two beats of a deck share
-one. Each scene prompt is told its device and every earlier beat's (`priorDevices`), and that
-a row of cards, boxes and arrows, bullet columns or a tile grid is not a main visual. The
-answer is cached by the beats' words.
+one. With each name the pass writes an `idea` — how the scene is composed and moves — and is
+told to vary compositions, not only names (four comparison beats drawn as "two big numbers
+over a shape" was the failure), and to keep metaphors truthful (the heavier side of a balance
+sinks; a length that stands for a number starts from zero). Each scene prompt gets its own
+device and idea only, and is told a row of cards, boxes and arrows, bullet columns or a tile
+grid is not a main visual. The answer is cached by the whole deck's words AND per beat: a
+rerun after one beat changed (or `--bespoke-calls` picked a different set) keeps every
+unchanged beat's device and idea — the call is told they are decided — so the scenes cached
+under them still hit; only the changed beat is drawn again.
 
 **Per beat:** device → illustration (or none) → draft → static contract → probe deck (a real build with every
 `verify` gate plus the motion gates, photographed at every cue) → the rubric probe → at most

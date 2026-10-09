@@ -12,7 +12,7 @@
  */
 import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
 import { repairTex } from "../emit/tex.js";
-import type { Prefs } from "../prefs.js";
+import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
@@ -799,19 +799,21 @@ that shows none of it. Give consecutive stages different \`placement\`s. A plan 
 }
 
 /**
- * `--bespoke` only. The planner may mark the beats a generated scene would
- * explain best; src/bespoke/select.ts weighs the mark, it does not obey it.
+ * Shown whenever the build will draw bespoke scenes (`bespokeFor`: v2, unless
+ * `--no-bespoke`). The planner may mark beats; src/bespoke/select.ts weighs a
+ * `true` and obeys a `false`.
  */
 const BESPOKE_HINT = `
 
 BESPOKE SCENES
 
-Set \`bespoke: true\` on the four to six beats that explain a MECHANISM — a
-process that runs, an equation whose terms act, a curve that moves, a
-comparison that is a distance — and that the narration talks over for a while.
-Those beats get a custom animation drawn for them; everything else keeps its
-archetype. Set \`bespoke: false\` on a beat whose archetype must stay (a real
-figure the viewer must see). Leave it null otherwise.`;
+Every beat gets a custom animated scene drawn for it; its archetype is only the
+fallback when that scene fails its checks. Set \`bespoke: false\` on a beat whose
+archetype must stay (a real figure the viewer must see, a table that must be
+read row by row). Set \`bespoke: true\` on the beats that explain a MECHANISM —
+a process that runs, an equation whose terms act, a curve that moves, a
+comparison that is a distance: when the call budget cannot pay for every beat,
+those are drawn first. Leave it null otherwise.`;
 
 /**
  * The rules, then the preferences the person asking for the deck chose. They go
@@ -826,7 +828,7 @@ export function systemPrompt(prefs: Prefs): string {
   // what it can be is honest, which is why the LENGTH block below now says the
   // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
-  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images, prefs.design) : ""}${prefs.bespoke?.enabled ? BESPOKE_HINT : ""}
+  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images, prefs.design) : ""}${bespokeFor(prefs, designFor(prefs)) ? BESPOKE_HINT : ""}
 
 PREFERENCES — chosen by the person who asked for this deck.
 ${

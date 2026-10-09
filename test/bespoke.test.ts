@@ -25,7 +25,12 @@ import {
   lanes,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
-import { critiquePrompt, type DeviceBeat, generatePrompt } from "../src/bespoke/prompt.js";
+import {
+  critiquePrompt,
+  type DeviceBeat,
+  devicePrompt,
+  generatePrompt,
+} from "../src/bespoke/prompt.js";
 import { bespokeHolds } from "../src/bespoke/scene.js";
 import { selectBespoke } from "../src/bespoke/select.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
@@ -129,6 +134,21 @@ describe("selection", () => {
       expect(ids).not.toContain(demo.beats[camera]?.id);
       expect(ids).not.toContain(demo.beats[camera - 1]?.id);
     }
+  });
+
+  it("draws a beat with a single cue (a title, a closing line): one cue is enough to key a scene to", () => {
+    const first = demo.beats[0]?.id as string;
+    const one = {
+      ...narration.beats,
+      [first]: (narration.beats[first] ?? []).slice(0, 1).map((g) => ({
+        ...g,
+        cues: g.cues.slice(0, 1),
+      })),
+    };
+    const ids = selectBespoke(demo.beats, { seed: demo.sourceId, narration: one }).picked.map(
+      (p) => p.beatId,
+    );
+    expect(ids).toContain(first);
   });
 
   it("obeys the planner's false", () => {
@@ -390,19 +410,63 @@ describe("the bespoke pass", () => {
     expect(second.report.scenes.every((s) => s.from === "cache")).toBe(true);
   });
 
-  it("names every scene's device before the first draft, and tells each the ones before it", async () => {
+  it("names every scene's device before the first draft, and gives each only its own", async () => {
     const { calls, run } = fake(() => SCENE);
     const r = await bespokePass({ ...input({ run }), prefs: prefs() });
     const drafts = calls.filter((c) => c.outPath.endsWith(".draft.json"));
     expect(drafts.length).toBeGreaterThan(1);
     const devices = r.report.scenes.map((sc) => sc.device);
     expect(new Set(devices).size).toBe(devices.length);
-    for (const [i, sc] of r.report.scenes.entries()) {
+    for (const sc of r.report.scenes) {
       const prompt = drafts.find((c) => c.outPath.endsWith(`${sc.beat}.draft.json`))?.prompt ?? "";
       expect(prompt).toContain(`THE VISUAL DEVICE: "${sc.device}"`);
-      for (const before of devices.slice(0, i)) expect(prompt).toContain(`"${before}"`);
+      // No other scene's device: that list re-keyed every scene after an edited beat.
+      for (const other of devices.filter((d) => d !== sc.device))
+        expect(prompt).not.toContain(`"${other}"`);
     }
     expect(r.report.devices?.from).toBe("codex");
+  });
+
+  it("re-draws only the beat whose device changed; the device and its idea are in the scene's key", async () => {
+    // Device answers by beat id; `rename` changes one beat's name, `reidea` another's idea.
+    const answering = (rename?: string, reidea?: string) => {
+      const calls: RunnerArgs[] = [];
+      const run = async (args: RunnerArgs) => {
+        if (args.schemaPath.endsWith("devices.schema.json")) {
+          const ids = [...args.prompt.matchAll(/id=(\S+)/g)].map((m) => m[1] as string);
+          await writeFile(
+            args.outPath,
+            JSON.stringify({
+              beats: ids.map((id) => ({
+                id,
+                device: `${id}-device${id === rename ? "-new" : ""}`,
+                illustrate: false,
+                idea: `${id} idea${id === reidea ? " anew" : ""}`,
+              })),
+            }),
+          );
+          return;
+        }
+        calls.push(args);
+        await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...SCENE }));
+      };
+      return { calls, run };
+    };
+    const a = answering();
+    const first = await bespokePass({ ...input({ run: a.run }), prefs: prefs({ maxCalls: 40 }) });
+    const drawn = Object.keys(first.map);
+    expect(drawn.length).toBeGreaterThan(3);
+    const draft = a.calls.find((c) => c.outPath.endsWith(`${drawn[1]}.draft.json`));
+    expect(draft?.prompt).toContain(`${drawn[1]} idea`);
+    // Forget the decided devices; the next answer renames one beat and re-ideas another.
+    await rm(join(cacheDir, "devices"), { recursive: true, force: true });
+    const [renamed, reideaed] = [drawn[1] as string, drawn[3] as string];
+    const b = answering(renamed, reideaed);
+    const second = await bespokePass({ ...input({ run: b.run }), prefs: prefs({ maxCalls: 40 }) });
+    const redrawn = new Set(b.calls.map((c) => c.outPath.split("/").pop()?.split(".")[0]));
+    expect([...redrawn].sort()).toEqual([renamed, reideaed].sort());
+    for (const sc of second.report.scenes)
+      if (sc.beat !== renamed && sc.beat !== reideaed) expect(sc.from).toBe("cache");
   });
 
   it("sends a card-row scene back once, keeps the redraw, and falls back if the redraw is cards too", async () => {
@@ -523,6 +587,21 @@ describe("the bespoke pass", () => {
     expect(most).toBe(2);
     expect(all.filter((r) => r.status === "rejected")).toHaveLength(1);
     await limited(args("after"));
+  });
+
+  it("the device call is apart from the scene cap, but not past the quota or the clock", () => {
+    let t = 0;
+    const capped = new Budget(0, 10 * 60_000, () => t);
+    expect(capped.take()).toMatch(/cap of 0/);
+    expect(capped.takeDevice()).toBeUndefined();
+    expect(capped.devices).toBe(1);
+    const said = new Budget(9, 10 * 60_000, () => t);
+    said.quota = true;
+    expect(said.takeDevice()).toMatch(/quota/);
+    const late = new Budget(9, 10 * 60_000, () => t);
+    t = 9 * 60_000;
+    expect(late.takeDevice()).toMatch(/wall-time/);
+    expect(late.devices).toBe(0);
   });
 
   it("the budget refuses past its call cap, its deadline, and a quota answer", () => {
@@ -751,7 +830,7 @@ describe("the deck-order device pass", () => {
       await writeFile(args.outPath, JSON.stringify({ beats }));
     };
 
-  it("gives every beat a device, none repeated, each with the ones before it in deck order", async () => {
+  it("gives every beat a device, none repeated, in deck order", async () => {
     const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
     expect(r.from).toBe("rule");
     const names = r.beats.map((b) => b.device);
@@ -759,8 +838,73 @@ describe("the deck-order device pass", () => {
     for (const n of names) expect(n).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
     r.beats.forEach((b, i) => {
       expect(b.beatId).toBe(deck[i]?.id);
-      expect(b.priorDevices).toEqual(names.slice(0, i));
     });
+  });
+
+  it("keeps every unchanged beat's device when one beat changes, and asks only about the rest", async () => {
+    const cacheDir = join(work, "cache");
+    const prompts: string[] = [];
+    const run = async (args: RunnerArgs) => {
+      prompts.push(args.prompt);
+      const ids = [...args.prompt.matchAll(/id=(\S+)/g)].map((m) => m[1] as string);
+      // A model that would rename everything on a second call.
+      await answer(
+        ids.map((id) => ({
+          id,
+          device: `${id}-v${prompts.length}`,
+          illustrate: false,
+          idea: `idea ${id}`,
+        })),
+      )(args);
+    };
+    const opts = { artCap: 6, work, timeoutMs: 1000, run, cacheDir };
+    const first = await assignDevices(deck, opts);
+    const edited = deck.map((b) => (b.id === "b3" ? { ...b, headline: "a new headline" } : b));
+    const second = await assignDevices(edited, opts);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toMatch(/ALREADY DECIDED \(keep exactly\): device "b2-v1" — idea b2/);
+    expect(prompts[1]).not.toMatch(/id=b3[^\n]*\n(?: {3}[^\n]*\n)* {3}ALREADY DECIDED/);
+    for (const [i, d] of second.beats.entries()) {
+      if (d.beatId === "b3") expect(d.device).toBe("b3-v2");
+      else {
+        expect(d.device).toBe(first.beats[i]?.device);
+        expect(d.idea).toBe(first.beats[i]?.idea);
+      }
+    }
+    // Every beat decided: no call at all, even for a deck in another order.
+    const third = await assignDevices([...edited].reverse(), opts);
+    expect(prompts).toHaveLength(2);
+    expect(third.from).toBe("cache");
+  });
+
+  it("never throws: a cache file with junk in it, or a cache it cannot write", async () => {
+    const cacheDir = join(work, "cache");
+    const run = answer(
+      deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: false, idea: "" })),
+    );
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    // Corrupt every file the pass wrote: null elements, non-objects, a bad device.
+    const { readdir } = await import("node:fs/promises");
+    const dir = join(cacheDir, "devices");
+    for (const f of await readdir(dir))
+      if (f.endsWith(".json"))
+        await writeFile(join(dir, f), JSON.stringify({ answers: [null, 7, "x", { id: 3 }] }));
+    for (const f of await readdir(join(dir, "beats")))
+      await writeFile(join(dir, "beats", f), "null");
+    const again = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    expect(again.beats.map((b) => b.beatId)).toEqual(r.beats.map((b) => b.beatId));
+    // A cache path under a file: mkdir fails, and the names still come back.
+    const blocked = join(work, "blocked");
+    await writeFile(blocked, "a file, not a directory");
+    const unwritable = await assignDevices(deck, {
+      artCap: 6,
+      work,
+      timeoutMs: 1000,
+      run,
+      cacheDir: blocked,
+    });
+    expect(unwritable.beats).toHaveLength(deck.length);
+    expect(unwritable.note).toMatch(/device cache was not written/);
   });
 
   it("never illustrates a data beat or a one-cue beat, holds to the cap, and leaves some beats as motion graphics", async () => {
@@ -844,7 +988,7 @@ describe("the deck-order device pass", () => {
     expect(new Set(r.beats.map((b) => b.device)).size).toBe(deck.length);
   });
 
-  it("is rendered into the scene prompts: this device, and the ones not to reuse", () => {
+  it("is rendered into the scene prompts: this device and its planned composition", () => {
     const brief = {
       lang: "en",
       headline: "h",
@@ -858,16 +1002,26 @@ describe("the deck-order device pass", () => {
       theme: resolveTheme("ink"),
       pack: "ink",
       device: "fog-lift",
-      priorDevices: ["spike-train", "edge-sweep"],
+      idea: "fog rolls off a city skyline from left to right as the voice names each layer",
     };
     const p = generatePrompt(brief);
     expect(p).toContain('THE VISUAL DEVICE: "fog-lift"');
-    expect(p).toMatch(/already used: "spike-train", "edge-sweep"\. Do NOT reuse/);
+    expect(p).toContain("planned this scene as: fog rolls off a city skyline");
     expect(p).toMatch(/FORBIDDEN AS THE MAIN VISUAL[\s\S]*row of rounded cards/);
-    expect(generatePrompt({ ...brief, priorDevices: [] })).toContain("the deck's first scene");
+    expect(p).toMatch(/TRUTHFUL PICTURES[\s\S]*SINKS/);
+    expect(p).toMatch(/TEXT never below 0\.6/);
+    expect(generatePrompt({ ...brief, idea: undefined })).not.toContain("planned this scene as");
     const c = critiquePrompt(brief, SCENE, [], undefined);
-    expect(c).toContain('visual device: "fog-lift"');
-    expect(c).toContain('never one of "spike-train", "edge-sweep"');
+    expect(c).toContain('visual device: "fog-lift" — keep it (planned as: fog rolls off');
+  });
+
+  it("asks the device pass for varied compositions and truthful pictures", () => {
+    const p = devicePrompt(deck, 3);
+    expect(p).toMatch(/VARY THE COMPOSITION/);
+    expect(p).toMatch(/two big numbers in two colours above a shape/);
+    expect(p).toMatch(/larger or heavier value SINKS/);
+    expect(p).toMatch(/proportional to it from zero/);
+    expect(p).not.toMatch(/ALREADY DECIDED/);
   });
 });
 

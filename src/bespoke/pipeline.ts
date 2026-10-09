@@ -482,11 +482,9 @@ export interface BeatDevice {
   beatId: string;
   /** Kebab-case name of the scene's main visual device. Unique in the deck. */
   device: string;
-  /** Every earlier beat's device, in deck order (what the scene must not reuse). */
-  priorDevices: readonly string[];
   /** Whether the beat gets an illustration; otherwise its scene is pure motion graphics. */
   illustrate: boolean;
-  /** One line on what the scene shows, when the model gave one. */
+  /** What the scene shows, how it is composed and how it moves, when the model gave it. */
   idea?: string;
   /** Where the name came from: the model, or the rule catalogue (no call, a bad or repeated name). */
   from: "codex" | "rule";
@@ -520,7 +518,7 @@ export interface DeviceOptions {
 }
 
 /** Bump with any change to the device prompt or the rules applied to its answer. */
-export const DEVICE_VERSION = "devices-1";
+export const DEVICE_VERSION = "devices-2";
 
 /**
  * Devices for a beat the model gave none for (no call, a failed call, a name
@@ -574,46 +572,77 @@ export function deviceName(raw: unknown): string {
     .replace(/-+$/, "");
 }
 
+/** A cached or replied answer, kept only when it is the shape the schema promised. */
+type Answer = { id: string; device: string; illustrate: boolean; idea: string };
+function answersOf(raw: unknown): Answer[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter(
+      (a): a is Record<string, unknown> =>
+        typeof a === "object" && a !== null && typeof (a as { id?: unknown }).id === "string",
+    )
+    .map((a) => ({
+      id: a.id as string,
+      device: typeof a.device === "string" ? a.device : "",
+      illustrate: a.illustrate === true,
+      idea: typeof a.idea === "string" ? a.idea : "",
+    }));
+}
+
 /**
  * THE DECK-ORDER DEVICE PASS. Runs once, before any picture or scene is asked
  * for — scenes generate two at a time, so their devices cannot come from
  * finished scenes — and gives every bespoke beat one visual device, no two
- * alike, with the list of the ones before it. One Codex call names them from
- * the beats' content; whatever it does not name well (or at all, or twice), and
- * every beat when there is no call, takes the next unused name from the rule
- * catalogue. Illustration is decided here too, so the deck mixes pictures with
- * pure motion graphics: never a data beat, never a beat with under two cues,
- * at most `artCap`. It never throws for want of an answer.
+ * alike, with one line on how its scene is composed. One Codex call names them
+ * from the beats' content; whatever it does not name well (or at all, or
+ * twice), and every beat when there is no call, takes the next unused name from
+ * the rule catalogue. Illustration is decided here too, so the deck mixes
+ * pictures with pure motion graphics: never a data beat, never a beat with
+ * under two cues, at most `artCap`.
  *
- * Round 5 adds a camera grammar to this same pass: keep it one function, one
- * typed result.
+ * STICKY PER BEAT. A decided device is also cached under its beat's own content,
+ * and a later run whose deck changed (one beat edited, a different call cap)
+ * keeps every unchanged beat's device and idea — the call is told they are
+ * decided — so the scenes cached under them still hit; only the changed beats
+ * are named anew. Every beat decided already: no call at all.
+ *
+ * It never throws: no answer, a broken cache file or a cache it cannot write
+ * all end in names.
  */
 export async function assignDevices(
   beats: readonly DeviceBeat[],
   opts: DeviceOptions,
 ): Promise<DeviceAssignment> {
-  type Answer = { id: string; device: string; illustrate: boolean; idea: string };
-  const key = createHash("sha256")
-    .update(
-      canonical({ v: DEVICE_VERSION, model: opts.model ?? "default", art: opts.artCap, beats }),
-    )
-    .digest("hex")
-    .slice(0, 32);
-  const cached = opts.cacheDir ? join(opts.cacheDir, "devices", `${key}.json`) : undefined;
-  let answers: Answer[] | undefined;
-  let from: DeviceAssignment["from"] = "rule";
+  const hash = (v: unknown) => createHash("sha256").update(canonical(v)).digest("hex").slice(0, 32);
+  const model = opts.model ?? "default";
+  const key = hash({ v: DEVICE_VERSION, model, art: opts.artCap, beats });
+  const dir = opts.cacheDir ? join(opts.cacheDir, "devices") : undefined;
+  const beatFile = (b: DeviceBeat) =>
+    dir ? join(dir, "beats", `${hash({ v: DEVICE_VERSION, model, beat: b })}.json`) : undefined;
+  const read = async (file: string | undefined): Promise<unknown> => {
+    if (!file) return undefined;
+    try {
+      return JSON.parse(await readFile(file, "utf8"));
+    } catch {
+      return undefined; // A miss, or a file another version wrote: ask again.
+    }
+  };
+  let answers: Answer[] | undefined = answersOf(
+    ((await read(dir ? join(dir, `${key}.json`) : undefined)) as { answers?: unknown })?.answers,
+  );
+  let from: DeviceAssignment["from"] = answers ? "cache" : "rule";
   let note: string | undefined;
 
-  if (cached) {
-    try {
-      const hit = JSON.parse(await readFile(cached, "utf8")) as { answers?: Answer[] };
-      if (Array.isArray(hit.answers)) {
-        answers = hit.answers;
-        from = "cache";
-      }
-    } catch {
-      // A miss, or a file another version wrote: ask again.
+  // The beats decided by an earlier run, each under its own content.
+  const decided = new Map<string, Answer>();
+  if (!answers)
+    for (const b of beats) {
+      const hit = answersOf([await read(beatFile(b))])?.[0];
+      if (hit && deviceName(hit.device)) decided.set(b.id, { ...hit, id: b.id });
     }
+  if (!answers && beats.length && decided.size === beats.length) {
+    answers = [...decided.values()];
+    from = "cache";
   }
   if (!answers && opts.run && beats.length) {
     const refused = opts.take?.();
@@ -621,7 +650,7 @@ export async function assignDevices(
     else {
       const schemaPath = join(opts.work, "devices.schema.json");
       const outPath = join(opts.work, "devices.json");
-      const prompt = devicePrompt(beats, opts.artCap);
+      const prompt = devicePrompt(beats, opts.artCap, decided);
       try {
         await writeFile(schemaPath, JSON.stringify(DEVICE_SCHEMA));
         await writeFile(join(opts.work, "devices.prompt.md"), prompt);
@@ -636,16 +665,22 @@ export async function assignDevices(
           ...(opts.bin ? { bin: opts.bin } : {}),
           ...(opts.onUsage ? { onUsage: opts.onUsage } : {}),
         });
-        const reply = JSON.parse(await readFile(outPath, "utf8")) as { beats?: unknown };
-        if (!Array.isArray(reply.beats)) throw new Error("the reply has no beats list");
-        answers = reply.beats.filter(
-          (a): a is Answer => typeof a === "object" && a !== null && typeof a.id === "string",
+        const reply = answersOf(
+          (JSON.parse(await readFile(outPath, "utf8")) as { beats?: unknown }).beats,
         );
+        if (!reply) throw new Error("the reply has no beats list");
+        answers = reply;
         from = "codex";
       } catch (err) {
-        note = `the device call failed (${err instanceof Error ? err.message.split("\n").slice(-1)[0]?.slice(0, 200) : err}); rule catalogue used`;
+        note = `the device call failed (${err instanceof Error ? err.message.split("\n").slice(-1)[0]?.slice(0, 200) : err}); rule catalogue used${decided.size ? ` for the ${beats.length - decided.size} undecided beat(s)` : ""}`;
       }
     }
+  }
+  // What an earlier run decided wins over a new answer: its scenes are cached under it.
+  if (decided.size) {
+    const byNew = new Map((answers ?? []).map((a) => [a.id, a]));
+    for (const [id, a] of decided) byNew.set(id, a);
+    answers = [...byNew.values()];
   }
 
   const byId = new Map((answers ?? []).map((a) => [a.id, a]));
@@ -657,13 +692,18 @@ export async function assignDevices(
     while (used.has(`${POOL[0]}-${n}`)) n++;
     return `${POOL[0]}-${n}`;
   };
+  // Decided beats claim their names first, so a new beat cannot take one.
+  for (const id of decided.keys()) {
+    const d = deviceName(decided.get(id)?.device);
+    if (d) used.add(d);
+  }
   let pictures = 0;
   const out: BeatDevice[] = [];
   for (const b of beats) {
     const a = byId.get(b.id);
     let device = deviceName(a?.device);
     let origin: BeatDevice["from"] = "codex";
-    if (!device || used.has(device)) {
+    if (!device || (used.has(device) && !decided.has(b.id))) {
       if (a) ruled.push(`${b.id}: ${device ? `"${device}" repeated` : "no usable name"}`);
       device = nextRule(b.archetype);
       origin = "rule";
@@ -677,17 +717,39 @@ export async function assignDevices(
     out.push({
       beatId: b.id,
       device,
-      priorDevices: out.map((o) => o.device),
       illustrate,
-      ...(a && typeof a.idea === "string" && a.idea ? { idea: a.idea.slice(0, 240) } : {}),
-      from: answers ? origin : "rule",
+      ...(origin === "codex" && a?.idea ? { idea: a.idea.slice(0, 400) } : {}),
+      from: a ? origin : "rule",
     });
   }
   if (ruled.length)
     note = [note, `rule catalogue for ${ruled.join(", ")}`].filter(Boolean).join("; ");
-  if (cached && from === "codex" && answers) {
-    await mkdir(join(opts.cacheDir as string, "devices"), { recursive: true });
-    await writeFile(cached, JSON.stringify({ version: DEVICE_VERSION, answers }));
+  if (dir && from === "codex" && answers) {
+    try {
+      await mkdir(join(dir, "beats"), { recursive: true });
+      await writeFile(
+        join(dir, `${key}.json`),
+        JSON.stringify({ version: DEVICE_VERSION, answers }),
+      );
+      // Per beat, only what the model named and the deck kept.
+      for (const [i, b] of beats.entries()) {
+        const d = out[i] as BeatDevice;
+        const file = beatFile(b);
+        if (d.from !== "codex" || !file) continue;
+        const a = byId.get(b.id) as Answer;
+        await writeFile(
+          file,
+          JSON.stringify({ id: b.id, device: d.device, illustrate: a.illustrate, idea: a.idea }),
+        );
+      }
+    } catch (err) {
+      note = [
+        note,
+        `the device cache was not written (${err instanceof Error ? err.message : err})`,
+      ]
+        .filter(Boolean)
+        .join("; ");
+    }
   }
   return { beats: out, from, ...(note ? { note } : {}) };
 }
@@ -950,7 +1012,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       pack: input.theme,
       ...(isDataBeat(beat) ? { data: true } : {}),
       device: device.device,
-      priorDevices: device.priorDevices,
+      ...(device.idea ? { idea: device.idea } : {}),
     };
     const keyInput: KeyInput = {
       promptVersion: PROMPT_VERSION,
@@ -972,7 +1034,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       region,
       pack: { name: input.theme, ...theme },
       device: device.device,
-      priorDevices: device.priorDevices,
+      ...(device.idea ? { idea: device.idea } : {}),
     };
     work1.push({
       beat,

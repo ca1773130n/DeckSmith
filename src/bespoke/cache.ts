@@ -50,9 +50,13 @@ export interface KeyInput {
   pack: unknown;
   /** The illustration's art key (src/bespoke/art.ts), when the scene was drawn around one. */
   art?: string;
-  /** The scene's visual device and the deck's earlier ones (`assignDevices`): both are in its prompt. */
+  /**
+   * The scene's visual device and its idea (`assignDevices`): both are in its
+   * prompt. The beat's own only — no other beat's device is in a scene's
+   * prompt, so editing one beat does not re-key the scenes after it.
+   */
   device?: string;
-  priorDevices?: readonly string[];
+  idea?: string;
 }
 
 export interface CacheEntry {
