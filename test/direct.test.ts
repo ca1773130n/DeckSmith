@@ -235,8 +235,11 @@ describe("design: the switch", () => {
     // rows of s14's table share its height and no row is lifted out of line.
     // Then s9's claim stops growing into its strip figure's classic height, so
     // the foot look keeps the figure at 1383x384 (classic draws it 1373x381).
+    // Then the seek_order gate: s6's two swell take-backs gain
+    // `immediateRender: false` (the only diff), so a cold seek before the walk
+    // no longer shows a swollen term.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "2d5091720ac3050ffe0db34fe303e17bff25c4f63799c36341d9fa8dac44a4d0",
+      "7bfd2dde14af43433e28c0a97d9a5bcb690b4f02722461a8a6ce47908434e4b0",
     );
   });
 

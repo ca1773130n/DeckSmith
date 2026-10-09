@@ -48,6 +48,7 @@
  * rendering a deck whose audio is aimed at the wrong frames.
  */
 import type { z } from "zod";
+import type { BespokeMap } from "../bespoke/scene.js";
 import { CUE_MAX_CHARS, type Cue, splitCue } from "../deck/subtitles.js";
 import { emitScene } from "../emit/archetypes/index.js";
 import { type DeckNarration, speechPlan, stageScene } from "../emit/composition.js";
@@ -245,10 +246,20 @@ function holdsFor(
   theme: DeckTheme,
   sid: string,
   speed: number,
+  bespoke?: BespokeMap,
 ): { holds: number[]; open: number } {
   // `start: 0`: only `holds` and `open` leave this function, both of which are
-  // scene-relative, so the absolute clock is not one of its inputs.
-  const ctx: EmitContext = { source, format, theme, sid, start: 0 };
+  // scene-relative, so the absolute clock is not one of its inputs. The bespoke
+  // map rides along because a bespoke scene's stops are its own (see
+  // `bespokeHolds`), and this must stage what `layout` staged.
+  const ctx: EmitContext = {
+    source,
+    format,
+    theme,
+    sid,
+    start: 0,
+    ...(bespoke ? { bespoke } : {}),
+  };
   // `stageScene` is the one place pacing happens, shared with `planCut` and
   // `layout`, so the manifest cannot describe a scene the deck did not build —
   // and on a linear format there is no island for `assertHoldsAgree` to catch a
@@ -429,6 +440,8 @@ export interface TimingInput {
   beats?: readonly Beat[];
   narration?: DeckNarration;
   theme?: string;
+  /** `DeckOptions.bespoke`, exactly as `emitDeck` was given it. */
+  bespoke?: BespokeMap;
 }
 
 /**
@@ -459,7 +472,7 @@ export function planTiming(input: TimingInput): Timing {
   const stops = new Map<string, number>();
   beats.forEach((beat, i) => {
     const scene = scenes[i] as TimedScene;
-    const staging = holdsFor(beat, source, format, theme, scene.id, speed);
+    const staging = holdsFor(beat, source, format, theme, scene.id, speed, input.bespoke);
     scene.holds = staging.holds;
     scene.open = staging.open;
     stops.set(beat.id, stopCount(staging.holds));

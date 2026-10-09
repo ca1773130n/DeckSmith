@@ -6,6 +6,7 @@
  * and nothing else. Adding a domain means adding an emitter — the shell never
  * learns what a camera frustum or an orderbook is.
  */
+import type { BespokeMap } from "../bespoke/scene.js";
 import type { Archetype, BeatOf, Design, Format, Source } from "../types.js";
 import type { Fit } from "./fit.js";
 import type { Look } from "./look.js";
@@ -283,6 +284,14 @@ export interface EmitContext {
    * the Director rejects any look whose holds or chrome landing differ.
    */
   look?: Look;
+  /**
+   * `--design v2 --bespoke` only: the beats drawn by a generated scene instead
+   * of their archetype, keyed by beat id (src/bespoke/scene.ts). `emitScene`
+   * reads it, so every caller that stages a beat — `planCut`, `layout`, the
+   * timing manifest — sees the same scene. ABSENT ON EVERY OTHER BUILD, and
+   * absent means the archetype, byte for byte.
+   */
+  bespoke?: BespokeMap;
 }
 
 /* ------------------------------------------------- the animation vocabulary */
@@ -431,6 +440,14 @@ export interface Scene {
    * seeking that deck navigation performs.
    */
   tl: Tween[];
+  /**
+   * A bespoke scene's generated script, and nothing else's. Run inside this
+   * scene's timeline closure as `function (tl, root) { "use strict"; … }`, after
+   * `tl` exists and before the shell's own tweens are appended to it. Checked
+   * by src/bespoke/contract.ts before it can get here; an archetype never sets
+   * it, so every archetype scene is the bytes it was.
+   */
+  script?: string;
   /** Statements run as the document parses, before anything else, e.g.
    * `katex.render(...)`. Anything that CHANGES layout belongs here, so that a
    * `measure` below reads the finished document. */

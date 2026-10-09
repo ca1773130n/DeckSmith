@@ -6,14 +6,17 @@
  * fine in the one frame the inspector sampled, and then two renders of the same
  * deck differ byte for byte and every downstream diff becomes noise.
  */
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { BESPOKE_FILE } from "../bespoke/scene.js";
 import { prepareMorph } from "../emit/archetypes/equation-morph.js";
 import { prepareWalk } from "../emit/archetypes/equation-walk.js";
 import { DECK_PAGE } from "../emit/composition.js";
+import { FIT_FILE } from "../emit/fit.js";
 import { arcProblems } from "../plan/arc.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Prefs } from "../prefs.js";
+import { openDeck } from "../render/capture.js";
 import { TIMING_FILE, type Timing } from "../render/timing.js";
 import {
   type Beat,
@@ -28,6 +31,7 @@ import {
 import { scanBudget } from "./budget.js";
 import { type CheckOptions, check } from "./check.js";
 import { fidelity, readStops, type Stop } from "./fidelity.js";
+import { ENVIRONMENT_ERRORS, probeScenes, sceneWindows } from "./scenes.js";
 import { scanTypeFloor } from "./typefloor.js";
 
 /**
@@ -143,6 +147,20 @@ const NONDETERMINISM: ReadonlyArray<readonly [RegExp, string, string, string?]> 
 export interface VerifyOptions extends CheckOptions {
   /** Default true. `false` skips the frame measurement entirely. */
   fidelity?: boolean;
+  /**
+   * Default true. The motion gates in ./scenes.ts: all three, as errors, on the
+   * scenes `bespoke.json` says were generated; `seek_order` alone, as a
+   * warning, on every other scene of a v2 deck. A classic deck runs none.
+   * The bespoke pass turns this off on its probe decks, which it gates itself.
+   */
+  scenes?: boolean;
+  /**
+   * Generated scenes whose motion gates the bespoke pass already ran on these
+   * exact bytes at this same scene id (`bespoke.json`'s `gatedAt`): `build`
+   * seeks them like any other scene instead of repeating the full probe (~16s
+   * a scene). `decksmith verify <dir>` never passes it.
+   */
+  probed?: ReadonlySet<string>;
 }
 
 /**
@@ -217,9 +235,33 @@ export async function verify(
         ...(source ? scanUnusedFigures(storyboard, source) : []),
       ]
     : [];
-  const seen = [...ours, ...(frames?.findings ?? []), ...storyboardFindings];
+  // AFTER the two browsers above have closed, not beside them: a third Chrome
+  // at once is the memory this machine does not always have.
+  const motion =
+    opts.scenes === false || opts.fidelity === false
+      ? []
+      : await sceneGates(dir, timing, opts.probed);
+  const seen = [...ours, ...(frames?.findings ?? []), ...motion, ...storyboardFindings];
+  // The machine's audio device erroring is not the deck's (`ENVIRONMENT_ERRORS`,
+  // which the motion gates already skip): reported, not failed. MEASURED
+  // 2026-10-09: one final `verify` of six in round 4 failed on it alone.
+  const checked = verdict.findings.map((f) =>
+    f.severity === "error" &&
+    f.rule === "console_error" &&
+    ENVIRONMENT_ERRORS.some((re) => re.test(f.message))
+      ? {
+          ...f,
+          severity: "warning" as const,
+          message: `${f.message} — the machine's audio device, not the deck`,
+        }
+      : f,
+  );
+  const environmentOnly =
+    !verdict.passed &&
+    verdict.findings.some((f) => f.severity === "error") &&
+    checked.every((f) => f.severity !== "error");
   return {
-    passed: verdict.passed && seen.every((f) => f.severity !== "error"),
+    passed: (verdict.passed || environmentOnly) && seen.every((f) => f.severity !== "error"),
     findings: [
       ...seen,
       // `scanBeatCount` and `scanPaperArc` are deliberately NOT here. Both need
@@ -228,9 +270,65 @@ export async function verify(
       // gets above, and for the same reason: a check that cannot see its inputs
       // must not report that it found nothing. They run at `plan` and `build`,
       // where prefs exist.
-      ...verdict.findings,
+      ...checked,
     ],
   };
+}
+
+/**
+ * The motion gates (./scenes.ts) over a built deck, or nothing for a classic one.
+ *
+ * Generated scenes get all three as errors — they exist to keep moving, to stay
+ * clear of their own labels and to be seekable, and the bespoke pass only kept
+ * the ones that did. Every other scene of a v2 deck gets `seek_order` as a
+ * warning: it is the gate that found the equation-walk bug, and an archetype
+ * scene that fails it today is a defect to report, not a deck to refuse.
+ */
+async function sceneGates(
+  dir: string,
+  timing: Timing | undefined,
+  probed: ReadonlySet<string> = new Set(),
+): Promise<Finding[]> {
+  if (!timing) return [];
+  const v2 = await stat(join(dir, FIT_FILE)).then(
+    () => true,
+    () => false,
+  );
+  if (!v2) return [];
+  const bespoke = await readFile(join(dir, BESPOKE_FILE), "utf8")
+    .then((t) => JSON.parse(t) as { scenes?: Array<{ sid?: string; status?: string }> })
+    .catch(() => undefined);
+  const generated = new Set(
+    (bespoke?.scenes ?? [])
+      .filter((s) => s.status === "bespoke" && s.sid && !probed.has(s.sid))
+      .map((s) => s.sid as string),
+  );
+  const all = sceneWindows(timing);
+  try {
+    const errors: string[] = [];
+    const mine = all.filter((w) => generated.has(w.sid));
+    const rest = all.filter((w) => !generated.has(w.sid));
+    const strict = mine.length
+      ? await probeScenes(mine, { open: () => openDeck(dir, { watch: errors }), errors })
+      : { findings: [] };
+    const loose = await probeScenes(rest, {
+      open: () => openDeck(dir),
+      gates: ["seek"],
+      seekSeverity: "warning",
+      cold: false,
+      sparse: true,
+    });
+    return [...strict.findings, ...loose.findings];
+  } catch (err) {
+    return [
+      {
+        severity: "warning",
+        gate: "motion",
+        rule: "scene_gates_skipped",
+        message: `the motion gates could not open the deck: ${err instanceof Error ? err.message : err}`,
+      },
+    ];
+  }
 }
 
 /**

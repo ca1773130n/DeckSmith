@@ -924,6 +924,218 @@ already built) and, while a stop's audio plays, seeks the scene through that sto
 stretch on the audio clock so the emphasis lands on the same word as in the video. Both
 are off under `prefers-reduced-motion`.
 
+## v2 bespoke scenes (`--bespoke`)
+
+The archetypes finish building in about five seconds and then hold still while the voice
+keeps talking. `build --design v2 --bespoke` hands four to six beats per deck to Codex
+instead: for each, a GSAP + SVG scene written for that beat, keyed to its narration cues,
+that keeps explaining for as long as the sentence runs. Everything else stays v2. It is off
+unless asked for; v2 without it, and classic, emit the bytes they did.
+
+```bash
+decksmith build storyboard.json --source source.json -o deck --design v2 --bespoke
+# bespoke: b03-action-loop.draft in 121s …
+# bespoke: b05-backbone — every gate passed and the rubric probe is clean; no critique call
+# bespoke: 4 of 5 beats drawn bespoke, 7 Codex call(s), 190985 tokens, 343s
+```
+
+**Which beats.** A deterministic rule (`src/bespoke/select.ts`): mechanism archetypes
+(pipeline, equation-walk/-morph, line-chart, stack, grid, split-/bar-compare, and figures
+last), mechanism words in en/ko/ja/zh, a cited equation, and the beat's weight; ties
+broken by a hash. Never a title, callout or table, a beat with no narration, or a beat a
+camera dives through. `plan --bespoke` lets the planner mark beats `bespoke: true|false`;
+`false` is obeyed, `true` is a strong hint.
+
+**Per beat:** illustration → draft → static contract → probe deck (a real build with every
+`verify` gate plus the motion gates, photographed at every cue) → the rubric probe → at most
+one critique-and-fix call with the contact sheet and the measures attached (`codex exec -i`)
+→ static contract → probe again → repair rounds. A draft that passed every gate and is clean
+by the rubric probe is kept without the critique call; one that fails only on what the
+repair fixes, and is otherwise clean, is repaired instead of critiqued. A beat that does not
+pass keeps its archetype — the deck is never failed. If the fix round breaks a draft that
+passed, the draft is kept.
+
+**The illustration** (`src/bespoke/art.ts`, `src/bespoke/inspect.ts`). Every bespoke beat
+but a data beat gets ONE picture from the image tool of the same Codex account
+(`codex exec` with every tool off but `image_generation`; no API key — the account's own
+login, as for the scenes), all of a deck's pictures asked for at once before the drafts
+queue for their lanes. The illustrator is given the beat (fenced, untrusted), the pack's
+colours and one fixed style paragraph — flat 2D vector, solid fills with hard edges; no
+gradients, shading, shadows, gloss, 3D, clay or toy renders, by name — and asked for three
+or four subjects doing the method, big, left to right, with empty ground between them and
+NO text. Each picture is then inspected locally, for free: its subjects are the connected
+regions that are not its flat ground (boxed, left to right); its flatness is how much of
+it sits in its 16 commonest colours minus how much of it is soft shading (`FLAT_MIN`,
+calibrated on round 3's 21 renders against 12 flat pictures); and its writing is read by
+macOS Vision, once per script (en, ko, ja, zh), through a small Swift helper compiled once
+into `~/.cache/decksmith/tools`. A picture with writing, a shaded render or one whose
+subjects touch is redrawn ONCE with the reason; of two refused pictures the one without
+writing and the flatter is kept, and one with writing never is. Off macOS the text check
+reports `unchecked` in `bespoke.json` rather than passing. The deck gets a WebP with its
+edges feathered into transparency for its box (~30-75 KB against 1.3 MB of PNG; a CSS mask
+on the picture cost ~0.7s a probe frame); the draft call is shown the PNG and a copy with
+the subjects boxed and numbered (`-i`). The shell places it: `<image data-art="1">` with no
+href gets the href and a fixed placement covering the body box (`slice`), so the subjects'
+boxes are known in box px before the scene is written. It is read only from
+`$CODEX_HOME/generated_images/` (after symlinks), only as a PNG by its magic bytes, under
+12 MB. `--bespoke-art <n>` (default 6; `bespoke.art`) caps pictures per deck, counted apart
+from `--bespoke-calls`; a beat whose picture cannot be had is drawn without one.
+
+**Data beats** (line-chart, bar-compare, data-table) get no picture: their scene is asked
+for the chart that builds with the voice — axes draw, bars grow with their counters, the
+line traces, the named value lights — from the beat's own numbers, never a table painted
+over an illustration (`data_over_picture`).
+
+**The camera** of an illustrated scene is the shell's, staged in one grammar
+(`src/bespoke/shots.ts`). The scene names its `shots` — on which cue, how far into it, which
+subject — and the shell compiles them: an ESTABLISHING shot of the whole picture for at
+least 1.6s, a PUSH IN (1.1s, power3.inOut) that frames the named subject and its label at
+1.6-2.2x, a move straight to the next subject, a 3% creep while a shot is held, and a
+REVEAL back to the whole picture at the last cue; shots closer than 1.6s are dropped. Every
+camera tween is a `fromTo` with explicit from-values, and no two touch. The scene's own
+script may not move `#sN-cam` (`script_camera`). A scene without a picture still moves the
+wrapper itself (`scale`/`x`/`y`, arithmetic in the prompt). A scene with a moving camera is
+clipped to its box and marked `data-ds-clip`, so `verify` does not count what a push-in
+carries past the canvas edge as off-canvas.
+
+**The labels** of an illustrated scene are the shell's too (`src/bespoke/callouts.ts`). The
+scene says what each subject is called (`labels`); the shell gives each subject a zone just
+above it (or across its top when there is no room), as wide as half the gap to each
+neighbour, and sets the name there on a plate — 56px, shrinking to 44, then two lines —
+with a leader line to a dot on the subject, entering as the camera first arrives on it (or
+at the reveal). The zones are in the draft prompt, which tells the scene to keep its own
+drawing out of them; a name that does not fit even on two lines at 44px is refused
+statically (`labels`). Round 4's first run, with the scene placing its own labels on the
+subjects, put them there and then failed four scenes in five on their own plates and
+leader lines crossing their text.
+
+**Repair** (`src/bespoke/repair.ts`), no model call. On `text_overlap`,
+`graphic_crosses_text` or `svg_text_overprint`, each colliding label's unit (the text, or
+the smallest `<g>` holding it and its plate) gets one constant offset — the smallest, in
+8px rings over sixteen directions in a fixed order — that clears every other label by 16px,
+every visible stroke sample by 10px and every shape painted over it, inside the box, at
+every frame the probe measured, camera scale included; it is written as a wrapping
+`<g transform="translate()">`. A label never moves farther than 0.8 of its own height
+(at least 32px): a collision that needs more is left to the critique round. On
+`end_dimmed`, the elements dimming parts the scene had lit are tweened back to full
+strength just before the end; on `camera_end`, the camera is tweened home. On `seek_order`,
+two tweens on one target animating one property over overlapping time — which a timeline
+resolves one way seeking forward and the other seeking back — are untangled in favour of
+the later one (the earlier is shortened to end where it starts, or loses that target or
+property when both start together; `src/bespoke/untangle.ts`). A repaired scene goes
+through the static contract and is gated again (at most two repair rounds).
+
+**What the model is shown** (`src/bespoke/prompt.ts`): the beat, its cues, the paper's
+excerpts (fenced, untrusted), the contract, motion-design rules with numbers (one focal
+element per cue at 88-120px, the rest dimmed but kept; fill the box; paint it with filled
+shapes; at least three kinds of motion, one of flow, camera, counter or morph; the end
+frame a summary), text widths measured in the pack's own font, and two of four hand-made
+reference scenes (`src/bespoke/references.ts`: a routing mechanism with particle flow and
+a counter, a camera zoom into one block, a traced curve whose gap morphs into the headline
+number, a scatter whose dots travel into a bell, and — first, for a beat with an
+illustration — a scene built on its picture), picked for the beat's archetype and painted
+in the pack's colours. `test/bespoke-references.test.ts` runs each reference
+through every gate and the rubric probe in a real deck, so a reference that stops passing
+stops being one. Parts a cue introduces are `<g data-cue="N">` groups (semantic grouping,
+after Vector Prism, arXiv 2512.14336). MorphSVG is registered for a deck only when one of
+its scenes morphs.
+
+**The rubric probe** (`rubricProbe`, free: it reads what the probe measured) sends a
+passing draft to the critique round when any of these is off: the drawing paints under 12%
+of its box at the end (round 1's scenes painted 4-16%), more than half its parts are still
+dimmed at the end, no label reaches 88px (not asked of an illustrated scene, whose picture
+is its focus and whose names are the shell's), fewer than three kinds of motion or none of
+flow/camera/counter/morph, an illustrated scene that holds fewer than two push-ins, does not
+open wide, or names fewer than two subjects on them, a cue whose picture changes by under
+0.5% of the frame, or a warning about the scene. The critique round scores the frames against a six-line rubric
+(fills the stage, one focus per cue, motion explains, legible hierarchy, the pack, sync),
+is told the measures and every finding with the colliding labels' coordinates, and returns
+the fixed scene.
+
+**Caps**, checked before every call: `--bespoke-calls` (default 12; two per beat) and
+`--bespoke-seconds` (default 1800). A quota or rate-limit answer stops every further call.
+Codex runs only through the account's own CLI (`--bespoke-cli`, `--bespoke-model`), never
+an API key, five calls in flight (`bespoke.concurrency` in the config file), at
+`bespoke.effort` reasoning (default `medium`; `default` keeps the account's), from the
+scratch directory, and with its tools off: shell, apps, plugins, browser, image
+generation (the illustration call alone keeps it), web search and every MCP server the
+account configured. A bespoke call is a
+text transform; with tools on, the agent spent its first turns reading the account's own
+instruction files and skills (measured: 56,679 input tokens over several turns and
+135-488s for a draft that tool-less took one turn of 18,247 and 166s). A paced deck (`--speed`/`--duration` other than 1×) and non-16:9 formats are
+skipped, with a line saying so.
+
+**Cache.** Keyed by everything a scene is drawn from — the beat's words and params, the
+quoted excerpts, the cue windows, the stops, the box, the pack, the prompt and contract
+versions, the model, the illustration's key — under `~/.cache/decksmith/bespoke`
+(`--bespoke-cache`); pictures under its `art/`, keyed by the beat's words, the pack's
+colours, the art prompt's version and the model. A rebuild costs no calls. A beat the gates rejected after its critique round is cached as rejected;
+a fallback the beat did not earn (cap, quota, timeout) is not.
+
+**What a generated scene may run.** Three layers. (1) A static walk before anything is
+built or opened (`src/bespoke/contract.ts`, acorn): GSAP timeline calls with literal vars
+at explicit seconds, `gsap.set`, scoped `root.querySelector`, `Math` minus `random`, local
+code; `window`, `document`, `fetch`, `eval`, timers, storage, navigation, callbacks and
+function-valued tween vars are refused by name; CSS must be scoped to the scene with no
+at-rules, `url()` or animation; markup is SVG and inline HTML with no handlers, SMIL or
+external references, and `<image>` only as the beat's illustration (`data-art="1"`, no
+href — the shell writes it); path data must be numbers and commands (a word in a `d`
+attribute is a console error that used to fail every scene probed with it). (2) A CSP `<meta>` in every composition that carries one —
+`connect-src 'none'`, no `unsafe-eval`, local files only — and a probe that fails a scene
+on any page error, request or navigation (an error that names no scene fails every scene
+probed with it, unless the value it quotes is in exactly one candidate, which is then the
+one failed). (3) The player's frame is sandboxed
+(`allow-scripts allow-same-origin allow-downloads`). The paper's text reaches the model
+fenced as untrusted data. The static walk is not a proof against obfuscation — a
+property name assembled from parts at run time gets past it — which is what (2) and (3)
+are for; and (3) isolates only when decks are served from another origin than the host.
+
+**The motion gates** (`src/verify/scenes.ts`) run on every scene `bespoke.json` lists, as
+errors: `static_hold` (the picture must change during every cue), `graphic_crosses_text`
+(a visible stroke through a label — a curve whose bounding box contains a label is not
+its plate — or a shape painted over one), `seek_order` (the frame must not depend on what
+was seeked before it, beyond 1500px of rasterising noise — counted on changed AREAS: a pixel
+counts when it and its 8 neighbours changed, so a picture re-rasterised a hair differently
+on its first paint, an outline round every subject, 12,698px raw, counts 309), `stage_fill` (the settled
+drawing's bounding box covers 80% of its box), `type_hierarchy` (one label of 64px or
+more at the end; not asked of an illustrated scene), `stray_marker` (an SVG marker painted where its line is not drawn),
+`early_reveal` (a `data-cue="N"` group showing more than 0.5s before cue N),
+`shot_variety` (an illustrated scene opens on the whole picture and the camera — sampled
+every 0.5s, no screenshot — HOLDS push-ins at 1.5x or closer on at least two different
+subjects; round 3's 1.1-1.4x pans are not push-ins), `label_anchor` (a label that names a
+subject sits within 96px of its box and covers no other subject by more than a quarter of
+itself, and at the end at least two subjects are named that way), `data_over_picture`
+(five or more numbers on the illustration),
+`cue_groups` (no such groups, or one naming a cue the scene does not have), `end_dimmed`
+(at the settled frame, more than 10% of the parts the scene had shown lit are left under
+0.6 opacity — a part drawn translucent from the start is not counted) and `camera_end` (the
+camera, or a viewBox, not home at the settled frame). Content
+outside a clipping `<svg>` — a camera zoomed in — is neither off the frame nor crossing
+anything. Overlap and crossing findings carry the labels' boxes in the body box's px.
+`seek_order` also runs on every other scene of a v2 deck, as a warning; it is what found
+the equation-walk bug fixed alongside this (22,037px before, 0 after). Below the tolerance
+and not traced: v2's equation-walk on the narrated demo differs by 529px on one KaTeX
+glyph when reached from past the scene's end.
+
+`build` writes `bespoke.json` beside the deck: what was drawn and from where (cache,
+draft, critique), why each fallback, calls, tokens, seconds, the stages' wall clock, each
+picture's inspection (subjects, flatness, writing, draws) and each scene's staging
+measures. The full motion probe that `verify` would run again on a generated scene is
+skipped by `build` when the pass already ran it on the same bytes at the same scene id
+(`gatedAt`); `build` still seeks it with the deck's other scenes. `decksmith verify <dir>`
+always runs it. Set
+`DECKSMITH_BESPOKE_WORK=<dir>` to keep the prompts, replies and contact sheets.
+
+**Costs** (measured on four HypePaper decks, twice each, see
+[`.planning/2026-10-09-v2-bespoke-round4.md`](.planning/2026-10-09-v2-bespoke-round4.md)):
+an illustration takes 60-120s, a draft 90-220s and a critique 70-120s; a deck's pass took
+380-730s for 5-8 scene calls plus 3-7 pictures (redraws included) and 153-227k tokens, and
+the whole `build` 466-812s on a Mac with 9-23% memory free — three builds of eight under ten
+minutes. The pictures add 128-348 KB of WebP to a deck (round 3: 6-7 MB of PNG). Round 3
+took 593-742s and 214-325k tokens; round 1 13-31 minutes and 540-705k. A rebuild from the
+cache makes 0 calls. None of that fits a 300-second build timeout: a host running this has
+to give `build` that long, or run it off the request path.
+
 ## Themes
 
 Three, each a position rather than a hue.

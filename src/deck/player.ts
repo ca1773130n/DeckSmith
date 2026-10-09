@@ -141,6 +141,15 @@ export class DecksmithPlayer extends HTMLElement {
     frame.src = src;
     frame.setAttribute("allow", "fullscreen; autoplay");
     frame.setAttribute("allowfullscreen", "");
+    // A deck runs code it did not write — a v2 deck with `--bespoke` runs a
+    // model's — so the frame withholds what no deck needs: top-level
+    // navigation, popups, forms, modals. The same three tokens the server's
+    // deck CSP grants (src/server/http.ts), for the same reasons: scripts run;
+    // `allow-same-origin` because deck.html drives its index.html through
+    // `contentDocument`, and on an opaque origin every slide renders empty.
+    // It isolates only when the deck is served from ANOTHER origin than the
+    // host — a same-origin deck could reach up and lift its own sandbox.
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
     frame.title = this.getAttribute("label") ?? "Deck";
     frame.style.cssText = "display:block;width:100%;height:100%;border:0";
     this.#frame = frame;

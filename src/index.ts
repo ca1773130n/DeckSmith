@@ -26,6 +26,8 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyArt } from "./bespoke/art.js";
+import type { BespokeMap } from "./bespoke/scene.js";
 import { copyAssets, copyAudio, refreshFont, vendorKatex, vendorScripts } from "./build/files.js";
 import { DECK_PAGE, type DeckNarration, emitDeck, PLAYER_FILE } from "./emit/composition.js";
 import { pickTheme } from "./emit/themes/pick.js";
@@ -346,6 +348,23 @@ export { guardTmpdir } from "./tmpdir.js";
  */
 export * from "./types.js";
 
+/**
+ * `--design v2 --bespoke`: generated scenes for a few mechanism beats per deck.
+ * The pass, its contract checker, its selection rule and its cache are all
+ * exported so a host can run them on its own schedule.
+ */
+export { BESPOKE_FILE, type BespokeEntry, type BespokeMap, bespokeScene } from "./bespoke/scene.js";
+export { checkFragment, type Fragment, instantiate } from "./bespoke/contract.js";
+export { selectBespoke } from "./bespoke/select.js";
+export { cacheKey, SceneCache } from "./bespoke/cache.js";
+export {
+  type BespokeReport,
+  type BespokeResult,
+  bespokePass,
+  type GateFn,
+} from "./bespoke/pipeline.js";
+export { browserGate } from "./bespoke/probe.js";
+
 /* ------------------------------------------------------------------- build */
 
 /** Where the emitted deck's parts came from and where they went. */
@@ -386,6 +405,11 @@ export interface BuildDeckOptions {
   packSeed?: string;
   /** Multiplies every duration and hold. 1 leaves the bytes untouched. */
   speed?: number;
+  /**
+   * `--design v2` only: beats drawn by a generated scene (src/bespoke/), from
+   * `bespokePass`. Absent on every other build, which keeps their bytes.
+   */
+  bespoke?: BespokeMap;
   /** Default `FORMATS["deck-16x9"]`. */
   format?: Format;
   /** From `narrate`. `dir` is where the mp3s sit relative to `deck.html`. */
@@ -463,6 +487,7 @@ export async function buildDeck(
     ...(opts.onBeatError ? { onBeatError: opts.onBeatError } : {}),
     ...(opts.onBeatWarning ? { onBeatWarning: opts.onBeatWarning } : {}),
     ...(fontCss ? { fontCss } : {}),
+    ...(opts.bespoke ? { bespoke: opts.bespoke } : {}),
   });
 
   const files: string[] = [];
@@ -501,6 +526,7 @@ export async function buildDeck(
       speed,
       ...(opts.narration ? { narration: opts.narration } : {}),
       ...(opts.theme ? { theme: opts.theme } : {}),
+      ...(opts.bespoke ? { bespoke: opts.bespoke } : {}),
     });
     await write(TIMING_FILE, `${JSON.stringify(timing, null, 2)}\n`);
     step(`build: timing for ${timing.segments.length} narration segment(s)`);
@@ -525,6 +551,8 @@ export async function buildDeck(
   if (opts.assetsFrom) {
     files.push(...(await copyAssets(opts.assetsFrom, out, source.figures, step)));
   }
+  // The illustrations the bespoke scenes place, under names of the build's own.
+  if (opts.bespoke) files.push(...(await copyArt(Object.values(opts.bespoke), out)));
   if (opts.narration && opts.audioFrom) {
     files.push(...(await copyAudio(opts.audioFrom, opts.narration, out, step)));
   }

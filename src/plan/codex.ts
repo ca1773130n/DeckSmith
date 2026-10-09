@@ -138,8 +138,13 @@ const PLANNER_INVISIBLE = new Set(["tilt"]);
  * back carrying one, so no post-hoc check is needed to reject what the model was
  * never offered, and the schema bytes are identical to what they were.
  */
-function plannerInvisible(prefs: Pick<Prefs, "genre">): ReadonlySet<string> {
-  return paperArcRequested(prefs) ? PLANNER_INVISIBLE : new Set([...PLANNER_INVISIBLE, "role"]);
+function plannerInvisible(prefs: Pick<Prefs, "genre" | "bespoke">): ReadonlySet<string> {
+  const hidden = new Set(PLANNER_INVISIBLE);
+  if (!paperArcRequested(prefs)) hidden.add("role");
+  // `bespoke` for the same reason as `role`: shown only to a plan asked for with
+  // `--bespoke`, so every other plan's schema bytes are what they were.
+  if (!prefs.bespoke?.enabled) hidden.add("bespoke");
+  return hidden;
 }
 
 /** Strip `hidden` keys, and the `required` entries naming them. */
@@ -206,6 +211,14 @@ export interface RunnerArgs {
    * `cwd` to fence the writes to.
    */
   sandbox?: "read-only" | "workspace-write";
+  /** Images attached to the prompt (`codex exec -i`). The bespoke critique round sends its frames. */
+  images?: string[];
+  /** The CLI to run. Absent: `codex` on PATH. */
+  bin?: string;
+  /** Told the run's token count when the CLI reports one. */
+  onUsage?: (tokens: number) => void;
+  /** Extra `-c key=value` overrides, in order (see `leanCodexConfig`). */
+  config?: readonly string[];
 }
 
 /** What the planner needs from the outside world: a prompt in, a final message out. */
@@ -330,6 +343,8 @@ export function codexCommand(args: RunnerArgs): { argv: string[]; env?: NodeJS.P
     "--color",
     "never",
     ...(args.model ? ["--model", args.model] : []),
+    ...(args.config ?? []).flatMap((c) => ["-c", c]),
+    ...(args.images ?? []).flatMap((path) => ["-i", path]),
     "-",
   ];
   return sandbox === "workspace-write" && args.cwd !== undefined
@@ -337,16 +352,116 @@ export function codexCommand(args: RunnerArgs): { argv: string[]; env?: NodeJS.P
     : { argv };
 }
 
+/**
+ * Features that give a `codex exec` run TOOLS. A call that is a pure text
+ * transform — a prompt in, a schema-held JSON reply out — needs none of them,
+ * and with them the agent spends turns on the account's own setup instead:
+ * MEASURED 2026-10-08 on one bespoke draft prompt, the default config ran
+ * `cat` on the user's global AGENTS.md and an animation skill before
+ * answering — 56,679 input tokens over several turns and 135-488s — where the
+ * same prompt with these off was one turn of 18,247 input tokens.
+ */
+export const TOOL_FEATURES = [
+  "shell_tool",
+  "unified_exec",
+  "apps",
+  "plugins",
+  "multi_agent",
+  "browser_use",
+  "computer_use",
+  "image_generation",
+  "skill_search",
+  "tool_suggest",
+] as const;
+
+let leanMemo: Promise<string[]> | undefined;
+
+/**
+ * `-c` overrides for a tool-less, single-turn `codex exec`: every tool feature
+ * off, web search off, and every MCP server the account configured disabled by
+ * name (the config's own names, read once per process with `codex mcp list`;
+ * a name the config does not define cannot be disabled, only invented). If the
+ * list cannot be read, the features alone still remove the shell.
+ */
+export function leanCodexConfig(
+  bin = "codex",
+  list: (bin: string) => Promise<string> = listMcp,
+): Promise<string[]> {
+  leanMemo ??= (async () => {
+    const out = [...TOOL_FEATURES.map((f) => `features.${f}=false`), 'web_search="disabled"'];
+    try {
+      const servers = JSON.parse(await list(bin)) as Array<{ name?: unknown; enabled?: unknown }>;
+      for (const s of servers)
+        if (typeof s.name === "string" && /^[\w-]+$/.test(s.name) && s.enabled !== false)
+          out.push(`mcp_servers.${s.name}.enabled=false`);
+    } catch {
+      // No list: the shell is still gone, which is most of the cost.
+    }
+    return out;
+  })();
+  return leanMemo;
+}
+
+/**
+ * `leanCodexConfig` with ONE tool back: the image tool, for the bespoke pass's
+ * illustration call (src/bespoke/art.ts). The shell stays off — the agent
+ * reports where the tool saved the picture and the caller reads it from there —
+ * and so does `view_image`, which would spend the call's tokens looking at a
+ * picture the scene call is shown anyway. MEASURED 2026-10-09: 42s and 19k
+ * tokens for one picture this way, against 49s and 45k with the agent asked to
+ * inspect it.
+ */
+export async function artCodexConfig(
+  bin = "codex",
+  list: (bin: string) => Promise<string> = listMcp,
+): Promise<string[]> {
+  const lean = await leanCodexConfig(bin, list);
+  return [
+    ...lean.filter((c) => c !== "features.image_generation=false"),
+    "features.view_image=false",
+  ];
+}
+
+function listMcp(bin: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      bin,
+      ["-c", "features.plugins=false", "-c", "features.apps=false", "mcp", "list", "--json"],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let out = "";
+    child.stdout.on("data", (c: Buffer) => {
+      out += c.toString();
+    });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`codex mcp list exited ${code}`));
+    });
+  });
+}
+
 /** The production `Runner`: `codex exec` on PATH, stdin in, a file out. */
 export function runCodex(args: RunnerArgs): Promise<void> {
   const { argv, env } = codexCommand(args);
 
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", argv, {
-      stdio: ["pipe", "ignore", "pipe"],
+    const child = spawn(args.bin ?? "codex", argv, {
+      stdio: ["pipe", args.onUsage ? "pipe" : "ignore", "pipe"],
       ...(env === undefined ? {} : { env }),
     });
     let stderr = "";
+    // Only the tail matters (the usage line is last), and a pipe nobody reads
+    // fills and stalls the child, so it is drained into a bounded buffer.
+    let stdout = "";
+    child.stdout?.on("data", (c: Buffer) => {
+      stdout = (stdout + c.toString()).slice(-4000);
+    });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`Codex did not finish within ${Math.round(args.timeoutMs / 1000)}s.`));
@@ -360,19 +475,21 @@ export function runCodex(args: RunnerArgs): Promise<void> {
       reject(
         err.code === "ENOENT"
           ? new Error(
-              'The "codex" CLI is not on PATH. Install it, or sign in with `codex login`, then retry.',
+              `The "${args.bin ?? "codex"}" CLI is not on PATH. Install it, or sign in with \`codex login\`, then retry.`,
             )
           : err,
       );
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      const used = /tokens used\s*\n?\s*([\d,]+)/i.exec(`${stdout}\n${stderr}`);
+      if (used?.[1] && args.onUsage) args.onUsage(Number(used[1].replace(/,/g, "")));
       if (code === 0) return resolve();
       reject(
         new Error(`codex exec exited ${code}.\n${stderr.trim().split("\n").slice(-8).join("\n")}`),
       );
     });
 
-    child.stdin.end(args.prompt);
+    child.stdin?.end(args.prompt);
   });
 }

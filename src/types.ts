@@ -570,6 +570,14 @@ const beatCore = {
   weight: z.number().min(0).max(1).default(0.5),
   /** Seconds this beat holds in a linear render. Deck mode is human-paced. */
   seconds: z.number().positive().max(60).default(7),
+  /**
+   * OPTIONAL, and only read by `build --design v2 --bespoke`: the planner's hint
+   * that this beat explains a mechanism worth a generated scene (`true`), or
+   * must keep its archetype (`false`). A hint, not an order — see
+   * src/bespoke/select.ts. Hidden from the planner's schema unless the plan was
+   * asked for with `--bespoke`, so every other plan is byte-for-byte unchanged.
+   */
+  bespoke: z.boolean().optional(),
 };
 
 /**
@@ -937,6 +945,52 @@ export const prefsSchema = z.object({
     // Same reason as `narration`: the resolved shape, spelled once, so an omitted
     // block reads fully populated and a `.deck` manifest carries every field.
     .default({ enabled: false, provider: "codex", style: "flat vector illustration", max: 4 }),
+
+  /* --- bespoke scenes --- */
+  /**
+   * `--design v2` only: a few beats per deck drawn by a model-written GSAP+SVG
+   * scene instead of their archetype (src/bespoke/). OPTIONAL WITH NO DEFAULT,
+   * unlike the two blocks above, and that is deliberate: a resolved prefs
+   * object travels into `.deck` manifests, and a defaulted block would move the
+   * bytes of every pack built without it.
+   */
+  bespoke: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Hard cap on Codex calls for one deck. Each bespoke beat costs two. */
+      maxCalls: z.int().min(0).max(40).default(12),
+      /** Hard cap on the bespoke pass's wall time, seconds. */
+      maxSeconds: z.int().min(60).max(7200).default(1800),
+      /** Passed to `codex exec --model`. Absent: whatever the account is configured for. */
+      model: z.string().optional(),
+      /** The Codex CLI to run. Absent: `codex` on PATH. */
+      cli: z.string().optional(),
+      /** Where generated scenes are cached. Absent: the user cache directory. */
+      cache: z.string().optional(),
+      /**
+       * Codex calls in flight at once. Five: MEASURED 2026-10-08, a deck's
+       * five drafts at three in flight took two waves (252s) where one wave is
+       * ~150s, and the second wave alone put the pass over ten minutes. Still
+       * bounded by `maxCalls` per deck.
+       */
+      concurrency: z.int().min(1).max(8).default(5),
+      /**
+       * `model_reasoning_effort` for the bespoke calls. MEASURED 2026-10-08, one
+       * draft prompt, tools off: medium 166s and 24k tokens, high 371s and 50k.
+       * The references and the gates carry the look; the extra reasoning bought
+       * time. Absent from a config file means medium; "default" leaves the
+       * account's own setting.
+       */
+      effort: z.enum(["low", "medium", "high", "default"]).default("medium"),
+      /**
+       * Illustrations per deck: each bespoke beat may first have ONE picture
+       * drawn by the same account's image tool (src/bespoke/art.ts), which its
+       * scene is built around. 0 turns them off. Counted apart from `maxCalls`:
+       * MEASURED 2026-10-09, one picture is 36-49s and 19-25k tokens.
+       */
+      art: z.int().min(0).max(6).default(6),
+    })
+    .optional(),
 });
 
 /* -------------------------------------------------------------- Narration */
