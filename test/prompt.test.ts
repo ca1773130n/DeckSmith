@@ -441,7 +441,7 @@ describe("the prompt's illustrations block", () => {
     expect(on).toMatch(/At most 3 pictures/);
     expect(on).toContain("illustration: { prompt, caption }");
     // The two slots that can carry one, and the case the inventory line denies.
-    expect(on).toMatch(/claim-figure, or either side of a split-compare/);
+    expect(on).toMatch(/claim-figure, a stage, or either side of a split-compare/);
     expect(on).toMatch(/no figures at\s+all/);
     // A picture is a scene, never something to read; and it is never evidence.
     expect(on).toMatch(/text, labels, numbers, charts or diagrams/);

@@ -407,6 +407,21 @@ describe("stage", () => {
     expect(() => stageParamsSchema.parse({ headline: "H", figureId: "f" })).toThrow();
   });
 
+  it("takes a brief in place of a figure, and refuses to draw one not yet generated", () => {
+    const illustration = { prompt: "a wide valley at dawn", caption: "A valley" };
+    expect(() =>
+      stageParamsSchema.parse({ headline: "H", illustration, placement: "center" }),
+    ).not.toThrow();
+    // Neither a figure nor a brief is nothing to draw.
+    expect(() => stageParamsSchema.parse({ headline: "H", placement: "center" })).toThrow(
+      /stage needs a figureId or an illustration/,
+    );
+    const { figureId: _none, ...rest } = beat().params;
+    expect(() => stage({ ...beat(), params: { ...rest, illustration } }, ctx())).toThrow(
+      "stage b4: illustration not generated — run `decksmith illustrate`",
+    );
+  });
+
   it("shares the deck's one piece with claim-figure, naming both", () => {
     const board = storyboardSchema.parse({
       sourceId: "src",

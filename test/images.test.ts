@@ -26,7 +26,7 @@ import {
   toolSvg,
 } from "../src/images/providers.js";
 import type { RunnerArgs } from "../src/plan/codex.js";
-import { assertRefsResolve } from "../src/plan/refs.js";
+import { assertRefsResolve, hasIllustrations } from "../src/plan/refs.js";
 import { prefsSchema, type Storyboard, sourceSchema, storyboardSchema } from "../src/types.js";
 
 /* ---------------------------------------------------------------- Fixtures */
@@ -584,6 +584,51 @@ describe("illustrate", () => {
     // The inputs were not touched.
     expect(figureIdOf(pending, "b1")).toBeUndefined();
     expect(source.figures).toHaveLength(1);
+  });
+
+  /**
+   * A STAGE TAKES A BRIEF TOO. Without it a paper whose figures are all plots
+   * had no legal way to a full-bleed slide; the planner could ask for a picture
+   * only for a claim-figure or a split-compare, so every slide kept the
+   * headline-over-body layout.
+   */
+  it("draws a stage's brief and points the stage at it, which then builds", async () => {
+    const staged = storyboardSchema.parse({
+      sourceId: "paper",
+      title: "A paper",
+      beats: [
+        {
+          id: "b1",
+          intent: "i",
+          archetype: "stage",
+          params: {
+            headline: "A whole field of it",
+            placement: "bottom-left",
+            illustration: brief("a wide valley of wind turbines at dawn"),
+          },
+        },
+      ],
+    });
+    const a = fake("a");
+    const out = await illustrate(staged, source, {
+      prefs: prefs(),
+      assetsDir: await dir(),
+      chain: [a.provider],
+    });
+    expect(a.calls).toEqual([
+      {
+        prompt: "a wide valley of wind turbines at dawn",
+        style: "flat vector illustration",
+        aspect: "landscape",
+      },
+    ]);
+    const beat = out.storyboard.beats[0];
+    expect(beat?.archetype === "stage" ? beat.params.figureId : undefined).toBe("gen-b1");
+    expect(() => assertRefsResolve(staged, source)).toThrow(
+      /b1" params\.figureId: asks for an illustration that has not been generated/,
+    );
+    expect(() => assertRefsResolve(out.storyboard, out.source)).not.toThrow();
+    expect(hasIllustrations(out.storyboard, out.source)).toBe(true);
   });
 
   it("is idempotent: a second run finds every slot done and asks no provider", async () => {

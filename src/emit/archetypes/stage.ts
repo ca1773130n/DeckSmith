@@ -161,6 +161,11 @@ export const stage: Emitter<"stage"> = (beat, ctx) => {
   const { sid, theme, format } = ctx;
   const p = beat.params;
   const who = `stage ${beat.id}`;
+  // `emitDeck` is public, so a pending brief is refused by name here too, not
+  // as `no figure "undefined"` (claim-figure does the same).
+  if (p.figureId === undefined) {
+    throw new Error(`${who}: illustration not generated — run \`decksmith illustrate\``);
+  }
   const fig = ctx.source.figures.find((f) => f.id === p.figureId);
   if (!fig) throw new Error(`${who}: no figure "${p.figureId}" in source ${ctx.source.id}`);
 

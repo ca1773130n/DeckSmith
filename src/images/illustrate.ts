@@ -177,7 +177,9 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
   const done = (id: string | undefined) => id !== undefined && known.has(id);
   const out: Slot[] = [];
   for (const beat of storyboard.beats) {
-    if (beat.archetype === "claim-figure") {
+    if (beat.archetype === "claim-figure" || beat.archetype === "stage") {
+      // Landscape for a stage too: the format is not known here, and a stage
+      // cover-fits whatever it is given, warning when the crop is hard.
       const p = beat.params;
       if (p.illustration && !done(p.figureId)) {
         out.push({

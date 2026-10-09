@@ -665,10 +665,13 @@ function illustrations(images: Prefs["images"]): string {
 
 ILLUSTRATIONS
 
-A claim-figure, or either side of a split-compare, may carry
+A claim-figure, a stage, or either side of a split-compare may carry
 \`illustration: { prompt, caption }\` INSTEAD of \`figureId\` when no figure in
 the inventory fits the point — including when the inventory has no figures at
-all. A picture is generated from the brief after planning and shown where the
+all. A stage is the way to give a point a whole-screen picture when the
+inventory has only plots and diagrams: its brief describes a wide scene that
+can lose its edges, with nothing that matters near the border, and its caption
+is not drawn — the headline and line are what the audience reads. A picture is generated from the brief after planning and shown where the
 figure would have been. This is the one exception to RULE 2: a brief cites
 nothing, so it can never dangle.
 

@@ -22,15 +22,15 @@ export interface PendingIllustration {
 }
 
 /**
- * Every pending slot, in beat order. A claim-figure without a `figureId` is
- * pending by construction — the schema insists on one of the two — and a
+ * Every pending slot, in beat order. A claim-figure or stage without a
+ * `figureId` is pending by construction — the schema insists on one of the two — and a
  * split-compare side is pending only when it carries a brief, because a side
  * with neither is a list.
  */
 export function pendingIllustrations(storyboard: Storyboard): PendingIllustration[] {
   const out: PendingIllustration[] = [];
   for (const beat of storyboard.beats) {
-    if (beat.archetype === "claim-figure") {
+    if (beat.archetype === "claim-figure" || beat.archetype === "stage") {
       if (beat.params.figureId === undefined)
         out.push({ beatId: beat.id, where: "params.figureId" });
     } else if (beat.archetype === "split-compare") {
@@ -57,7 +57,7 @@ export function hasIllustrations(storyboard: Storyboard, source: Source): boolea
   const drawn = (slot: { figureId?: string; illustration?: unknown }) =>
     slot.illustration !== undefined && slot.figureId !== undefined && known.has(slot.figureId);
   return storyboard.beats.some((b) => {
-    if (b.archetype === "claim-figure") return drawn(b.params);
+    if (b.archetype === "claim-figure" || b.archetype === "stage") return drawn(b.params);
     if (b.archetype === "split-compare") return drawn(b.params.left) || drawn(b.params.right);
     return false;
   });
@@ -101,6 +101,7 @@ export function assertRefsResolve(
     for (const ref of beat.evidence) check(beat, ref.kind, ref.id, "evidence");
     switch (beat.archetype) {
       case "claim-figure":
+      case "stage":
         // Absent means a brief stands in for it; `pendingIllustrations` reports that below.
         if (beat.params.figureId !== undefined) {
           check(beat, "figure", beat.params.figureId, "params.figureId");
@@ -139,7 +140,6 @@ export function assertRefsResolve(
         break;
       }
       case "annotated-figure":
-      case "stage":
         check(beat, "figure", beat.params.figureId, "params.figureId");
         break;
       case "split-compare":

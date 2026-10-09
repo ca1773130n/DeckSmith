@@ -169,7 +169,10 @@ export const titleParamsSchema = z.object({
 export const illustrationSchema = z.object({
   /** The scene: objects, arrangement, mood. Never text, labels, numbers, charts. */
   prompt: z.string(),
-  /** claim-figure prints it under the picture; a split-compare side keeps it as the figure's title. */
+  /**
+   * claim-figure prints it under the picture; a split-compare side keeps it as
+   * the figure's title; a stage draws no caption and carries it as alt text.
+   */
   caption: z.string(),
 });
 
@@ -511,14 +514,27 @@ export const STAGE_PLACEMENTS = ["none", "bottom-left", "center", "top-left", "r
  * `headline` is required even under `placement: "none"`: it is the scene's
  * label (the composition's title attribute, the deck's notes fallback), and a
  * beat with nothing to say about its picture has no business being a beat.
+ *
+ * `illustration` is claim-figure's alternative to `figureId`, for the same
+ * reason: without it a source whose only figures are plots — a typical paper —
+ * had no legal way to a full-bleed slide at all, and every slide kept the
+ * headline-over-body layout.
  */
-export const stageParamsSchema = z.object({
-  headline: z.string(),
-  figureId: z.string(),
-  placement: z.enum(STAGE_PLACEMENTS),
-  /** One short line under the headline. Dropped under `placement: "none"`. */
-  line: z.string().optional(),
-});
+export const stageParamsSchema = z
+  .object({
+    headline: z.string(),
+    /** First, for the reason claim-figure gives: look for a real figure before writing a brief. */
+    figureId: z.string().optional(),
+    /** A picture to generate when no figure in the inventory can own the frame. */
+    illustration: illustrationSchema.optional(),
+    placement: z.enum(STAGE_PLACEMENTS),
+    /** One short line under the headline. Dropped under `placement: "none"`. */
+    line: z.string().optional(),
+  })
+  .refine((p) => p.figureId !== undefined || p.illustration !== undefined, {
+    message: "stage needs a figureId or an illustration",
+    path: ["figureId"],
+  });
 
 /* ------------------------------------------------------------------- Beats */
 

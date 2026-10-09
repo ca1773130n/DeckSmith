@@ -1049,9 +1049,11 @@ decksmith illustrate storyboard.json --source source.json
 decksmith build      storyboard.json --source source.json -o out/
 ```
 
-With `--images`, a beat that has nothing in the inventory to show — a `claim-figure`, or
-either side of a `split-compare` — may carry an `illustration: { prompt, caption }` in
-place of a `figureId`. The prompt describes a scene, never text, labels, numbers or charts:
+With `--images`, a beat that has nothing in the inventory to show — a `claim-figure`, a
+`stage`, or either side of a `split-compare` — may carry an `illustration: { prompt, caption }` in
+place of a `figureId`. A `stage` is how a paper whose figures are all plots gets a
+full-screen picture; its brief is drawn landscape, since the format is not known until
+`build`, and a portrait build crops it (and warns). The prompt describes a scene, never text, labels, numbers or charts:
 nothing inside a picture can be read or checked, so the picture illustrates and the beat's
 `evidence` still points at the section. `plan` says how many pictures the storyboard asks
 for and the command to run; `build` and `pack` refuse the file until they exist.
@@ -1300,7 +1302,7 @@ The explanatory vocabulary. These came out of hand-building a real deck
 |---|---|---|
 | `title` | opening or section break | `headline`, `eyebrow?`, `sub?` |
 | `claim-figure` | one assertion beside the figure that supports it | `claim`, `figureId` |
-| `stage` | one picture, UI, clip or piece filling the whole frame, words optional over it | `figureId`, `placement`, `headline`, `line?` |
+| `stage` | one picture, UI, clip or piece filling the whole frame, words optional over it | `figureId` or `illustration`, `placement`, `headline`, `line?` |
 | `equation-walk` | an equation explained symbol by symbol | `equationId`, `terms` (1–4) |
 | `equation-morph` | one equation becoming the next, the shared terms carried across | `fromId`, `toId`, `terms` (1–4) |
 | `data-table` | a results table with rows revealed in argument order | `tableId`, `highlight` |
