@@ -110,6 +110,16 @@ describe("judge", () => {
     expect(r.findings[0]?.rule).toBe("frozen_render");
   });
 
+  it("names the worker counts it compared, and never calls one pinned count two", () => {
+    expect(judge(clean).findings[0]?.message).toContain("at different worker counts");
+    expect(judge({ ...clean, workers: [1, 3] }).findings[0]?.message).toContain(
+      "at worker counts 1 and 3",
+    );
+    const pinned = judge({ ...clean, workers: [1, 1] }).findings[0]?.message;
+    expect(pinned).toContain("at the same worker count (1)");
+    expect(pinned).not.toContain("different");
+  });
+
   it("says how the motion check went on a passing run, rather than only when it fails", () => {
     expect(judge(clean).findings[0]?.message).toContain("All 2 measurable scene(s) moved");
     const some = judge({

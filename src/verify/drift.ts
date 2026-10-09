@@ -360,8 +360,22 @@ async function compare(
     frames: fa.length,
     differing,
     motion,
+    workers: [counts[0], counts[1]],
     ...(worst ? { worst } : {}),
   });
+}
+
+/**
+ * What the two renders were run at. With no counts given, the default pair —
+ * which differs, so that is what is said.
+ */
+function across(workers?: readonly [unknown, unknown]): string {
+  if (!workers || workers[0] !== workers[1]) {
+    return workers
+      ? `at worker counts ${workers[0]} and ${workers[1]}`
+      : "at different worker counts";
+  }
+  return `at the same worker count (${workers[0]}), so worker order was not tested`;
 }
 
 /**
@@ -378,8 +392,13 @@ export function judge(m: {
   /** Required whenever `differing` is non-empty. */
   worst?: { frame: number; db: number };
   motion: Motion;
+  /**
+   * The worker count of each render, so the passing note says what was
+   * compared: `--workers 1` pins both, and must not be reported as two counts.
+   */
+  workers?: readonly [number | "auto" | undefined, number | "auto" | undefined];
 }): DriftReport {
-  const { mode, floorDb, frames, differing, worst, motion } = m;
+  const { mode, floorDb, frames, differing, worst, motion, workers } = m;
   const identical = frames - differing.length;
   const base = { mode, frames, identical, motion, ...(worst ? { worst } : {}) };
 
@@ -396,7 +415,7 @@ export function judge(m: {
       passed: true,
       findings: [
         note(
-          `${frames} frames, all byte-identical across two renders at different worker counts${mode === "psnr" ? " — well clear of the floor" : ""}.${moved(motion)}`,
+          `${frames} frames, all byte-identical across two renders ${across(workers)}${mode === "psnr" ? " — well clear of the floor" : ""}.${moved(motion)}`,
         ),
       ],
     };
