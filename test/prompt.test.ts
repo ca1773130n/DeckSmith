@@ -326,8 +326,10 @@ describe("the figure inventory", () => {
         },
       ]),
     );
+    // And what `build` refuses a planned beat for: shorter than 1 + 6 + 0.3s,
+    // or a second piece in the deck. The default beat is 7s, which is too short.
     expect(text).toContain(
-      "[figure fig-loop] ANIMATION 1920x1080, 6s — claim-figure only — Figure 2 — One tick.",
+      "[figure fig-loop] ANIMATION 1920x1080, 6s — claim-figure only, in a beat of at least 7.3 seconds; a deck shows one animation — Figure 2 — One tick.",
     );
   });
 

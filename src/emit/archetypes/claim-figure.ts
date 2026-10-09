@@ -128,6 +128,12 @@ const PIECE_ID = /^[A-Za-z0-9_.-]+$/;
 const SETTLED = 2.4;
 /** Invariant 10 at the piece's clock. */
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
+/**
+ * The shortest beat that plays a piece of `seconds`: its entrance, the piece,
+ * and the tail before its hold. Exported for the planner, which has to be told
+ * it before it picks a beat's length (src/plan/prompt.ts).
+ */
+export const pieceBeatSeconds = (seconds: number) => r3(PIECE_AT + r3(seconds) + PIECE_TAIL);
 
 type Mode = "tall" | "wide" | "beside";
 
@@ -445,7 +451,7 @@ function pieceTimeline(
     );
   }
   const run = r3(fig.seconds);
-  const hold = r3(PIECE_AT + run + PIECE_TAIL);
+  const hold = pieceBeatSeconds(run);
   if (hold > seconds) {
     throw new Error(
       `claim-figure ${beatId}: piece "${fig.id}" plays ${run}s from ${PIECE_AT}s and holds ${PIECE_TAIL}s, ` +

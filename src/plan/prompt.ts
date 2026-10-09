@@ -10,6 +10,7 @@
  * defence against the failure mode that actually happens: a plausible-looking
  * `figureId` that exists in no source.
  */
+import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
 import { repairTex } from "../emit/tex.js";
 import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
@@ -827,12 +828,14 @@ export function renderSource(source: Source): string {
       // and a fact that changes whether the beat can be spent belongs on the
       // line it stops at rather than under it. An image's line is unchanged.
       // A PIECE is an animation only claim-figure can draw; every other figure
-      // archetype refuses it, so the line says so where the id is.
+      // archetype refuses it, so the line says so where the id is — and so are
+      // the two things `build` refuses a planned beat for: a beat shorter than
+      // the piece plays (`pieceBeatSeconds`), and a second piece in one deck.
       const size =
         f.kind === "clip"
           ? `CLIP ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`}`
           : f.kind === "piece"
-            ? `ANIMATION ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`} — claim-figure only`
+            ? `ANIMATION ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`} — claim-figure only${f.seconds === undefined ? "" : `, in a beat of at least ${pieceBeatSeconds(f.seconds)} seconds`}; a deck shows one animation`
             : `${f.width}x${f.height}`;
       out.push("", `[figure ${f.id}] ${size} — ${f.caption}`);
       // The video we do not hold. Said next to the id because it is the one
