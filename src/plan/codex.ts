@@ -247,7 +247,18 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     if (broken.length === 0) return first;
     opts.onRepair?.(broken);
     const second = await ask(repairPrompt(prompt, first, broken));
-    const still = varietyFindings(second, prefs.images);
+    // A REPAIR MAY NOT SHRINK THE DECK. Dropping beats is not a shape change,
+    // and under STAGE_MIN_BEATS it also escapes the stage minimum outright: a
+    // 12-beat plan with no stage came back as 4 beats and passed (review,
+    // 2026-10-09). The prompt asks for every beat; this holds it to that.
+    const still = [
+      ...(second.beats.length < first.beats.length
+        ? [
+            `the repair returned ${second.beats.length} beats for a plan of ${first.beats.length}; a repair changes shapes and may not drop beats.`,
+          ]
+        : []),
+      ...varietyFindings(second, prefs.images),
+    ];
     if (still.length > 0) {
       throw new Error(
         `Codex's plan breaks the variety rule (src/plan/variety.ts) even after one repair:\n${still.map((m) => `  ${m}`).join("\n")}`,
@@ -272,7 +283,8 @@ ${broken.map((m) => `  - ${m}`).join("\n")}
 
 Return the whole storyboard again with these fixed. Keep every beat whose shape
 is not named above as it is; change archetypes, add stage beats with
-illustration briefs, or reorder neighbours only as far as the fix needs.
+illustration briefs, or reorder neighbours only as far as the fix needs. Never
+drop or merge beats: a repair with fewer beats than the plan below is refused.
 
 ${JSON.stringify(plan)}`;
 }

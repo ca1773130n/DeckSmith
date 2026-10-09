@@ -371,6 +371,12 @@ describe("codexPlanner variety repair", () => {
     beats: [twice.beats[0], { ...twice.beats[0], id: "b01b-arch" }, ...twice.beats.slice(1)],
   });
 
+  // The repair keeps all four beats and only moves b01b away from its twin.
+  const reordered = JSON.stringify({
+    ...twice,
+    beats: [twice.beats[0], twice.beats[1], { ...twice.beats[0], id: "b01b-arch" }, twice.beats[2]],
+  });
+
   it("sends a plan that breaks it back once, with the reasons and the plan, and keeps the repair", async () => {
     const prompts: string[] = [];
     const repaired: string[][] = [];
@@ -378,7 +384,7 @@ describe("codexPlanner variety repair", () => {
       onRepair: (broken) => repaired.push([...broken]),
       run: async ({ prompt, outPath }) => {
         prompts.push(prompt);
-        await writeFile(outPath, prompts.length === 1 ? adjacent : RECORDED);
+        await writeFile(outPath, prompts.length === 1 ? adjacent : reordered);
       },
     });
     expect(prompts).toHaveLength(2);
@@ -386,8 +392,44 @@ describe("codexPlanner variety repair", () => {
       [expect.stringMatching(/b01-arch and b01b-arch are both `claim-figure`/)],
     ]);
     expect(prompts[1]).toContain("BREAKS THE VARIETY RULES");
+    // The reasons themselves, not just the header: a repair asked for blind
+    // re-rolls the shapes instead of fixing the named ones.
+    for (const reason of repaired[0] ?? []) expect(prompts[1]).toContain(`  - ${reason}`);
     expect(prompts[1]).toContain('"id":"b01b-arch"');
-    expect(result.beats.map((b) => b.id)).toEqual(["b01-arch", "b02-loss", "b03-psnr"]);
+    expect(result.beats.map((b) => b.id)).toEqual([
+      "b01-arch",
+      "b02-loss",
+      "b01b-arch",
+      "b03-psnr",
+    ]);
+  });
+
+  it("refuses a repair that drops beats, even when what is left is varied", async () => {
+    let calls = 0;
+    await expect(
+      codexPlanner(source, {
+        run: async ({ outPath }) => {
+          calls++;
+          await writeFile(outPath, calls === 1 ? adjacent : RECORDED);
+        },
+      }),
+    ).rejects.toThrow(/returned 3 beats for a plan of 4/);
+    expect(calls).toBe(2);
+  });
+
+  // Each ask starts from an empty out file, so a second run that writes nothing
+  // is reported as nothing — not as the first plan read back and refused again.
+  it("says the repair wrote no final message, rather than re-reading the first plan", async () => {
+    let calls = 0;
+    await expect(
+      codexPlanner(source, {
+        run: async ({ outPath }) => {
+          calls++;
+          if (calls === 1) await writeFile(outPath, adjacent);
+        },
+      }),
+    ).rejects.toThrow(/no final message/);
+    expect(calls).toBe(2);
   });
 
   it("refuses, naming the rule, when the repair still breaks it", async () => {
