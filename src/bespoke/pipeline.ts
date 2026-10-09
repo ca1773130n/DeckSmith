@@ -1451,7 +1451,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     b.fixedGate = undefined;
     b.repair = { ...fixed.note, rounds: (b.repair?.rounds ?? 0) + 1 };
     step(
-      `bespoke: ${b.beat.id} — repaired ${fixed.note.rules.join(", ")} (${fixed.note.moved} label(s) moved, ${fixed.note.relit} relit${fixed.note.camera ? ", camera home" : ""}${fixed.note.untangled ? ", overlapping tweens untangled" : ""})`,
+      `bespoke: ${b.beat.id} — repaired ${fixed.note.rules.join(", ")} (${fixed.note.moved} label(s) moved, ${fixed.note.relit} relit${fixed.note.camera ? ", camera home" : ""}${fixed.note.untangled ? ", overlapping tweens untangled" : ""}${fixed.note.lifted ? `, ${fixed.note.lifted} dimmed word opacity(ies) lifted` : ""})`,
     );
     return true;
   };

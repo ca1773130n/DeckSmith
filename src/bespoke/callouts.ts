@@ -173,7 +173,7 @@ const esc = (s: string) =>
   );
 
 /** One placed label: its plate, text, leader and dot, in box px. */
-interface Placed {
+export interface Placed {
   k: number;
   fs: number;
   lines: string[];
@@ -276,6 +276,7 @@ export function calloutLayer(
   ];
   for (const p of placed) {
     const g = JSON.stringify(`#${sid}-callout${p.k}`);
+    const t0 = r2(at.get(p.k) ?? 0.5);
     const tag = JSON.stringify(`#${sid}-callout${p.k}-tag`);
     const lead = JSON.stringify(`#${sid}-callout${p.k}-lead`);
     const dot = JSON.stringify(`#${sid}-callout${p.k}-dot`);
@@ -291,6 +292,56 @@ export function calloutLayer(
       `tl.fromTo(${lead}, { strokeDashoffset: ${len} }, { strokeDashoffset: 0, duration: 0.4, ease: "power2.out", immediateRender: false }, ${r2(t + 0.1)});`,
       `tl.fromTo(${dot}, { scale: 0, transformOrigin: "50% 50%" }, { scale: 1, duration: 0.3, ease: "back.out(2)", immediateRender: false }, ${r2(t + 0.4)});`,
     );
+    // Out of the way of a shot that would cut it, back when one shows it whole.
+    for (const f of labelFades(p, moves, t0, W, H))
+      lines.push(
+        `tl.fromTo(${g}, { opacity: ${f.to ? 0 : 1} }, { opacity: ${f.to}, duration: ${FADE}, ease: "power1.inOut", immediateRender: false }, ${f.t});`,
+      );
   }
   return { markup, script: lines.join("\n") };
+}
+
+/** Seconds a label takes to step out of a shot that would cut it, or back in. */
+export const FADE = 0.3;
+
+/**
+ * When a placed label leaves and comes back. A push-in on a neighbour often
+ * frames a label half in and half out: held at the frame's edge it reads as a
+ * cut word ('…인된 결과' for 2.5s, r1 s12; '…절차', s14). So a label steps out
+ * as a move starts whose framing would cut it — plate, leader or dot — and
+ * steps back in as the camera arrives on a framing that shows it whole (the
+ * reveal shows every one). A framing it is wholly outside leaves it as it is.
+ */
+export function labelFades(
+  p: Pick<Placed, "plate" | "lead" | "dot">,
+  moves: readonly CamMove[],
+  entered: number,
+  W: number,
+  H: number,
+): Array<{ t: number; to: 0 | 1 }> {
+  const x0 = Math.min(p.plate.x, p.lead.x1, p.lead.x2, p.dot.x - 15);
+  const y0 = Math.min(p.plate.y, p.lead.y1, p.dot.y - 15);
+  const x1 = Math.max(p.plate.x + p.plate.w, p.lead.x1, p.lead.x2, p.dot.x + 15);
+  const y1 = Math.max(p.plate.y + p.plate.h, p.lead.y2, p.dot.y + 15);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const out: Array<{ t: number; to: 0 | 1 }> = [];
+  let shown = true;
+  for (const m of moves) {
+    // Only moves after the label is on screen: its entrance owns its first fade.
+    if (m.t + m.dur <= entered + FADE) continue;
+    const vx0 = -m.x / m.s;
+    const vy0 = -m.y / m.s;
+    const vx1 = vx0 + W / m.s;
+    const vy1 = vy0 + H / m.s;
+    const inside = x0 >= vx0 - 0.5 && y0 >= vy0 - 0.5 && x1 <= vx1 + 0.5 && y1 <= vy1 + 0.5;
+    const outside = x1 <= vx0 || x0 >= vx1 || y1 <= vy0 || y0 >= vy1;
+    if (shown && !inside && !outside) {
+      out.push({ t: r2(Math.max(m.t, entered + FADE)), to: 0 });
+      shown = false;
+    } else if (!shown && inside) {
+      out.push({ t: r2(m.t + m.dur - FADE), to: 1 });
+      shown = true;
+    }
+  }
+  return out;
 }

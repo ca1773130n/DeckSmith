@@ -9,6 +9,7 @@ import {
   calloutZones,
   entrances,
   fitLabel,
+  labelFades,
   withZone,
 } from "../src/bespoke/callouts.js";
 import {
@@ -213,6 +214,84 @@ describe("the shell's labels, on their subjects", () => {
     expect(
       fitLabel("unbreakablelongwordthatnevershrinks", { ...zone, w: 300 }, ink, H),
     ).toBeUndefined();
+  });
+
+  it("steps a label out of a push-in that would cut it, and back in when a shot shows it whole", () => {
+    const zones = calloutZones(subjects, W);
+    const targets = subjects.map((s, i) => withZone(s, zones[i]));
+    // Subject 1, then subject 2 (whose close framing crops subject 1's label), then the reveal.
+    const moves = compileShots(
+      [
+        { cue: 2, at: 0, subject: 1 },
+        { cue: 3, at: 0, subject: 2 },
+      ],
+      cues,
+      19,
+      targets,
+      W,
+      H,
+    );
+    expect(moves.map((m) => m.subject)).toEqual([1, 2, 0]);
+    const layer = calloutLayer(
+      "s3",
+      [
+        { subject: 1, text: "camera" },
+        { subject: 2, text: "satellite" },
+      ],
+      zones,
+      moves,
+      ink,
+      W,
+      H,
+    );
+    const fades = layer.script
+      .split("\n")
+      .filter((l) => l.includes('"#s3-callout1"') && l.includes("power1.inOut"));
+    const [toS2, reveal] = [moves[1] as (typeof moves)[number], moves[2] as (typeof moves)[number]];
+    // Is label 1 cut by the framing on subject 2? Then it must step out at that move.
+    const view = { x0: -toS2.x / toS2.s, x1: -toS2.x / toS2.s + W / toS2.s };
+    const z1 = zones[0] as (typeof zones)[number];
+    const cut = z1.x < view.x0 && z1.x + z1.w > view.x0;
+    // The fixture's second shot does cut it (asserted, so the case cannot go vacuous).
+    expect(cut).toBe(true);
+    expect(fades[0]).toContain(
+      `{ opacity: 0, duration: 0.3, ease: "power1.inOut", immediateRender: false }, ${toS2.t});`,
+    );
+    expect(fades[1]).toContain(
+      `{ opacity: 1, duration: 0.3, ease: "power1.inOut", immediateRender: false }, ${Math.round((reveal.t + reveal.dur - 0.3) * 100) / 100});`,
+    );
+    // Built so that it is cut: a plate straddling the left edge of the second shot.
+    const plate = { x: Math.round(view.x0 - 60), y: 40, w: 200, h: 70 };
+    const fx = labelFades(
+      {
+        plate,
+        lead: { x1: plate.x + 100, y1: 110, x2: plate.x + 100, y2: 140 },
+        dot: { x: plate.x + 100, y: 150 },
+      },
+      moves,
+      5.66,
+      W,
+      H,
+    );
+    expect(fx).toEqual([
+      { t: toS2.t, to: 0 },
+      { t: Math.round((reveal.t + reveal.dur - 0.3) * 100) / 100, to: 1 },
+    ]);
+    // Wholly outside the shot, or wholly inside: no fade.
+    const far = { x: Math.round(view.x1 + 50), y: 40, w: 100, h: 70 };
+    expect(
+      labelFades(
+        {
+          plate: far,
+          lead: { x1: far.x + 50, y1: 110, x2: far.x + 50, y2: 140 },
+          dot: { x: far.x + 50, y: 150 },
+        },
+        moves,
+        5.66,
+        W,
+        H,
+      ),
+    ).toEqual([]);
   });
 
   it("frames a labelled subject with its label, and lands the label as the camera arrives", () => {

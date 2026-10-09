@@ -17,11 +17,14 @@ import {
   applyMoves,
   fitPlates,
   homeCamera,
+  liftText,
   relight,
   repairable,
   repairScene,
   settleAt,
   solveNudges,
+  TEXT_ALPHA_MIN,
+  textHolders,
 } from "../src/bespoke/repair.js";
 import { type BespokeMap, bespokeRegion } from "../src/bespoke/scene.js";
 import { untangle } from "../src/bespoke/untangle.js";
@@ -525,7 +528,8 @@ describe.skipIf(chrome === null)("repair, in the renderer's browser", () => {
 
   it("the gates refuse each broken scene for what is broken, and only that", () => {
     expect(rules(findingsOf.get("COLLIDE"))).toEqual(["graphic_crosses_text", "text_overlap"]);
-    expect(rules(findingsOf.get("DIMMED"))).toEqual(["end_dimmed"]);
+    // Its label is held at 0.3 from 3.2s: a ghost at the end and a faint word on the way.
+    expect(rules(findingsOf.get("DIMMED"))).toEqual(["dim_text", "end_dimmed"]);
     expect(rules(findingsOf.get("ZOOMED"))).toEqual(["camera_end"]);
     expect(rules(findingsOf.get("TANGLED"))).toEqual(["seek_order"]);
   });
@@ -544,6 +548,39 @@ describe.skipIf(chrome === null)("repair, in the renderer's browser", () => {
     expect((await stat(join(deck1, "assets", "bespoke", "k.png"))).size).toBeGreaterThan(0);
     const html = await readFile(join(deck1, "index.html"), "utf8");
     expect(html).toMatch(/<image id="s\d+-pic" data-art="1" href="assets\/bespoke\/k\.png"/);
+  });
+});
+
+describe("dimmed words (dim_text)", () => {
+  const markup = `<svg id="SCENEID-svg" width="1700" height="600"><g id="SCENEID-a" data-cue="1"><rect id="SCENEID-plate" width="10" height="10"/><text id="SCENEID-lab">Encoder</text></g><g id="SCENEID-c"><circle id="SCENEID-k" r="5"/></g><div id="SCENEID-html"><span>words</span></div></svg>`;
+  it("knows which ids hold words: a <text>, its groups, and HTML with text of its own", () => {
+    const w = textHolders(markup);
+    for (const id of ["SCENEID-svg", "SCENEID-a", "SCENEID-lab", "SCENEID-html"])
+      expect(w.has(id)).toBe(true);
+    for (const id of ["SCENEID-plate", "SCENEID-c", "SCENEID-k"]) expect(w.has(id)).toBe(false);
+  });
+  it("lifts a dimming opacity on words to 0.6, leaves shapes, hidden states and full strength alone", () => {
+    const script = `var both = ["#SCENEID-a", "#SCENEID-c"];
+gsap.set("#SCENEID-lab", { opacity: 0 });
+tl.to("#SCENEID-a", { opacity: 0.3, duration: 0.5 }, 3.2);
+tl.to("#SCENEID-c", { opacity: 0.25, duration: 0.5 }, 3.2);
+tl.fromTo("#SCENEID-html", { opacity: 0.2 }, { opacity: 1, duration: 0.5, immediateRender: false }, 5);
+for (var i = 0; i < 2; i++) tl.to(both, { autoAlpha: 0.4, duration: 0.3 }, 6 + i);
+tl.to("#SCENEID-lab", { opacity: 0, duration: 0.3 }, 9);`;
+    const r = liftText({ markup, css: "", script });
+    expect(r?.lifted).toBe(3);
+    const out = r?.fragment.script ?? "";
+    expect(out).toContain('tl.to("#SCENEID-a", { opacity: 0.6, duration: 0.5 }, 3.2);');
+    expect(out).toContain('tl.to("#SCENEID-c", { opacity: 0.25, duration: 0.5 }, 3.2);');
+    expect(out).toContain("{ opacity: 0.6 }, { opacity: 1,");
+    expect(out).toContain("{ autoAlpha: 0.6, duration: 0.3 }");
+    expect(out).toContain('gsap.set("#SCENEID-lab", { opacity: 0 });');
+    expect(out).toContain('tl.to("#SCENEID-lab", { opacity: 0, duration: 0.3 }, 9);');
+    expect(TEXT_ALPHA_MIN).toBe(0.6);
+    // Nothing to lift: the repair says so rather than pretend.
+    expect(
+      liftText({ markup, css: "", script: 'tl.to("#SCENEID-c", { opacity: 0.2 }, 1);' }),
+    ).toBeUndefined();
   });
 });
 

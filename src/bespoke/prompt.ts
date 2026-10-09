@@ -44,7 +44,7 @@ import {
 export { CAMERA_MAX_SCALE };
 
 /** Bump with any change to either prompt or to a reference: it is part of every cache key. */
-export const PROMPT_VERSION = "bespoke-7";
+export const PROMPT_VERSION = "bespoke-8";
 /** Bump with any change to what `checkFragment` accepts. Also part of every key. */
 export const CONTRACT_VERSION = "contract-4";
 
@@ -477,6 +477,11 @@ function direction(): string {
   to it FROM ZERO — never a cut-off scale that turns a 2% gap into a 60% one; a small gap is
   shown small and said in words. If the beat says the method loses on a measure, show the
   loss as plainly as a win, at full strength, not as small grey print.
+- PATHS. Tween a path's \`d\` only between two paths with the SAME commands and number count
+  (draw the end path by moving the start path's points); otherwise use morphSVG or a
+  cross-fade — mismatched paths swing across the stage mid-tween (gate: morph_glitch).
+- CROPPING. When the camera pushes in, every word is wholly inside the shot or wholly out
+  of it; a word cut at the frame's edge while the shot holds fails (gate: text_clipped).
 - WORDS ON SCREEN are names and short noun phrases, never a sentence cut off mid-way: in
   Korean end a label on a noun or a nominal ending (적음, 감소), never on a connective verb
   ending (적어, 줄고); never name a model, dataset or number the narration does not mention.
@@ -697,7 +702,7 @@ ${measuredLines(measured, b)}
 
 # GATE FINDINGS (every one must be gone)
 ${findings.length ? findings.map((f) => `- ${f}`).join("\n") : "(none)"}
-"card_row" = the main visual is a row, column or grid of alike rectangles (cards, panels, tiles) — redraw it as the beat's content itself, its device, with at most small label plates; "label_anchor" = a label away from the subject it names, over another subject, or too few subjects named (rule 14: name them in "labels"); "shot_variety" = the shots do not open wide or push in on enough different subjects (rule 10); "data_over_picture" = numbers painted over the picture (rule 15); "shots"/"labels"/"script_camera" = the shot list or the labels are invalid, or the script touched the camera; "end_dimmed" = the last frame leaves dimmed what the scene had lit; "camera_end" = the camera is not home at the end; "static_hold" = a cue during which the picture barely changed; "graphic_crosses_text" = a stroke through a label or a shape over one; "stage_fill"/"type_hierarchy" = rules 7/8; "stray_marker" = rule 11; "early_reveal"/"cue_groups" = rule 3; "seek_order" = the frame depends on seek history (a fromTo without immediateRender:false, or a missing gsap.set baseline); "script_*"/"css_*"/"markup_*" = the contract.
+"text_clipped" = a word cut by the frame's edge while the shot holds (a push-in or a viewBox zoom crops it) — frame so every word is wholly in or wholly out, or fade it out for that shot; "morph_glitch" = a path tween that throws its shape across the stage mid-way — tween \`d\` only between paths with the same commands and number count (use morphSVG otherwise, or cross-fade); "dim_text" = a word held under 3:1 contrast with what is behind it — dim text to 0.6 at least, dim shapes instead; "card_row" = the main visual is a row, column or grid of alike rectangles (cards, panels, tiles) — redraw it as the beat's content itself, its device, with at most small label plates; "label_anchor" = a label away from the subject it names, over another subject, or too few subjects named (rule 14: name them in "labels"); "shot_variety" = the shots do not open wide or push in on enough different subjects (rule 10); "data_over_picture" = numbers painted over the picture (rule 15); "shots"/"labels"/"script_camera" = the shot list or the labels are invalid, or the script touched the camera; "end_dimmed" = the last frame leaves dimmed what the scene had lit; "camera_end" = the camera is not home at the end; "static_hold" = a cue during which the picture barely changed; "graphic_crosses_text" = a stroke through a label or a shape over one; "stage_fill"/"type_hierarchy" = rules 7/8; "stray_marker" = rule 11; "early_reveal"/"cue_groups" = rule 3; "seek_order" = the frame depends on seek history (a fromTo without immediateRender:false, or a missing gsap.set baseline); "script_*"/"css_*"/"markup_*" = the contract.
 
 ${beat(b)}
 visual device: "${b.device}" — keep it${b.idea ? ` (planned as: ${b.idea})` : ""}. No row of cards, boxes-and-arrows, bullet columns or tile grid as the main visual (gate: card_row).

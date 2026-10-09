@@ -52,7 +52,7 @@ export const PIXEL_DELTA = 24;
  */
 export const SEEK_TOLERANCE_PX = 1500;
 /** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
-export const GATES_VERSION = "gates-5";
+export const GATES_VERSION = "gates-6";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
@@ -200,6 +200,8 @@ export interface Layout {
   anchors?: Array<{ id: string; k: number; d: number; o: number }>;
   /** Labels with digits in them sitting on the illustration. */
   onPicture?: number;
+  /** Visible text in the body box under `TEXT_CONTRAST` against its backdrop, as `id [box] ratio`. */
+  faint?: string[];
 }
 
 /**
@@ -304,6 +306,133 @@ export function gradeShots(
   return out;
 }
 
+/**
+ * `text_clipped`: a word the frame cuts in two while it is HELD there. A
+ * camera push or a clipped viewBox crops what lies at its edge, and a shape cut
+ * off reads as framing — a label cut mid-word does not (r1, 2026-10-10: '…인된
+ * 결과' held for 2.5s at s12's left edge, '구조 맵' cropped by s7's push-ins).
+ * Sampled every `CAM_STEP`; a text counts when it is partly inside the frame
+ * (more than `CUT_MIN` of it) and has lost more than a sliver across (under
+ * `CUT_MAX` of its width) or more than its leading down (under `CUT_DEEP` of
+ * its height), at `CUT_HOLD` consecutive samples — so a label sliding out
+ * during a 1.1s move is not one.
+ */
+export const CUT_MIN = 0.05;
+/** Under this share of its width inside the frame, a word has lost a glyph. */
+export const CUT_MAX = 0.96;
+/** Under this share of its line box's height, a word has lost ink (the rest is leading). */
+export const CUT_DEEP = 0.75;
+export const CUT_HOLD = 3;
+
+/** One dense sample of one scene: the texts the frame cuts, as `id (share%)`. */
+export interface CutSample {
+  sid: string;
+  t: number;
+  cut: Array<{ id: string; share: number }>;
+}
+
+export function gradeCuts(samples: readonly CutSample[]): Finding[] {
+  const out: Finding[] = [];
+  const bySid = new Map<string, CutSample[]>();
+  for (const r of samples) bySid.set(r.sid, [...(bySid.get(r.sid) ?? []), r]);
+  for (const [sid, list] of bySid) {
+    list.sort((a, b) => a.t - b.t);
+    const held = new Map<string, { from: number; to: number; n: number; share: number }>();
+    const run = new Map<string, { from: number; n: number; share: number }>();
+    for (const r of list) {
+      const now = new Set(r.cut.map((c) => c.id));
+      for (const id of [...run.keys()]) if (!now.has(id)) run.delete(id);
+      for (const c of r.cut) {
+        const prev = run.get(c.id);
+        const cur = prev
+          ? { from: prev.from, n: prev.n + 1, share: Math.min(prev.share, c.share) }
+          : { from: r.t, n: 1, share: c.share };
+        run.set(c.id, cur);
+        if (cur.n >= CUT_HOLD) {
+          const h = held.get(c.id);
+          if (!h || cur.n > h.n)
+            held.set(c.id, { from: cur.from, to: r.t, n: cur.n, share: cur.share });
+        }
+      }
+    }
+    if (held.size)
+      out.push({
+        severity: "error",
+        gate: "layout",
+        rule: "text_clipped",
+        message: `#${sid}: words cut by the frame's edge while held — ${[...held]
+          .slice(0, 4)
+          .map(
+            ([id, h]) =>
+              `${id} (${Math.round(100 * h.share)}% visible, ${h.from.toFixed(2)}-${h.to.toFixed(2)}s)`,
+          )
+          .join(
+            "; ",
+          )}${held.size > 4 ? ` (+${held.size - 4})` : ""}. Keep every label wholly inside the frame or wholly out of it during a push-in.`,
+      });
+  }
+  return out;
+}
+
+/**
+ * `morph_glitch`: a path tween that throws its shape across the stage on the
+ * way. An `attr: { d }` tween pairs the two paths' numbers in order, so between
+ * paths of different commands (`V455 L1090 320` against `L1090 405 L1240 495`)
+ * an x is tweened into a y and back (r1 s4 at 61.75s: a green wedge over half
+ * the frame, between two shapes on its right); a morphSVG between mismatched
+ * shapes can do the same. Between matched paths every in-between point lies
+ * between its two ends, so the shape stays inside their union. A tween counts
+ * when, at any in-between sample of one iteration, the shape is visible and
+ * reaches more than `MORPH_REACH` of the larger side of its two ends' union
+ * (and 60px at least) past that union.
+ */
+export const MORPH_REACH = 0.35;
+
+/** One morph tween's shape box at shares of its duration: [x, y, w, h] in page px, and its opacity. */
+export interface MorphSample {
+  sid: string;
+  id: string;
+  start: number;
+  dur: number;
+  boxes: Array<{ f: number; b: [number, number, number, number]; o: number }>;
+}
+
+export function gradeMorphs(samples: readonly MorphSample[]): Finding[] {
+  const out: Finding[] = [];
+  for (const m of samples) {
+    const ends = m.boxes.filter((x) => (x.f === 0 || x.f === 1) && x.b[2] + x.b[3] > 0);
+    if (ends.length === 0) continue;
+    const ux0 = Math.min(...ends.map((e) => e.b[0]));
+    const uy0 = Math.min(...ends.map((e) => e.b[1]));
+    const ux1 = Math.max(...ends.map((e) => e.b[0] + e.b[2]));
+    const uy1 = Math.max(...ends.map((e) => e.b[1] + e.b[3]));
+    const allow = Math.max(60, MORPH_REACH * Math.max(ux1 - ux0, uy1 - uy0));
+    for (const x of m.boxes) {
+      if (x.f === 0 || x.f === 1 || x.o <= 0.15) continue;
+      const [bx, by, bw, bh] = x.b;
+      const reach = Math.max(ux0 - bx, uy0 - by, bx + bw - ux1, by + bh - uy1);
+      if (reach <= allow) continue;
+      out.push({
+        severity: "error",
+        gate: "motion",
+        rule: "morph_glitch",
+        message: `#${m.sid}: the morph of ${m.id} at ${(m.start + x.f * m.dur).toFixed(2)}s throws its shape ${Math.round(reach)}px past both of its ends (box x ${Math.round(bx)}-${Math.round(bx + bw)}, y ${Math.round(by)}-${Math.round(by + bh)}; ends x ${Math.round(ux0)}-${Math.round(ux1)}, y ${Math.round(uy0)}-${Math.round(uy1)}). Tween \`d\` only between paths with the same commands and number count, use morphSVG, or cross-fade.`,
+      });
+      break;
+    }
+  }
+  return out;
+}
+
+/**
+ * `dim_text`: a word left under 3:1 contrast with what is behind it, at a held
+ * frame (a cue's end, the settled end). Every bespoke label is 40px or more —
+ * large text — so 3:1 is the WCAG floor; focus dimming had taken key numbers to
+ * 1.6:1 (r1 s13 "75.1 %") and named subjects to 1.5:1 (s8) while the voice was
+ * on them.
+ */
+export const TEXT_CONTRAST = 3;
+
 export function gradeLayout(rows: readonly Layout[]): Finding[] {
   const out: Finding[] = [];
   const add = (rule: string, r: Layout, what: string[], say: string) => {
@@ -321,6 +450,14 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
     add("text_overlap", r, r.overlaps, "text prints over text —");
     add("bespoke_type_floor", r, r.small, "text under 40px —");
     add("off_canvas", r, r.off, "drawn outside the frame —");
+    // Held frames only: a fade in or out passes through low contrast on its way.
+    if (r.key === "end" || r.key.endsWith("z"))
+      add(
+        "dim_text",
+        r,
+        r.faint ?? [],
+        `text under ${TEXT_CONTRAST}:1 contrast with what is behind it (dim text to 0.6 at least, shapes may go lower) —`,
+      );
     add("stray_marker", r, r.strays ?? [], "a marker without its line —");
     const starts = r.cueStarts ?? [];
     const early = (r.revealed ?? []).filter((g) => {
@@ -662,6 +799,10 @@ export interface Probe {
   seek: SeekDiff[];
   /** The shell's camera every `CAM_STEP` through each illustrated scene (`shot_variety`). */
   cams: CamSample[];
+  /** The words the frame cuts, every `CAM_STEP` through each bespoke scene (`text_clipped`). */
+  cuts: CutSample[];
+  /** Each morphSVG tween's shape through its run (`morph_glitch`). */
+  morphs: MorphSample[];
 }
 
 export interface ProbeOptions {
@@ -697,6 +838,8 @@ export async function probeScenes(
   const layout: Layout[] = [];
   const seek: SeekDiff[] = [];
   const cams: CamSample[] = [];
+  const cuts: CutSample[] = [];
+  const morphs: MorphSample[] = [];
   const warm = new Map<string, Map<string, Buffer>>();
   const deck = await opts.open();
   try {
@@ -731,18 +874,49 @@ export async function probeScenes(
         }
       }
       if (opts.geometry) endState(layout.filter((l) => l.sid === w.sid));
-      // The camera, densely: a shot is what it HOLDS, which cue-boundary frames
-      // can miss (two shots inside one cue). A seek and a read, no screenshot.
-      if (gates.has("layout") && layout.some((l) => l.sid === w.sid && (l.subjects ?? 0) > 0)) {
+      // The camera and the words it crops, densely: a shot is what it HOLDS,
+      // which cue-boundary frames can miss (two shots inside one cue). A seek
+      // and a read, no screenshot. Bespoke scenes only (they have a body box).
+      const bespoke = layout.some((l) => l.sid === w.sid && l.fill !== undefined);
+      if (gates.has("layout") && bespoke) {
         const subjects = Math.max(
           ...layout.filter((l) => l.sid === w.sid).map((l) => l.subjects ?? 0),
         );
-        for (let t = CAM_STEP / 2; t < w.duration; t += CAM_STEP) {
+        const sid = JSON.stringify(w.sid);
+        // Not past the settled end frame: later instants overlap the next
+        // scene's transition, and seeking there would be that scene's first
+        // render — the history its own probe must be the first to make.
+        for (let t = CAM_STEP / 2; t <= w.duration - 0.5; t += CAM_STEP) {
           await deck.seek(w.start + t);
-          const shot = (await deck.page.evaluate(`(${CAM})(${JSON.stringify(w.sid)})`)) as
-            | CamSample["shot"]
-            | null;
-          if (shot) cams.push({ sid: w.sid, t: round(t), shot, subjects });
+          if (subjects > 0) {
+            const shot = (await deck.page.evaluate(`(${CAM})(${sid})`)) as CamSample["shot"] | null;
+            if (shot) cams.push({ sid: w.sid, t: round(t), shot, subjects });
+          }
+          const cut = (await deck.page.evaluate(`(${CUT})(${sid})`)) as CutSample["cut"];
+          cuts.push({ sid: w.sid, t: round(t), cut });
+        }
+      }
+      // Every morph, sampled through its run: what it paints between its ends.
+      if (gates.has("motion") && bespoke) {
+        const sid = JSON.stringify(w.sid);
+        const list = (await deck.page.evaluate(`(${MORPHS})(${sid})`)) as Array<{
+          id: string;
+          start: number;
+          dur: number;
+        }>;
+        for (const [i, m] of list.entries()) {
+          if (!(m.dur > 0)) continue;
+          const boxes: MorphSample["boxes"] = [];
+          for (const f of [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1]) {
+            const t = Math.min(w.duration - 0.5, Math.max(0, m.start + f * m.dur));
+            await deck.seek(w.start + t);
+            const b = (await deck.page.evaluate(`(${MORPH_BOX})(${sid}, ${i})`)) as {
+              b: [number, number, number, number];
+              o: number;
+            } | null;
+            if (b) boxes.push({ f, ...b });
+          }
+          morphs.push({ sid: w.sid, id: m.id, start: round(m.start), dur: round(m.dur), boxes });
         }
       }
       if (gates.has("motion")) {
@@ -826,9 +1000,11 @@ export async function probeScenes(
     ...(gates.has("layout") && gates.has("motion")
       ? gradeShots(cams, new Map(windows.map((w) => [w.sid, w.cues[0]?.t0 ?? 0])))
       : []),
+    ...(gates.has("layout") ? gradeCuts(cuts) : []),
+    ...(gates.has("motion") ? gradeMorphs(morphs) : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
   ];
-  return { findings, frames, cueChanges, layout, seek, cams };
+  return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs };
 }
 
 /**
@@ -1000,7 +1176,7 @@ const MEASURE = `(sid, wantGeo) => {
 
   // Strokes and fills. Every shape that paints something at this instant is a
   // LEAF: what the stage-fill and early-reveal measures below are made of.
-  const crossings = [], occlusions = [], off = [], strays = [], leaves = [];
+  const crossings = [], occlusions = [], off = [], strays = [], leaves = [], fills = [];
   // <image> is a bespoke scene's illustration: it paints its whole box.
   const shapes = root.querySelectorAll("path, line, polyline, polygon, circle, ellipse, rect, image");
   // Repair geometry (bespoke scenes, on request): stroke points, filled boxes.
@@ -1075,6 +1251,7 @@ const MEASURE = `(sid, wantGeo) => {
     }
     if (paints) leaves.push({ el: g, x: r.x, y: r.y, w: r.width, h: r.height, o });
     if (wantGeo && filled) geoBoxes.push({ el: g, x: r.x, y: r.y, w: r.width, h: r.height });
+    if (filled || picture) fills.push({ el: g, x: r.x, y: r.y, w: r.width, h: r.height, c: cs.fill, a: Number(cs.fillOpacity) * o });
     if (filled) {
       for (const t of texts) {
         // A picture over a label is never its plate: it covers it.
@@ -1093,7 +1270,7 @@ const MEASURE = `(sid, wantGeo) => {
   // The body box a bespoke scene draws in. Absent on an archetype's scene, and
   // then there is no stage to fill and no cue group to reveal.
   const box = document.getElementById(sid + "-g");
-  let fill, maxType, cells, groups, revealed, dimmed;
+  let fill, maxType, cells, groups, revealed, dimmed, faint;
   if (box) {
     const b = box.getBoundingClientRect();
     const mine = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, x: t.x, y: t.y, w: t.w, h: t.h }))
@@ -1122,6 +1299,67 @@ const MEASURE = `(sid, wantGeo) => {
       cells = n / 24;
     } else fill = 0;
     maxType = texts.filter((t) => box.contains(t.el)).reduce((a, t) => Math.max(a, t.fs), 0);
+    // dim_text: each visible word against what is painted behind it — the page's
+    // own ground, then every filled shape before it in paint order that covers
+    // its centre. A gradient, pattern or picture behind it cannot be read: skipped.
+    const rgba = (c) => {
+      const m = /rgba?\\(([^)]+)\\)/.exec(c || "");
+      if (!m) return null;
+      const v = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+      return v.length >= 3 ? [v[0], v[1], v[2], v.length > 3 ? v[3] : 1] : null;
+    };
+    const over = (top, a, under) => top.map((v, i) => v * a + under[i] * (1 - a));
+    const lum = (c) => {
+      const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+    };
+    let ground = [255, 255, 255];
+    for (let e = box; e; e = e.parentElement) {
+      const c = rgba(getComputedStyle(e).backgroundColor);
+      if (c && c[3] > 0) { ground = over(c.slice(0, 3), c[3], ground); if (c[3] >= 1) break; }
+    }
+    const paintsAt = (el, x, y) => {
+      try {
+        const m = el.getScreenCTM && el.getScreenCTM();
+        if (!m || typeof el.isPointInFill !== "function") return true;
+        return el.isPointInFill(new DOMPoint(x, y).matrixTransform(m.inverse()));
+      } catch (e) { return true; }
+    };
+    // A clip path or a mask may hide the point the fill would paint: unknown.
+    const clipped = (el) => {
+      for (let e = el; e && e !== box; e = e.parentElement) {
+        const cs = getComputedStyle(e);
+        if ((cs.clipPath && cs.clipPath !== "none") || (cs.mask && cs.mask !== "none") || (cs.maskImage && cs.maskImage !== "none")) return true;
+      }
+      return false;
+    };
+    faint = [];
+    for (const t of texts) {
+      if (!box.contains(t.el) || t.o <= 0.15) continue;
+      const cs = getComputedStyle(t.el);
+      const svg = t.el instanceof SVGElement;
+      const fc = rgba(svg ? cs.fill : cs.color);
+      if (!fc) continue;
+      const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+      let bg = ground, unknown = false;
+      for (const f of fills) {
+        if (!box.contains(f.el) || f.el === t.el || f.el.contains(t.el)) continue;
+        if (!(t.el.compareDocumentPosition(f.el) & Node.DOCUMENT_POSITION_PRECEDING)) continue;
+        if (cx < f.x || cx > f.x + f.w || cy < f.y || cy > f.y + f.h) continue;
+        // Inside the box is not inside the shape: a triangle's corner is ground.
+        if (!paintsAt(f.el, cx, cy)) continue;
+        const c = f.el.tagName.toLowerCase() === "image" || clipped(f.el) ? null : rgba(f.c);
+        if (!c) { unknown = true; continue; }
+        unknown = false;
+        bg = over(c.slice(0, 3), c[3] * f.a, bg);
+      }
+      if (unknown) continue;
+      const fa = fc[3] * (svg ? Number(cs.fillOpacity) : 1) * t.o;
+      const fg = over(fc.slice(0, 3), fa, bg);
+      const L1 = lum(fg), L2 = lum(bg);
+      const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+      if (ratio < ${TEXT_CONTRAST}) faint.push(at(t) + " " + ratio.toFixed(1) + ":1");
+    }
     // How much of what is drawn is drawn dimmed (focus): at the end, a summary
     // that is mostly ghosts is not one.
     const shown = texts.filter((t) => box.contains(t.el)).concat(leaves.filter((l) => box.contains(l.el)));
@@ -1257,5 +1495,91 @@ const MEASURE = `(sid, wantGeo) => {
       });
     geo = { w: Math.round(ob.width), h: Math.round(ob.height), labels, boxes, points, parts };
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture };
+  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint };
+}`;
+
+/**
+ * Serialised into the page: the words of one bespoke scene the frame cuts at
+ * this instant — visible, but only partly inside the clip of their <svg> and of
+ * the scene's body box (\`text_clipped\`).
+ */
+const CUT = `(sid) => {
+  const box = document.getElementById(sid + "-g");
+  if (!box) return [];
+  const clipOf = (el) => {
+    const rects = [];
+    for (let e = el.parentElement; e && e !== document.body; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.overflow !== "visible" && (e.tagName.toLowerCase() === "svg" || e === box)) rects.push(e.getBoundingClientRect());
+      if (e === box) break;
+    }
+    return rects;
+  };
+  const alpha = (el) => {
+    let o = 1;
+    for (let e = el; e && e !== document.body; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.display === "none" || cs.visibility === "hidden") return 0;
+      o *= Number(cs.opacity);
+    }
+    return o;
+  };
+  const out = [];
+  const walk = (el) => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "script" || tag === "style" || tag === "defs") return;
+    const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    const katex = el.classList && el.classList.contains("katex");
+    if (tag === "text" || katex || (own && !(el instanceof SVGElement))) {
+      const r = el.getBoundingClientRect();
+      const area = r.width * r.height;
+      if (area > 0 && alpha(el) > 0.3) {
+        let x0 = r.x, y0 = r.y, x1 = r.x + r.width, y1 = r.y + r.height;
+        for (const c of clipOf(el)) {
+          x0 = Math.max(x0, c.x); y0 = Math.max(y0, c.y);
+          x1 = Math.min(x1, c.x + c.width); y1 = Math.min(y1, c.y + c.height);
+        }
+        const sx = x1 > x0 ? (x1 - x0) / r.width : 0, sy = y1 > y0 ? (y1 - y0) / r.height : 0;
+        // Across, any cut takes a glyph; down, a line box carries its leading
+        // above and below the ink, so only a deep cut takes any.
+        if (sx * sy > ${CUT_MIN} && (sx < ${CUT_MAX} || sy < ${CUT_DEEP}))
+          out.push({ id: el.id || tag + ":" + (el.textContent || "").trim().slice(0, 16), share: Math.round(sx * sy * 100) / 100 });
+      }
+      if (tag === "text" || katex) return;
+    }
+    for (const c of el.children) walk(c);
+  };
+  walk(box);
+  return out;
+}`;
+
+/**
+ * Serialised into the page: the morphSVG tweens of one scene's timeline, kept
+ * on the page so their shapes can be measured at any seek (\`morph_glitch\`).
+ */
+const MORPHS = `(sid) => {
+  const tl = window.__timelines && window.__timelines[sid];
+  if (!tl || typeof tl.getChildren !== "function") return [];
+  // morphSVG, and a plain \`attr: { d }\` tween, which pairs the two paths'
+  // numbers in order — between paths of different commands an x becomes a y.
+  const list = tl.getChildren(false, true, false).filter((tw) => tw.vars && (tw.vars.morphSVG || (tw.vars.attr && tw.vars.attr.d !== undefined)) && tw.targets && tw.targets()[0]);
+  window.__dsMorphs = window.__dsMorphs || {};
+  window.__dsMorphs[sid] = list;
+  // One iteration: a yoyo's far end is its own end, not a glitch.
+  return list.map((tw) => ({ id: tw.targets()[0].id || "path", start: tw.startTime(), dur: tw.duration() }));
+}`;
+
+/** Serialised into the page: the box and opacity of morph tween \`i\`'s shape now. */
+const MORPH_BOX = `(sid, i) => {
+  const tw = window.__dsMorphs && window.__dsMorphs[sid] && window.__dsMorphs[sid][i];
+  const el = tw && tw.targets()[0];
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  let o = 1;
+  for (let e = el; e && e !== document.body; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    if (cs.display === "none" || cs.visibility === "hidden") return { b: [r.x, r.y, r.width, r.height], o: 0 };
+    o *= Number(cs.opacity);
+  }
+  return { b: [r.x, r.y, r.width, r.height], o };
 }`;

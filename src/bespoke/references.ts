@@ -145,7 +145,9 @@ tl.to(bars, { scaleX: 1, duration: 0.9, ease: "power2.out", stagger: 0.3 }, 6.4)
 tl.to("#SCENEID-disc", { scale: 1.05, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.6);
 
 // C3 9.0-13.4 "and sends each token to its top two." — focus: the two winners light, the rest dim; particles flow.
-tl.to(["#SCENEID-expert1", "#SCENEID-expert3", "#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 0.25, duration: 0.5 }, 9.1);
+// Shapes dim to 0.25; words no lower than 0.6, so they keep 3:1 (gate: dim_text).
+tl.to(["#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 0.25, duration: 0.5 }, 9.1);
+tl.to(["#SCENEID-expert1", "#SCENEID-expert3"], { opacity: 0.6, duration: 0.5 }, 9.1);
 tl.to(["#SCENEID-wire0", "#SCENEID-wire2"], { stroke: "{{accent}}", strokeWidth: 12, duration: 0.5 }, 9.1);
 var dest = [[286, -268], [286, 84]];
 for (var n = 0; n < 6; n++) {
@@ -373,7 +375,9 @@ tl.to("#SCENEID-ceiling", { scaleY: 1, duration: 0.9, ease: "power3.out" }, 5.6)
 tl.to("#SCENEID-base-dot", { scale: 1.5, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 5, ease: "sine.inOut" }, 6.0);
 
 // C3 9.0-13.4 "Our method keeps climbing, to eighty-three." — a second trace overtakes; the readout follows it.
-tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau"], { opacity: 0.3, duration: 0.5 }, 9.05);
+// Shapes dim to 0.3; the word "plateau" no lower than 0.6 (gate: dim_text).
+tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line"], { opacity: 0.3, duration: 0.5 }, 9.05);
+tl.to("#SCENEID-plateau-label", { opacity: 0.6, duration: 0.5 }, 9.05);
 tl.to(["#SCENEID-read", "#SCENEID-read-unit"], { fill: "{{accent}}", duration: 0.3 }, 9.1);
 tl.to("#SCENEID-ours-dot", { opacity: 1, duration: 0.2 }, 9.2);
 tl.to("#SCENEID-ours-curve", { drawSVG: "0% 100%", duration: 3.0, ease: "none" }, 9.3);
@@ -387,7 +391,7 @@ tl.to("#SCENEID-gap", { morphSVG: "#SCENEID-badge-shape", fillOpacity: 1, durati
 tl.to("#SCENEID-gain", { opacity: 1, duration: 0.4 }, 15.4);
 tl.to("#SCENEID-gain-n", { scale: 1.06, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);
 // The end frame is the summary: the baseline comes back beside the gain it lost to.
-tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau"], { opacity: 1, duration: 0.5 }, 16.4);`,
+tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line", "#SCENEID-plateau-label"], { opacity: 1, duration: 0.5 }, 16.4);`,
   },
 };
 

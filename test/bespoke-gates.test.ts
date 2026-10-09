@@ -22,16 +22,20 @@ import {
   ANCHOR_OVERLAP,
   ANCHOR_PX,
   type CamSample,
+  type CutSample,
   changedArea,
   changedPixels,
+  gradeCuts,
   gradeErrors,
   gradeLayout,
+  gradeMorphs,
   gradeSeekOrder,
   gradeShots,
   gradeStillCues,
   KEY_TYPE_PX,
   type Layout,
   MIN_CHANGE,
+  type MorphSample,
   type Probe,
   paintedShare,
   probeScenes,
@@ -39,6 +43,7 @@ import {
   STAGE_FILL,
   sceneWindows,
   shotsOf,
+  TEXT_CONTRAST,
 } from "../src/verify/scenes.js";
 
 describe("the graders", () => {
@@ -376,10 +381,87 @@ const EARLY = (b: Box): Fragment => ({
   script: MOVE(b),
 });
 
+/** A second label set past the right edge of its <svg>: the frame cuts it for the whole scene. */
+const CLIPPED = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-cl" data-cue="1"><text id="SCENEID-cut" x="${b.width - 160}" y="190" font-size="60" fill="#e7f1fb">Cut in two</text></g>`,
+  ),
+  css: "",
+  script: MOVE(b),
+});
+/**
+ * r1 s4's glitch: an \`attr: { d }\` tween between paths of different commands
+ * (V/H against L), whose numbers pair in order — an x tweened into a y.
+ */
+const MORPHY = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-p" data-cue="1"><path id="SCENEID-land" d="M1200 100 V300 H1400 Z" fill="#4cc9f0"/></g>`,
+  ),
+  css: "",
+  script: `${MOVE(b)}
+gsap.set("#SCENEID-land", { attr: { d: "M1200 100 V300 H1400 Z" } });
+tl.to("#SCENEID-land", { attr: { d: "M1200 100 L1200 300 L1400 300 Z" }, duration: 2, ease: "none" }, 3);`,
+});
+/** The focal label held at 0.25 opacity: light on the ink ground at about 1.6:1. */
+const FAINT = (b: Box): Fragment => ({
+  markup: GOOD(b).markup,
+  css: "",
+  script: `${MOVE(b)}
+gsap.set("#SCENEID-a", { opacity: 0.25 });`,
+});
+
+/**
+ * Build the demo deck in v2 with `fixtures` as bespoke scenes on the beats
+ * `idOf` names, and probe those scenes. Each set gets a deck of its own: a
+ * scene probed just before another can render it first (their transition
+ * overlaps), which hides the build-time from-state seek_order looks for.
+ */
+async function probeFixtures(
+  dir: string,
+  fixtures: Record<string, (b: Box) => Fragment>,
+  idOf: Record<string, string>,
+): Promise<{ probe: Probe; sidOf: Map<string, string> }> {
+  const sidOf = new Map<string, string>();
+  const narration = narrate();
+  const bespoke: Record<string, { fragment: Fragment; holds: number[] }> = {};
+  for (const [name, make] of Object.entries(fixtures)) {
+    const id = idOf[name] as string;
+    const i = demo.beats.findIndex((b) => b.id === id);
+    const beat = demo.beats[i] as (typeof demo.beats)[number];
+    const ink = resolveTheme("ink");
+    const holds = emitScene(beat, {
+      source,
+      format: deck16,
+      theme: ink,
+      sid: `s${i + 1}`,
+      start: 0,
+    }).holds;
+    bespoke[id] = { fragment: make(bespokeRegion(beat, { format: deck16, theme: ink })), holds };
+  }
+  const built = await buildDeck(demo, source, dir, {
+    design: "v2",
+    narration,
+    theme: "ink",
+    assetsFrom: repo("demo"),
+    bespoke: bespoke as BespokeMap,
+  });
+  for (const [i, b] of built.cut.kept.entries()) sidOf.set(b.id, `s${i + 1}`);
+  const timing = (await readTimingFile(dir)) as Timing;
+  const wanted = new Set(Object.values(idOf).map((id) => sidOf.get(id) as string));
+  const errors: string[] = [];
+  const probe = await probeScenes(sceneWindows(timing, wanted), {
+    open: () => openDeck(dir, { watch: errors }),
+    errors,
+  });
+  return { probe, sidOf };
+}
+
 describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
   let dir = "";
   let probe: Probe;
-  const sidOf = new Map<string, string>();
+  let sidOf = new Map<string, string>();
   const ids = demo.beats
     .filter((b) =>
       [
@@ -398,37 +480,7 @@ describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "decksmith-gates-"));
-    const narration = narrate();
-    const bespoke: Record<string, { fragment: Fragment; holds: number[] }> = {};
-    for (const [name, make] of Object.entries(fixtures)) {
-      const id = idOf[name] as string;
-      const i = demo.beats.findIndex((b) => b.id === id);
-      const beat = demo.beats[i] as (typeof demo.beats)[number];
-      const ink = resolveTheme("ink");
-      const holds = emitScene(beat, {
-        source,
-        format: deck16,
-        theme: ink,
-        sid: `s${i + 1}`,
-        start: 0,
-      }).holds;
-      bespoke[id] = { fragment: make(bespokeRegion(beat, { format: deck16, theme: ink })), holds };
-    }
-    const built = await buildDeck(demo, source, dir, {
-      design: "v2",
-      narration,
-      theme: "ink",
-      assetsFrom: repo("demo"),
-      bespoke: bespoke as BespokeMap,
-    });
-    for (const [i, b] of built.cut.kept.entries()) sidOf.set(b.id, `s${i + 1}`);
-    const timing = (await readTimingFile(dir)) as Timing;
-    const wanted = new Set(Object.values(idOf).map((id) => sidOf.get(id) as string));
-    const errors: string[] = [];
-    probe = await probeScenes(sceneWindows(timing, wanted), {
-      open: () => openDeck(dir, { watch: errors }),
-      errors,
-    });
+    ({ probe, sidOf } = await probeFixtures(dir, fixtures, idOf));
   }, 300_000);
 
   afterAll(async () => {
@@ -473,6 +525,48 @@ describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
   });
 });
 
+describe.skipIf(chrome === null)("the r1 review's gates, in the renderer's browser", () => {
+  let dir = "";
+  let probe: Probe;
+  let sidOf = new Map<string, string>();
+  // Spaced out, so no fixture is probed right after another.
+  const fixtures = { GOOD, CLIPPED, MORPHY, FAINT };
+  const at = ["pipeline", "grid", "stack", "line-chart"].map(
+    (a) => demo.beats.find((b) => b.archetype === a)?.id as string,
+  );
+  const idOf = Object.fromEntries(Object.keys(fixtures).map((k, i) => [k, at[i] as string]));
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "decksmith-gates-r1-"));
+    ({ probe, sidOf } = await probeFixtures(dir, fixtures, idOf));
+  }, 300_000);
+  afterAll(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+  const rulesFor = (name: keyof typeof fixtures) =>
+    probe.findings
+      .filter((f) => f.message.startsWith(`#${sidOf.get(idOf[name] as string)}`))
+      .map((f) => f.rule);
+
+  it("passes the good scene on every new gate", () => {
+    expect(rulesFor("GOOD")).toEqual([]);
+  });
+  it("fails a word the frame cuts in two while it is held, and only that", () => {
+    expect(new Set(rulesFor("CLIPPED"))).toEqual(new Set(["text_clipped"]));
+    expect(rulesFor("GOOD")).not.toContain("text_clipped");
+  });
+  it("fails a path tween between paths of different commands, and only that", () => {
+    expect(rulesFor("MORPHY")).toContain("morph_glitch");
+    // The thrown shape may also cross the label on its way: that is the glitch too.
+    for (const r of rulesFor("MORPHY"))
+      expect(["morph_glitch", "graphic_crosses_text"]).toContain(r);
+    // The matched tween in the same deck (the dot) is measured and passes.
+    expect(probe.morphs.some((m) => m.id.endsWith("-land"))).toBe(true);
+  });
+  it("fails a word held under 3:1 contrast, and only that", () => {
+    expect(new Set(rulesFor("FAINT"))).toEqual(new Set(["dim_text"]));
+  });
+});
+
 describe.skipIf(chrome === null)("seek_order on v2's equation-walk", () => {
   const dirs: string[] = [];
   afterAll(async () => {
@@ -511,6 +605,56 @@ describe.skipIf(chrome === null)("seek_order on v2's equation-walk", () => {
 });
 
 /* ------------------------------------------------- round 4: staging graders */
+
+describe("the r1 review's graders (2026-10-10)", () => {
+  const cut = (t: number, share?: number): CutSample => ({
+    sid: "s12",
+    t,
+    cut: share === undefined ? [] : [{ id: "s12-chip", share }],
+  });
+  it("text_clipped: a word cut for three samples in a row fails; one sliding out during a move does not", () => {
+    expect(gradeCuts([cut(1, 0.4), cut(1.5, 0.45), cut(2, 0.4)]).map((f) => f.rule)).toEqual([
+      "text_clipped",
+    ]);
+    expect(gradeCuts([cut(1, 0.7), cut(1.5, 0.3), cut(2), cut(2.5, 0.5)])).toEqual([]);
+    // Wholly in or wholly out is not cut.
+    expect(gradeCuts([cut(1), cut(1.5), cut(2)])).toEqual([]);
+  });
+  it("morph_glitch: a shape that leaves both of its ends' union fails; a tween inside it does not", () => {
+    const m = (mid: [number, number, number, number], o = 1): MorphSample => ({
+      sid: "s4",
+      id: "s4-land",
+      start: 18,
+      dur: 1,
+      boxes: [
+        { f: 0, b: [1000, 300, 600, 300], o: 1 },
+        { f: 0.5, b: mid, o },
+        { f: 1, b: [1000, 280, 640, 320], o: 1 },
+      ],
+    });
+    expect(gradeMorphs([m([60, 100, 1580, 500])]).map((f) => f.rule)).toEqual(["morph_glitch"]);
+    expect(gradeMorphs([m([990, 285, 640, 310])])).toEqual([]);
+    // Invisible on the way: nothing to see.
+    expect(gradeMorphs([m([60, 100, 1580, 500], 0)])).toEqual([]);
+  });
+  it("dim_text: graded at held frames (a cue's end, the end), not mid-fade", () => {
+    const row = (key: string): Layout => ({
+      sid: "s13",
+      key,
+      t: 5,
+      crossings: [],
+      occlusions: [],
+      overlaps: [],
+      small: [],
+      off: [],
+      faint: ["s13-pct [x 1100-1300, y 300-400] 1.6:1"],
+    });
+    expect(gradeLayout([row("c2z")]).map((f) => f.rule)).toEqual(["dim_text"]);
+    expect(gradeLayout([row("end")]).map((f) => f.rule)).toContain("dim_text");
+    expect(gradeLayout([row("c2a")]).map((f) => f.rule)).toEqual([]);
+    expect(TEXT_CONTRAST).toBe(3);
+  });
+});
 
 describe("seek_order's pixel count (round 4)", () => {
   const frame = (paint: (x: number, y: number) => boolean) => {
