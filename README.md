@@ -1058,6 +1058,15 @@ nothing inside a picture can be read or checked, so the picture illustrates and 
 `evidence` still points at the section. `plan` says how many pictures the storyboard asks
 for and the command to run; `build` and `pack` refuse the file until they exist.
 
+A `pipeline`, `split-compare`, `callout` or `bar-compare` may also carry a
+`backdrop: { illustration }` — a scene the diagram is drawn over. The picture covers the
+frame and drifts slowly, a uniform black scrim (0.62) darkens it, and the archetype is
+drawn unchanged in a glass palette: dark translucent panels, light ink, tones lifted just
+far enough to clear 4.5:1 over a pure-white pixel. Geometry and holds are the
+archetype's own, so a backdrop changes colours and nothing else. With `--images` the
+planner is held to making most of a deck scenes (60% of beats, within `images.max`), so
+a figure-less paper reads as a sequence of pictures rather than cards on one ground.
+
 `illustrate` turns each brief into a file under `assets/` beside `source.json`, registers
 it as an ordinary figure, and sets the beat's `figureId`; the brief stays on the beat as
 provenance. From there nothing downstream knows the picture was generated — `build`,
@@ -1307,13 +1316,13 @@ The explanatory vocabulary. These came out of hand-building a real deck
 | `equation-morph` | one equation becoming the next, the shared terms carried across | `fromId`, `toId`, `terms` (1–4) |
 | `data-table` | a results table with rows revealed in argument order | `tableId`, `highlight` |
 | `line-chart` | a trend, with per-step deltas, optionally against a baseline | `points`, `deltas?`, `readout?`, `compare?` |
-| `callout` | 1–3 panels of prose: definitions, contrasts, takeaways | `panels`, `note?` |
-| `pipeline` | stages in a flow, arrowed, with an optional feedback loop | `stages` (2–6), `loop?` |
+| `callout` | 1–3 panels of prose: definitions, contrasts, takeaways | `panels`, `note?`, `backdrop?` |
+| `pipeline` | stages in a flow, arrowed, with an optional feedback loop | `stages` (2–6), `loop?`, `backdrop?` |
 | `annotated-figure` | a figure cropped to the panel under discussion, with leader lines | `figureId`, `crop?`, `notes` |
 | `grid` | regions of a field lit in turn: windows, patches, receptive fields | `cols`, `rows`, `regions` |
-| `bar-compare` | magnitudes that share a unit, grown from zero | `bars` (2–8), `unit?` |
+| `bar-compare` | magnitudes that share a unit, grown from zero | `bars` (2–8), `unit?`, `backdrop?` |
 | `stack` | layers drawn bottom-up as offset planes | `layers` (2–7) |
-| `split-compare` | two things side by side, each figure or lines | `left`, `right` |
+| `split-compare` | two things side by side, each figure or lines | `left`, `right`, `backdrop?` |
 
 The last six draw the mechanism rather than describe it, and `verify` warns when a deck
 leans on the others: a deck of headlines and bullet panels is what every other slide
