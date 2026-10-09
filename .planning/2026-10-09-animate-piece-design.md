@@ -139,13 +139,13 @@ DeckSmith keeps its own narration, timing and render path.
 - Verify test: an author piece containing `Math.random(` fails `scanDeterminism`.
 - Browser test, in the style of `capture-parity`: on a fixture piece, screenshots after a forward seek and after a reverse seek match (animate's `tile.mjs` idea, using screenshots, not `toDataURL`); and a piece that calls `fillText` makes the page error.
 - `scripts/sweep-perturbations.mjs`: add `b11-claim-figure-piece`, then `npm run sweep` and commit `ledger.json`. This is mandatory for any `src/` change.
-- **Human gate.** Render the fixture deck, run `drift` (PSNR floor 40 dB), and **watch the mp4**. Per AGENTS.md, a green gate is not evidence.
+- **Human gate.** Render the fixture deck, run `drift` (PSNR floor 40 dB), and **watch the mp4**. Per AGENTS.md, a green gate is not evidence. Done 2026-10-09 on a two-era piece built through `decksmith build` (README, "Animated pieces"): `verify` PASS, `render -w 1` 360 frames, ten stills looked at (night, bridge, morning, last frame held), `drift --workers 1` 360/360 byte-identical, a second render the same md5.
 
 ## 6. Risks and limits
 
 - **No text on the canvas.** animate's captions, tags and DEFER overlays (`cut-paper/kit.js:179-180`) are unusable: `handText`, `tag`, `yearTag`, `capStrip`, `monoText` and `cat` fail `verify`; `handwrite` is not caught and must not be used. Labels go in claim-figure's DOM. A canvas type-floor probe could lift this later (animate `textcheck.mjs:15-30`). Not in v1.
 - **One style.** Riso and pixel do readbacks, so the raster flip is unmeasured for them. Others need font patches.
-- **Bytes.** About 56 KB of kit per piece, because each IIFE inlines it. Two pieces cost about 112 KB.
+- **Bytes.** About 56 KB of kit per piece, because each IIFE inlines it (61,216 B assembled for the two-era end-to-end deck, MIT header included).
 - **Draw cost.** The spike measured three draw passes per render frame, from hyperframes' transport seek. The frame memo makes that one (browser-tested: 5 draws on a fresh page's first seek without it, 1 with it); render time with the memo is not measured. Cut-paper stipple runs up to 4,500 points per call.
 - **`hyperframes check` cannot see into a canvas** (`sweep_static`, ARCHITECTURE-CANVAS §5). Layout and contrast gates cover only the DOM around it.
 - **A checker without WebGL used to refuse any `<canvas>`**, a piece's 2D one included, so `frames` failed and `verify`/`build` skipped the whole fidelity gate under a `not_measured` warning (spike Q4). Fixed (spike condition 3, option A): `claim-figure` marks a piece's canvas `data-ds-piece` (`PIECE_ATTR`, src/emit/animate-runtime.ts), it is 2D by construction because `mount` takes its 2D context first, and `openDeck` exempts it. Every unmarked canvas is still refused. Measured 2026-10-09 with the spike's `--disable-3d-apis` wrapper: GL-less `frames` writes the piece mid-motion, and GL-less `verify` reports the same findings as the normal browser, with no `not_measured`. `test/animate-piece.test.ts` holds it, with the unmarked deck as control. A real GL-less Chrome (the puppeteer 145 fallback) is still not tried.

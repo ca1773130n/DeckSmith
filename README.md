@@ -281,7 +281,7 @@ without driving scene timelines or clip visibility. See
 ### What the gates do not check
 
 The failure this project keeps producing is a **green gate over wrong output**, and there
-are now ten documented cases. Nearly every one was caught by a human looking at the
+are now eleven documented cases. Nearly every one was caught by a human looking at the
 artifact. Three are worth reading as patterns rather than bugs:
 
 - A camera move that the video renderer replaced with a still, for exactly the right
@@ -1113,6 +1113,107 @@ carry SMIL or CSS animation, which runs on wall-clock time under capture — a
 nondeterministic render that every gate passes. The tool's own SVG has no text, no
 animation and no external references, and the same brief always draws the same bytes.
 
+## Animated pieces
+
+A **piece** is a figure that moves: a cut-paper scene written for
+[animate](https://github.com/cth9191/animate), drawn on a `<canvas>` by `claim-figure` and
+played by one `dsAnimate` tween. It is a third figure `kind`, next to `image` and `clip`.
+You write it by hand. No ingest, `plan`, server or MCP path produces one.
+
+**Authoring one** takes three edits. Put the scene file under `assets/` beside
+`source.json`, give it a figure entry, and point a `claim-figure` beat at that entry:
+
+```jsonc
+// source.json, under "figures"
+{ "id": "fig-garden", "kind": "piece", "src": "pieces/garden.js",
+  "width": 1920, "height": 1080, "seconds": 6, "caption": "The moon becomes the sun" }
+// storyboard.json, a beat
+{ "id": "b2", "archetype": "claim-figure", "seconds": 9, "intent": "…",
+  "params": { "headline": "The moon becomes the sun", "claim": "…", "figureId": "fig-garden" } }
+```
+
+The file is an animate `scenes.js` plus `bridges.js`. It defines `ERA_LIST`, `SHOTS`,
+`ERA_BG`, `BRIDGES`, `pieceCam` and its scene functions, and it uses the kit's names
+(`cut`, `rect`, `ellipsePts`, `PAL`, `pat`, `spark`, `TT`, `EZ`, `LX`/`LY`, `UNIT` and the
+rest):
+
+```js
+const ERA_BG = ['#cfe2ee'];
+function pieceCam(era, t) { return null; }
+function sceneSky() {
+  cut(rect(-30, -30, W + 60, H + 60, 0), PAL.sky, { key: 'bg', shadow: false, tear: 0, shade: false });
+  const k = EZ.io(seg(TT, 0, DURATION));   // a sun that crosses the sky over the whole piece
+  cut(ellipsePts(LX(0.12 + 0.76 * k), LY(0.55 - 0.38 * Math.sin(Math.PI * k)), 110 * UNIT, 110 * UNIT, 0, 30), PAL.yellow, { key: 'sun' });
+}
+const BRIDGES = [];                        // or [{ tc, A: () => shape, B: () => shape }] between eras
+const ERA_LIST = [[0, DURATION, () => sceneSky()]];
+const SHOTS = [['sky', 0, 0.0, DURATION, 'sky']];
+```
+
+Do not define `W`, `H`, `FPS`, `DURATION`, `NFRAMES`, `LOOP_T`, `SAFE`, `HAND`, `CX` or
+`TIMELINE`. DeckSmith sets them from the figure: its `width`, `height` and `seconds`, 30
+fps, and the deck's font stack. A file that declares one of them fails to load, and
+`verify` reports that as a page error. `TIMELINE` carries `shots` only. animate's own demos
+read `TIMELINE.cues`, so write those times as numbers.
+
+`build` wraps the file and the kit into one script, `assets/<src>`, inside a function, so
+none of the kit's names reach the page. The piece starts 1.0s into its beat and runs for
+its `seconds`, with a 0.3s hold after its last frame. Before the tween the canvas shows
+frame 0. After it, the canvas holds the last frame; it does not wrap back to frame 0. The
+beat must be at least `1 + seconds + 0.3` long. A shorter beat is refused by name rather
+than clamped.
+
+**What is refused**, and where:
+
+- **Text in a piece.** `fillText` and `strokeText` throw on every 2D canvas while the
+  piece runs, the kit's offscreen layers included. That is a page error, so `verify` and
+  `build` fail. `handText`, `tag`, `yearTag`, `capStrip`, `monoText` and `cat` all draw
+  text, so none of them can be used. Labels belong in the claim, which is DOM text and
+  is held to the 40px floor. The one gap is `handwrite`: it draws letters as ink strokes,
+  which no trap can tell from lines. Nothing refuses it, so do not use it.
+- **More than one piece per deck.** `build` stops with ``claim-figure b3: figure
+  "fig-garden-2" is a second animate piece in this deck — b2 already draws "fig-garden"``.
+  The vendored `morph.js` is unpatched and writes `window.renderFrame`, so two pieces
+  would share that global.
+- **Styles other than cut-paper.** Only the cut-paper kit is vendored. Another style's
+  primitive is simply undefined: a piece that calls riso's `plates()` fails `verify` with
+  `page_error plates is not defined`. Riso and pixel read pixels back from the canvas,
+  and that has not been measured under capture.
+- A piece in any archetype but `claim-figure`, a piece with no `seconds`, and an `id`
+  containing anything other than letters, digits, `.`, `_` and `-`.
+
+**What the gates see.** A piece that throws while it draws fails `verify`, because the
+runtime reports the error before rethrowing it. Before that fix, hyperframes swallowed
+the error and every gate passed a piece frozen on a stale frame. That is the eleventh
+case under "What the gates do not check". `render` still exits 0 when the page has
+errors, so `verify` is the gate here. `hyperframes check` cannot see inside a canvas:
+layout and contrast cover only the DOM around it. The determinism scan reads
+`assets/**/*.js`, so a `Math.random` in a piece is caught. A checker without WebGL
+measures a piece instead of refusing it, because the piece's canvas carries
+`data-ds-piece`.
+
+Measured on 2026-10-09 (macOS, Metal, hyperframes' headless shell). The deck had a 6s
+two-era piece with a moon-to-sun bridge in a 9s beat:
+
+- `build` and `verify` both passed.
+- `render -w 1` took 13.1s for 360 frames. Stills at ten instants showed the night scene,
+  the bridge, the morning scene and then the last frame held.
+- `drift --workers 1` found 360/360 frames byte-identical, and a second render produced
+  an mp4 with the same md5.
+- A `pack`/`unpack` round trip rebuilt the same files.
+
+**Limits.** A piece is baked at 30 fps, so `render --fps 24` judders, and `--speed` plays
+the whole piece faster or slower than written. Each piece inlines about 60 KB of kit.
+Canvas raster differs between Metal and SwiftShader, so compare `drift` runs on one
+backend only. See `.planning/2026-10-09-animate-piece-design.md` and
+`.planning/2026-10-09-animate-piece-spike.md`.
+
+**Attribution.** The kit (`core.js`, `morph.js`, `cut-paper.js`) is animate @7e5eb56,
+copyright (c) 2026 cth9191, MIT. It is vendored unmodified in `src/build/animate/`, with
+upstream's `LICENSE` and a `NOTICE` that names the commit and each file's sha256.
+`npm run build` copies all of it to `dist/animate/`. Every assembled piece script carries
+the MIT text in its header, so a built deck carries the attribution too.
+
 ## The `.deck` container
 
 One file holding the whole deck: the source, the storyboard, the preferences it was made
@@ -1393,6 +1494,8 @@ src/prefs.ts          the three-layer preference resolver
 src/emit/kit.ts       the seam between the deck shell and the archetype emitters
 src/emit/archetypes/  one emitter per archetype
 src/emit/themes/      one palette per file; the registry is the extension point
+src/emit/animate-runtime.ts  the dsAnimate plugin that draws an animated piece
+src/build/animate/    animate's cut-paper kit, vendored unmodified (MIT; LICENSE, NOTICE)
 src/emit/type.ts      type specs: the v2 packs' faces and chrome scale, read by chromeHeight and chromeCss
 src/emit/faces.ts     measured width tables for the packs' Latin faces (generated)
 src/images/           the three rungs a brief is drawn through, and the illustrate step
@@ -1423,4 +1526,5 @@ where a real fix would arrive.
 
 ## Licence
 
-MIT.
+MIT. The animate kit vendored in `src/build/animate/` is also MIT, copyright (c) 2026
+cth9191. Its `LICENSE` and `NOTICE` sit beside it; see "Animated pieces".
