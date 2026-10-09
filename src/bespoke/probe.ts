@@ -19,10 +19,21 @@ import { buildDeck } from "../index.js";
 import { openDeck } from "../render/capture.js";
 import type { Finding, Format, Source, Storyboard } from "../types.js";
 import { verify } from "../verify/index.js";
-import { probeScenes, readTimingFile, type SceneWindow, sceneWindows } from "../verify/scenes.js";
+import {
+  ANCHOR_PX,
+  type CamSample,
+  type Layout,
+  probeScenes,
+  readTimingFile,
+  type SceneWindow,
+  sceneWindows,
+  shotsOf,
+  WIDE,
+} from "../verify/scenes.js";
 import type { GateFn, GateResult } from "./pipeline.js";
+import type { Measured } from "./prompt.js";
 import type { BespokeMap } from "./scene.js";
-import { contactSheet } from "./sheet.js";
+import { contactSheets, type SheetFrame } from "./sheet.js";
 
 export interface ProbeDeck {
   storyboard: Storyboard;
@@ -83,10 +94,45 @@ export function pinPageErrors(
   });
 }
 
+/**
+ * What an illustrated scene's frames say about its staging: the distinct
+ * push-ins held at cue ends, whether it opens wide, and how many subjects are
+ * named by a label within reach at the end. Empty for a scene with no subjects.
+ */
+export function stagingMeasures(
+  rows: readonly Layout[],
+  cams: readonly CamSample[],
+  open = 0,
+): Partial<Measured> {
+  const subjects = Math.max(0, ...rows.map((r) => r.subjects ?? 0));
+  if (subjects === 0) return {};
+  const early = cams.filter((c) => c.t >= open && c.t <= open + 1);
+  const end = rows.find((r) => r.key === "end");
+  const anchors = end?.anchors ?? [];
+  const best = new Map<number, number>();
+  for (const a of anchors) best.set(a.k, Math.min(best.get(a.k) ?? 1e9, a.d));
+  return {
+    subjects,
+    shots: shotsOf(cams).close.length,
+    ...(early.length ? { establishing: early.every((c) => c.shot[0] < WIDE) } : {}),
+    anchored: [...best.values()].filter((d) => d <= ANCHOR_PX).length,
+    ...(best.size ? { anchorMax: Math.max(...best.values()) } : {}),
+  };
+}
+
 export function browserGate(deck: ProbeDeck): GateFn {
   const step = deck.onStep ?? (() => {});
   return async (candidates: BespokeMap, round) => {
     const dir = join(deck.work, `probe-${round}`);
+    const t0 = Date.now();
+    const lap = (() => {
+      let t = t0;
+      return () => {
+        const s = Math.round((Date.now() - t) / 1000);
+        t = Date.now();
+        return s;
+      };
+    })();
     await rm(dir, { recursive: true, force: true });
     const built = await buildDeck(deck.storyboard, deck.source, dir, {
       design: "v2",
@@ -110,6 +156,7 @@ export function browserGate(deck: ProbeDeck): GateFn {
     const windows = sceneWindows(timing, wanted).map((w) => ({ ...w, beatId: beatOf.get(w.sid) }));
 
     step(`bespoke: ${round} gates on ${windows.length} scene(s)`);
+    const tBuild = lap();
     const errors: string[] = [];
     const probe = await probeScenes(windows, {
       open: () => openDeck(dir, { watch: errors }),
@@ -117,10 +164,13 @@ export function browserGate(deck: ProbeDeck): GateFn {
       keepFrames: true,
       geometry: true,
     });
+    const tProbe = lap();
     const verdict = await verify(dir, { fidelity: true, scenes: false });
+    const tVerify = lap();
 
     probe.findings = pinPageErrors(probe.findings, candidates, sidOf);
     const out = new Map<string, GateResult>();
+    const sheets: Array<{ frames: SheetFrame[]; path: string }> = [];
     for (const w of windows) {
       const beat = w.beatId as string;
       const mine = (f: Finding) =>
@@ -130,15 +180,21 @@ export function browserGate(deck: ProbeDeck): GateFn {
       const failing = [...motion, ...gates].filter((f) => f.severity === "error");
       const frames = probe.frames.filter((f) => f.sid === w.sid);
       const sheet = join(deck.work, `${beat}.${round}.png`);
-      await contactSheet(
-        frames.map((f) => ({ label: `${f.key} ${f.t.toFixed(2)}s`, png: f.png })),
-        sheet,
-      );
+      sheets.push({
+        frames: frames.map((f) => ({ label: `${f.key} ${f.t.toFixed(2)}s`, png: f.png })),
+        path: sheet,
+      });
       const end = probe.layout.find((l) => l.sid === w.sid && l.key === "end");
       const cueChange = probe.cueChanges
         .filter((c) => c.sid === w.sid)
         .sort((a, b) => a.cue - b.cue)
         .map((c) => c.changed / c.total);
+      const rows = probe.layout.filter((l) => l.sid === w.sid);
+      const staged = stagingMeasures(
+        rows,
+        probe.cams.filter((c) => c.sid === w.sid),
+        w.cues[0]?.t0 ?? 0,
+      );
       out.set(beat, {
         // `info` is a finding already accepted (a camera's clipped overflow): not
         // the critique round's to act on, and it read as a reason to drop the camera.
@@ -155,6 +211,7 @@ export function browserGate(deck: ProbeDeck): GateFn {
           ...(end?.mass !== undefined ? { mass: end.mass } : {}),
           ...(end?.dimmed !== undefined ? { dimmed: end.dimmed } : {}),
           cueChange,
+          ...staged,
         },
         // What the repair pass reads: every graded frame's geometry, in order.
         layout: probe.layout.filter((l) => l.sid === w.sid),
@@ -166,6 +223,11 @@ export function browserGate(deck: ProbeDeck): GateFn {
           .map((f) => `${f.rule}: ${f.message.slice(0, 160)}`),
       });
     }
+    // One Chrome for every sheet of the round.
+    await contactSheets(sheets);
+    step(
+      `bespoke: ${round} gates in ${Math.round((Date.now() - t0) / 1000)}s (probe deck ${tBuild}s, motion gates ${tProbe}s, verify ${tVerify}s, sheets ${lap()}s)`,
+    );
     return out;
   };
 }

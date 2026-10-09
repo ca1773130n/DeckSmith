@@ -291,3 +291,97 @@ describe("motion kinds", () => {
     expect(motionKinds("not js (")).toEqual([]);
   });
 });
+
+describe("an illustrated scene's staging (round 4)", () => {
+  const STAGED: Fragment = {
+    markup: `<svg id="SCENEID-svg" width="1700" height="700"><image id="SCENEID-p" data-art="1"/><g id="SCENEID-a" data-cue="1" data-subject="1"><text id="SCENEID-t1">cup</text></g><g id="SCENEID-b" data-cue="2" data-subject="2"><text id="SCENEID-t2">arm</text></g></svg>`,
+    css: "",
+    script: `tl.to("#SCENEID-a", { opacity: 1, duration: 0.4 }, 1);`,
+    shots: [
+      { cue: 2, at: 0, subject: 1 },
+      { cue: 3, at: 0.2, subject: 2 },
+    ],
+    labels: [
+      { subject: 1, text: "cup" },
+      { subject: 2, text: "arm" },
+    ],
+  };
+  const ctx = { art: true, subjects: 3, cues: 4, labelFits: (t: string) => t.length <= 12 };
+  const rules = (f: Fragment) => checkFragment(f, ctx).map((x) => x.rule);
+
+  it("passes a scene that names its shots and labels its subjects", () => {
+    expect(checkFragment(STAGED, ctx)).toEqual([]);
+  });
+
+  it("refuses a script that moves the shell's camera", () => {
+    const moved = {
+      ...STAGED,
+      script: `${STAGED.script}\ntl.to("#SCENEID-cam", { scale: 1.3, duration: 1 }, 4);`,
+    };
+    expect(rules(moved)).toEqual(["script_camera"]);
+  });
+
+  it("refuses shots that stage fewer than two subjects; drops what is not there instead of failing on it", () => {
+    expect(rules({ ...STAGED, shots: [{ cue: 2, at: 0, subject: 1 }] })).toEqual(["shots"]);
+    expect(rules({ ...STAGED, shots: [] })).toEqual(["shots"]);
+    // A cue or a subject that does not exist, or "at" in seconds: dropped or read as seconds.
+    expect(
+      rules({
+        ...STAGED,
+        shots: [
+          ...(STAGED.shots ?? []),
+          { cue: 9, at: 0, subject: 1 },
+          { cue: 2, at: 3.2, subject: 5 },
+        ],
+      }),
+    ).toEqual([]);
+    // Two shots that name only missing subjects stage nothing.
+    expect(
+      rules({
+        ...STAGED,
+        shots: [
+          { cue: 2, at: 0, subject: 7 },
+          { cue: 3, at: 0, subject: 8 },
+        ],
+      }),
+    ).toEqual(["shots"]);
+  });
+
+  it("asks the scene to NAME the subjects (the shell places the names), and refuses names that do not fit", () => {
+    // Round 3's row of plates: words drawn by the scene, none given to the shell.
+    expect(rules({ ...STAGED, labels: [] })).toEqual(["labels"]);
+    expect(rules({ ...STAGED, labels: [{ subject: 1, text: "cup" }] })).toEqual(["labels"]);
+    // A second name for one subject is dropped by the shell, not refused.
+    expect(
+      rules({ ...STAGED, labels: [...(STAGED.labels ?? []), { subject: 2, text: "again" }] }),
+    ).toEqual([]);
+    expect(
+      rules({
+        ...STAGED,
+        labels: [
+          { subject: 1, text: "a very long label indeed" },
+          { subject: 2, text: "arm" },
+        ],
+      }),
+    ).toEqual(["labels"]);
+    expect(
+      rules({
+        ...STAGED,
+        labels: [
+          { subject: 1, text: "cup" },
+          { subject: 7, text: "x" },
+        ],
+      }),
+    ).toEqual(["labels"]);
+    // A scene's own label group must name a real subject.
+    const wrong = {
+      ...STAGED,
+      markup: STAGED.markup.replace('data-subject="2"', 'data-subject="7"'),
+    };
+    expect(rules(wrong)).toEqual(["markup_subject"]);
+  });
+
+  it("asks nothing of a scene with no subjects", () => {
+    expect(checkFragment({ ...STAGED, shots: [] }, { art: true })).toEqual([]);
+  });
+});

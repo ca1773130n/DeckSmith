@@ -933,7 +933,16 @@ bespokeFlags(
     reportCut(cut);
     if (deck.page) step(`build: navigable deck → ${join(out, DECK_PAGE)}`);
 
-    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source);
+    // The scenes the pass already gated in full at this very id: seeked, not re-probed.
+    const probed = new Set(
+      (bespoke?.report.scenes ?? [])
+        .filter((sc) => sc.status === "bespoke" && sc.gatedAt !== undefined)
+        .filter((sc) => sc.gatedAt === `s${cut.kept.findIndex((b) => b.id === sc.beat) + 1}`)
+        .map((sc) => sc.gatedAt as string),
+    );
+    const t0 = Date.now();
+    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source, probed);
+    step(`build: verify in ${Math.round((Date.now() - t0) / 1000)}s`);
   },
 );
 
@@ -1283,11 +1292,18 @@ async function gate(
   kept?: readonly Beat[],
   fidelity = true,
   source?: Source,
+  probed?: ReadonlySet<string>,
 ): Promise<void> {
   step(
-    `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute`,
+    `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute${probed?.size ? ` (${probed.size} generated scene(s) the bespoke pass gated in full are seeked, not re-probed)` : ""}`,
   );
-  const verdict = await verify(dir, { snapshots, fidelity }, storyboard, kept, source);
+  const verdict = await verify(
+    dir,
+    { snapshots, fidelity, ...(probed?.size ? { probed } : {}) },
+    storyboard,
+    kept,
+    source,
+  );
   process.stdout.write(report(verdict));
   if (snapshots) step(`verify: snapshots in ${join(dir, "snapshots")}`);
   // Non-zero, but let the process unwind: exitCode beats process.exit() here.

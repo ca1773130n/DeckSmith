@@ -12,11 +12,18 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ArtRef } from "../src/bespoke/art.js";
-import { checkFragment, type Fragment, motionKinds } from "../src/bespoke/contract.js";
+import { checkFragment, motionKinds } from "../src/bespoke/contract.js";
 import { rubricProbe } from "../src/bespoke/pipeline.js";
 import { generatePrompt } from "../src/bespoke/prompt.js";
-import { paint, pickReferences, placesArt, REFERENCES } from "../src/bespoke/references.js";
-import type { BespokeMap } from "../src/bespoke/scene.js";
+import {
+  paint,
+  pickReferences,
+  placesArt,
+  REFERENCE_BOX,
+  REFERENCES,
+} from "../src/bespoke/references.js";
+import type { BespokeEntry, BespokeMap } from "../src/bespoke/scene.js";
+import { unitsInPicture } from "../src/bespoke/shots.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { bespokeStaging, type DeckNarration } from "../src/emit/composition.js";
 import { resolveTheme } from "../src/emit/theme.js";
@@ -130,7 +137,8 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "decksmith-refs-"));
     const artFile = join(dir, "source-art.png");
-    await writeFile(artFile, testPng(768, 432));
+    const png = testPng(768, 432);
+    await writeFile(artFile, png);
     const art: ArtRef = {
       key: "test",
       name: "test.png",
@@ -138,9 +146,16 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
       width: 768,
       height: 432,
       depicts: "three discs",
+      // The illustrated reference's own subjects, as shares of this picture placed
+      // under the reference box's label band (\`slice\`): the reference is a layout for them.
+      subjects: unitsInPicture(
+        REFERENCES.find((r) => r.name === "illustrated")?.subjects ?? [],
+        { width: 768, height: 432 },
+        REFERENCE_BOX,
+      ),
     };
     const beats: DeckNarration["beats"] = {};
-    const bespoke: Record<string, { fragment: Fragment; holds: number[]; art?: ArtRef }> = {};
+    const bespoke: Record<string, BespokeEntry> = {};
     for (const [i, beat] of demo.beats.entries()) {
       const ctx = { source, format: deck16, theme: ink, sid: `s${i + 1}`, start: 0 };
       const n = stopCount(emitScene(beat, ctx).holds);
@@ -184,7 +199,15 @@ describe.skipIf(chrome === null)("the references, in the renderer's browser", ()
       bespoke[beat.id] = {
         fragment: paint(ref.fragment, ink),
         holds: bespokeStaging(beat, v2, segments, 1).holds,
-        ...(placesArt(ref) ? { art } : {}),
+        ...(placesArt(ref)
+          ? {
+              art,
+              stage: {
+                cues: ref.cues.map((c) => ({ t0: c.t0, t1: c.t1 })),
+                duration: ref.duration,
+              },
+            }
+          : {}),
       };
     }
     const built = await buildDeck(demo, source, dir, {

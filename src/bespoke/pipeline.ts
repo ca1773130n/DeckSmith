@@ -55,12 +55,16 @@ import {
   ART_VERSION,
   type ArtBrief,
   ArtCache,
+  type ArtCheck,
+  type ArtCopies,
   type ArtRef,
   artKey,
   drawArt,
 } from "./art.js";
 import { cacheKey, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
+import { calloutZones, fitLabel, type Label, longestFit } from "./callouts.js";
 import { checkFragment, type Fragment, motionKinds } from "./contract.js";
+import { FLAT_MIN, flatEnough, type Inspection, inspectPicture } from "./inspect.js";
 import {
   type Brief,
   CONTRACT_VERSION,
@@ -73,6 +77,8 @@ import {
 import { type RepairNote, repairable, repairScene } from "./repair.js";
 import { type BespokeEntry, type BespokeMap, bespokeRegion } from "./scene.js";
 import { type Skip, selectBespoke } from "./select.js";
+import { pictureCopies } from "./sheet.js";
+import { artPlacement, type Shot, subjectsInBox } from "./shots.js";
 
 export type BespokePrefs = NonNullable<Prefs["bespoke"]>;
 
@@ -120,6 +126,14 @@ export interface BespokeInput {
   work?: string;
   /** Where the image tool saves pictures. Default `$CODEX_HOME` or `~/.codex` (tests point it elsewhere). */
   codexHome?: string;
+  /** Inspects a drawn picture (src/bespoke/inspect.ts); swappable so tests need no Swift or Vision. */
+  inspect?: (bytes: Buffer, file: string) => Promise<Inspection>;
+  /** Draws the deck's WebP and the boxed copy (src/bespoke/sheet.ts); swappable so tests need no Chrome. */
+  copies?: (
+    png: Buffer,
+    boxes: Inspection["subjects"],
+    box: { width: number; height: number },
+  ) => Promise<ArtCopies>;
 }
 
 export interface SceneReport {
@@ -142,14 +156,22 @@ export interface SceneReport {
   metrics?: Measured;
   /** Whether a critique call was made, skipped because the rubric probe was clean, or never reached. */
   critique?: "ran" | "skipped" | "none";
-  /** The illustration the scene was built around. */
-  art?: { key: string; depicts: string };
+  /** The illustration the scene was built around, and what its inspection said. */
+  art?: { key: string; depicts: string; subjects?: number; check?: ArtCheck };
+  /** A data beat: drawn as a chart, never on a picture. */
+  data?: boolean;
   /** Why there is none, when one was wanted. */
   artNote?: string;
   /** What the deterministic repair did to the kept scene (src/bespoke/repair.ts). */
   repair?: RepairNote & { rounds: number };
   /** The kept scene passed only after a repair: without one, this beat fell back. */
   savedByRepair?: boolean;
+  /**
+   * The scene id the probe deck had it at when the gates passed the kept bytes:
+   * `build` skips re-running the full motion gates on a scene at that same id
+   * (it still seeks it), because the pass already ran them on exactly this scene.
+   */
+  gatedAt?: string;
 }
 
 export interface BespokeReport {
@@ -163,8 +185,21 @@ export interface BespokeReport {
   tokens: number;
   seconds: number;
   quota: boolean;
-  /** Illustrations: the deck's cap, calls made, pictures used (drawn or cached). */
-  art: { cap: number; calls: number; used: number };
+  /**
+   * Illustrations: the deck's cap, calls made, pictures used (drawn or cached),
+   * redraws made after a rejection, and pictures rejected for text / for style.
+   */
+  art: {
+    cap: number;
+    calls: number;
+    used: number;
+    redraws: number;
+    rejectedText: number;
+    rejectedStyle: number;
+    rejectedSubjects: number;
+  };
+  /** Wall seconds of the pass's stages, for profiling (`build` adds its own). */
+  stages?: Record<string, number>;
   scenes: SceneReport[];
   skipped: Skip[];
 }
@@ -180,6 +215,8 @@ interface Reply {
   markup: string;
   css: string;
   script: string;
+  shots?: unknown;
+  labels?: unknown;
 }
 
 /** Codex's own words for "no more today" — any of these stops every remaining call. */
@@ -196,6 +233,11 @@ export class Budget {
   calls = 0;
   /** Illustration calls, capped apart from `calls` (`prefs.art`). */
   art = 0;
+  /** Second draws after a rejected picture: one per beat at most, under the same cap plus one each. */
+  redraws = 0;
+  rejectedText = 0;
+  rejectedStyle = 0;
+  rejectedSubjects = 0;
   tokens = 0;
   quota = false;
   constructor(
@@ -218,6 +260,14 @@ export class Budget {
     if (this.deadline - this.now() < 120_000)
       return "the bespoke pass's wall-time cap is too close";
     this.art++;
+    return undefined;
+  }
+  /** One redraw of a rejected picture: not against the art cap, but against the clock and the quota. */
+  takeRedraw(): string | undefined {
+    if (this.quota) return "the Codex quota said no earlier in this pass";
+    if (this.deadline - this.now() < 180_000)
+      return "the bespoke pass's wall-time cap is too close";
+    this.redraws++;
     return undefined;
   }
   seconds(): number {
@@ -283,18 +333,73 @@ export function rubricProbe(
     out.push(`the end frame is mostly dimmed (${Math.round(100 * m.dimmed)}% of its parts)`);
   if (m.cells !== undefined && m.cells < 0.6)
     out.push(`something is drawn in only ${Math.round(100 * m.cells)}% of the 6x4 grid`);
-  if ((m.maxType ?? 0) < Math.max(KEY_TYPE_PX, RUBRIC_FOCAL_PX))
+  // An illustrated scene's focus is its picture and the subject the camera is
+  // on; its names are the shell's 56px labels. The 88px focal word is a
+  // diagram's habit, and asking for one sent clean illustrated drafts to a
+  // critique call (MEASURED 2026-10-09: 2 of 4 passing drafts, ~100s each).
+  // The gate's own floor (`type_hierarchy`, 64px) still holds.
+  if (!art && (m.maxType ?? 0) < Math.max(KEY_TYPE_PX, RUBRIC_FOCAL_PX))
     out.push(`no focal label reaches ${RUBRIC_FOCAL_PX}px`);
   const kinds = m.kinds ?? [];
   if (kinds.length < 3) out.push(`only ${kinds.length} kind(s) of motion`);
-  if (!kinds.some((k) => EXPLAINING.includes(k)))
+  // An illustrated scene's camera is the shell's (its shots), so it is not in the script's kinds.
+  const explaining = art && (m.shots ?? 0) > 0 ? [...kinds, "camera"] : kinds;
+  if (!explaining.some((k) => EXPLAINING.includes(k)))
     out.push("no flow, camera, counter or morph — the motion is fades and draws");
-  // A scene built on an illustration explains it by pointing the camera at its parts.
-  if (art && !kinds.includes("camera")) out.push("no camera move into the illustration");
+  // A scene built on an illustration explains it by staging shots on its subjects,
+  // and names them where they are.
+  const want = Math.min(2, m.subjects ?? 2);
+  if (art && m.shots !== undefined && m.shots < want)
+    out.push(`only ${m.shots} push-in(s) on the picture's subjects`);
+  if (art && m.establishing === false) out.push("it does not open on the whole picture");
+  if (art && m.anchored !== undefined && m.anchored < want)
+    out.push(`only ${m.anchored} subject(s) named by a label on them`);
   (m.cueChange ?? []).forEach((c, i) => {
     if (c < RUBRIC_CUE_CHANGE) out.push(`cue ${i + 1} barely moves (${(100 * c).toFixed(2)}%)`);
   });
   return out;
+}
+
+/**
+ * Archetypes whose beat IS its numbers. Round 3 illustrated them like any other
+ * beat and the scene painted the table over the picture (ja s12: nine numbers
+ * on a robot). A data beat gets no picture and the chart that builds instead.
+ */
+export const DATA_ARCHETYPES: readonly string[] = ["line-chart", "bar-compare", "data-table"];
+
+export function isDataBeat(beat: Pick<Beat, "archetype">): boolean {
+  return DATA_ARCHETYPES.includes(beat.archetype);
+}
+
+/** A reply's labels, kept only where they are the shape the schema promised. */
+export function readLabels(raw: unknown): Label[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (l): l is Label =>
+        typeof l === "object" &&
+        l !== null &&
+        typeof (l as Label).subject === "number" &&
+        typeof (l as Label).text === "string",
+    )
+    .slice(0, 8)
+    .map((l) => ({ subject: l.subject, text: l.text.trim().slice(0, 80) }));
+}
+
+/** A reply's shot list, kept only where it is the shape the schema promised. */
+export function readShots(raw: unknown): Shot[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (s): s is Shot =>
+        typeof s === "object" &&
+        s !== null &&
+        typeof (s as Shot).cue === "number" &&
+        typeof (s as Shot).at === "number" &&
+        typeof (s as Shot).subject === "number",
+    )
+    .slice(0, 24)
+    .map((s) => ({ cue: s.cue, at: s.at, subject: s.subject }));
 }
 
 /** The paper the prompt may quote for this beat: its cited sections, equations and figure captions. */
@@ -343,11 +448,21 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       cap: prefs.art,
       calls: budget.art,
       used: scenes.filter((sc) => sc.status === "bespoke" && sc.art).length,
+      redraws: budget.redraws,
+      rejectedText: budget.rejectedText,
+      rejectedStyle: budget.rejectedStyle,
+      rejectedSubjects: budget.rejectedSubjects,
     },
+    stages,
     scenes,
     skipped,
   });
   let skipped: Skip[] = [];
+  // Wall seconds from the pass's start at which each stage ended (profiling).
+  const stages: Record<string, number> = {};
+  const mark = (stage: string) => {
+    stages[stage] = Math.round((now() - started) / 100) / 10;
+  };
 
   // A generated scene is keyed to cue SECONDS; a paced deck moves every one.
   if (input.speed !== 1) {
@@ -505,6 +620,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       region,
       theme,
       pack: input.theme,
+      ...(isDataBeat(beat) ? { data: true } : {}),
     };
     const keyInput: KeyInput = {
       promptVersion: PROMPT_VERSION,
@@ -551,24 +667,104 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     });
   }
 
+  const subjectsOf = (b: Beat1) =>
+    b.art?.subjects ? subjectsInBox(b.art.subjects, b.art, b.brief.region) : [];
   const entry = (b: Beat1, fragment: Fragment) => ({
     fragment,
     holds: b.holds,
     ...(b.art ? { art: b.art } : {}),
+    ...(b.art?.subjects?.length
+      ? {
+          stage: {
+            cues: b.window.cues.map((c) => ({ t0: c.t0, t1: c.t1 })),
+            duration: b.window.duration,
+          },
+        }
+      : {}),
   });
-  const statics = (b: Beat1, f: Fragment) =>
-    checkFragment(f, { art: b.art !== undefined }).map((x) => `${x.rule}: ${x.message}`);
+  const zonesOf = (b: Beat1) => calloutZones(subjectsOf(b), b.brief.region.width);
+  const statics = (b: Beat1, f: Fragment) => {
+    const zones = zonesOf(b);
+    return checkFragment(f, {
+      art: b.art !== undefined,
+      subjects: subjectsOf(b).length,
+      cues: b.window.cues.length,
+      labelFits: (text, k) => {
+        const z = zones.find((x) => x.subject === k);
+        return z !== undefined && fitLabel(text, z, theme, b.brief.region.height) !== undefined;
+      },
+    }).map((x) => `${x.rule}: ${x.message}`);
+  };
   const quota = (msg: string) => {
     if (QUOTA.test(msg)) budget.quota = true;
   };
+  // The compiled text reader lives beside the cache root, not in one deck's cache:
+  // it is compiled once per machine (~25s), not once per cache directory.
+  const toolDir = join(defaultCacheDir(), "..", "tools");
+  const inspect =
+    input.inspect ?? ((bytes: Buffer, file: string) => inspectPicture(bytes, file, toolDir));
+  const copiesOf = input.copies ?? pictureCopies;
+
+  /** One draw, inspected: the picture, what it depicts, and what the inspection says. */
+  const drawInspected = async (b: Beat1, tag: string, retry?: string) => {
+    const drawn = await drawArt(b.artBrief, {
+      run,
+      work,
+      tag,
+      model,
+      timeoutMs: Math.min(ART_SECONDS, budget.seconds()) * 1000,
+      config: artConfig,
+      ...(prefs.cli ? { bin: prefs.cli } : {}),
+      ...(input.codexHome ? { home: input.codexHome } : {}),
+      ...(retry ? { retry } : {}),
+      onUsage: (n) => {
+        budget.tokens += n;
+      },
+    });
+    const file = join(work, `${tag}.png`);
+    await writeFile(file, drawn.bytes);
+    const seen = await inspect(drawn.bytes, file).catch(
+      (err): Inspection => ({
+        subjects: [],
+        flat: { soft: 1, palette: 0, score: 0, coverage: 0 },
+        text: null,
+        unread: `the picture could not be inspected: ${err instanceof Error ? err.message : err}`,
+      }),
+    );
+    return { drawn, seen };
+  };
+  /** Why a picture is refused, or undefined when it is kept. */
+  const refusal = (seen: Inspection): string | undefined => {
+    if (seen.text?.length)
+      return `it has writing in it (${seen.text
+        .slice(0, 3)
+        .map((s) => `"${s.slice(0, 24)}"`)
+        .join(", ")}) — draw NO text, letters or numbers anywhere`;
+    if (!flatEnough(seen.flat))
+      return `it is shaded like a 3D render (flatness ${seen.flat.score} under ${FLAT_MIN}) — use only flat, uniform fills with hard edges, no gradients, no shading, no shadows`;
+    // One blob cannot be staged: the camera and the labels need subjects to point at.
+    if (seen.subjects.length < 2)
+      return `its subjects touch or overlap (${seen.subjects.length} separate subject found) — draw three or four subjects with clear empty background between them, nothing linking them`;
+    return undefined;
+  };
+  /** Which of two refused pictures to keep: never one with writing; then flat; then more subjects. */
+  const rank = (seen: Inspection) =>
+    (flatEnough(seen.flat) ? 10 : 0) + Math.min(4, seen.subjects.length) + seen.flat.score;
 
   /**
-   * The beat's illustration: from the art cache, or one call to the account's
-   * image tool. A picture that cannot be had is not a failure — the beat is
-   * drawn without one, and the report says why.
+   * The beat's illustration: from the art cache, or a call to the account's
+   * image tool, inspected (src/bespoke/inspect.ts) — writing in it or a shaded
+   * render is redrawn ONCE with the reason; of two refused pictures the one
+   * without writing and the flatter is kept, and one with writing never is.
+   * A picture that cannot be had is not a failure — the beat is drawn without
+   * one, and the report says why. A data beat is never illustrated.
    */
   const illustrate = async (b: Beat1) => {
     if (artCap <= 0) return;
+    if (b.brief.data) {
+      b.artNote = "a data beat: its chart is the picture";
+      return;
+    }
     const key = artKey(b.artBrief, model);
     const hit = await artCache.get(key);
     if (hit) {
@@ -584,28 +780,73 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     const tag = `${b.beat.id}.art`;
     const t0 = now();
     try {
-      const drawn = await drawArt(b.artBrief, {
-        run,
-        work,
-        tag,
-        model,
-        timeoutMs: Math.min(ART_SECONDS, budget.seconds()) * 1000,
-        config: artConfig,
-        ...(prefs.cli ? { bin: prefs.cli } : {}),
-        ...(input.codexHome ? { home: input.codexHome } : {}),
-        onUsage: (n) => {
-          budget.tokens += n;
+      const tries = [await drawInspected(b, tag)];
+      const rejected: string[] = [];
+      let why = refusal((tries[0] as (typeof tries)[number]).seen);
+      if (why) {
+        rejected.push(why);
+        if (why.startsWith("it has writing")) budget.rejectedText++;
+        else if (why.startsWith("it is shaded")) budget.rejectedStyle++;
+        else budget.rejectedSubjects++;
+        step(`bespoke: ${tag} refused — ${why.split(" — ")[0]}; drawing it again`);
+        const again = budget.takeRedraw();
+        if (again) step(`bespoke: ${tag} not redrawn — ${again}`);
+        else {
+          const second = await drawInspected(b, `${tag}2`, why);
+          tries.push(second);
+          why = refusal(second.seen);
+          if (why) {
+            rejected.push(why);
+            if (why.startsWith("it has writing")) budget.rejectedText++;
+            else if (why.startsWith("it is shaded")) budget.rejectedStyle++;
+            else budget.rejectedSubjects++;
+          }
+        }
+      }
+      // The kept picture: one that passed, else the best without writing (`rank`).
+      const ok = tries.filter((t) => !t.seen.text?.length);
+      const pick =
+        tries.find((t) => refusal(t.seen) === undefined) ??
+        [...ok].sort((x, y) => rank(y.seen) - rank(x.seen))[0];
+      if (!pick) {
+        b.artNote = `no illustration: every draw had writing in it (${rejected.length} refused)`;
+        step(`bespoke: ${tag} — ${b.artNote}`);
+        return;
+      }
+      const { drawn, seen } = pick;
+      const check: ArtCheck = {
+        flat: seen.flat.score,
+        flatOk: flatEnough(seen.flat),
+        text: seen.text,
+        attempts: tries.length,
+        rejected,
+      };
+      // The deck's WebP and the draft call's boxed copy; a Chrome that cannot draw
+      // them costs bytes (the PNG ships) and the numbered boxes, never the picture.
+      const at = artPlacement(b.brief.region);
+      const copies = await copiesOf(drawn.bytes, seen.subjects, {
+        width: at.w,
+        height: at.h,
+      }).catch((err): ArtCopies => {
+        step(`bespoke: ${tag} copies not drawn — ${err instanceof Error ? err.message : err}`);
+        return {};
+      });
+      b.art = await artCache.put(
+        key,
+        drawn.bytes,
+        {
+          width: drawn.width,
+          height: drawn.height,
+          depicts: drawn.depicts,
+          model,
+          artVersion: ART_VERSION,
+          subjects: seen.subjects,
+          check,
         },
-      });
-      b.art = await artCache.put(key, drawn.bytes, {
-        width: drawn.width,
-        height: drawn.height,
-        depicts: drawn.depicts,
-        model,
-        artVersion: ART_VERSION,
-      });
+        copies,
+      );
       step(
-        `bespoke: ${tag} in ${Math.round((now() - t0) / 1000)}s (${drawn.width}x${drawn.height})`,
+        `bespoke: ${tag} in ${Math.round((now() - t0) / 1000)}s (${drawn.width}x${drawn.height}, ${seen.subjects.length} subjects, flat ${seen.flat.score}, text ${seen.text === null ? `unchecked: ${seen.unread}` : seen.text.length}, ${tries.length} draw(s))`,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -618,11 +859,26 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   /** Illustration first, then the scene cache under a key that names it. */
   const prepare = async (b: Beat1) => {
     await illustrate(b);
-    if (b.art)
+    if (b.art) {
+      const subjects = subjectsOf(b);
+      const zones = zonesOf(b).map((z) => ({
+        subject: z.subject,
+        x: z.x,
+        y: z.y,
+        w: z.w,
+        h: z.h,
+        chars: longestFit(z, theme),
+      }));
       b.brief = {
         ...b.brief,
-        art: { depicts: b.art.depicts, width: b.art.width, height: b.art.height },
+        art: {
+          depicts: b.art.depicts,
+          width: b.art.width,
+          height: b.art.height,
+          ...(subjects.length ? { subjects, zones } : {}),
+        },
       };
+    }
     b.key = cacheKey({ ...b.keyInput, ...(b.art ? { art: b.art.key } : {}) });
     // A hit costs nothing, and a cached rejection is a free fallback.
     const hit = await cache.get(b.key);
@@ -666,7 +922,14 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       await run(args);
       const reply = JSON.parse(await readFile(outPath, "utf8")) as Reply;
       step(`bespoke: ${tag} in ${Math.round((now() - t0) / 1000)}s`);
-      return { markup: reply.markup ?? "", css: reply.css ?? "", script: reply.script ?? "" };
+      return {
+        markup: reply.markup ?? "",
+        css: reply.css ?? "",
+        script: reply.script ?? "",
+        ...(b.art?.subjects?.length
+          ? { shots: readShots(reply.shots), labels: readLabels(reply.labels) }
+          : {}),
+      } as Fragment;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       quota(msg);
@@ -676,17 +939,22 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     }
   };
 
-  // Round 1, per beat in its own lane: the illustration, the cache, the draft.
-  // A lane per beat (up to the concurrency cap), so one beat's picture never
-  // waits on another beat's draft.
+  // Round 1. Every beat's picture starts at once (an art call is ~60s and
+  // light), so no beat's draft waits for a lane to free up before its picture
+  // is even asked for; the drafts then run at the concurrency cap, each as soon
+  // as its own picture is in.
+  const ready = new Map(work1.map((b) => [b, prepare(b)]));
+  void Promise.all(ready.values()).then(() => mark("pictures"));
   await pool(work1, prefs.concurrency, async (b) => {
-    await prepare(b);
+    await ready.get(b);
     if (b.cached || b.stop) return;
-    const f = await call(b, "draft", generatePrompt(b.brief), b.art ? [b.art.file] : []);
+    const images = b.art ? [b.art.png ?? b.art.file, ...(b.art.boxed ? [b.art.boxed] : [])] : [];
+    const f = await call(b, "draft", generatePrompt(b.brief), images);
     if (!f) return;
     b.draft = f;
     b.draftFindings = statics(b, f);
   });
+  mark("drafts");
   const fresh = work1.filter((b) => b.draft !== undefined);
 
   // Gate the drafts that passed the static walk. Nothing that failed it is opened in a browser.
@@ -711,6 +979,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   // With no fresh draft there is nothing for a critique round to look at, and
   // the final round gates the cached scenes anyway: one probe build, not two.
   const gateA = fresh.length ? await gate(draftMap, "draft") : new Map<string, GateResult>();
+  mark("draft gates");
   for (const b of work1) {
     const g = gateA.get(b.beat.id);
     if (!g) continue;
@@ -792,7 +1061,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
           g?.sheet ? g.legend : undefined,
           b.draftMetrics,
         ),
-        g?.sheet ? [g.sheet] : [],
+        [...(g?.sheet ? [g.sheet] : []), ...(b.art?.boxed ? [b.art.boxed] : [])],
       );
       if (!f) return;
       b.fixed = f;
@@ -810,10 +1079,12 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     }
     return m;
   };
+  mark("critiques");
   const gateB = await gate(
     candidates(() => true),
     "final",
   );
+  mark("final gates");
   for (const b of work1) if (b.fixed && !b.cached) b.fixedGate = gateB.get(b.beat.id);
 
   // Round 3, only where needed: the deterministic repair of a candidate the
@@ -851,6 +1122,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     for (const b of repaired) b.fixedGate = gateC.get(b.beat.id);
   }
 
+  mark("repairs");
   const map: Record<string, BespokeEntry> = {};
   for (const b of work1) {
     const report1 = (status: "bespoke" | "fallback", extra: Partial<SceneReport>): SceneReport => ({
@@ -861,7 +1133,17 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       findings: [],
       key: b.key,
       critique: b.critique,
-      ...(b.art ? { art: { key: b.art.key, depicts: b.art.depicts } } : {}),
+      ...(b.art
+        ? {
+            art: {
+              key: b.art.key,
+              depicts: b.art.depicts,
+              subjects: subjectsOf(b).length,
+              ...(b.art.check ? { check: b.art.check } : {}),
+            },
+          }
+        : {}),
+      ...(b.brief.data ? { data: true } : {}),
       ...(b.artNote ? { artNote: b.artNote } : {}),
       ...(b.repair ? { repair: b.repair } : {}),
       ...extra,
@@ -874,6 +1156,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         scenes.push(
           report1("bespoke", {
             from: "cache",
+            ...(gb.sid ? { gatedAt: gb.sid } : {}),
             kinds: motionKinds(b.cached.script),
             ...(metrics ? { metrics } : {}),
           }),
@@ -892,8 +1175,10 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     let from: SceneReport["from"];
     let note: string | undefined;
     let metrics: Measured | undefined;
+    let gatedAt: string | undefined;
     if (b.fixed && b.fixedFindings.length === 0 && gb && !gb.failed) {
       fragment = b.fixed;
+      gatedAt = gb.sid;
       from = b.fixedFrom ?? "critique";
       metrics = withKinds(gb.metrics, b.fixed);
       if (b.repair) note = `kept the ${from} scene after ${b.repair.rounds} repair round(s)`;
@@ -902,6 +1187,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       fragment = b.draft;
       from = "draft";
       metrics = b.draftMetrics;
+      gatedAt = gateA.get(b.beat.id)?.sid;
       note = b.fixed
         ? `the critique round's scene failed (${(b.fixedFindings.length ? b.fixedFindings : (gb?.findings ?? [])).slice(0, 2).join("; ")}); kept the draft, which passed`
         : b.critique === "skipped"
@@ -932,6 +1218,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
           ...(metrics ? { metrics } : {}),
           // Kept only because a repair cleared it: without one it fell back.
           ...(b.repair ? { savedByRepair: true } : {}),
+          ...(gatedAt ? { gatedAt } : {}),
         }),
       );
       continue;

@@ -37,12 +37,24 @@
  * whichever position its beat lands at in a later cut.
  */
 import { type Node, parse } from "acorn";
+import { LABEL_MIN_PX, type Label } from "./callouts.js";
+import type { Shot } from "./shots.js";
 
 /** What a model hands back for one beat. Token form: ids are `SCENEID-…`. */
 export interface Fragment {
   markup: string;
   css: string;
   script: string;
+  /**
+   * An illustrated scene's shot list: which subject of the picture the shell's
+   * camera frames on which cue (src/bespoke/shots.ts). Absent on any other scene.
+   */
+  shots?: Shot[];
+  /**
+   * An illustrated scene's subject labels, which the shell draws ON their
+   * subjects (src/bespoke/callouts.ts). Absent on any other scene.
+   */
+  labels?: Label[];
 }
 
 /** One reason a fragment may not be used. */
@@ -62,7 +74,13 @@ export const MAX_CSS = 12_000;
 /** The fragment with the real scene id in place of the token. */
 export function instantiate(f: Fragment, sid: string): Fragment {
   const swap = (s: string) => s.split(SID_TOKEN).join(sid);
-  return { markup: swap(f.markup), css: swap(f.css), script: swap(f.script) };
+  return {
+    markup: swap(f.markup),
+    css: swap(f.css),
+    script: swap(f.script),
+    ...(f.shots ? { shots: f.shots } : {}),
+    ...(f.labels ? { labels: f.labels } : {}),
+  };
 }
 
 /** Every reason this fragment may not be built. Empty means it may. */
@@ -72,7 +90,78 @@ export function checkFragment(f: Fragment, ctx: FragmentContext = {}): StaticFin
     ...checkCueGroups(f.markup),
     ...checkCss(f.css),
     ...checkScript(f.script),
+    ...(ctx.subjects ? checkStaging(f, ctx) : []),
   ];
+}
+
+/**
+ * An illustrated scene's staging (round 4): the shell moves the camera, so the
+ * script must not; the shot list must push in on the picture's subjects; and
+ * the labels that name a subject say so (`data-subject="K"`), which is what
+ * `label_anchor` holds to that subject's box.
+ */
+function checkStaging(f: Fragment, ctx: FragmentContext): StaticFinding[] {
+  const out: StaticFinding[] = [];
+  const subjects = ctx.subjects ?? 0;
+  if (/["'`]#SCENEID-cam(?![\w-])/.test(f.script))
+    out.push({
+      rule: "script_camera",
+      message: `the script moves #${SID_TOKEN}-cam — in an illustrated scene the shell's camera follows "shots"; remove every tween and set on it`,
+    });
+  const shots = f.shots ?? [];
+  const cues = ctx.cues ?? Number.POSITIVE_INFINITY;
+  // A shot naming a cue or subject that is not there is DROPPED by the shell, and
+  // an "at" given in seconds is read as seconds (src/bespoke/shots.ts): neither
+  // is worth a fallback (MEASURED 2026-10-09: two of five scenes of a deck fell
+  // back on `"at": 3.2`). What is refused is a scene that stages too little.
+  const valid = shots.filter(
+    (s) =>
+      Number.isInteger(s.cue) &&
+      s.cue >= 1 &&
+      s.cue <= cues &&
+      Number.isInteger(s.subject) &&
+      s.subject >= 1 &&
+      s.subject <= subjects &&
+      Number.isFinite(s.at),
+  );
+  const pushed = new Set(valid.map((s) => s.subject));
+  const want = Math.min(2, subjects);
+  if (pushed.size < want)
+    out.push({
+      rule: "shots",
+      message: `the shots push in on ${pushed.size} subject(s) of the picture (cue 1..${Number.isFinite(cues) ? cues : "N"}, subject 1..${subjects}); an illustrated scene stages at least ${want} (establishing → push in → … → reveal)`,
+    });
+  const body = f.markup.replace(/<!--[\s\S]*?-->/g, "");
+  for (const m of body.matchAll(/\sdata-subject\s*=\s*["']?([^"'\s>]*)/gi)) {
+    const k = Number(m[1]);
+    if (!Number.isInteger(k) || k < 1 || k > subjects)
+      out.push({
+        rule: "markup_subject",
+        message: `data-subject="${(m[1] ?? "").slice(0, 12)}" is not a subject of this picture (1..${subjects})`,
+      });
+  }
+  const labels = f.labels ?? [];
+  const named = new Set<number>();
+  for (const l of labels) {
+    // One naming a subject that is not there, or a second for one subject, is
+    // dropped by the shell (`calloutLayer`); only too few names is refused.
+    if (!Number.isInteger(l.subject) || l.subject < 1 || l.subject > subjects) continue;
+    if (named.has(l.subject)) continue;
+    named.add(l.subject);
+    const text = l.text.trim();
+    if (!text) out.push({ rule: "labels", message: `subject ${l.subject}'s label is empty` });
+    else if (ctx.labelFits && !ctx.labelFits(text, l.subject))
+      out.push({
+        rule: "labels",
+        message: `"${text.slice(0, 40)}" does not fit S${l.subject}'s label zone even at ${LABEL_MIN_PX}px — say it in fewer, shorter words`,
+      });
+  }
+  if (named.size < want)
+    out.push({
+      rule: "labels",
+      message: `${named.size} subject(s) labelled; name at least ${want} of the picture's subjects in "labels" (the shell draws each ON its subject)`,
+    });
+  return out;
 }
 
 /* ----------------------------------------------------------------- selectors */
@@ -156,10 +245,16 @@ const TAGS = new Set([
 export interface FragmentContext {
   /** Whether the beat has an illustration a scene may place (`<image data-art="1">`). */
   art?: boolean;
+  /** How many subjects the illustration's inspection found (src/bespoke/inspect.ts). */
+  subjects?: number;
+  /** How many narration cues the scene has, for its shot list. */
+  cues?: number;
+  /** Whether a label's text fits its subject's zone (src/bespoke/callouts.ts `fitLabel`). */
+  labelFits?: (text: string, subject: number) => boolean;
 }
 
 /** Ids the shell owns inside a bespoke scene: the body box, eyebrow, headline, camera. */
-const SHELL_IDS = /^SCENEID-(g|e|h|cam)$/;
+const SHELL_IDS = /^SCENEID-(g|e|h|cam|callout\d.*)$/;
 
 /** `url(#SCENEID-…)` is a reference inside the scene; every other `url(` is a fetch. */
 const LOCAL_URL = new RegExp(`url\\(\\s*['"]?#${SID_TOKEN}-[\\w-]+['"]?\\s*\\)`, "g");

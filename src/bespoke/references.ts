@@ -42,6 +42,8 @@ export interface Reference {
   cues: ReadonlyArray<{ t0: number; t1: number; text: string }>;
   duration: number;
   fragment: Fragment;
+  /** An illustrated reference's subjects, box px: what the prompt would list for its picture. */
+  subjects?: ReadonlyArray<{ x: number; y: number; w: number; h: number }>;
 }
 
 /** The box every reference is drawn for. */
@@ -272,6 +274,7 @@ const growth: Reference = {
     "a quantity being traced: axes draw, a curve draws while a tracking dot rides it and a counter reads the value, a plateau line lands, a second curve overtakes, and the gap between them MORPHS into the headline number",
   fits: [
     "bar-compare",
+    "line-chart",
     "chart",
     "claim-figure",
     "equation",
@@ -506,26 +509,30 @@ tl.to(dots, { scale: 1.12, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.in
   },
 };
 
-/* ------------------------------------------------- 5. illustrated, camera */
+/* ------------------------------------------------ 5. illustrated, staged */
 
 /**
- * Round 3's reference: a scene BUILT AROUND THE BEAT'S ILLUSTRATION. The
- * picture is revealed by a masked wipe, drifts under the overlays (parallax),
- * and the shell's camera (`#SCENEID-cam`) pushes into one part while a callout
- * draws on around it, pans to the next part where vector nodes and flowing
- * links are drawn OVER the picture, and comes home for the summary. Every label
- * sits on a plate. Shown only to a beat that has an illustration; it uses
- * whatever picture that beat has, so its coordinates are a layout, not a map
- * of any particular picture.
- *
- * Camera arithmetic, written out in the script: to frame the box region
- * (x0, y0, w, h), scale s = min(W/w, H/h, 2.2), x = (W - w*s)/2 - x0*s,
- * y = (H - h*s)/2 - y0*s, with the wrapper's transform-origin at 0 0.
+ * Round 4's reference: a scene BUILT AROUND THE BEAT'S ILLUSTRATION and STAGED
+ * by the shell. The picture covers the box (the shell holds it there); its
+ * subjects are known boxes (`subjects`, box px — what the prompt lists for a
+ * real picture); the scene names its SHOTS and the shell's camera establishes,
+ * pushes in on S1, moves to S2 and S3 and reveals the whole at the last cue.
+ * The subjects' names are its `labels`: the shell sets each ON its subject —
+ * plate, text, a leader line to a dot — as the camera arrives there
+ * (src/bespoke/callouts.ts); a spotlight (a shade with a soft hole) follows the
+ * shots; vector links and particles carry the mechanism between the subjects;
+ * a counter lands the point.
  */
+const ILLUSTRATED_SUBJECTS = [
+  { x: 153, y: 200, w: 500, h: 480 },
+  { x: 731, y: 160, w: 400, h: 400 },
+  { x: 1150, y: 240, w: 440, h: 440 },
+];
+
 const illustrated: Reference = {
   name: "illustrated",
   shows:
-    "a scene built on the beat's ILLUSTRATION: a masked wipe reveals the picture, it drifts under the overlays (parallax), the CAMERA pushes into one part as a SPOTLIGHT (a shade with a soft hole) dims the rest and a callout ring draws around it, the hole and the camera pan to the next part where vector nodes and flowing links are drawn over the picture, and both return home for a counter that lands the point — every label on a plate, everything lit at the end",
+    "a scene built on the beat's ILLUSTRATION and staged in SHOTS: a masked wipe reveals the picture on the establishing shot, the shell's camera pushes in on the subject each cue names (the scene's \"shots\") while a SPOTLIGHT (a shade with a soft hole) follows and that subject's callout ring draws on — and the shell lands its name (\"labels\") ON it — vector links and particles carry the mechanism from subject to subject, and the reveal at the last cue shows everything lit with a counter that lands the point",
   fits: [],
   cues: [
     { t0: 1.0, t1: 4.6, text: "A robot looks around the room." },
@@ -534,113 +541,84 @@ const illustrated: Reference = {
     { t0: 13.4, t1: 17.8, text: "which the language model reads in one pass." },
   ],
   duration: 19,
+  subjects: ILLUSTRATED_SUBJECTS,
   fragment: {
+    shots: [
+      { cue: 2, at: 0, subject: 1 },
+      { cue: 3, at: 0, subject: 2 },
+      { cue: 3, at: 0.5, subject: 3 },
+    ],
+    labels: [
+      { subject: 1, text: "what it sees" },
+      { subject: 2, text: "objects" },
+      { subject: 3, text: "relations" },
+    ],
     markup: `<svg id="SCENEID-svg" width="1700" height="732" viewBox="0 0 1700 732" style="position:absolute;left:0;top:0;overflow:hidden">
   <defs>
-    <linearGradient id="SCENEID-fade" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="0.05" stop-color="#ffffff"/>
-      <stop offset="0.95" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <mask id="SCENEID-feather"><rect x="-40" y="-40" width="1780" height="812" fill="url(#SCENEID-fade)"/></mask>
-    <clipPath id="SCENEID-wipe"><rect id="SCENEID-wipe-bar" x="-40" y="-40" width="0" height="812"/></clipPath>
+    <clipPath id="SCENEID-wipe"><rect id="SCENEID-wipe-bar" x="0" y="0" width="0" height="732"/></clipPath>
     <radialGradient id="SCENEID-soft"><stop offset="0.7" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/></radialGradient>
-    <mask id="SCENEID-hole"><rect x="-40" y="-40" width="1780" height="812" fill="#ffffff"/><circle id="SCENEID-hole-c" cx="400" cy="420" r="230" fill="url(#SCENEID-soft)"/></mask>
+    <mask id="SCENEID-hole"><rect x="0" y="0" width="1700" height="732" fill="#ffffff"/><circle id="SCENEID-hole-c" cx="403" cy="440" r="300" fill="url(#SCENEID-soft)"/></mask>
   </defs>
-  <g id="SCENEID-art" data-cue="1" clip-path="url(#SCENEID-wipe)" mask="url(#SCENEID-feather)">
-    <image id="SCENEID-pic" data-art="1" x="-30" y="-20" width="1760" height="772" preserveAspectRatio="xMidYMid slice"/>
-    <rect id="SCENEID-shade" x="-40" y="-40" width="1780" height="812" fill="{{bg}}" mask="url(#SCENEID-hole)"/>
+  <g id="SCENEID-art" data-cue="1" clip-path="url(#SCENEID-wipe)">
+    <image id="SCENEID-pic" data-art="1" x="0" y="120" width="1700" height="612" preserveAspectRatio="xMidYMid slice"/>
+    <rect id="SCENEID-shade" x="0" y="0" width="1700" height="732" fill="{{bg}}" mask="url(#SCENEID-hole)"/>
   </g>
-  <g id="SCENEID-fg">
-    <g id="SCENEID-spot" data-cue="2">
-      <circle id="SCENEID-ring" cx="400" cy="420" r="180" fill="none" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
-      <rect id="SCENEID-view-plate" x="435" y="82" width="320" height="96" rx="22" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
-      <text id="SCENEID-view" x="595" y="130" font-size="60" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">the view</text>
-    </g>
-    <g id="SCENEID-graph" data-cue="3">
-      <line id="SCENEID-e12" x1="1000" y1="290" x2="1460" y2="290" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-      <line id="SCENEID-e13" x1="1000" y1="290" x2="1230" y2="540" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-      <line id="SCENEID-e23" x1="1460" y1="290" x2="1230" y2="540" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-      <circle id="SCENEID-p12" cx="1000" cy="290" r="13" fill="{{fg}}"/>
-      <circle id="SCENEID-p13" cx="1000" cy="290" r="13" fill="{{fg}}"/>
-      <circle id="SCENEID-p23" cx="1460" cy="290" r="13" fill="{{fg}}"/>
-      <circle id="SCENEID-n1" cx="1000" cy="290" r="52" fill="{{a}}" stroke="{{bg}}" stroke-width="6"/>
-      <circle id="SCENEID-n2" cx="1460" cy="290" r="52" fill="{{b}}" stroke="{{bg}}" stroke-width="6"/>
-      <circle id="SCENEID-n3" cx="1230" cy="540" r="52" fill="{{c}}" stroke="{{bg}}" stroke-width="6"/>
-      <rect id="SCENEID-graph-plate" x="1040" y="88" width="370" height="84" rx="22" fill="{{panel}}" stroke="{{rule}}" stroke-width="5"/>
-      <text id="SCENEID-graph-label" x="1225" y="130" font-size="56" font-weight="700" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">a graph</text>
-    </g>
-    <g id="SCENEID-sum" data-cue="4">
-      <rect id="SCENEID-sum-plate" x="640" y="598" width="590" height="128" rx="30" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
-      <text id="SCENEID-n" x="712" y="662" font-size="96" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
-      <text id="SCENEID-sum-label" x="770" y="662" font-size="52" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
-    </g>
+  <g id="SCENEID-links" data-cue="3">
+    <path id="SCENEID-l12" d="M403 440 L931 360" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+    <path id="SCENEID-l23" d="M931 360 L1370 460" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
+    <circle id="SCENEID-p1" cx="403" cy="440" r="14" fill="{{fg}}"/>
+    <circle id="SCENEID-p2" cx="931" cy="360" r="14" fill="{{fg}}"/>
+  </g>
+  <g id="SCENEID-s1" data-cue="2">
+    <circle id="SCENEID-ring1" cx="403" cy="440" r="200" fill="none" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <g id="SCENEID-sum" data-cue="4">
+    <rect id="SCENEID-sum-plate" x="560" y="596" width="560" height="132" rx="30" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
+    <text id="SCENEID-n" x="630" y="662" font-size="88" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
+    <text id="SCENEID-sum-label" x="690" y="662" font-size="52" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
   </g>
 </svg>`,
     css: "",
-    script: `// Layout (box 1700x732): the picture full-bleed under everything (masked edges) ·
-// "the view" plate x 435-755, y 82-178 over the callout ring (cx 400, cy 420, r 180:
-// x 220-580, y 240-600) · nodes at (1000,290) (1460,290) (1230,540), r 52, "a graph"
-// plate x 1040-1410, y 88-172 · summary plate x 640-1230, y 598-726 (the 96px count is 120px
-// tall: the plate is taller than that, and the pulse is the plate's, not the number's).
-// Camera (wrapper, origin 0 0): part 1 = region x 130-770, y 90-630 -> s = 732/540 =
-// 1.356, x = (1700 - 640*1.356)/2 - 130*1.356 = 240, y = -90*1.356 = -122. Part 2 =
-// region x 880-1640, y 90-650 -> s = 732/560 = 1.307, x = (1700 - 760*1.307)/2 - 880*1.307
-// = -797, y = -90*1.307 = -118. Home = scale 1, x 0, y 0.
-var nodes = ["#SCENEID-n1", "#SCENEID-n2", "#SCENEID-n3"];
-var edges = ["#SCENEID-e12", "#SCENEID-e13", "#SCENEID-e23"];
-var dots = ["#SCENEID-p12", "#SCENEID-p13", "#SCENEID-p23"];
+    script: `// Layout (box 1700x732): a 120px band on top for the labels; the picture covers the rest
+// (y 120-732). Its subjects: S1 x 153-653, y 200-680 · S2 x 731-1131, y 160-560 · S3 x
+// 1150-1590, y 240-680. Their names are "labels": the shell sets each in its zone just above
+// it (S1 y 93-188, S2 y 53-148, S3 y 133-228) as the camera arrives, so nothing here is
+// drawn there. S1's callout ring (r 200) tops out at y 240, under its zone. Links run centre
+// to centre (403,440) → (931,360) → (1370,460) · summary plate x 560-1120, y 596-728.
+// Shots (the shell's camera): C1 establishing · C2 push in on S1 · C3 on S2, then S3 half
+// way · C4 the shell reveals the whole.
+var links = ["#SCENEID-l12", "#SCENEID-l23"];
 
-gsap.set("#SCENEID-cam", { scale: 1, x: 0, y: 0, transformOrigin: "0 0" });
 gsap.set("#SCENEID-wipe-bar", { attr: { width: 0 } });
-gsap.set("#SCENEID-pic", { opacity: 0, x: 0 });
-gsap.set("#SCENEID-fg", { x: 0 });
-gsap.set("#SCENEID-ring", { drawSVG: "0% 0%" });
-gsap.set(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 0 });
-gsap.set(nodes, { scale: 0, transformOrigin: "50% 50%" });
-gsap.set(edges, { drawSVG: "0% 0%" });
-gsap.set(dots, { opacity: 0 });
-gsap.set(["#SCENEID-graph-plate", "#SCENEID-graph-label"], { opacity: 0 });
-gsap.set(["#SCENEID-sum-plate", "#SCENEID-n", "#SCENEID-sum-label"], { opacity: 0 });
 gsap.set("#SCENEID-shade", { opacity: 0 });
-gsap.set("#SCENEID-hole-c", { attr: { cx: 400, cy: 420, r: 230 } });
+gsap.set("#SCENEID-hole-c", { attr: { cx: 403, cy: 440, r: 300 } });
+gsap.set("#SCENEID-ring1", { drawSVG: "0% 0%" });
+gsap.set(["#SCENEID-s1", "#SCENEID-sum"], { opacity: 0 });
+gsap.set(links, { drawSVG: "0% 0%" });
+gsap.set(["#SCENEID-p1", "#SCENEID-p2"], { opacity: 0 });
 
-// C1 1.0-4.6 "A robot looks around the room." — the picture wipes in left to right, then drifts (parallax).
-tl.to("#SCENEID-pic", { opacity: 1, duration: 0.3 }, 1.0);
-tl.to("#SCENEID-wipe-bar", { attr: { width: 1780 }, duration: 1.4, ease: "power2.inOut" }, 1.05);
-tl.to("#SCENEID-pic", { x: -24, duration: 16.5, ease: "none" }, 1.0);
-tl.to("#SCENEID-fg", { x: -40, duration: 16.5, ease: "none" }, 1.0);
+// C1 1.0-4.6 "A robot looks around the room." — the establishing shot: the picture wipes in.
+tl.to("#SCENEID-wipe-bar", { attr: { width: 1700 }, duration: 1.6, ease: "power2.inOut" }, 1.0);
 
-// C2 4.6-9.0 "Everything it sees" — the camera pushes into part 1; the callout ring draws on; its label lands.
-tl.to("#SCENEID-cam", { scale: 1.356, x: 240, y: -122, duration: 1.3, ease: "power3.inOut" }, 4.65);
-// The SPOTLIGHT: a shade over the picture with a soft hole where the voice is — the
-// picture's other subjects step back without being cut out of it.
-tl.to("#SCENEID-shade", { opacity: 0.6, duration: 0.6 }, 5.0);
-tl.to("#SCENEID-ring", { drawSVG: "0% 100%", duration: 1.1, ease: "power2.out" }, 5.4);
-tl.to(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 1, duration: 0.4 }, 6.3);
-tl.to("#SCENEID-ring", { scale: 1.06, transformOrigin: "50% 50%", duration: 0.5, yoyo: true, repeat: 3, ease: "sine.inOut" }, 6.9);
+// C2 4.6-9.0 "Everything it sees" — the camera is on S1: the spotlight, its ring, its label.
+tl.to("#SCENEID-shade", { opacity: 0.6, duration: 0.6 }, 4.8);
+tl.to("#SCENEID-s1", { opacity: 1, duration: 0.3 }, 5.0);
+tl.to("#SCENEID-ring1", { drawSVG: "0% 100%", duration: 1.1, ease: "power2.out" }, 5.0);
+tl.to("#SCENEID-ring1", { scale: 1.04, transformOrigin: "50% 50%", duration: 0.5, yoyo: true, repeat: 3, ease: "sine.inOut" }, 6.6);
 
-// C3 9.0-13.4 "becomes a graph of objects and relations," — pan to part 2; the spotlight follows;
-// nodes pop in a stagger, links draw, and dots flow along them.
-tl.to("#SCENEID-cam", { scale: 1.307, x: -797, y: -118, duration: 1.4, ease: "power3.inOut" }, 9.05);
-tl.to("#SCENEID-hole-c", { attr: { cx: 1230, cy: 400, r: 330 }, duration: 1.4, ease: "power3.inOut" }, 9.05);
-// A label the pan would crop at the box edge steps out for the move, and back with the pull-out.
-tl.to(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 0, duration: 0.3 }, 9.05);
-tl.to(nodes, { scale: 1, duration: 0.5, ease: "back.out(2)", stagger: 0.18 }, 9.7);
-tl.to(edges, { drawSVG: "0% 100%", duration: 0.7, ease: "power2.out", stagger: 0.15 }, 10.3);
-tl.to(["#SCENEID-graph-plate", "#SCENEID-graph-label"], { opacity: 1, duration: 0.4 }, 10.6);
-tl.to(dots, { opacity: 1, duration: 0.2 }, 11.0);
-tl.to("#SCENEID-p12", { attr: { cx: 1460 }, duration: 1.1, repeat: 5, ease: "none" }, 11.0);
-tl.to("#SCENEID-p13", { attr: { cx: 1230, cy: 540 }, duration: 1.1, repeat: 5, ease: "none" }, 11.15);
-tl.to("#SCENEID-p23", { attr: { cx: 1230, cy: 540 }, duration: 1.1, repeat: 5, ease: "none" }, 11.3);
+// C3 9.0-13.4 "becomes a graph of objects and relations," — the camera on S2, then S3;
+// the spotlight follows; links draw from subject to subject and particles flow along them.
+tl.to("#SCENEID-hole-c", { attr: { cx: 931, cy: 360, r: 280 }, duration: 1.1, ease: "power3.inOut" }, 9.0);
+tl.to(links, { drawSVG: "0% 100%", duration: 0.8, ease: "power2.out", stagger: 0.6 }, 9.8);
+tl.to(["#SCENEID-p1", "#SCENEID-p2"], { opacity: 1, duration: 0.2 }, 10.6);
+tl.to("#SCENEID-p1", { attr: { cx: 931, cy: 360 }, duration: 1.0, repeat: 5, ease: "none" }, 10.6);
+tl.to("#SCENEID-p2", { attr: { cx: 1370, cy: 460 }, duration: 1.0, repeat: 5, ease: "none" }, 10.8);
+tl.to("#SCENEID-hole-c", { attr: { cx: 1370, cy: 460, r: 300 }, duration: 1.1, ease: "power3.inOut" }, 11.2);
 
-// C4 13.4-17.8 "which the language model reads in one pass." — home; the shade lifts;
-// the count lands on its plate. The end frame is the whole scene, lit.
-tl.to("#SCENEID-cam", { scale: 1, x: 0, y: 0, duration: 1.3, ease: "power3.inOut" }, 13.45);
-tl.to("#SCENEID-shade", { opacity: 0, duration: 0.6 }, 13.6);
-tl.to(["#SCENEID-view-plate", "#SCENEID-view"], { opacity: 1, duration: 0.4 }, 14.2);
-tl.to(["#SCENEID-sum-plate", "#SCENEID-n", "#SCENEID-sum-label"], { opacity: 1, duration: 0.4 }, 14.6);
+// C4 13.4-17.8 "which the language model reads in one pass." — the reveal: the shade lifts,
+// everything is lit, and the count lands on its plate.
+tl.to("#SCENEID-shade", { opacity: 0, duration: 0.6 }, 13.5);
+tl.to("#SCENEID-sum", { opacity: 1, duration: 0.4 }, 14.6);
 tl.to("#SCENEID-n", { textContent: 3, snap: { textContent: 1 }, duration: 1.0, ease: "power2.out" }, 14.7);
 tl.to("#SCENEID-sum-plate", { strokeWidth: 10, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.9);`,
   },
@@ -670,20 +648,34 @@ export function paint(f: Fragment, theme: Theme): Fragment {
   };
   const fill = (s: string) =>
     s.replace(/\{\{(\w+)\}\}/g, (m, k: string) => (k in colour ? colour[k as PaintKey] : m));
-  return { markup: fill(f.markup), css: fill(f.css), script: fill(f.script) };
+  return {
+    markup: fill(f.markup),
+    css: fill(f.css),
+    script: fill(f.script),
+    ...(f.shots ? { shots: f.shots } : {}),
+    ...(f.labels ? { labels: f.labels } : {}),
+  };
+}
+
+/** Whether a reference moves a camera of its own (a viewBox zoom or the wrapper). */
+function movesCamera(r: Reference): boolean {
+  return /\bviewBox\b|-cam(?![\w-])/.test(r.fragment.script);
 }
 
 /**
  * The two references a beat is shown: the best fit for its archetype first,
  * then the best fit that teaches a DIFFERENT motion, so every prompt carries
- * at least two verbs beyond fade-and-draw.
+ * at least two verbs beyond fade-and-draw. An illustrated beat leads with the
+ * staged reference and is never shown a scene that moves its own camera (the
+ * shell's shots do that); a data beat leads with the chart that builds.
  */
-export function pickReferences(archetype: string, n = 2, art = false): Reference[] {
+export function pickReferences(archetype: string, n = 2, art = false, data = false): Reference[] {
   const rank = (r: Reference) => {
+    if (data && r.name === "growth") return -1;
     const i = r.fits.indexOf(archetype);
     return i < 0 ? 99 : i;
   };
-  const plain = REFERENCES.filter((r) => !placesArt(r));
+  const plain = REFERENCES.filter((r) => !placesArt(r) && !(art && movesCamera(r)));
   const sorted = [...plain].sort(
     (a, b) => rank(a) - rank(b) || plain.indexOf(a) - plain.indexOf(b),
   );

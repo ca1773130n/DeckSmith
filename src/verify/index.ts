@@ -31,7 +31,7 @@ import {
 import { scanBudget } from "./budget.js";
 import { type CheckOptions, check } from "./check.js";
 import { fidelity, readStops, type Stop } from "./fidelity.js";
-import { probeScenes, sceneWindows } from "./scenes.js";
+import { ENVIRONMENT_ERRORS, probeScenes, sceneWindows } from "./scenes.js";
 import { scanTypeFloor } from "./typefloor.js";
 
 /**
@@ -154,6 +154,13 @@ export interface VerifyOptions extends CheckOptions {
    * The bespoke pass turns this off on its probe decks, which it gates itself.
    */
   scenes?: boolean;
+  /**
+   * Generated scenes whose motion gates the bespoke pass already ran on these
+   * exact bytes at this same scene id (`bespoke.json`'s `gatedAt`): `build`
+   * seeks them like any other scene instead of repeating the full probe (~16s
+   * a scene). `decksmith verify <dir>` never passes it.
+   */
+  probed?: ReadonlySet<string>;
 }
 
 /**
@@ -231,10 +238,30 @@ export async function verify(
   // AFTER the two browsers above have closed, not beside them: a third Chrome
   // at once is the memory this machine does not always have.
   const motion =
-    opts.scenes === false || opts.fidelity === false ? [] : await sceneGates(dir, timing);
+    opts.scenes === false || opts.fidelity === false
+      ? []
+      : await sceneGates(dir, timing, opts.probed);
   const seen = [...ours, ...(frames?.findings ?? []), ...motion, ...storyboardFindings];
+  // The machine's audio device erroring is not the deck's (`ENVIRONMENT_ERRORS`,
+  // which the motion gates already skip): reported, not failed. MEASURED
+  // 2026-10-09: one final `verify` of six in round 4 failed on it alone.
+  const checked = verdict.findings.map((f) =>
+    f.severity === "error" &&
+    f.rule === "console_error" &&
+    ENVIRONMENT_ERRORS.some((re) => re.test(f.message))
+      ? {
+          ...f,
+          severity: "warning" as const,
+          message: `${f.message} — the machine's audio device, not the deck`,
+        }
+      : f,
+  );
+  const environmentOnly =
+    !verdict.passed &&
+    verdict.findings.some((f) => f.severity === "error") &&
+    checked.every((f) => f.severity !== "error");
   return {
-    passed: verdict.passed && seen.every((f) => f.severity !== "error"),
+    passed: (verdict.passed || environmentOnly) && seen.every((f) => f.severity !== "error"),
     findings: [
       ...seen,
       // `scanBeatCount` and `scanPaperArc` are deliberately NOT here. Both need
@@ -243,7 +270,7 @@ export async function verify(
       // gets above, and for the same reason: a check that cannot see its inputs
       // must not report that it found nothing. They run at `plan` and `build`,
       // where prefs exist.
-      ...verdict.findings,
+      ...checked,
     ],
   };
 }
@@ -257,7 +284,11 @@ export async function verify(
  * warning: it is the gate that found the equation-walk bug, and an archetype
  * scene that fails it today is a defect to report, not a deck to refuse.
  */
-async function sceneGates(dir: string, timing: Timing | undefined): Promise<Finding[]> {
+async function sceneGates(
+  dir: string,
+  timing: Timing | undefined,
+  probed: ReadonlySet<string> = new Set(),
+): Promise<Finding[]> {
   if (!timing) return [];
   const v2 = await stat(join(dir, FIT_FILE)).then(
     () => true,
@@ -269,7 +300,7 @@ async function sceneGates(dir: string, timing: Timing | undefined): Promise<Find
     .catch(() => undefined);
   const generated = new Set(
     (bespoke?.scenes ?? [])
-      .filter((s) => s.status === "bespoke" && s.sid)
+      .filter((s) => s.status === "bespoke" && s.sid && !probed.has(s.sid))
       .map((s) => s.sid as string),
   );
   const all = sceneWindows(timing);

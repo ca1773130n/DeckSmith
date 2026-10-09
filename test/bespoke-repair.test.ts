@@ -15,6 +15,7 @@ import type { ArtRef } from "../src/bespoke/art.js";
 import { checkFragment, checkScript, type Fragment } from "../src/bespoke/contract.js";
 import {
   applyMoves,
+  fitPlates,
   homeCamera,
   relight,
   repairable,
@@ -543,5 +544,94 @@ describe.skipIf(chrome === null)("repair, in the renderer's browser", () => {
     expect((await stat(join(deck1, "assets", "bespoke", "k.png"))).size).toBeGreaterThan(0);
     const html = await readFile(join(deck1, "index.html"), "utf8");
     expect(html).toMatch(/<image id="s\d+-pic" data-art="1" href="assets\/bespoke\/k\.png"/);
+  });
+});
+
+describe("a plate too small for its text (round 4)", () => {
+  const geo = (box: [number, number, number, number]): Geo => ({
+    w: 1700,
+    h: 700,
+    labels: [{ a: "text:0", u: "g:1", o: 3, b: [600, 620, 440, 80], s: 1, fs: 64 }],
+    boxes: [{ a: "rect:0", u: "g:1", o: 2, b: box }],
+    points: [],
+    parts: [],
+  });
+  const markup = (rect: string) =>
+    `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-sum">${rect}<text id="SCENEID-t" x="820" y="660" font-size="64">条件分布的乘积</text></g></svg>`;
+
+  it("is grown to hold its text with a margin, and nothing else moves", () => {
+    const before = markup('<rect id="SCENEID-p" x="640" y="630" width="360" height="60" rx="20"/>');
+    const { markup: after, grown } = fitPlates(before, geo([640, 630, 360, 60]));
+    expect(grown).toBe(1);
+    const head = /<rect[^>]*>/.exec(after)?.[0] ?? "";
+    const n = (k: string) => Number(new RegExp(` ${k}="([\\d.]+)"`).exec(head)?.[1]);
+    expect(n("x")).toBeLessThanOrEqual(600 - 6);
+    expect(n("y")).toBeLessThanOrEqual(620 - 6);
+    expect(n("x") + n("width")).toBeGreaterThanOrEqual(1040 + 6);
+    expect(n("y") + n("height")).toBeGreaterThanOrEqual(700 - 6);
+    expect(head).toContain('rx="20"');
+    expect(after.replace(/<rect[^>]*>/, "")).toBe(before.replace(/<rect[^>]*>/, ""));
+  });
+
+  it("leaves a rect alone when its markup is not what was measured (a transform, a tween)", () => {
+    const moved = markup(
+      '<rect id="SCENEID-p" x="640" y="630" width="360" height="60" transform="scale(1.1)"/>',
+    );
+    expect(fitPlates(moved, geo([640, 630, 360, 60])).grown).toBe(0);
+    const tweened = markup('<rect id="SCENEID-p" x="640" y="630" width="10" height="60"/>');
+    expect(fitPlates(tweened, geo([640, 630, 360, 60])).grown).toBe(0);
+  });
+
+  it("is a repair: a scene failing only on its plate is grown, not critiqued", () => {
+    const f = {
+      markup: markup('<rect id="SCENEID-p" x="640" y="630" width="360" height="60"/>'),
+      css: "",
+      script: "",
+    };
+    const layout = [
+      {
+        sid: "s4",
+        key: "end",
+        t: 9,
+        crossings: [],
+        occlusions: [],
+        overlaps: [],
+        small: [],
+        off: [],
+        geo: geo([640, 630, 360, 60]),
+      },
+    ] as Layout[];
+    const r = repairScene(
+      f,
+      {
+        findings: ["error graphic_crosses_text: #s4 at end: rect through text"],
+        layout,
+        sid: "s4",
+      },
+      { duration: 10, lastCueStart: 6 },
+    );
+    expect(r?.note.grown).toBe(1);
+  });
+});
+
+describe("a disc too small for its symbol, inside a moving group (round 4)", () => {
+  it("is grown in its own units, whatever the group's translation", () => {
+    // The group is translated by (300, 40): the disc's markup is at (100,100) r 30,
+    // measured at (400,140); the symbol inside measures 60x76.
+    const markup = `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-tok"><circle id="SCENEID-disc" cx="100" cy="100" r="30"/><text id="SCENEID-sym" x="100" y="100" font-size="60">∑</text></g></svg>`;
+    const g: Geo = {
+      w: 1700,
+      h: 700,
+      labels: [{ a: "text:0", u: "g:0", o: 3, b: [370, 102, 60, 76], s: 1, fs: 60 }],
+      boxes: [{ a: "circle:0", u: "g:0", o: 2, b: [370, 110, 60, 60] }],
+      points: [],
+      parts: [],
+    };
+    const { markup: out, grown } = fitPlates(markup, [g]);
+    expect(grown).toBe(1);
+    const r = Number(/<circle[^>]* r="(\d+)"/.exec(out)?.[1]);
+    // Corners of the symbol's box are ~48px from the disc's centre.
+    expect(r).toBeGreaterThanOrEqual(Math.ceil(Math.hypot(30, 38)) + 4);
+    expect(out).toContain('cx="100" cy="100"');
   });
 });

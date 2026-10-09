@@ -357,6 +357,108 @@ export function applyMoves(markup: string, moves: readonly Move[]): string {
   return out;
 }
 
+/**
+ * A PLATE TOO SMALL FOR ITS TEXT — the commonest crossing round 4 still lost
+ * scenes to (MEASURED 2026-10-09: zh run a, three of three fallbacks were a
+ * summary plate whose own border ran through its CJK text; en, a token disc
+ * round its own symbol). The model guesses a label's width. At a measured frame
+ * where the label is at scale 1 (camera home), a filled `<rect>` or `<circle>`
+ * painted before a label and covering at least half of it, but not all of it
+ * with a margin, is that label's plate, and it is grown — by the deltas the
+ * measured boxes call for, so a plate inside a translated group grows in its
+ * own units — to hold the label with `PLATE_PAD` of the label's height round
+ * it. Only a plate whose markup size IS its measured size (no scale between,
+ * not resized by a tween) is touched; anything else is left to the nudges.
+ */
+export const PLATE_PAD = 0.3;
+
+export function fitPlates(
+  markup: string,
+  frames: readonly Geo[] | Geo | undefined,
+): { markup: string; grown: number } {
+  const list = frames === undefined ? [] : Array.isArray(frames) ? frames : [frames as Geo];
+  const edits = new Map<number, { open: Tag; attrs: Record<string, number> }>();
+  for (const f of list) {
+    for (const L of f.labels) {
+      if (Math.abs((L.s || 1) - 1) > 0.02) continue;
+      const lb = L.b;
+      const pad = Math.max(6, PLATE_PAD * lb[3]);
+      for (const B of f.boxes) {
+        const kind = B.a.split(":")[0];
+        if (B.o >= L.o || (kind !== "rect" && kind !== "circle")) continue;
+        const [ix, iy] = overlapOf(B.b, lb);
+        if (ix <= 0 || iy <= 0 || ix * iy < 0.5 * lb[2] * lb[3]) continue;
+        const at = locate(markup, B.a);
+        if (!at || edits.has(at.open.start)) continue;
+        const head = markup.slice(at.open.start, at.open.end);
+        if (/\stransform\s*=/.test(head)) continue;
+        const num = (k: string) => {
+          const m = new RegExp(`\\s${k}\\s*=\\s*["']?(-?[\\d.]+)["']?`).exec(head);
+          return m ? Number(m[1]) : undefined;
+        };
+        if (kind === "rect") {
+          const fits =
+            B.b[0] <= lb[0] - 6 &&
+            B.b[1] <= lb[1] - 6 &&
+            B.b[0] + B.b[2] >= lb[0] + lb[2] + 6 &&
+            B.b[1] + B.b[3] >= lb[1] + lb[3] + 6;
+          if (fits) continue;
+          const [x, y, w, h] = [num("x") ?? 0, num("y") ?? 0, num("width"), num("height")];
+          // Markup size = measured size: no scale between them, no tween resizing it.
+          if (
+            w === undefined ||
+            h === undefined ||
+            Math.abs(w - B.b[2]) > 3 ||
+            Math.abs(h - B.b[3]) > 3
+          )
+            continue;
+          const left = Math.max(0, B.b[0] - (lb[0] - pad));
+          const top = Math.max(0, B.b[1] - (lb[1] - pad));
+          const right = Math.max(0, lb[0] + lb[2] + pad - (B.b[0] + B.b[2]));
+          const bottom = Math.max(0, lb[1] + lb[3] + pad - (B.b[1] + B.b[3]));
+          const r = (v: number) => Math.round(v);
+          edits.set(at.open.start, {
+            open: at.open,
+            attrs: {
+              x: r(x - left),
+              y: r(y - top),
+              width: r(w + left + right),
+              height: r(h + top + bottom),
+            },
+          });
+        } else {
+          const radius = num("r");
+          if (radius === undefined || Math.abs(2 * radius - B.b[2]) > 3) continue;
+          const cx = B.b[0] + B.b[2] / 2;
+          const cy = B.b[1] + B.b[3] / 2;
+          const need = Math.max(
+            ...[
+              [lb[0], lb[1]],
+              [lb[0] + lb[2], lb[1]],
+              [lb[0], lb[1] + lb[3]],
+              [lb[0] + lb[2], lb[1] + lb[3]],
+            ].map(([px, py]) => Math.hypot((px as number) - cx, (py as number) - cy)),
+          );
+          if (need + 4 <= radius) continue;
+          edits.set(at.open.start, { open: at.open, attrs: { r: Math.ceil(need + 6) } });
+        }
+      }
+    }
+  }
+  let out = markup;
+  for (const e of [...edits.values()].sort((a, b) => b.open.start - a.open.start)) {
+    let head = out.slice(e.open.start, e.open.end);
+    for (const [k, v] of Object.entries(e.attrs)) {
+      const re = new RegExp(`(\\s${k}\\s*=\\s*)(["']?)-?[\\d.]+\\2`);
+      head = re.test(head)
+        ? head.replace(re, `$1"${v}"`)
+        : head.replace(/^<\s*(rect|circle)/i, `$& ${k}="${v}"`);
+    }
+    out = out.slice(0, e.open.start) + head + out.slice(e.open.end);
+  }
+  return { markup: out, grown: edits.size };
+}
+
 /** When the end-state repairs land: after the last cue starts, finished before the end frame. */
 export function settleAt(duration: number, lastCueStart: number): number {
   const t = Math.min(Math.max(duration - 1.8, lastCueStart + 0.2), duration - 1.4);
@@ -431,6 +533,8 @@ export interface RepairNote {
   /** Overlapping tweens on one property were untangled (`seek_order`). */
   untangled?: boolean;
   moved: number;
+  /** Plates grown to hold their text (`fitPlates`). */
+  grown?: number;
   relit: number;
   camera: boolean;
   rules: string[];
@@ -456,10 +560,20 @@ export function repairScene(
   ) {
     const frames = layout.map((l) => l.geo).filter((x): x is Geo => x !== undefined);
     if (!frames.length) return undefined;
-    const { moves, unresolved } = solveNudges(frames);
-    if (unresolved.length || !moves.length) return undefined;
-    out = { ...out, markup: applyMoves(out.markup, moves) };
-    note.moved = moves.length;
+    // A plate too small for its text is grown first; the scene is gated again
+    // before anything is nudged, because the frames measured the old plate.
+    const plates = rules.includes("graphic_crosses_text")
+      ? fitPlates(out.markup, frames)
+      : { markup: out.markup, grown: 0 };
+    if (plates.grown) {
+      out = { ...out, markup: plates.markup };
+      note.grown = plates.grown;
+    } else {
+      const { moves, unresolved } = solveNudges(frames);
+      if (unresolved.length || !moves.length) return undefined;
+      out = { ...out, markup: applyMoves(out.markup, moves) };
+      note.moved = moves.length;
+    }
   }
   if (rules.includes("seek_order")) {
     const script = untangle(out.script);

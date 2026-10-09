@@ -52,7 +52,7 @@ export const PIXEL_DELTA = 24;
  */
 export const SEEK_TOLERANCE_PX = 1500;
 /** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
-export const GATES_VERSION = "gates-4";
+export const GATES_VERSION = "gates-5";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
@@ -192,6 +192,116 @@ export interface Layout {
   litDimmed?: number;
   /** End row: the elements dimming those parts, as `tag:index[#id]`. */
   relight?: string[];
+  /** The shell's camera at this instant: scale, x, y, and the box's width and height. */
+  shot?: [number, number, number, number, number];
+  /** How many subjects the scene's illustration has (0 or absent: not an illustrated scene). */
+  subjects?: number;
+  /** Each visible label that names a subject: its gap to that subject (box px) and how much of it another subject covers. */
+  anchors?: Array<{ id: string; k: number; d: number; o: number }>;
+  /** Labels with digits in them sitting on the illustration. */
+  onPicture?: number;
+}
+
+/**
+ * A label that names a subject sits within this many box px of that
+ * subject's box (0 = on it). A leader line may bridge the gap; a row of plates
+ * along the top of the box, round 3's habit, is 150-400px away.
+ */
+export const ANCHOR_PX = 96;
+/** A label may cover at most this share of itself with ANOTHER subject's box. */
+export const ANCHOR_OVERLAP = 0.25;
+/** This many numbers on the picture is a table or a chart painted over it (ja s12, round 3: nine). */
+export const NUMBERS_ON_PICTURE = 5;
+/** A shot at this scale or closer is a push-in; under `WIDE` it is the whole picture. */
+export const CLOSE = 1.5;
+export const WIDE = 1.1;
+/** Two close shots whose centres are nearer than this share of the box are the same shot. */
+const SAME_SHOT = 0.12;
+/** The camera is sampled this often (scene seconds) for `shot_variety`: no screenshot, a seek and a read. */
+export const CAM_STEP = 0.5;
+
+/** The shell's camera at one instant of one scene (`probeScenes` samples it every `CAM_STEP`). */
+export interface CamSample {
+  sid: string;
+  t: number;
+  /** scale, x, y, and the box's width and height. */
+  shot: [number, number, number, number, number];
+  /** How many subjects the scene's illustration has. */
+  subjects: number;
+}
+
+/** Where a shot points: the point at the centre of the view, as shares of the box. */
+function aim([s, x, y, w, h]: CamSample["shot"]): [number, number] {
+  return [(w / 2 - x) / s / w, (h / 2 - y) / s / h];
+}
+
+/**
+ * The distinct shots a scene's camera HOLDS: a push-in counts when two
+ * consecutive samples (one `CAM_STEP` apart) are both at `CLOSE` or closer and
+ * aimed within `SAME_SHOT` of each other — a camera passing through on its way
+ * somewhere is not a shot. Push-ins aimed within `SAME_SHOT` of one already
+ * counted are the same shot.
+ */
+export function shotsOf(samples: readonly CamSample[]): {
+  wide: boolean;
+  close: Array<[number, number]>;
+} {
+  let wide = false;
+  const close: Array<[number, number]> = [];
+  const list = [...samples].sort((a, b) => a.t - b.t);
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i] as CamSample;
+    if (c.shot[0] < WIDE) wide = true;
+    const n = list[i + 1];
+    if (!n || c.shot[0] < CLOSE || n.shot[0] < CLOSE || !c.shot[3] || !c.shot[4]) continue;
+    const a = aim(c.shot);
+    const b = aim(n.shot);
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) >= SAME_SHOT / 2) continue;
+    if (!close.some(([x, y]) => Math.hypot(x - a[0], y - a[1]) < SAME_SHOT))
+      close.push([Math.round(a[0] * 100) / 100, Math.round(a[1] * 100) / 100]);
+  }
+  return { wide, close };
+}
+
+/**
+ * `shot_variety`: an illustrated scene is staged — it OPENS on the whole
+ * picture (every sample in the first second of its first cue is wide), and the
+ * camera HOLDS push-ins on at least `min(2, subjects)` different subjects
+ * (`shotsOf`); that it comes back is `camera_end`'s. `opens` is each scene's
+ * first cue start.
+ */
+export function gradeShots(
+  samples: readonly CamSample[],
+  opens: ReadonlyMap<string, number> = new Map(),
+): Finding[] {
+  const out: Finding[] = [];
+  const bySid = new Map<string, CamSample[]>();
+  for (const r of samples) bySid.set(r.sid, [...(bySid.get(r.sid) ?? []), r]);
+  for (const [sid, list] of bySid) {
+    const n = Math.max(0, ...list.map((r) => r.subjects));
+    if (n === 0) continue;
+    const { close } = shotsOf(list);
+    const want = Math.min(2, n);
+    const t0 = opens.get(sid) ?? 0;
+    const early = list.find((r) => r.t >= t0 && r.t <= t0 + 1 && r.shot[0] >= WIDE);
+    const say: string[] = [];
+    if (early)
+      say.push(
+        `it opens pushed in (scale ${early.shot[0]} at ${early.t.toFixed(2)}s), not on the whole picture`,
+      );
+    if (close.length < want)
+      say.push(
+        `the camera holds ${close.length} distinct push-in(s) at ${CLOSE}x or closer where ${want} are wanted — it pans or idles instead of staging shots`,
+      );
+    if (say.length)
+      out.push({
+        severity: "error",
+        gate: "motion",
+        rule: "shot_variety",
+        message: `#${sid}: ${say.join("; ")}.`,
+      });
+  }
+  return out;
 }
 
 export function gradeLayout(rows: readonly Layout[]): Finding[] {
@@ -223,6 +333,42 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
       early.map((g) => `${g.id} (cue ${g.cue}, which starts at ${starts[g.cue - 1]?.toFixed(2)}s)`),
       "shown before the cue that introduces it —",
     );
+    // Labels ON their subjects (round 4): near the subject they name, not over another.
+    const anchors = r.anchors ?? [];
+    add(
+      "label_anchor",
+      r,
+      anchors
+        .filter((a) => a.d > ANCHOR_PX)
+        .map((a) => `${a.id} is ${a.d}px from subject ${a.k} (at most ${ANCHOR_PX})`),
+      "a label sits away from the subject it names —",
+    );
+    add(
+      "label_anchor",
+      r,
+      anchors
+        .filter((a) => a.o > ANCHOR_OVERLAP)
+        .map((a) => `${a.id} (subject ${a.k}) is ${Math.round(100 * a.o)}% over another subject`),
+      "a label covers another subject —",
+    );
+    if ((r.onPicture ?? 0) >= NUMBERS_ON_PICTURE)
+      add(
+        "data_over_picture",
+        r,
+        [`${r.onPicture} numbers`],
+        "a table or chart is painted over the illustration — a data beat gets its own chart, not a picture under it:",
+      );
+    if (r.key === "end" && (r.subjects ?? 0) > 0) {
+      const near = new Set(anchors.filter((a) => a.d <= ANCHOR_PX).map((a) => a.k));
+      const want = Math.min(2, r.subjects ?? 0);
+      if (near.size < want)
+        add(
+          "label_anchor",
+          r,
+          [`${near.size} of ${r.subjects} subjects named on the picture, ${want} wanted`],
+          'the labels are not tied to the picture\'s subjects (data-subject="K" on a label group within reach of subject K) —',
+        );
+    }
     if (r.key !== "end" || r.fill === undefined) continue;
     // The settled frame is the summary: the whole scene, lit, at full view.
     if (r.camOff)
@@ -242,7 +388,9 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         [`${Math.round(100 * r.fill)}% of the body box`],
         `the drawing spans under ${100 * STAGE_FILL}% of its box —`,
       );
-    if ((r.maxType ?? 0) < KEY_TYPE_PX)
+    // An illustrated scene reads its picture first; its names are the shell's
+    // 44-56px labels on the subjects (round 4), so it is not held to a 64px word.
+    if ((r.maxType ?? 0) < KEY_TYPE_PX && !(r.subjects ?? 0))
       add(
         "type_hierarchy",
         r,
@@ -376,6 +524,52 @@ export function paintedShare(
   return total ? n / total : 0;
 }
 
+/**
+ * Changed pixels that are not on an EDGE of the change: a pixel counts only
+ * when it and its 8 neighbours all changed. What `seek_order` compares with.
+ *
+ * WHY. A picture's first paint can be rasterised a hair differently from a
+ * later one (MEASURED 2026-10-09: 12,698px on one illustrated scene's first
+ * frame, 2 runs in 3, identical DOM, the difference a 1-2px outline round every
+ * subject of the picture). That is the raster, not the scene's state, and it
+ * is all edges. A state leak — a term left swollen, a part left lit — changes
+ * AREAS, which survive this nearly whole (a 20x20 patch keeps 324 of 400).
+ */
+export function changedArea(a: Frame, b: Frame, delta = PIXEL_DELTA): number {
+  if (a.width !== b.width || a.height !== b.height) return a.width * a.height;
+  const { width: w, height: h } = a;
+  const mask = new Uint8Array(w * h);
+  const ca = a.channels;
+  const cb = b.channels;
+  for (let p = 0; p < w * h; p++) {
+    const i = p * ca;
+    const j = p * cb;
+    const d =
+      Math.abs((a.pixels[i] as number) - (b.pixels[j] as number)) +
+      Math.abs((a.pixels[i + 1] as number) - (b.pixels[j + 1] as number)) +
+      Math.abs((a.pixels[i + 2] as number) - (b.pixels[j + 2] as number));
+    if (d > delta) mask[p] = 1;
+  }
+  let n = 0;
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x;
+      if (!mask[p]) continue;
+      if (
+        mask[p - 1] &&
+        mask[p + 1] &&
+        mask[p - w] &&
+        mask[p + w] &&
+        mask[p - w - 1] &&
+        mask[p - w + 1] &&
+        mask[p + w - 1] &&
+        mask[p + w + 1]
+      )
+        n++;
+    }
+  return n;
+}
+
 export function changedPixels(a: Frame, b: Frame, delta = PIXEL_DELTA): number {
   if (a.width !== b.width || a.height !== b.height) return a.width * a.height;
   let n = 0;
@@ -466,6 +660,8 @@ export interface Probe {
   cueChanges: CueChange[];
   layout: Layout[];
   seek: SeekDiff[];
+  /** The shell's camera every `CAM_STEP` through each illustrated scene (`shot_variety`). */
+  cams: CamSample[];
 }
 
 export interface ProbeOptions {
@@ -500,6 +696,7 @@ export async function probeScenes(
   const cueChanges: CueChange[] = [];
   const layout: Layout[] = [];
   const seek: SeekDiff[] = [];
+  const cams: CamSample[] = [];
   const warm = new Map<string, Map<string, Buffer>>();
   const deck = await opts.open();
   try {
@@ -534,6 +731,20 @@ export async function probeScenes(
         }
       }
       if (opts.geometry) endState(layout.filter((l) => l.sid === w.sid));
+      // The camera, densely: a shot is what it HOLDS, which cue-boundary frames
+      // can miss (two shots inside one cue). A seek and a read, no screenshot.
+      if (gates.has("layout") && layout.some((l) => l.sid === w.sid && (l.subjects ?? 0) > 0)) {
+        const subjects = Math.max(
+          ...layout.filter((l) => l.sid === w.sid).map((l) => l.subjects ?? 0),
+        );
+        for (let t = CAM_STEP / 2; t < w.duration; t += CAM_STEP) {
+          await deck.seek(w.start + t);
+          const shot = (await deck.page.evaluate(`(${CAM})(${JSON.stringify(w.sid)})`)) as
+            | CamSample["shot"]
+            | null;
+          if (shot) cams.push({ sid: w.sid, t: round(t), shot, subjects });
+        }
+      }
       if (gates.has("motion")) {
         for (const [i, c] of w.cues.entries()) {
           // Three instants per cue, and the LARGEST pairwise change: a looping
@@ -567,7 +778,7 @@ export async function probeScenes(
             const png = await deck.shoot();
             const ref = shots.get(p.key);
             if (!ref || png.equals(ref)) continue;
-            const px = changedPixels(await decodePng(png), await decodePng(ref));
+            const px = changedArea(await decodePng(png), await decodePng(ref));
             if (px > 0) seek.push({ sid: w.sid, key: p.key, t: p.t, order, px });
           }
         };
@@ -595,7 +806,7 @@ export async function probeScenes(
         await settle(cold);
         const png = await cold.shoot();
         if (!png.equals(ref)) {
-          const px = changedPixels(await decodePng(png), await decodePng(ref));
+          const px = changedArea(await decodePng(png), await decodePng(ref));
           if (px > 0) seek.push({ sid: w.sid, key: p.key, t: p.t, order: "cold", px });
         }
       } finally {
@@ -612,9 +823,12 @@ export async function probeScenes(
       : []),
     ...(gates.has("motion") ? gradeStillCues(cueChanges) : []),
     ...(gates.has("layout") ? gradeLayout(layout) : []),
+    ...(gates.has("layout") && gates.has("motion")
+      ? gradeShots(cams, new Map(windows.map((w) => [w.sid, w.cues[0]?.t0 ?? 0])))
+      : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
   ];
-  return { findings, frames, cueChanges, layout, seek };
+  return { findings, frames, cueChanges, layout, seek, cams };
 }
 
 /**
@@ -686,6 +900,15 @@ export async function readTimingFile(dir: string): Promise<Timing | undefined> {
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
+
+/** Serialised into the page: the shell's camera of one scene (scale, x, y, box w, h), or null. */
+const CAM = `(sid) => {
+  const cam = document.getElementById(sid + "-cam");
+  if (!cam) return null;
+  const t = getComputedStyle(cam).transform;
+  const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
+  return [Math.round((v.length === 6 ? v[0] : 1) * 1000) / 1000, Math.round(v[4] || 0), Math.round(v[5] || 0), cam.offsetWidth, cam.offsetHeight];
+}`;
 
 /**
  * Serialised into the page: everything `gradeLayout` needs about one scene at
@@ -920,6 +1143,49 @@ const MEASURE = `(sid, wantGeo) => {
         camOff = "#" + sid + "-cam at scale " + v[0].toFixed(2) + ", x " + Math.round(v[4]) + ", y " + Math.round(v[5]);
     }
   }
+  // Round 4: the shell's camera (scale, x, y and the box it moves), the
+  // subjects of an illustrated scene, and how its labels sit on them.
+  let shot, subjects, anchors, onPicture;
+  if (cam && box) {
+    const t = getComputedStyle(cam).transform;
+    const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
+    const s = v.length === 6 ? v[0] : 1;
+    shot = [Math.round(s * 1000) / 1000, Math.round(v[4] || 0), Math.round(v[5] || 0), cam.offsetWidth, cam.offsetHeight];
+    const subs = [...cam.querySelectorAll("[data-ds-subject]")].map((e) => ({ k: Number(e.getAttribute("data-ds-subject")), r: e.getBoundingClientRect() }));
+    subjects = subs.length;
+    if (subs.length) {
+      const area = (r) => Math.max(0, r.width) * Math.max(0, r.height);
+      anchors = [];
+      for (const g of box.querySelectorAll("[data-subject]")) {
+        const k = Number(g.getAttribute("data-subject"));
+        const mine = texts.filter((x) => g === x.el || g.contains(x.el));
+        if (!mine.length) continue;
+        const x0 = Math.min(...mine.map((x) => x.x)), y0 = Math.min(...mine.map((x) => x.y));
+        const x1 = Math.max(...mine.map((x) => x.x + x.w)), y1 = Math.max(...mine.map((x) => x.y + x.h));
+        const lab = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+        const own = subs.find((q) => q.k === k);
+        // Gap between the label and its subject, in the box's own px (camera-free).
+        const gap = own ? Math.hypot(Math.max(0, own.r.x - x1, x0 - (own.r.x + own.r.width)), Math.max(0, own.r.y - y1, y0 - (own.r.y + own.r.height))) / s : 1e9;
+        // The most of the label any OTHER subject's box covers (the part not also its own).
+        let over = 0;
+        for (const q of subs) {
+          if (q.k === k) continue;
+          const m = meet(lab, q.r);
+          let a = area(m);
+          if (own) a -= area(meet(m, own.r));
+          over = Math.max(over, a / Math.max(1, area(lab)));
+        }
+        anchors.push({ id: g.id || "g:" + k, k, d: Math.round(gap), o: Math.round(over * 100) / 100 });
+      }
+    }
+    // A table or chart painted over the picture: numbers sitting on the illustration.
+    const pic = box.querySelector("image[data-art]");
+    if (pic && alpha(pic) > 0.15) {
+      const pr = boxOf(pic);
+      onPicture = texts.filter((x) => box.contains(x.el) && /[0-9]/.test(x.el.textContent || "") &&
+        x.x + x.w / 2 > pr.x && x.x + x.w / 2 < pr.x + pr.width && x.y + x.h / 2 > pr.y && x.y + x.h / 2 < pr.y + pr.height).length;
+    }
+  }
   const svg0 = document.getElementById(sid + "-svg");
   if (svg0 && !camOff) {
     // The contract's viewBox is "0 0 W H" with W, H the svg's own size.
@@ -968,7 +1234,8 @@ const MEASURE = `(sid, wantGeo) => {
     };
     const units = [];
     const labels = texts.filter((t) => box.contains(t.el)).map((t) => {
-      const movable = t.el.tagName.toLowerCase() === "text";
+      // The shell's own labels (round 4) are not the scene's to move: obstacles.
+      const movable = t.el.tagName.toLowerCase() === "text" && !t.el.closest(".ds-callouts");
       const u = movable ? unitOf(t.el) : null;
       if (u) units.push(u);
       return { a: index.get(t.el) || "", u: u ? index.get(u) : null, o: order.get(t.el) ?? -1, b: rel(t.x, t.y, t.w, t.h), s: u ? Math.round(scaleOf(u) * 1000) / 1000 : 1, fs: Math.round(t.fs) };
@@ -990,5 +1257,5 @@ const MEASURE = `(sid, wantGeo) => {
       });
     geo = { w: Math.round(ob.width), h: Math.round(ob.height), labels, boxes, points, parts };
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo };
+  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture };
 }`;

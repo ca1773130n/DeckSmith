@@ -19,12 +19,18 @@ import { chromePath, openDeck } from "../src/render/capture.js";
 import type { Timing } from "../src/render/timing.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 import {
+  ANCHOR_OVERLAP,
+  ANCHOR_PX,
+  type CamSample,
+  changedArea,
   changedPixels,
   gradeErrors,
   gradeLayout,
   gradeSeekOrder,
+  gradeShots,
   gradeStillCues,
   KEY_TYPE_PX,
+  type Layout,
   MIN_CHANGE,
   type Probe,
   paintedShare,
@@ -32,6 +38,7 @@ import {
   readTimingFile,
   STAGE_FILL,
   sceneWindows,
+  shotsOf,
 } from "../src/verify/scenes.js";
 
 describe("the graders", () => {
@@ -501,4 +508,190 @@ describe.skipIf(chrome === null)("seek_order on v2's equation-walk", () => {
     expect(found.classic).toBeGreaterThan(0);
     expect(found.v2).toBe(0);
   }, 240_000);
+});
+
+/* ------------------------------------------------- round 4: staging graders */
+
+describe("seek_order's pixel count (round 4)", () => {
+  const frame = (paint: (x: number, y: number) => boolean) => {
+    const w = 64;
+    const h = 64;
+    const pixels = new Uint8Array(w * h * 3);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) if (paint(x, y)) pixels.set([255, 255, 255], (y * w + x) * 3);
+    return { width: w, height: h, channels: 3, pixels };
+  };
+  it("ignores a change that is only an outline (a re-rasterised edge) and keeps a changed area", () => {
+    const blank = frame(() => false);
+    const outline = frame((x, y) => (x === 10 || x === 11) && y > 5 && y < 50);
+    expect(changedPixels(blank, outline)).toBe(88);
+    expect(changedArea(blank, outline)).toBe(0);
+    const patch = frame((x, y) => x >= 20 && x < 40 && y >= 20 && y < 40);
+    expect(changedArea(blank, patch)).toBe(18 * 18);
+  });
+});
+
+describe("the staging graders (round 4)", () => {
+  const row = (key: string, t: number, over: Partial<Layout> = {}): Layout => ({
+    sid: "s4",
+    key,
+    t,
+    crossings: [],
+    occlusions: [],
+    overlaps: [],
+    small: [],
+    off: [],
+    subjects: 3,
+    ...over,
+  });
+  // A box 1700 x 700; a shot is [scale, x, y, w, h].
+  const wide: CamSample["shot"] = [1, 0, 0, 1700, 700];
+  const on = (cx: number, cy: number, s = 1.8): CamSample["shot"] => [
+    s,
+    Math.round(850 - cx * s),
+    Math.round(350 - cy * s),
+    1700,
+    700,
+  ];
+
+  /** The camera every 0.5s: `plan` is [from, to, shot] spans; wide elsewhere. */
+  const cams = (
+    plan: Array<[number, number, CamSample["shot"]]>,
+    over: Partial<CamSample> = {},
+  ): CamSample[] => {
+    const out: CamSample[] = [];
+    for (let t = 0.25; t < 18; t += 0.5)
+      out.push({
+        sid: "s4",
+        t,
+        shot: (plan.find(([a, b]) => t >= a && t < b)?.[2] ?? wide) as CamSample["shot"],
+        subjects: 3,
+        ...over,
+      });
+    return out;
+  };
+  const opens = new Map([["s4", 1]]);
+
+  it("shot_variety: an establishing shot and two held push-ins on different subjects pass", () => {
+    const staged = cams([
+      [5, 9, on(300, 380)],
+      [10, 13, on(1300, 360)],
+    ]);
+    expect(gradeShots(staged, opens)).toEqual([]);
+    expect(shotsOf(staged).close).toHaveLength(2);
+  });
+
+  it("shot_variety: two push-ins inside ONE cue still count — the camera is sampled, not the cue ends", () => {
+    expect(
+      gradeShots(
+        cams([
+          [5, 7, on(300, 380)],
+          [7.6, 9, on(1300, 360)],
+        ]),
+        opens,
+      ),
+    ).toEqual([]);
+  });
+
+  it("shot_variety: round 3's gentle pans (1.1-1.4x) are not push-ins, and fail", () => {
+    const f = gradeShots(
+      cams([
+        [5, 9, on(300, 380, 1.25)],
+        [10, 13, on(1300, 360, 1.35)],
+      ]),
+      opens,
+    );
+    expect(f.map((x) => x.rule)).toEqual(["shot_variety"]);
+    expect(f[0]?.message).toMatch(/holds 0 distinct push-in/);
+  });
+
+  it("shot_variety: a camera passing through is not a shot; one subject twice is one shot; opening pushed in fails", () => {
+    // A single sample at 1.8x is a move in transit, not a held shot; so are two
+    // close samples aimed at different subjects (a pan between them).
+    expect(shotsOf(cams([[6, 6.5, on(1300, 360)]])).close).toEqual([]);
+    expect(
+      shotsOf(
+        cams([
+          [6, 6.5, on(300, 380)],
+          [6.5, 7, on(1300, 360)],
+        ]),
+      ).close,
+    ).toEqual([]);
+    const f = gradeShots(
+      cams([
+        [0, 5, on(300, 380)],
+        [8, 12, on(320, 390, 1.9)],
+      ]),
+      opens,
+    );
+    expect(f[0]?.message).toMatch(/opens pushed in/);
+    expect(f[0]?.message).toMatch(/holds 1 distinct push-in/);
+  });
+
+  it("shot_variety: a scene without an illustration is not graded on shots", () => {
+    expect(gradeShots(cams([[0, 18, on(300, 300)]], { subjects: 0 }), opens)).toEqual([]);
+  });
+
+  it("label_anchor: a label on its subject passes; far away or over another subject fails", () => {
+    const ok = gradeLayout([
+      row("end", 16, {
+        anchors: [
+          { id: "s4-a", k: 1, d: 0, o: 0 },
+          { id: "s4-b", k: 2, d: 40, o: 0.1 },
+        ],
+      }),
+    ]);
+    expect(ok.filter((f) => f.rule === "label_anchor")).toEqual([]);
+    const far = gradeLayout([
+      row("c2z", 8, { anchors: [{ id: "s4-a", k: 1, d: ANCHOR_PX + 60, o: 0 }] }),
+    ]);
+    expect(far.map((f) => f.rule)).toEqual(["label_anchor"]);
+    expect(far[0]?.message).toMatch(/away from the subject it names/);
+    const over = gradeLayout([
+      row("c2z", 8, { anchors: [{ id: "s4-a", k: 1, d: 0, o: ANCHOR_OVERLAP + 0.2 }] }),
+    ]);
+    expect(over[0]?.message).toMatch(/covers another subject/);
+  });
+
+  it("label_anchor: at the end, fewer than two subjects named on the picture fails (a row of plates)", () => {
+    const plates = gradeLayout([
+      row("end", 16, {
+        anchors: [
+          { id: "s4-a", k: 1, d: 30, o: 0 },
+          { id: "s4-b", k: 2, d: 260, o: 0 },
+        ],
+      }),
+    ]);
+    expect(plates.map((f) => f.rule)).toEqual(["label_anchor", "label_anchor"]);
+    expect(plates[1]?.message).toMatch(/1 of 3 subjects named/);
+    expect(gradeLayout([row("end", 16, { anchors: [] })]).map((f) => f.message)).toEqual([
+      expect.stringMatching(/0 of 3 subjects named/),
+    ]);
+  });
+
+  it("type_hierarchy: an illustrated scene reads its picture first, so its 56px names pass; a diagram still needs 64px", () => {
+    const end = (subjects: number) =>
+      gradeLayout([
+        row("end", 16, {
+          subjects,
+          fill: 0.95,
+          maxType: 56,
+          groups: [1, 2],
+          cueStarts: [1, 5],
+          anchors: [
+            { id: "a", k: 1, d: 0, o: 0 },
+            { id: "b", k: 2, d: 0, o: 0 },
+          ],
+        }),
+      ]).map((f) => f.rule);
+    expect(end(3)).toEqual([]);
+    expect(end(0)).toEqual(["type_hierarchy"]);
+  });
+
+  it("data_over_picture: a table's worth of numbers on the illustration fails, a counter does not", () => {
+    expect(gradeLayout([row("c2z", 8, { onPicture: 2, subjects: 0 })])).toEqual([]);
+    // Round 3's ja s12 painted nine numbers over its robot.
+    const f = gradeLayout([row("c2z", 8, { onPicture: 9, subjects: 0 })]);
+    expect(f.map((x) => x.rule)).toEqual(["data_over_picture"]);
+  });
 });
