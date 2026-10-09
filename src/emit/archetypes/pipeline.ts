@@ -32,7 +32,7 @@
  * furniture, and nothing else.
  */
 import type { BeatOf } from "../../types.js";
-import { fitOf, GROWTH, isV2 } from "../fit.js";
+import { EMPTY_BELOW, fitOf, GROWTH, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { esc, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
@@ -196,6 +196,12 @@ const GROWN_BOX_ASPECT = 1.2;
 const GROWN_BOX_W = 560;
 /** A grown box is at most this many times as tall as the text inside it. */
 const GROWN_AIR = 1.6;
+/**
+ * The fill a grown row is pulled up to when its aspect cap would leave it in the
+ * empty band. Above `EMPTY_BELOW` by a margin, so the browser's measurement —
+ * which agrees with the prediction to a few percent — still clears the gate.
+ */
+const HOLLOW_FLOOR = EMPTY_BELOW + 0.05;
 /** Notes grow with the label, but by at most this much: they are the quieter line. */
 const NOTE_GROWTH = 1.3;
 
@@ -584,16 +590,20 @@ function grownRow(
   // Nothing grown fits: draw exactly the classic row.
   if (!best) return pipeLayout(stageW, stages, loop, face);
   const room = grow.budget - M - best.below;
+  const ceiling = Math.min(best.text * GROWN_AIR, GROWN_BOX_H * grow.region, room);
+  const shaped = Math.max(best.need, Math.floor(Math.min(ceiling, best.boxW * GROWN_BOX_ASPECT)));
+  const hollow = (M + shaped + best.below) / grow.region < EMPTY_BELOW;
   const boxH = Math.max(
-    best.need,
-    Math.floor(
-      Math.min(
-        best.text * GROWN_AIR,
-        GROWN_BOX_H * grow.region,
-        best.boxW * GROWN_BOX_ASPECT,
-        room,
-      ),
-    ),
+    shaped,
+    // HOLLOW OUTRANKS THE ASPECT CAP. Five stages share ~1700px, so each box is
+    // ~315px wide and the 1.2 aspect stops it at ~380px — a band through 56% of
+    // a 698px region, which is what the fill gate measured on the 2026-10-09
+    // Korean deck (`hollow_at_hold`, b05). An unbreakable word ("멀티스케일")
+    // had already stopped the label growing, so height was the only room left.
+    // The box may pass the aspect just as far as the row needs to leave the
+    // empty band, and never past the air and region caps: a box that would be
+    // mostly air stays short, because a tall card around two words is worse.
+    hollow ? Math.floor(Math.min(ceiling, HOLLOW_FLOOR * grow.region - M - best.below)) : 0,
   );
   return { ...best, boxH, svgH: M + boxH + best.below };
 }

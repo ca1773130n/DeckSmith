@@ -363,6 +363,28 @@ describe("pipeline under v2", () => {
     expect(v.labelLines.flat().some((l) => /Rectified-flo$/.test(l))).toBe(false);
   });
 
+  it("lifts a five-stage row out of the empty band, past the aspect cap and no further", () => {
+    // The 2026-10-09 ko deck, b05: five ~315px boxes, the label held at 56px by
+    // the unbreakable "멀티스케일", and the 1.2 aspect stopping the boxes at
+    // ~380px — 56% of a 698px region, measured as hollow_at_hold.
+    const five = [
+      { label: "얕은 특징 추출", note: "3×3 합성곱" },
+      { label: "멀티스케일 인코더", note: "SRB·다운샘플링" },
+      { label: "디코더", note: "업샘플링·스킵 연결" },
+      { label: "PRB", note: "스파이크를 연속 표현으로 변환" },
+      { label: "출력 합성곱", note: "3×3 합성곱으로 영상 출력" },
+    ];
+    const face = faceOf('"Noto Sans KR", "IBM Plex Sans", "Inter", system-ui, sans-serif');
+    const region = 698;
+    const v = pipeLayout(1700, five, undefined, face, { budget: region, region });
+    expect(v.svgH / region).toBeGreaterThanOrEqual(EMPTY_BELOW);
+    expect(v.boxH).toBeLessThanOrEqual(0.8 * region);
+    for (const s of five) expect(cutsWord(s.label, v.size, v.innerW, 600, face)).toBe(false);
+    // A row already out of the band keeps its shape: the three-stage row above.
+    const three = pipeLayout(W, stages, undefined, "latin", { budget: 700, region: 838 });
+    expect(three.boxH).toBeLessThanOrEqual(three.boxW * 1.2);
+  });
+
   it("predicts a filled region for a three-stage row with a note", () => {
     const v = pipeline(
       beat("pipeline", { headline: "How it runs", note: "Three steps.", stages }),
