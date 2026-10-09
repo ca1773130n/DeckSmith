@@ -6,6 +6,7 @@
  * acceptance is something a real generated scene (spike, 2026-10-07) did.
  */
 import { describe, expect, it } from "vitest";
+import { cardRow } from "../src/bespoke/cards.js";
 import {
   checkCss,
   checkFragment,
@@ -383,5 +384,51 @@ describe("an illustrated scene's staging (round 4)", () => {
 
   it("asks nothing of a scene with no subjects", () => {
     expect(checkFragment({ ...STAGED, shots: [] }, { art: true })).toEqual([]);
+  });
+});
+
+describe("card_row: cards, panels or tiles as the main visual", () => {
+  const box = { width: 1700, height: 600 };
+  const card = (x: number, y: number, w = 360, h = 300) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="#222"/>`;
+  const svg = (inner: string) =>
+    `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600">${inner}</svg>`;
+
+  it("flags a row of alike cards, a column of panels and a grid of tiles", () => {
+    expect(
+      cardRow(svg(card(40, 150) + card(460, 150) + card(880, 150) + card(1300, 150)), box),
+    ).toMatch(/a row of 4 alike rectangles/);
+    const column = svg([0, 1, 2].map((i) => card(600, 20 + i * 190, 500, 160)).join(""));
+    expect(cardRow(column, box)).toMatch(/column of 3/);
+    const grid = svg(card(100, 40) + card(600, 40) + card(100, 320, 380, 260) + card(600, 320));
+    expect(cardRow(grid, box)).toMatch(/grid of 4|row of/);
+  });
+
+  it("follows the groups that place the cards", () => {
+    const placed = svg(
+      [0, 1, 2]
+        .map(
+          (i) => `<g transform="translate(${60 + i * 540} 140)"><g>${card(0, 0, 400, 320)}</g></g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(placed, box)).toMatch(/row of 3/);
+    // Scaled down to chips, the same three are a legend, not the main visual.
+    const small = svg(`<g transform="scale(0.2)">${card(0, 0) + card(500, 0) + card(1000, 0)}</g>`);
+    expect(cardRow(small, box)).toBeUndefined();
+  });
+
+  it("passes a scene built from its content: a ground, a clip rect, a few unlike shapes, small plates", () => {
+    const scene = svg(
+      `<defs><clipPath id="SCENEID-reveal">${card(0, 0) + card(400, 0) + card(800, 0)}</clipPath></defs>` +
+        `<rect x="0" y="0" width="1700" height="600" fill="#111"/>` +
+        `<path d="M0 300 L1700 300" stroke="#fff"/>` +
+        `<rect x="100" y="60" width="150" height="70" rx="12"/><rect x="600" y="60" width="150" height="70" rx="12"/><rect x="1100" y="60" width="150" height="70" rx="12"/>` +
+        card(200, 200, 700, 300) +
+        card(1000, 250, 300, 120),
+    );
+    expect(cardRow(scene, box)).toBeUndefined();
+    // Two cards are a comparison, not a template row.
+    expect(cardRow(svg(card(100, 150, 600, 300) + card(900, 150, 600, 300)), box)).toBeUndefined();
   });
 });
