@@ -3,6 +3,7 @@ import { splitCompare } from "../src/emit/archetypes/split-compare.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { contentW } from "../src/emit/kit.js";
 import { MIN_FONT, textWidth } from "../src/emit/svg.js";
+import { PACKS } from "../src/emit/themes/packs.js";
 import type { BeatOf, Format, Source } from "../src/types.js";
 import { FORMATS } from "../src/types.js";
 
@@ -516,5 +517,89 @@ describe("split-compare in portrait", () => {
     const top = ticks(html, 0);
     const bottom = ticks(html, 1);
     expect(Math.max(...top.map((t) => t.x))).toBeLessThan(Math.min(...bottom.map((t) => t.x)));
+  });
+});
+
+/**
+ * Under v2 (2026-10-09 ko deck review): a card-form list must end inside its
+ * svg, a short list grows rather than leaving half its column empty, and the
+ * fill it reports is what it painted.
+ */
+describe("split-compare under v2", () => {
+  const korean: Theme = {
+    ...(PACKS.chalk as Theme),
+    fontStack: '"Noto Sans KR", "IBM Plex Sans", "Inter", system-ui, sans-serif',
+  };
+  const v2 = (look: EmitContext["look"], t: Theme = korean): EmitContext => ({
+    ...ctx("s8"),
+    theme: t,
+    design: "v2",
+    ...(look ? { look } : {}),
+  });
+
+  it("keeps the last card inside the svg when the lists fill a rows lane", () => {
+    // b08 as built: rows beside a rail, chalk's card list. Its third card ran
+    // to 830.5 in an 820px svg — cut flat, its bottom padding gone.
+    const b08 = beat("b08", {
+      eyebrow: "TM-LIF의 보정 범위",
+      headline: "채널 임계값은 학습 중 보정하고 추론 때 고정한다",
+      left: {
+        label: "학습",
+        lines: [
+          "채널별 막전위 분산의 지수이동평균",
+          "분산 추정값에 비례하는 임계값",
+          "스케일 계수 α = 0.6",
+        ],
+      },
+      right: {
+        label: "추론",
+        lines: ["누적 통계와 임계값 고정", "정수 발화 수준을 D로 정규화", "잔여 막 상태 갱신"],
+      },
+      note: "테스트 이미지마다 임계값을 따로 조정하지 않는다.",
+    });
+    const html = splitCompare(b08, v2({ variant: "rows", placement: "rail" })).html;
+    const H = svgHeight(html);
+    const rects = [...html.matchAll(/<rect\b[^>]*\/>/g)].map(
+      ([t]) => num(t, "y") + num(t, "height"),
+    );
+    expect(rects.length).toBeGreaterThan(6);
+    for (const bottom of rects) expect(bottom).toBeLessThanOrEqual(H + 1e-6);
+  });
+
+  // Two two-item lists in a ~600px column, no note: b04's shape.
+  const short = beat("short", {
+    headline: "EM-SNN은 임계값과 구조 단서를 함께 활용한다",
+    left: { label: "TM-LIF", lines: ["채널별 발화 임계값 보정", "특징 스케일에 맞춘 양자화"] },
+    right: { label: "SSM", lines: ["Sobel 기반 구조 단서", "채널 및 공간 특징 조절"] },
+  });
+
+  it("grows a short list's type past the classic 52px head, never past its heading", () => {
+    const html = splitCompare(short, v2({ variant: "columns", placement: "foot" })).html;
+    const body = /<g id="s8-side0">([\s\S]*?)<\/g>/.exec(html)?.[1] ?? "";
+    const sizes = [...body.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+    const [label, ...items] = sizes;
+    expect(Math.min(...items)).toBeGreaterThan(52);
+    expect(Math.max(...items)).toBeLessThanOrEqual(label ?? 0);
+    // Classic is untouched.
+    const classic = splitCompare(short, ctx("s8")).html;
+    expect(classic).toContain('font-size="52"');
+  });
+
+  it("reports the extent it painted, and stops the divider where the lists do", () => {
+    const scene = splitCompare(short, v2({ variant: "columns", placement: "foot" }));
+    const H = svgHeight(scene.html);
+    const div = /<g id="s8-div"><line x1="[\d.]+" y1="0" x2="[\d.]+" y2="([\d.]+)"/.exec(
+      scene.html,
+    );
+    const divEnd = Number(div?.[1]);
+    expect(divEnd).toBeLessThan(H);
+    // The lowest painted mark is no lower than the divider's end.
+    const marks = extents(scene.html).filter((e) => !e.what.includes("line"));
+    const lowest = Math.max(...marks.map((e) => e.y1));
+    expect(divEnd).toBeGreaterThanOrEqual(lowest - 1);
+    expect(scene.fit?.ink).toBeCloseTo(divEnd, 0);
+    expect(divEnd).toBeLessThanOrEqual(lowest + 1);
+    // Grown, the two short lists now do reach the foot of their column.
+    expect(scene.fit?.fill).toBeGreaterThan(0.9);
   });
 });
