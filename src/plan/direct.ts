@@ -48,7 +48,14 @@
  */
 import { emitScene } from "../emit/archetypes/index.js";
 import type { EmitContext, Scene, Theme } from "../emit/kit.js";
-import { candidates, classicLook, type Look, signature } from "../emit/look.js";
+import {
+  beatSignature,
+  candidates,
+  chromeless,
+  classicLook,
+  type Look,
+  type Placement,
+} from "../emit/look.js";
 import type { Archetype, Beat, Design, Format, Source } from "../types.js";
 
 export interface DirectOptions {
@@ -92,7 +99,7 @@ export interface Direction {
 export interface LookSummary {
   beats: number;
   distinct: number;
-  /** Share of beats whose chrome sits on top of the slide (title excluded from the numerator). */
+  /** Share of beats whose chrome sits on top of the slide (title and chromeless beats excluded from the numerator). */
   modalChrome: number;
   /** Adjacent pairs with the same signature. */
   adjacentRepeats: number;
@@ -102,6 +109,9 @@ export interface LookSummary {
 
 export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
   const picked: Look[] = [];
+  // Where each beat's chrome sits, for the run-of-placements penalty — none for
+  // a chromeless beat, which breaks a run rather than extending it.
+  const placed: (Placement | undefined)[] = [];
   const sigs: string[] = [];
   const out: BeatLook[] = [];
   const used = new Map<string, number>();
@@ -134,7 +144,7 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
     const refused: BeatLook["refused"] = [];
     const viable: { look: Look; fill: number | undefined }[] = [];
     for (const look of offered) {
-      const sig = signature(beat.archetype, look);
+      const sig = beatSignature(beat, look);
       if (sameLook(look, classic)) {
         viable.push({ look, fill: classicScene.fill });
         continue;
@@ -160,16 +170,16 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
     }
 
     const prev = sigs[i - 1];
-    const notRepeat = viable.filter((v) => signature(beat.archetype, v.look) !== prev);
+    const notRepeat = viable.filter((v) => beatSignature(beat, v.look) !== prev);
     const pool = notRepeat.length > 0 ? notRepeat : viable;
     let best: Look = classic;
     let bestFill: number | undefined;
     let bestScore = Number.NEGATIVE_INFINITY;
     let bestTie = 0;
     for (const { look, fill } of pool) {
-      const sig = signature(beat.archetype, look);
+      const sig = beatSignature(beat, look);
       const score =
-        scoreOf(sig, look, fill, sigs, picked, used, opts.seed) +
+        scoreOf(sig, look, fill, sigs, placed, used, opts.seed) +
         affinityOf(opts.theme, beat.archetype, look);
       const tie = fnv1a(`${opts.seed}\u0000${beat.id}\u0000${sig}`);
       if (score > bestScore + 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && tie > bestTie)) {
@@ -179,8 +189,9 @@ export function direct(beats: readonly Beat[], opts: DirectOptions): Direction {
         bestTie = tie;
       }
     }
-    const sig = signature(beat.archetype, best);
+    const sig = beatSignature(beat, best);
     picked.push(best);
+    placed.push(chromeless(beat.archetype) ? undefined : best.placement);
     sigs.push(sig);
     used.set(sig, (used.get(sig) ?? 0) + 1);
     out.push({
@@ -214,7 +225,7 @@ function scoreOf(
   look: Look,
   fill: number | undefined,
   sigs: readonly string[],
-  picked: readonly Look[],
+  placed: readonly (Placement | undefined)[],
   used: ReadonlyMap<string, number>,
   seed: string,
 ): number {
@@ -222,9 +233,8 @@ function scoreOf(
   const n = sigs.length;
   const adjacent = sigs[n - 1] === sig ? 1 : 0;
   const recent = sigs.slice(Math.max(0, n - 4)).filter((s) => s === sig).length;
-  const lastTwo = picked.slice(Math.max(0, n - 2));
-  const samePlacement =
-    lastTwo.length === 2 && lastTwo.every((l) => l.placement === look.placement) ? 1 : 0;
+  const lastTwo = placed.slice(Math.max(0, n - 2));
+  const samePlacement = lastTwo.length === 2 && lastTwo.every((p) => p === look.placement) ? 1 : 0;
   const deck = used.get(sig) ?? 0;
   const modal = look.placement === "top" ? 1 : 0;
   const taste = fnv1a(`${seed}\u0000taste\u0000${sig}`) / 0x100000000;
@@ -315,7 +325,9 @@ export function summarize(
     beats: beats.length,
     distinct: count.size,
     modalChrome:
-      beats.filter((b) => b.archetype !== "title" && b.placement === "top").length / total,
+      beats.filter(
+        (b) => b.archetype !== "title" && !chromeless(b.archetype) && b.placement === "top",
+      ).length / total,
     adjacentRepeats: beats.filter((b, i) => i > 0 && beats[i - 1]?.signature === b.signature)
       .length,
     top4: top4 / total,

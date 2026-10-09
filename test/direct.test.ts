@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { emitDeck } from "../src/emit/composition.js";
 import type { Scene } from "../src/emit/kit.js";
-import { signature } from "../src/emit/look.js";
+import { beatSignature, signature } from "../src/emit/look.js";
 import { ink } from "../src/emit/themes/ink.js";
 import { direct, fnv1a, summarize } from "../src/plan/direct.js";
 import { prefsFromFlags } from "../src/prefs.js";
@@ -56,6 +56,46 @@ describe("direct", () => {
   it("spreads a run of one archetype across its looks instead of alternating two", () => {
     const d = direct(sixSplits, opts);
     expect(new Set(d.beats.map((b) => b.signature)).size).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * A STAGE HAS NO CHROME. Its look's `top` is a default no slide shows, and
+   * counting it charged the beat after two stages a samePlacement penalty for
+   * a run of top headlines that was not there, pushing it off its classic
+   * layout for no visual reason. So the beat after two stages is directed
+   * exactly as if they were not there, and the summary counts no stage as top.
+   */
+  it("directs the beat after two stages as if no chrome came before it", () => {
+    const stageOf = (id: string, placement: "bottom-left" | "right"): Beat =>
+      ({
+        id,
+        archetype: "stage",
+        intent: "Show it.",
+        evidence: [],
+        weight: 0.8,
+        seconds: 6,
+        params: { headline: "The model", figureId: "fig-compare", placement },
+      }) as Beat;
+    const stages = [stageOf("st1", "bottom-left"), stageOf("st2", "right")];
+    const drawn = demo.beats.filter((b) => b.archetype !== "title" && b.archetype !== "stage");
+    // Under a pack that leans to top chrome, where a phantom run of two tops
+    // decides the pick: counted, it moved 6 of these 14 beats off the top.
+    const leaning = { ...opts, theme: { ...ink, forms: { affinity: { placement: { top: 1 } } } } };
+    const moved = drawn.filter(
+      (b) =>
+        beatSignature(b, direct([...stages, b], leaning).looks[2]) !==
+        beatSignature(b, direct([b], leaning).looks[0]),
+    );
+    expect(moved.map((b) => b.id)).toEqual([]);
+
+    const d = direct(stages, opts);
+    expect(d.summary.modalChrome).toBe(0);
+    // Two stages with their words in different places are two looks, not one.
+    expect(d.beats.map((b) => b.signature)).toEqual([
+      "stage:classic@bottom-left",
+      "stage:classic@right",
+    ]);
+    expect(d.summary.distinct).toBe(2);
   });
 
   it("moves the chrome off the top of most slides", () => {

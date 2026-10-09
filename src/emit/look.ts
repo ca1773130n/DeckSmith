@@ -98,6 +98,27 @@ export function signature(archetype: Archetype, look?: Look): string {
 }
 
 /**
+ * Whether an archetype has chrome a look places. A `stage` sets its words over
+ * the picture where its own `placement` param says, so the `top` in its classic
+ * look is not on the slide: counted as top chrome, every stage inflated
+ * `modalChrome` and charged the beat after two of them for a "third top in a
+ * row" nobody could see.
+ */
+export function chromeless(archetype: Archetype): boolean {
+  return archetype === "stage";
+}
+
+/**
+ * `signature`, for a beat. A stage's is where its words sit — the one thing
+ * that tells two stages apart at a glance — rather than the `top` its look
+ * carries, which every stage shares.
+ */
+export function beatSignature(beat: Beat, look?: Look): string {
+  if (beat.archetype !== "stage") return signature(beat.archetype, look);
+  return `stage:${(look ?? classicLook("stage")).variant}@${beat.params.placement}`;
+}
+
+/**
  * Whether the canvas is wide enough to set a headline in a column beside the
  * body. 16:9 only in practice: at 1:1 the rail would be 292px and a 64px
  * headline would set three words a line.
