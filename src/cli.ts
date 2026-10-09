@@ -462,7 +462,13 @@ imageFlags(
 
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
   step("plan: this takes a few minutes");
-  const planned = await codexPlanner(source, { prefs });
+  const planned = await codexPlanner(source, {
+    prefs,
+    onRepair: (broken) => {
+      step("plan: the first plan broke the variety rule, asking Codex to repair it —");
+      for (const m of broken) step(`plan:   ${m}`);
+    },
+  });
   const storyboard: Storyboard = {
     ...planned,
     lang: prefs.lang,

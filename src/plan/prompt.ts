@@ -16,6 +16,7 @@ import type { Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
+import { MAX_ALTERNATION, STAGE_EVERY, STAGE_MIN_BEATS, stagesRequired } from "./variety.js";
 
 /**
  * How many sentences each archetype wants, because it is how many stops it has.
@@ -315,6 +316,15 @@ RULES
    where the words sit: a deck with more than one stage gives each a different
    \`placement\` where it can, so the text does not land in one corner slide after
    slide.
+
+   AND DO NOT ALTERNATE. Two shapes taking turns — split-compare, pipeline,
+   split-compare, pipeline — is one layout with a second skin, and it is the
+   failure this rule was rewritten for: a fourteen-beat deck that alternated two
+   card layouts for nine slides running, with every pair different and every
+   slide looking like the last but one. No two beats in a row share an
+   archetype, and no run alternating two archetypes is longer than
+   ${MAX_ALTERNATION} beats. Both are checked when the plan comes back, and a plan
+   that breaks either is sent back.
 
 2. Every id you write — in params and in evidence — must appear in the inventory
    below. A dangling id fails the build. If no figure fits the point, choose a
@@ -687,7 +697,17 @@ nothing, so it can never dangle.
   - Write \`figureId\` OR \`illustration\`, never both. A figure in the
     inventory always wins over a brief for one.
   - At most ${images.max} pictures in the whole deck; a split-compare with two
-    briefs spends two. Past that, find the point's shape and draw it.`;
+    briefs spends two. Past that, find the point's shape and draw it.
+
+STAGES ARE REQUIRED, not merely allowed. A deck of ${STAGE_MIN_BEATS} beats or more
+carries at least one \`stage\` beat for every ${STAGE_EVERY} beats (a ${2 * STAGE_EVERY + 2}-beat deck,
+${stagesRequired(2 * STAGE_EVERY + 2, images)}), and never more than the picture cap above. When the inventory has
+no figure that can own the frame — no figures at all, or only plots — those
+stages carry \`illustration\` briefs: the scene the point is about, full-bleed,
+with the headline set over it. Spend them where the deck would otherwise be
+cards in a row: the problem in the world before the method, the setting a
+result matters in, the turn between two halves. Give consecutive stages
+different \`placement\`s. A plan with fewer stages than this is sent back.`;
 }
 
 /**

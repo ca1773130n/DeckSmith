@@ -205,6 +205,11 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
   const planned = await codexPlanner(source, {
     prefs,
     ...(input.run ? { run: input.run } : {}),
+    onRepair: (broken) => {
+      job.log(
+        `plan: the first plan broke the variety rule, asking once more — ${broken.join(" ")}`,
+      );
+    },
   });
   let storyboard: Storyboard = {
     ...planned,

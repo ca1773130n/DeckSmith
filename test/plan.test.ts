@@ -360,6 +360,62 @@ describe("codexPlanner response path", () => {
 });
 
 /**
+ * The variety rule is enforced where the plan comes back (src/plan/variety.ts):
+ * one repair round carrying the reasons and the plan's own JSON, then a refusal.
+ */
+describe("codexPlanner variety repair", () => {
+  const twice = JSON.parse(RECORDED) as { beats: Array<Record<string, unknown>> };
+  // b01 and b02 both claim-figure, side by side.
+  const adjacent = JSON.stringify({
+    ...twice,
+    beats: [twice.beats[0], { ...twice.beats[0], id: "b01b-arch" }, ...twice.beats.slice(1)],
+  });
+
+  it("sends a plan that breaks it back once, with the reasons and the plan, and keeps the repair", async () => {
+    const prompts: string[] = [];
+    const repaired: string[][] = [];
+    const result = await codexPlanner(source, {
+      onRepair: (broken) => repaired.push([...broken]),
+      run: async ({ prompt, outPath }) => {
+        prompts.push(prompt);
+        await writeFile(outPath, prompts.length === 1 ? adjacent : RECORDED);
+      },
+    });
+    expect(prompts).toHaveLength(2);
+    expect(repaired).toEqual([
+      [expect.stringMatching(/b01-arch and b01b-arch are both `claim-figure`/)],
+    ]);
+    expect(prompts[1]).toContain("BREAKS THE VARIETY RULES");
+    expect(prompts[1]).toContain('"id":"b01b-arch"');
+    expect(result.beats.map((b) => b.id)).toEqual(["b01-arch", "b02-loss", "b03-psnr"]);
+  });
+
+  it("refuses, naming the rule, when the repair still breaks it", async () => {
+    let calls = 0;
+    await expect(
+      codexPlanner(source, {
+        run: async ({ outPath }) => {
+          calls++;
+          await writeFile(outPath, adjacent);
+        },
+      }),
+    ).rejects.toThrow(/variety rule .* after one repair:\n.*b01b-arch/s);
+    expect(calls).toBe(2);
+  });
+
+  it("asks once when the first plan is already varied", async () => {
+    let calls = 0;
+    await codexPlanner(source, {
+      run: async ({ outPath }) => {
+        calls++;
+        await writeFile(outPath, RECORDED);
+      },
+    });
+    expect(calls).toBe(1);
+  });
+});
+
+/**
  * The argv is a contract with a binary the suite may never spawn, so it is
  * pinned by reading it. The read-only line is what the planner has always sent;
  * the workspace-write line is what `illustrate`'s Codex rung sends, fenced to its

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { ink } from "../src/emit/themes/index.js";
 import { REVEALS, renderSource, systemPrompt } from "../src/plan/prompt.js";
+import { MAX_ALTERNATION, STAGE_EVERY, STAGE_MIN_BEATS } from "../src/plan/variety.js";
 import type { Beat, Format, Source } from "../src/types.js";
 import { beatSchema, FORMATS, prefsSchema } from "../src/types.js";
 
@@ -447,6 +448,20 @@ describe("the prompt's illustrations block", () => {
     expect(on).toMatch(/text, labels, numbers, charts or diagrams/);
     expect(on).toMatch(/not evidence/);
   });
+
+  // An invitation was measured to produce zero pictures; the block now states a
+  // minimum, from the same constants the plan is checked against.
+  it("requires stages at the checked rate, not merely allows them", () => {
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(on).toContain("STAGES ARE REQUIRED");
+    expect(on).toMatch(
+      new RegExp(
+        `A deck of ${STAGE_MIN_BEATS} beats or more\\s+carries at least one \`stage\` beat for every ${STAGE_EVERY} beats`,
+      ),
+    );
+    expect(on).toMatch(/a 10-beat deck,\s+2\)/);
+    expect(on).toMatch(/consecutive stages\s+different `placement`s/);
+  });
 });
 
 /**
@@ -534,5 +549,13 @@ describe("the archetype catalogue", () => {
   it("forbids reaching for the same shape twice running", () => {
     expect(text).toMatch(/Do not use the same archetype for two beats in a row/);
     expect(text).toMatch(/take the family this deck has\s+not used yet/);
+  });
+
+  // The number the planner is told is the number `varietyFindings` holds it to.
+  it("forbids an A/B/A/B run past the checked length, and says it is checked", () => {
+    expect(text).toMatch(
+      new RegExp(`no run alternating two archetypes is longer than\\s+${MAX_ALTERNATION} beats`),
+    );
+    expect(text).toMatch(/a plan\s+that breaks either is sent back/);
   });
 });
