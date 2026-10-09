@@ -826,10 +826,14 @@ export function renderSource(source: Source): string {
       // MARKED WHERE THE ID IS. The model scans this list for something to cite,
       // and a fact that changes whether the beat can be spent belongs on the
       // line it stops at rather than under it. An image's line is unchanged.
+      // A PIECE is an animation only claim-figure can draw; every other figure
+      // archetype refuses it, so the line says so where the id is.
       const size =
         f.kind === "clip"
           ? `CLIP ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`}`
-          : `${f.width}x${f.height}`;
+          : f.kind === "piece"
+            ? `ANIMATION ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`} — claim-figure only`
+            : `${f.width}x${f.height}`;
       out.push("", `[figure ${f.id}] ${size} — ${f.caption}`);
       // The video we do not hold. Said next to the id because it is the one
       // property of this figure that no later line can repair: the beat can

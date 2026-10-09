@@ -139,6 +139,14 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
           `use claim-figure, which plays it, or point this side at the clip's poster as a figure of its own`,
       );
     }
+    // A PIECE IS A SCRIPT, and an `<image>` pointed at a script draws nothing,
+    // sized and captioned as though it were there — the clip's failure exactly.
+    if (fig.kind === "piece") {
+      throw new Error(
+        `split-compare ${beat.id}: the ${NAME[i]} figure "${fig.id}" is an animate piece, and a side draws a still <image> — ` +
+          "use claim-figure, which plays it",
+      );
+    }
     return fig;
   });
   sides.forEach((side, i) => {

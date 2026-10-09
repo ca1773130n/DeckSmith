@@ -564,8 +564,11 @@ describe("fetchFigures", () => {
     expect(said).toEqual([expect.stringMatching(/^decksmith: figure wall was left out/)]);
   });
 
-  /** A clip's first bytes are an `ftyp` box, which `imageSize` is right to refuse. */
-  it("passes a clip through instead of measuring it as an image", async () => {
+  /**
+   * A clip's first bytes are an `ftyp` box, which `imageSize` is right to
+   * refuse; a piece's are a script. Neither is an image to measure.
+   */
+  it("passes a clip and a piece through instead of measuring them as images", async () => {
     const dir = await work();
     const clip = sourceSchema.parse({
       id: "src1",
@@ -580,6 +583,15 @@ describe("fetchFigures", () => {
           width: 1920,
           height: 1080,
           poster: "v1.png",
+          seconds: 4,
+        },
+        {
+          id: "p1",
+          kind: "piece",
+          src: "pieces/p1.js",
+          caption: "p",
+          width: 1920,
+          height: 1080,
           seconds: 4,
         },
       ],

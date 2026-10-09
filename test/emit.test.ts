@@ -1115,3 +1115,169 @@ describe("clips", () => {
     expect(page).not.toContain("/watch?v=");
   });
 });
+
+/**
+ * AN ANIMATE PIECE ON A SLIDE, asserted on the emitted document.
+ *
+ * A piece is a figure whose asset is a script (src/types.ts); `claim-figure`
+ * draws it on a canvas and every other figure archetype refuses it. What is
+ * observable without a browser is the contract with the runtime
+ * (src/emit/animate-runtime.ts): the canvas, the script, the mount in
+ * `measure`, and ONE `fromTo` whose value is the piece's own second. The frame
+ * that value draws is test/animate-piece.test.ts's business.
+ */
+describe("pieces", () => {
+  const piece = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    kind: "piece",
+    src: `pieces/${id}.js`,
+    caption: "The feedback loop, drawn",
+    width: 1920,
+    height: 1080,
+    seconds: 4,
+    ...extra,
+  });
+  const pieceSource = (...figures: unknown[]) =>
+    sourceSchema.parse({
+      id: "src-3",
+      title: "A loop",
+      lang: "en",
+      sections: [],
+      figures: [
+        { id: "f-still", src: "figure_000.jpg", caption: "A still", width: 1600, height: 900 },
+        ...figures,
+      ],
+      equations: [],
+      tables: [],
+    });
+  const beats = (...rest: Array<{ archetype: string; params: unknown; seconds?: number }>) =>
+    storyboardSchema.parse({
+      sourceId: "src-3",
+      title: "A loop",
+      beats: [
+        { id: "b0", intent: "Open.", archetype: "title", params: { headline: "A title beat" } },
+        ...rest.map((b, i) => ({ id: `b${i + 1}`, intent: "Show it.", ...b })),
+      ],
+    });
+  const claimOn = (figureId: string, seconds?: number) => ({
+    archetype: "claim-figure",
+    params: { headline: "It loops", claim: "Each pass feeds the next.", figureId },
+    ...(seconds === undefined ? {} : { seconds }),
+  });
+  const deck16 = format("deck-16x9");
+
+  it("draws a piece on a canvas, played by one callback-free fromTo in its own seconds", () => {
+    const doc = emitComposition(beats(claimOn("f-piece")), pieceSource(piece("f-piece")), deck16);
+
+    expect(doc).toContain(
+      '<canvas id="s2-pc" width="1920" height="1080" role="img" aria-label="The feedback loop, drawn"></canvas>' +
+        '<script src="assets/pieces/f-piece.js"></script>',
+    );
+    expect(doc).not.toContain('<img src="assets/pieces/');
+    // The runtime is loaded and registered before any scene script runs.
+    expect(doc).toContain(
+      '<script src="./vendor/ds-animate.js"></script>\n    <script>gsap.registerPlugin(DSAnimatePlugin);</script>',
+    );
+    // Mounted inside the ready gate, with the piece's clock and the deck's face.
+    expect(doc).toMatch(
+      /DSAnimate\.mount\(document\.getElementById\("s2-pc"\), "f-piece", \{ seconds: 4, fps: 30, hand: "[^\n]+" \}\);/,
+    );
+    // ONE tween on the canvas (invariants 2 and 3): 0 to the piece's 4s, over
+    // 4s, linear, from the plate's entrance at 1s.
+    expect(doc.match(/tl\.fromTo\("#s2-pc"/g)).toHaveLength(1);
+    expect(doc).toContain(
+      'tl.fromTo("#s2-pc", { dsAnimate: 0 }, { dsAnimate: 4, duration: 4, ease: "none" }, 1);',
+    );
+    // Invariant 11: nothing in the deck draws from a callback.
+    expect(doc).not.toMatch(/\bon(Update|Start|Complete)\b/);
+    // The plate's cap names the tag that is there.
+    expect(doc).toMatch(/\.figwrap canvas\{max-width:100%;max-height:\d+px/);
+  });
+
+  it("holds once, after the piece's last frame, never in the middle of it", () => {
+    const beat = beatSchema.parse({ id: "b1", intent: "Show it.", ...claimOn("f-piece") });
+    const scene = emitScene(beat, {
+      source: pieceSource(piece("f-piece")),
+      format: deck16,
+      theme: resolveTheme("ink"),
+      sid: "s2",
+      start: 0,
+    });
+
+    // 1s entrance + 4s piece + 0.3s of its last frame.
+    expect(scene.holds).toEqual([5.3]);
+    expect(scene.plugins).toEqual(["dsAnimate"]);
+    expect(scene.tl.filter((t) => "dsAnimate" in t.to)).toHaveLength(1);
+  });
+
+  it("loads no piece runtime on a deck without a piece", () => {
+    const doc = emitComposition(beats(claimOn("f-still")), pieceSource(piece("f-piece")), deck16);
+    expect(doc).not.toContain("ds-animate");
+    expect(doc).not.toContain("dsAnimate");
+    expect(doc).not.toContain("<canvas");
+  });
+
+  it("refuses a piece with no seconds, and a beat too short to play it", () => {
+    const { seconds: _, ...timeless } = piece("f-piece");
+    expect(() => emitComposition(beats(claimOn("f-piece")), pieceSource(timeless), deck16)).toThrow(
+      /claim-figure b1: figure "f-piece" is a piece with no `seconds`/,
+    );
+    expect(() =>
+      emitComposition(beats(claimOn("f-piece", 5)), pieceSource(piece("f-piece")), deck16),
+    ).toThrow(
+      /claim-figure b1: piece "f-piece" plays 4s from 1s and holds 0.3s, which needs 5.3s, and the beat is 5s/,
+    );
+  });
+
+  it("refuses an id a script cannot carry as written", () => {
+    expect(() =>
+      emitComposition(beats(claimOn("f piece")), pieceSource(piece("f piece")), deck16),
+    ).toThrow(/piece "f piece" has an id a script cannot carry/);
+  });
+
+  it("refuses a second piece in one deck, naming both", () => {
+    expect(() =>
+      emitComposition(
+        beats(claimOn("f-piece"), claimOn("f-other")),
+        pieceSource(piece("f-piece"), piece("f-other")),
+        deck16,
+      ),
+    ).toThrow(
+      /claim-figure b2: figure "f-other" is a second animate piece in this deck — b1 already draws "f-piece"/,
+    );
+  });
+
+  it("refuses a piece in annotated-figure and in split-compare, by name", () => {
+    const src = pieceSource(piece("f-piece"));
+    expect(() =>
+      emitComposition(
+        beats({
+          archetype: "annotated-figure",
+          params: {
+            headline: "It loops",
+            figureId: "f-piece",
+            notes: [{ x: 0.5, y: 0.5, text: "Here" }],
+          },
+        }),
+        src,
+        deck16,
+      ),
+    ).toThrow(/annotated-figure b1: figure "f-piece" is an animate piece[\s\S]*use claim-figure/);
+    expect(() =>
+      emitComposition(
+        beats({
+          archetype: "split-compare",
+          params: {
+            headline: "Before and after",
+            left: { label: "Before", figureId: "f-piece" },
+            right: { label: "After", lines: ["One pass"] },
+          },
+        }),
+        src,
+        deck16,
+      ),
+    ).toThrow(
+      /split-compare b1: the left figure "f-piece" is an animate piece[\s\S]*use claim-figure/,
+    );
+  });
+});

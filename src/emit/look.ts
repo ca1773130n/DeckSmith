@@ -387,7 +387,9 @@ function asideFor(
   for (const ref of input.evidence ?? []) {
     if (ref.kind !== "figure" || drawn.has(ref.id)) continue;
     const fig = ctx.source.figures.find((f) => f.id === ref.id);
-    if (!fig || fig.kind === "clip" || fig.width <= 0 || fig.height <= 0) continue;
+    // An aside is an `<img>`: only an image can be one. A clip would be its
+    // video file, and a piece its script — both draw nothing.
+    if (fig?.kind !== "image" || fig.width <= 0 || fig.height <= 0) continue;
     const inner = railW - 2 * ASIDE_PAD;
     const cap = Math.floor(
       Math.min(room - 2 * ASIDE_PAD, (0.3 * railW * contentH(ctx.format)) / inner),

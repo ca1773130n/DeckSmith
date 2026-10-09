@@ -48,6 +48,16 @@ const source: Source = {
     { id: "aside", kind: "image", src: "aside.png", caption: "An aside", width: 1200, height: 900 },
     { id: "strip", kind: "image", src: "strip.png", caption: "A strip", width: 2400, height: 600 },
     { id: "small", kind: "image", src: "small.png", caption: "Small", width: 400, height: 300 },
+    // Sized like `small`, so only its kind can keep it out of the rail.
+    {
+      id: "loop",
+      kind: "piece",
+      src: "loop.js",
+      caption: "A loop",
+      width: 400,
+      height: 300,
+      seconds: 4,
+    },
   ],
 };
 const ctx = (look?: Look, f: Format = format): EmitContext => ({
@@ -197,6 +207,16 @@ describe("rail", () => {
     expect(drawn.compose("")).not.toContain("lk-aside");
     const uncited = frameOf(ctx(look), { eyebrow: "R", headline: "Short" });
     expect(uncited.compose("")).not.toContain("lk-aside");
+  });
+
+  it("never sets an animate piece as an aside: an aside is an <img>, and a piece is a script", () => {
+    const piece = frameOf(ctx(look), {
+      eyebrow: "R",
+      headline: "Short",
+      evidence: [{ kind: "figure", id: "loop" }],
+    });
+    expect(piece.compose("")).not.toContain("lk-aside");
+    expect(piece.compose("")).not.toContain("loop.js");
   });
 
   it("never squeezes a big figure into the rail as an aside, where its text would be unreadable", () => {

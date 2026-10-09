@@ -117,6 +117,8 @@ const DRAWSVG_SRC = "./vendor/DrawSVGPlugin.min.js";
 const PLUGINS: Readonly<Record<string, { src: string; global: string }>> = {
   dsMorph: { src: "./vendor/ds-morph.js", global: "DSMorphPlugin" },
   morphSVG: { src: "./vendor/MorphSVGPlugin.min.js", global: "MorphSVGPlugin" },
+  // An animate piece's runtime (src/emit/animate-runtime.ts), on the same terms.
+  dsAnimate: { src: "./vendor/ds-animate.js", global: "DSAnimatePlugin" },
 };
 const KATEX_JS = "./vendor/katex.min.js";
 const KATEX_CSS = "./katex/katex.min.css";
@@ -571,6 +573,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
   // with no builders to await would move bytes in every deck we have shipped.
   let builds = false;
   const plugins = new Set<string>();
+  // The beat that drew this deck's animate piece, if one has. See ONE PIECE below.
+  let piece: { beat: string; figure: string } | undefined;
   cuts.forEach((cut, i) => {
     const { beat, sid, dive, inside, duration, start } = cut;
     if (cut.segments?.length) spoken[sid] = cut.segments;
@@ -636,6 +640,25 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
         );
       }
       plugins.add(p);
+    }
+    // ONE PIECE PER DECK, refused here rather than drawn wrong. The vendored
+    // morph.js is unpatched (src/build/animate/NOTICE): it writes
+    // `window.renderFrame` and `window.anchorAt`, so a second piece on the page
+    // would share those globals with the first. Two pieces have never been
+    // rendered together; lifting this means patching morph.js and doing that.
+    const fig =
+      beat.archetype === "claim-figure"
+        ? source.figures.find((f) => f.id === beat.params.figureId)
+        : undefined;
+    if (fig?.kind === "piece") {
+      if (piece) {
+        throw new Error(
+          `claim-figure ${beat.id}: figure "${fig.id}" is a second animate piece in this deck — ` +
+            `${piece.beat} already draws "${piece.figure}", and a deck holds one piece. ` +
+            "Point one of these beats at a still, or split the deck",
+        );
+      }
+      piece = { beat: beat.id, figure: fig.id };
     }
     scenes.push(
       sceneHtml(

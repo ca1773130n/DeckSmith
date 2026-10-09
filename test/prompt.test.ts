@@ -310,6 +310,27 @@ describe("the figure inventory", () => {
     expect(text).toContain("[figure fig-arch] 1373x381 — Figure 2 — One tick.");
   });
 
+  it("marks an animate piece where its id is, as claim-figure's alone", () => {
+    // Every other figure archetype refuses a piece by name; the line the model
+    // scans for something to cite is where it learns that, not the refusal.
+    const text = renderSource(
+      paper([
+        {
+          ...arch,
+          id: "fig-loop",
+          kind: "piece",
+          src: "loop.js",
+          width: 1920,
+          height: 1080,
+          seconds: 6,
+        },
+      ]),
+    );
+    expect(text).toContain(
+      "[figure fig-loop] ANIMATION 1920x1080, 6s — claim-figure only — Figure 2 — One tick.",
+    );
+  });
+
   it("names the section a figure sits under, by id and by heading", () => {
     const text = renderSource(paper([{ ...arch, sectionId: "sec2" }]));
     expect(text).toContain("1 figure in this document.");

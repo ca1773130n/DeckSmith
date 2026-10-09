@@ -7,7 +7,7 @@
  */
 import type { Figure } from "../../types.js";
 import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
-import type { Emitter } from "../kit.js";
+import type { Emitter, Tween } from "../kit.js";
 import { esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { type Face, faceOf, textWidth, wrap } from "../svg.js";
@@ -102,6 +102,25 @@ const SWITCH_MARGIN = 0.08;
  * photo in a 1760px plate (review, 2026-10-08).
  */
 const SWITCH_AREA = 0.9;
+
+/* ------------------------------------------------------------ the piece */
+
+/**
+ * An animate piece starts with its plate: the figure's entrance tween below
+ * begins at 1.0s, so frame 0 fades in with the plate and the piece then plays.
+ */
+const PIECE_AT = 1;
+/** Static frames after the piece's last one, before the hold that follows it. */
+const PIECE_TAIL = 0.3;
+/**
+ * The rate a piece is baked at: hyperframes' render default. On animate's twos
+ * that steps evenly at 15 Hz. `render --fps 24` resamples it, with judder.
+ */
+const PIECE_FPS = 30;
+/** A piece's id is written into a script; nothing that needs escaping gets there. */
+const PIECE_ID = /^[A-Za-z0-9_.-]+$/;
+/** Invariant 10 at the piece's clock. */
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
 type Mode = "tall" | "wide" | "beside";
 
@@ -256,8 +275,8 @@ function blockLines(text: string, size: number, width: number, face: Face): numb
 /** What the plate holds, and the tag its height cap and its drift rule name. */
 interface Plate {
   html: string;
-  /** `img` or `video`. One CSS rule is written, for whichever is actually there. */
-  el: "img" | "video";
+  /** `img`, `video` or `canvas`. One CSS rule is written, for whichever is actually there. */
+  el: "img" | "video" | "canvas";
 }
 
 /**
@@ -294,6 +313,18 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
     html: `<img src="assets/${esc(src)}" alt="${esc(fig.caption)}" />`,
     el: "img",
   });
+  // A PIECE IS A CANVAS AND THE SCRIPT THAT DRAWS ON IT. The script registers the
+  // piece's factory as the document parses; the scene's `measure` mounts it on
+  // this canvas, and the `dsAnimate` tween draws it (see the emitter below).
+  // `role="img"` and the caption as its label, because a canvas has no `alt`.
+  if (fig.kind === "piece") {
+    return {
+      html:
+        `<canvas id="${sid}-pc" width="${fig.width}" height="${fig.height}" role="img" aria-label="${esc(fig.caption)}"></canvas>` +
+        `<script src="assets/${esc(fig.src)}"></script>`,
+      el: "canvas",
+    };
+  }
   if (fig.kind !== "clip") return img(fig.src);
   if (fig.href !== undefined) {
     // Nothing to draw, said with the one instruction that fixes it. A clip with
@@ -361,6 +392,63 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
   };
 }
 
+/**
+ * What a piece adds to the scene: the statement that mounts it, ONE `fromTo`
+ * that plays it, and the hold after its last frame.
+ *
+ * THE TWEEN IS THE ONLY THING THAT DRAWS (invariants 1 and 11). Its value is
+ * the piece's own second — `0` to `seconds` over `seconds`, ease "none" —
+ * and the `dsAnimate` plugin draws that second as part of the seek
+ * (src/emit/animate-runtime.ts). No callback, no CSS animation: before the
+ * tween the canvas holds frame 0, after it the last frame, so holds and slide
+ * edges are static.
+ *
+ * `hand` is the deck's font stack, for the kit's `HAND`: a piece draws no text,
+ * and the kit's `measureText` should still never name a family the deck does
+ * not declare (invariant 9).
+ *
+ * REFUSED BY NAME rather than clamped: a piece with no length has no clock, and
+ * a beat too short for the piece would end it mid-motion with the hold clamped
+ * on top of a moving frame.
+ */
+function pieceTimeline(
+  fig: Figure,
+  sid: string,
+  beatId: string,
+  seconds: number,
+  hand: string,
+): { tween: Tween; mount: string; hold: number } {
+  if (fig.seconds === undefined) {
+    throw new Error(
+      `claim-figure ${beatId}: figure "${fig.id}" is a piece with no \`seconds\` — a piece is its own clock, so its source.json entry has to say how long it plays`,
+    );
+  }
+  if (!PIECE_ID.test(fig.id)) {
+    throw new Error(
+      `claim-figure ${beatId}: piece "${fig.id}" has an id a script cannot carry as written — use letters, digits, ".", "_" and "-"`,
+    );
+  }
+  const run = r3(fig.seconds);
+  const hold = r3(PIECE_AT + run + PIECE_TAIL);
+  if (hold > seconds) {
+    throw new Error(
+      `claim-figure ${beatId}: piece "${fig.id}" plays ${run}s from ${PIECE_AT}s and holds ${PIECE_TAIL}s, ` +
+        `which needs ${hold}s, and the beat is ${seconds}s — lengthen the beat or shorten the piece`,
+    );
+  }
+  const cfg = `{ seconds: ${run}, fps: ${PIECE_FPS}, hand: ${JSON.stringify(hand)} }`;
+  return {
+    tween: tween(
+      `#${sid}-pc`,
+      { dsAnimate: 0 },
+      { dsAnimate: run, duration: run, ease: "none" },
+      PIECE_AT,
+    ),
+    mount: `DSAnimate.mount(document.getElementById("${sid}-pc"), "${fig.id}", ${cfg})`,
+    hold,
+  };
+}
+
 export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   const { sid, theme } = ctx;
   const p = beat.params;
@@ -379,6 +467,10 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       `claim-figure ${beat.id}: no figure "${p.figureId}" in source ${ctx.source.id}`,
     );
   }
+  const piece =
+    fig.kind === "piece"
+      ? pieceTimeline(fig, sid, beat.id, beat.seconds, theme.fontStack)
+      : undefined;
   /**
    * The content box, or what the chosen placement leaves the body
    * (src/emit/look.ts). The figure this beat draws is named so an aside in the
@@ -536,6 +628,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       },
       1.8,
     ),
+    ...(piece ? [piece.tween] : []),
   ];
 
   // The area the image is painted at: the solved plate under v2, and what
@@ -549,7 +642,8 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   return {
     html: F.compose(body),
     tl,
-    holds: holdsWithin([1.4, 2.4], beat.seconds),
+    holds: holdsWithin(piece ? [piece.hold] : [1.4, 2.4], beat.seconds),
+    ...(piece ? { measure: [piece.mount], plugins: ["dsAnimate"] } : {}),
     ...(chosen ? { fit: chosen.fit } : {}),
     figureArea,
     css: [

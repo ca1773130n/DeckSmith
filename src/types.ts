@@ -39,8 +39,15 @@ export const figureSchema = z.object({
    * being an enum with a default: every `source.json` written before clips
    * existed parses unchanged and comes back an `image`, which is what it has
    * always been.
+   *
+   * A PIECE IS A FIGURE ON THE SAME TERMS: a rectangle with intrinsic pixels, a
+   * caption and a duration, whose asset is an animate scene SCRIPT that
+   * `claim-figure` draws on a `<canvas>`, seeked by the `dsAnimate` plugin
+   * (src/emit/animate-runtime.ts). Hand-written into `source.json` — no ingest
+   * path produces one — and only `claim-figure` takes it; every other archetype
+   * refuses it by name. One per deck in this version.
    */
-  kind: z.enum(["image", "clip"]).default("image"),
+  kind: z.enum(["image", "clip", "piece"]).default("image"),
   /** Path relative to the deck's asset directory. */
   src: z.string(),
   caption: z.string(),
@@ -78,7 +85,11 @@ export const figureSchema = z.object({
    * else, so it is the picture the beat is really planned around.
    */
   poster: z.string().optional(),
-  /** How long the clip runs. Seconds, as measured off the file, never guessed. */
+  /**
+   * How long the clip runs. Seconds, as measured off the file, never guessed.
+   * For a piece, how long it plays — REQUIRED there, and `claim-figure` refuses
+   * a piece without it, because it is the piece's own clock.
+   */
   seconds: z.number().positive().optional(),
   /**
    * The page the video lives ON, when the video itself is not a file we can

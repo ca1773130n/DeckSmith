@@ -691,6 +691,14 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         `use claim-figure, which plays it, or point this beat at the clip's poster as a figure of its own`,
     );
   }
+  // A PIECE MOVES FOR THE SAME REASON A CLIP DOES, and it is a script besides:
+  // the plate below is an `<img>`, which draws nothing from one.
+  if (fig.kind === "piece") {
+    throw new Error(
+      `annotated-figure ${beat.id}: figure "${fig.id}" is an animate piece, and notes can only be pinned to a still — ` +
+        "use claim-figure, which plays it",
+    );
+  }
 
   // Cropping changes both the aspect the layout solves for and the coordinate
   // space the notes live in. Do both here, once, so everything downstream keeps
