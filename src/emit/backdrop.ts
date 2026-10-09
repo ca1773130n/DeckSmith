@@ -209,38 +209,129 @@ function splitSelectors(list: string): string[] {
  * and a full-bleed picture has none, so its prediction could only disagree.
  */
 export function overBackdrop(scene: Scene, fig: Figure, ctx: EmitContext, seconds: number): Scene {
-  const { sid, format } = ctx;
-  const reserve = reserveRef(format);
-  const html = [
-    // `data-layout-allow-overflow`: the picture drifts past its box on purpose
-    // and the box clips it; the box itself never moves.
-    `<div class="bd-m" id="${sid}-bd" data-layout-allow-overflow><img id="${sid}-bdi" src="assets/${esc(fig.src)}" alt="${esc(fig.caption)}" /></div>`,
-    `<div class="bd-sc" id="${sid}-bdsc"></div>`,
-    scene.html,
-  ].join("\n");
-  const tl: Tween[] = [
-    tween(`#${sid}-bd`, { opacity: 0 }, { opacity: 1, duration: MEDIA_IN, ease: "power2.out" }, 0),
-    // Slow and linear across the whole beat: a camera drifting over a scene,
-    // which is ambient life the frames can seek to, not a CSS loop.
-    tween(
-      `#${sid}-bdi`,
-      { scale: 1 },
-      { scale: DRIFT_TO, duration: Math.max(2, seconds), ease: "none" },
-      0,
-    ),
-    ...scene.tl,
-  ];
-  const { fit: _fit, ...rest } = scene;
-  return {
-    ...rest,
-    html,
-    tl,
-    css: [
-      `#${sid},#${sid} .scene{z-index:0;isolation:isolate}`,
-      `#${sid} .bd-m,#${sid} .bd-sc{position:absolute;left:0;top:0;right:0;bottom:${reserve}px;z-index:-1}`,
+  const { sid } = ctx;
+  return under(
+    scene,
+    ctx,
+    [
+      // `data-layout-allow-overflow`: the picture drifts past its box on purpose
+      // and the box clips it; the box itself never moves.
+      `<div class="bd-m" id="${sid}-bd" data-layout-allow-overflow><img id="${sid}-bdi" src="assets/${esc(fig.src)}" alt="${esc(fig.caption)}" /></div>`,
+      `<div class="bd-sc" id="${sid}-bdsc"></div>`,
+    ],
+    [
+      tween(
+        `#${sid}-bd`,
+        { opacity: 0 },
+        { opacity: 1, duration: MEDIA_IN, ease: "power2.out" },
+        0,
+      ),
+      // Slow and linear across the whole beat: a camera drifting over a scene,
+      // which is ambient life the frames can seek to, not a CSS loop.
+      tween(
+        `#${sid}-bdi`,
+        { scale: 1 },
+        { scale: DRIFT_TO, duration: Math.max(2, seconds), ease: "none" },
+        0,
+      ),
+    ],
+    [
+      `#${sid} .bd-m,#${sid} .bd-sc{position:absolute;left:0;top:0;right:0;bottom:${reserveRef(ctx.format)}px;z-index:-1}`,
       `#${sid} .bd-m{overflow:hidden}`,
       `#${sid} .bd-m>img{display:block;width:100%;height:100%;object-fit:cover}`,
       `#${sid} .bd-sc{background:rgba(0,0,0,${SCRIM})}`,
+    ],
+  );
+}
+
+/**
+ * The FIELD a full-bleed archetype stands on when it has no picture: the
+ * pack's accent taken toward black until it is no lighter than half the
+ * scrim's worst-case ground (`WORST_GROUND`). Every `glass` ink is held to
+ * 4.5:1 on that ground, so on a darker one each clears it with room to spare —
+ * the same proof, not a second palette. Keeps the hue, so a deck's fields are
+ * its own colour rather than one stock navy. Not `#rrggbb`: the glass ground.
+ */
+export function fieldColour(accent: string): string {
+  if (!/^#[0-9a-f]{6}$/i.test(accent)) return "#0b0f17";
+  const n = Number.parseInt(accent.slice(1), 16);
+  const g = WORST_GROUND / 255;
+  const floor = (g <= 0.03928 ? g / 12.92 : ((g + 0.055) / 1.055) ** 2.4) / 2;
+  for (let k = 1; k >= 0; k -= 0.02) {
+    const ch = (shift: number) =>
+      Math.round(((n >> shift) & 255) * k)
+        .toString(16)
+        .padStart(2, "0");
+    const c = `#${ch(16)}${ch(8)}${ch(0)}`;
+    if (luminance(c) <= floor) return c;
+  }
+  return "#000000";
+}
+
+/** How far the field's shadow travels across a beat, as a share of the frame. */
+const FIELD_DRIFT = 8;
+
+/**
+ * `scene`, emitted with the `glass` theme, set over a field of the pack's
+ * accent (`fieldColour`) — what `hero-number` and `kinetic` stand on without a
+ * `backdrop`, so that neither is ever a card on the pale ground.
+ *
+ * The field is never lighter than its flat colour: what moves over it is a
+ * vignette of black, drifting slowly across the beat on a `fromTo`, so the
+ * frame is alive without any pixel of it rising toward the inks.
+ */
+export function overField(scene: Scene, ctx: EmitContext, seconds: number): Scene {
+  const { sid, theme } = ctx;
+  return under(
+    scene,
+    ctx,
+    [
+      `<div class="fd" id="${sid}-fd" data-layout-allow-overflow><div class="fd-v" id="${sid}-fdv"></div></div>`,
+    ],
+    // No entrance of its own: the scene's seam brings it in, and a field that
+    // faded up from nothing would flash the pale ground between two dark slides.
+    [
+      tween(
+        `#${sid}-fdv`,
+        { xPercent: -FIELD_DRIFT / 2, yPercent: 0 },
+        {
+          xPercent: FIELD_DRIFT / 2,
+          yPercent: -FIELD_DRIFT / 2,
+          duration: Math.max(2, seconds),
+          ease: "none",
+        },
+        0,
+      ),
+    ],
+    [
+      `#${sid} .fd{position:absolute;left:0;top:0;right:0;bottom:${reserveRef(ctx.format)}px;z-index:-1;overflow:hidden;background:${fieldColour(theme.accent)}}`,
+      `#${sid} .fd-v{position:absolute;left:-20%;top:-20%;width:140%;height:140%;background:radial-gradient(ellipse 55% 50% at 42% 46%,rgba(0,0,0,0) 0%,rgba(0,0,0,0.18) 55%,rgba(0,0,0,0.5) 100%)}`,
+    ],
+  );
+}
+
+/**
+ * The one way a layer goes under a scene: `layer` first in the html, its
+ * entrance tweens before the scene's own, its rules before the scene's rules,
+ * which are scoped to the scene (see the header) because they were emitted in
+ * glass colours.
+ */
+function under(
+  scene: Scene,
+  ctx: EmitContext,
+  layer: readonly string[],
+  layerTl: readonly Tween[],
+  layerCss: readonly string[],
+): Scene {
+  const { sid } = ctx;
+  const { fit: _fit, ...rest } = scene;
+  return {
+    ...rest,
+    html: [...layer, scene.html].join("\n"),
+    tl: [...layerTl, ...scene.tl],
+    css: [
+      `#${sid},#${sid} .scene{z-index:0;isolation:isolate}`,
+      ...layerCss,
       // The body's colour is the deck's ink, which every archetype's text that
       // sets none inherits.
       `#${sid}{color:${FG}}`,

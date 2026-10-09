@@ -504,6 +504,14 @@ export interface Scene {
   /** CSS this archetype needs. Deduplicated by the shell, emitted once. */
   css?: string;
   /**
+   * The scene's entrances ARE what it says, so the v2 motion grammar must not
+   * re-voice them (`restyleEntrance` in ./motion.ts). Set by `kinetic`, whose
+   * phrases each arrive with a move of their own: re-voiced into the deck's one
+   * verb for the scene, four phrases arrived the same way and the beat was a
+   * paragraph fading in. In memory only, never serialised.
+   */
+  ownEntrances?: boolean;
+  /**
    * The archetype's own prediction of how full its final hold is — v2 only.
    * In memory, never serialised into the composition (like `parts`); the shell
    * collects it into `fit.json` and `verify/fill.ts` holds it against the

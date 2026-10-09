@@ -187,6 +187,28 @@ const CASES: [string, unknown, number][] = [
   // picture has when there are none.
   ["stage", { headline: "H", figureId: "fig", placement: "bottom-left", line: "l" }, 1],
   ["stage", { headline: "H", figureId: "fig", placement: "none" }, 1],
+  // One stop, after the headline, with or without the bars.
+  [
+    "hero-number",
+    {
+      headline: "H",
+      value: "43.63",
+      unit: "mJ",
+      label: "L",
+      compare: { value: "175.21", label: "B" },
+    },
+    1,
+  ],
+  ["hero-number", { headline: "H", value: "1/4", label: "L" }, 1],
+  // One per phrase, struck or not.
+  [
+    "kinetic",
+    {
+      headline: "H",
+      phrases: [{ text: "one", key: "one" }, { text: "two" }, { text: "three", key: "three" }],
+    },
+    3,
+  ],
 ];
 
 describe("the prompt's reveal counts", () => {

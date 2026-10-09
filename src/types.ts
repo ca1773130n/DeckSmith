@@ -197,8 +197,26 @@ export const backdropSchema = z.object({
   illustration: illustrationSchema.optional(),
 });
 
-/** The archetypes that take a `backdrop`. The diagrams and comparisons, drawn over a scene. */
-export const BACKDROP_ARCHETYPES = ["pipeline", "split-compare", "callout", "bar-compare"] as const;
+/**
+ * The archetypes that take a `backdrop`: the diagrams and comparisons, drawn
+ * over a scene, and the two full-bleed ones that are otherwise drawn over a
+ * field of colour (`FIELD_ARCHETYPES`).
+ */
+export const BACKDROP_ARCHETYPES = [
+  "pipeline",
+  "split-compare",
+  "callout",
+  "bar-compare",
+  "hero-number",
+  "kinetic",
+] as const;
+
+/**
+ * The archetypes that never sit on the pack's pale ground: with no `backdrop`
+ * they are drawn over a deep field of the pack's accent instead
+ * (src/emit/backdrop.ts, `overField`).
+ */
+export const FIELD_ARCHETYPES = ["hero-number", "kinetic"] as const;
 
 /**
  * The id prefix `illustrate` gives every figure it draws (`gen-b03`,
@@ -581,6 +599,61 @@ export const stageParamsSchema = z
     path: ["figureId"],
   });
 
+/**
+ * ONE NUMBER THAT OWNS THE FRAME — the result an explainer video stops on.
+ *
+ * `value` is the figure as the source prints it ("43.63", "1/4", "75.1%"); its
+ * digits are drawn as odometer reels that roll into place, every other
+ * character standing still. `compare` is the number it is read against — the
+ * baseline, the before — drawn as a second figure, and as a pair of bars when
+ * both parse as plain numbers in one unit (`unit`). `label` names what `value`
+ * measures; `headline` is the sentence the number says, set under it.
+ *
+ * Full-bleed like `stage`: over a `backdrop` picture when it has one, else over
+ * a deep field of the pack's accent (src/emit/backdrop.ts), never on the pale
+ * ground a deck of cards sits on.
+ */
+export const heroNumberParamsSchema = z.object({
+  eyebrow: z.string().optional(),
+  headline: z.string(),
+  value: z.string(),
+  unit: z.string().optional(),
+  label: z.string(),
+  compare: z.object({ value: z.string(), label: z.string() }).optional(),
+  /** A full-bleed scene behind the number. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
+});
+
+/**
+ * A CLAIM SET AS MOVING TYPE. Two to four phrases, each arriving with its own
+ * move and stopped on, with one `key` word in it struck through by a highlight.
+ *
+ * `headline` labels the slide — the composition's title, the notes fallback —
+ * and is not drawn, as under a stage's `placement: "none"`: the phrases are
+ * what the audience reads. `key` must appear verbatim in its phrase.
+ */
+export const kineticParamsSchema = z
+  .object({
+    headline: z.string(),
+    phrases: z
+      .array(z.object({ text: z.string(), key: z.string().optional() }))
+      .min(2)
+      .max(4),
+    /** A full-bleed scene behind the words. See `backdropSchema`. */
+    backdrop: backdropSchema.optional(),
+  })
+  .superRefine((p, ctx) => {
+    p.phrases.forEach((ph, i) => {
+      if (ph.key !== undefined && !ph.text.includes(ph.key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["phrases", i, "key"],
+          message: `key "${ph.key}" is not in phrase "${ph.text}"`,
+        });
+      }
+    });
+  });
+
 /* ------------------------------------------------------------------- Beats */
 
 /**
@@ -755,6 +828,18 @@ export const beatSchema = z.discriminatedUnion("archetype", [
     ...beatTail,
   }),
   z.object({ ...beatCore, archetype: z.literal("stage"), params: stageParamsSchema, ...beatTail }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("hero-number"),
+    params: heroNumberParamsSchema,
+    ...beatTail,
+  }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("kinetic"),
+    params: kineticParamsSchema,
+    ...beatTail,
+  }),
 ]);
 
 /**
@@ -781,6 +866,9 @@ export const DIAGRAMMATIC: ReadonlySet<string> = new Set([
   "equation-morph",
   "line-chart",
   "stage",
+  // A magnitude, drawn and measured against its baseline. `kinetic` is not
+  // here: moving type is still a sentence, however it arrives.
+  "hero-number",
 ]);
 
 /**
@@ -810,7 +898,10 @@ export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   "claim-figure": "frame",
   // Same reason as claim-figure: the picture illustrates what the beat says.
   stage: "frame",
+  // A claim, however it moves.
+  kinetic: "frame",
   callout: "frame",
+  "hero-number": "quantity",
   pipeline: "structure",
   grid: "structure",
   stack: "structure",

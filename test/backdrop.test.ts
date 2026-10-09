@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
-import { glass, onWorstGround, scopeCss } from "../src/emit/backdrop.js";
+import { fieldColour, glass, onWorstGround, scopeCss } from "../src/emit/backdrop.js";
 import type { EmitContext, Theme } from "../src/emit/kit.js";
 import { THEMES } from "../src/emit/theme.js";
 import { PACKS } from "../src/emit/themes/packs.js";
@@ -125,6 +125,38 @@ describe("backdrop", () => {
       for (const ink of [g.fg, g.muted, g.dim, g.accent, ...Object.values(g.tones)]) {
         expect(onWorstGround(ink), `${name} ${ink}`).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  it("gives every pack and theme a field its glass inks clear 4.5:1 on, keeping the accent's hue", () => {
+    const lum = (hex: string) => {
+      const n = Number.parseInt(hex.slice(1), 16);
+      const lin = (s: number) => {
+        const x = ((n >> s) & 255) / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * lin(16) + 0.7152 * lin(8) + 0.0722 * lin(0);
+    };
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    for (const [name, theme] of Object.entries({ ...THEMES, ...PACKS })) {
+      const t = theme as Theme;
+      const field = fieldColour(t.accent);
+      const g = glass(t);
+      for (const ink of [g.fg, g.muted, g.dim, g.accent, ...Object.values(g.tones)]) {
+        expect(contrast(ink, field), `${name} ${ink} on ${field}`).toBeGreaterThanOrEqual(4.5);
+      }
+      // A key struck on the accent chip, in the glass ground's ink.
+      expect(contrast(g.bg, g.accent), `${name} chip`).toBeGreaterThanOrEqual(4.5);
+      // The hue survives: the dominant channel of the accent is the field's too.
+      const ch = (hex: string) =>
+        [16, 8, 0].map((s) => (Number.parseInt(hex.slice(1), 16) >> s) & 255);
+      const a = ch(t.accent);
+      const f = ch(field);
+      if (Math.max(...a) - Math.min(...a) > 40)
+        expect(f.indexOf(Math.max(...f))).toBe(a.indexOf(Math.max(...a)));
     }
   });
 

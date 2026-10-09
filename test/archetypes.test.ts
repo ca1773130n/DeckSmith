@@ -290,6 +290,31 @@ const beats: Beat[] = [
       line: "one short line",
     },
   },
+  {
+    ...core,
+    id: "b15",
+    archetype: "hero-number",
+    params: {
+      eyebrow: "Energy",
+      headline: "A <headline> under the number",
+      value: "43.63",
+      unit: "mJ",
+      label: "ours",
+      compare: { value: "175.21", label: "baseline" },
+    },
+  },
+  {
+    ...core,
+    id: "b16",
+    archetype: "kinetic",
+    params: {
+      headline: "A <headline> nobody draws",
+      phrases: [
+        { text: "Spikes stay sparse", key: "sparse" },
+        { text: "even when the <haze> thickens", key: "thickens" },
+      ],
+    },
+  },
 ];
 
 describe("archetypes", () => {

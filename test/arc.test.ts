@@ -257,9 +257,9 @@ describe("the prompt asks for the arc, and only when asked", () => {
     // Tripwires the existing suite pins: one "what was measured" (RULE 6 owns
     // it) and one "The tell:" per archetype.
     expect(text.match(/what was measured/g)?.length ?? 0).toBe(1);
-    // `\s+`, not a space: the catalogue wraps, so some of the fourteen read
+    // `\s+`, not a space: the catalogue wraps, so some of the sixteen read
     // "The\n tell:". This is the same regex test/prompt.test.ts uses.
-    expect(text.match(/The\s+tell:/g)?.length).toBe(14);
+    expect(text.match(/The\s+tell:/g)?.length).toBe(16);
   });
 });
 

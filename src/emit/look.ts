@@ -105,7 +105,9 @@ export function signature(archetype: Archetype, look?: Look): string {
  * row" nobody could see.
  */
 export function chromeless(archetype: Archetype): boolean {
-  return archetype === "stage";
+  // The full-bleed two draw their own words where their own layout says, as a
+  // stage does: a number with its sentence under it, phrases down a stair.
+  return archetype === "stage" || archetype === "hero-number" || archetype === "kinetic";
 }
 
 /**

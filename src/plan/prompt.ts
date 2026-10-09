@@ -52,7 +52,7 @@ export const REVEALS: Record<string, string> = {
   "data-table": "one per highlighted row, plus 1",
   // "long enough" is not a hedge: below the emitter's own floor the comparison
   // is dropped and the chart stops twice becoming a chart that stops once. See
-  // the line-chart entry under THE FOURTEEN ARCHETYPES for what that costs.
+  // the line-chart entry under THE SIXTEEN ARCHETYPES for what that costs.
   "line-chart": "1, or 2 when compare is given and the beat is long enough for it",
   callout: "one per panel",
   pipeline: "one per stage",
@@ -62,6 +62,8 @@ export const REVEALS: Record<string, string> = {
   stack: "one per layer",
   "split-compare": "2, one per side",
   stage: "1",
+  "hero-number": "1",
+  kinetic: "one per phrase",
 };
 
 const REVEAL_COUNTS = Object.entries(REVEALS)
@@ -106,11 +108,11 @@ A beat is one idea, one visual, one hold. It carries:
              beat immediately before it. See RULE 11. Leave it off unless the
              source itself puts one inside the other.
 
-THE FOURTEEN ARCHETYPES
+THE SIXTEEN ARCHETYPES
 
-Ten of them DRAW: nine build a vector graphic out of the source's own content
-and reveal it stage by stage, so the viewer watches the idea assemble, and one
-gives a picture the whole screen. Four only
+Eleven of them DRAW: nine build a vector graphic out of the source's own content
+and reveal it stage by stage, so the viewer watches the idea assemble, one
+gives a picture the whole screen, and one gives a number the whole screen. Five only
 describe. The drawing ones are the default. The describing ones are what you
 fall back to when a point genuinely has no shape.
 
@@ -244,7 +246,37 @@ DRAWING ARCHETYPES — reach here first
                  In a tall frame every placement spans the full width, and
                  "right" only aligns the words to the right.
 
+  hero-number    One number filling the frame, its digits rolling into place
+                 like a counter, with what it measures and the sentence it
+                 says under it. The tell: ONE FIGURE IS THE POINT — a cost cut,
+                 a speedup, a score, a ratio the source reports and the beat
+                 exists to land. \`value\` is the figure exactly as the source
+                 prints it ("43.63", "1/4", "75.1%"), at most about eight
+                 characters; \`unit\` is set small beside it ("mJ", "ms").
+                 \`label\` names the quantity, in two to five words.
+                 \`compare\` is the number it is read against — the baseline,
+                 the before — with its own short \`label\` ("SFRDP-Net"); when
+                 both are plain numbers in the one unit they are drawn as two
+                 bars to one scale, the baseline first. \`headline\` is one
+                 sentence of up to two lines saying what the number means.
+                 Several named things measured in one unit is bar-compare; one
+                 number that is the point is this. The number must be in the
+                 source, and \`evidence\` cites where.
+
 DESCRIBING ARCHETYPES — the fallbacks
+
+  kinetic        A claim set as moving type over a full-bleed field: two to
+                 four short phrases, each arriving with its own move, one key
+                 word in each struck through by a highlight. The tell: ONE
+                 STRONG CLAIM WITH NO SHAPE — a thesis, a turn in the
+                 argument, the sentence the viewer must leave with — where a
+                 panel of bullets is what would otherwise be drawn. Split the
+                 claim into \`phrases\` where a speaker would breathe, each at
+                 most about 30 characters; \`key\` is the one word or short
+                 run of words that carries its phrase, copied verbatim from
+                 it. \`headline\` labels the slide and is not drawn. Give it
+                 about two seconds per phrase in \`seconds\`. Not for lists,
+                 steps or comparisons: those have shapes.
 
   title          One headline, with \`eyebrow\` above it and \`sub\` beneath. The
                  tell: THE DECK OPENING, or a genuine change of subject partway
@@ -306,8 +338,8 @@ RULES
 1. Ask what the beat DRAWS before you ask what it says. Read the point, find its
    shape — a sequence, a field, a magnitude, a stack, a contrast, a figure worth
    pointing into — and pick the archetype that draws that shape. Only when a point
-   honestly has no shape does it become a title, a claim-figure, a data-table or a
-   callout. A deck of headlines and bullet panels is a failure even if every
+   honestly has no shape does it become a title, a kinetic claim, a claim-figure,
+   a data-table or a callout. A deck of headlines and bullet panels is a failure even if every
    sentence in it is true; it is what every other slide generator already makes.
    Most beats in a good deck draw something.
 
@@ -707,8 +739,9 @@ nothing, so it can never dangle.
     briefs spends two, and a backdrop spends one. Past that, find the point's
     shape and draw it.
 
-BACKDROPS: A DIAGRAM DRAWN OVER A SCENE. A pipeline, split-compare, callout or
-bar-compare may carry \`backdrop: { illustration: { prompt, caption } }\`. The
+BACKDROPS: A DIAGRAM DRAWN OVER A SCENE. A pipeline, split-compare, callout,
+bar-compare, hero-number or kinetic beat may carry
+\`backdrop: { illustration: { prompt, caption } }\`. The
 picture covers the whole frame behind the diagram, darkened, and the boxes,
 panels and bars are drawn over it as dark glass — the diagram keeps its shape
 and its words, and the slide becomes a scene instead of cards on a plain

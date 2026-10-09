@@ -300,6 +300,7 @@ const num = (v: unknown, d = 0): number => (typeof v === "number" ? v : d);
  * untouched (rule 3 at the top), so this cannot move a hold or the voice.
  */
 export function restyleEntrance(scene: Scene, sid: string, verb: Entrance): Scene {
+  if (scene.ownEntrances) return scene;
   const tl = scene.tl.map((t) => {
     if (!isEntrance(t)) return t;
     const mine = targetsOf(t);

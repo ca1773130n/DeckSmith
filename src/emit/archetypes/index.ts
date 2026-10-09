@@ -6,7 +6,8 @@
  * `types.ts` honest.
  */
 import type { Archetype, Beat } from "../../types.js";
-import { backdropFigure, glass, overBackdrop } from "../backdrop.js";
+import { FIELD_ARCHETYPES } from "../../types.js";
+import { backdropFigure, glass, overBackdrop, overField } from "../backdrop.js";
 import type { EmitContext, Emitter, Scene } from "../kit.js";
 import { annotatedFigure } from "./annotated-figure.js";
 import { barCompare } from "./bar-compare.js";
@@ -16,6 +17,8 @@ import { dataTable } from "./data-table.js";
 import { equationMorph } from "./equation-morph.js";
 import { equationWalk } from "./equation-walk.js";
 import { grid } from "./grid.js";
+import { heroNumber } from "./hero-number.js";
+import { kinetic } from "./kinetic.js";
 import { lineChart } from "./line-chart.js";
 import { pipeline } from "./pipeline.js";
 import { splitCompare } from "./split-compare.js";
@@ -37,6 +40,9 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
   "line-chart": lineChart,
   // The one that gives a picture the whole frame.
   stage,
+  // The full-bleed ones that need no picture: a number, and a claim in motion.
+  "hero-number": heroNumber,
+  kinetic,
   // The ones that describe.
   title,
   "claim-figure": claimFigure,
@@ -46,7 +52,7 @@ export const emitters: { [A in Archetype]: Emitter<A> } = {
 
 /**
  * Dispatch a beat to its emitter, over its backdrop when it has one. The cast is the one place the pairing is taken
- * on trust: `emitters[beat.archetype]` is a union of fourteen emitters and TypeScript
+ * on trust: `emitters[beat.archetype]` is a union of sixteen emitters and TypeScript
  * will not narrow the key and the beat together. The table above already proves
  * every archetype has exactly one emitter of the right shape.
  */
@@ -56,6 +62,13 @@ export function emitScene(beat: Beat, ctx: EmitContext): Scene {
   // picture (src/emit/backdrop.ts). Here rather than in the shell so every
   // pass that emits a beat — planCut, narrate, timing, the Director — sees it.
   const fig = backdropFigure(beat, ctx);
-  if (!fig) return emit(beat, ctx);
-  return overBackdrop(emit(beat, { ...ctx, theme: glass(ctx.theme) }), fig, ctx, beat.seconds);
+  if (fig) {
+    return overBackdrop(emit(beat, { ...ctx, theme: glass(ctx.theme) }), fig, ctx, beat.seconds);
+  }
+  // The full-bleed archetypes never fall back to the pack's ground: with no
+  // picture they stand on a field of its accent, in the same glass colours.
+  if ((FIELD_ARCHETYPES as readonly Archetype[]).includes(beat.archetype)) {
+    return overField(emit(beat, { ...ctx, theme: glass(ctx.theme) }), ctx, beat.seconds);
+  }
+  return emit(beat, ctx);
 }
