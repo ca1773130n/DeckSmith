@@ -844,15 +844,43 @@ export const LITERAL_KIND_DOCS: Record<LiteralKind, string> = {
                      small scale fall silent under the fixed one and fire under
                      their own. Values ILLUSTRATIVE, and the narration says so.
                      Takes \`picture\`. Slots: channels, fixed, calibrated.`,
+  "ema-threshold": `a threshold calibrated during training and frozen at
+                     inference: random crops of the picture stream in, each one's
+                     membrane spread moves an exponential moving average, the
+                     threshold follows it; then a test picture arrives and the
+                     line does not move. Values ILLUSTRATIVE. Takes \`picture\`.
+                     Slots: train, infer, ema, frozen, test.`,
+  backbone: `an encoder-decoder computed on the picture with FIXED
+                     operations (3×3 filter, 2× downsampling, spike quantization,
+                     upsampling with skip connections, spike levels back to a
+                     continuous map): the maps at their true relative sizes. Not
+                     the trained network; its output is never drawn. Takes
+                     \`picture\`. Slots: input, shallow, encoder, decoder, prb,
+                     output.`,
+  "fixed-filters": `the two fixed Sobel kernels with their numbers and their
+                     responses on the picture (nothing learned), then the time
+                     steps that share one set of weights. Takes \`picture\`.
+                     Slots: kernels, params, shared, steps.`,
+  crops: `the picture at its true pixel size with random 256×256 training
+                     crops drawn to scale and gathered into a batch. Takes
+                     \`picture\`. Slots: picture, crop, batch.`,
   sobel: `the real Sobel structure map of the hazy picture, gating and
                      reweighting the smoothed features so edges and texture come
                      back. Takes \`picture\`. Slots: hazy, structure, feature,
                      reweighted.`,
-  table: `numbers the source reports, as a quiet table; one row lit per
-                     narration sentence (\`highlight\`, row indexes from 0, in
-                     the order they are spoken). Every number in a cell is one
-                     the source states, written exactly as it does. Takes
-                     \`columns\`, \`rows\`, \`highlight\`. Slots: caption.`,
+  table: `numbers or claims the source reports, as a quiet table; rows lit
+                     in the order they are spoken (\`highlight\`, row indexes
+                     from 0), and \`marks\` ({row, col}) emphasise the cells that
+                     win or are missing. Every number in a cell is one the
+                     source states, written exactly as it does. Prior methods
+                     appear here, by the numbers and claims the source gives.
+                     Takes \`columns\`, \`rows\`, \`highlight\`, \`marks\`.
+                     Slots: caption.`,
+  scale: `reported quantities as lengths to scale, quiet, never growing: one
+                     group per narration sentence, each scaled to its own
+                     largest, so groups compare ratios; \`tile\` lays the
+                     smallest along the largest. Values exactly as the source
+                     writes them. Takes \`groups\`, \`tile\`. Slots: caption.`,
   recap: `the layers the deck's earlier literal scenes computed, small, in
                      order: the summary told with the pictures the viewer has
                      already seen. Takes \`beats\` (earlier literal beats). Slots:

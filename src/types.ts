@@ -752,10 +752,10 @@ export const beatPartSchema = z.enum([
 
 /**
  * The mechanisms a literal scene can draw (src/bespoke/literal.ts), by name.
- * One list, read by the schema, the planner's prompt and the build. The
- * prototype implements the first three; the rest are named here so a plan can
- * ask for them, and the build keeps a beat's archetype for a kind it does not
- * draw yet (saying so).
+ * One list, read by the schema, the planner's prompt and the build, which
+ * draws every one: haze, spikes and sobel in literal.ts, the rest in
+ * literal-kinds.ts (picture kinds compute from the deck's picture; table,
+ * scale and recap draw what the source states or what earlier scenes computed).
  */
 export const LITERAL_KIND_NAMES = [
   "haze",
@@ -763,7 +763,12 @@ export const LITERAL_KIND_NAMES = [
   "sobel",
   "dark-channel",
   "channel-threshold",
+  "ema-threshold",
+  "backbone",
+  "fixed-filters",
+  "crops",
   "table",
+  "scale",
   "recap",
 ] as const;
 
@@ -789,13 +794,40 @@ export const literalSchema = z.discriminatedUnion("kind", [
   pictureKind("sobel"),
   pictureKind("dark-channel"),
   pictureKind("channel-threshold"),
+  pictureKind("ema-threshold"),
+  pictureKind("backbone"),
+  pictureKind("fixed-filters"),
+  pictureKind("crops"),
   z.object({
     kind: z.literal("table"),
     /** Every cell holding a number holds one the source states (src/plan/coverage.ts). */
     columns: z.array(z.string()),
     rows: z.array(z.array(z.string())),
-    /** Rows lit one per narration cue, by index into `rows`. */
+    /**
+     * Rows lit in the order they are spoken, by index into `rows`. With more
+     * entries than narration cues, they are spread over the cues in order.
+     */
     highlight: z.array(z.int()).default([]),
+    /** Cells that win or matter (a best value, a missing result), emphasised when their row is lit. */
+    marks: z.array(z.object({ row: z.int(), col: z.int() })).default([]),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("scale"),
+    /**
+     * Reported quantities drawn as lengths to scale, one group per narration
+     * cue; each group is scaled to its own largest value, so two groups compare
+     * RATIOS. `value` is written exactly as the source states it.
+     */
+    groups: z.array(
+      z.object({
+        label: z.string(),
+        unit: z.string(),
+        items: z.array(z.object({ label: z.string(), value: z.string() })),
+      }),
+    ),
+    /** Lay copies of a group's smallest length along its largest: "about a quarter" made visible. */
+    tile: z.boolean().default(false),
     ...literalLabels,
   }),
   z.object({

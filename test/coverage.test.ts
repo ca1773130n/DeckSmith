@@ -255,6 +255,35 @@ describe("literalFindings", () => {
     expect(found).toContainEqual(expect.stringMatching(/highlights row 2/));
   });
 
+  it("refuses a scale value the source never states, and a mark on no cell", () => {
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "scale",
+        groups: [
+          {
+            label: "PSNR",
+            unit: "dB",
+            items: [
+              { label: "EM-SNN", value: "30.56" },
+              { label: "other", value: "99.9" },
+            ],
+          },
+        ],
+      },
+    });
+    let found = literalFindings(plan(beats), analysis);
+    expect(found).toContainEqual(
+      expect.stringMatching(/scale draws "99.9", which the source never states/),
+    );
+    expect(found.join("\n")).not.toMatch(/"30.56"/);
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: { kind: "table", columns: ["PSNR"], rows: [["30.56"]], marks: [{ row: 0, col: 3 }] },
+    });
+    found = literalFindings(plan(beats), analysis);
+    expect(found).toContainEqual(expect.stringMatching(/marks \(0, 3\), which is no cell/));
+  });
+
   it("refuses a recap of a beat that is not an earlier literal scene", () => {
     const beats = covered();
     beats[8] = beatOf("b08-summary", "summary", ["sec10"], {

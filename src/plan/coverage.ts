@@ -261,6 +261,24 @@ export function literalFindings(
         out.push(
           `${beat.id}'s table shows ${made.map((n) => `"${n}"`).join(", ")}, which the source never states. A literal table shows only the numbers the source reports.`,
         );
+      const off = lit.marks.filter(
+        (m) => !(lit.rows[m.row] && m.col >= 0 && m.col < (lit.rows[m.row] as string[]).length),
+      );
+      if (off.length)
+        out.push(
+          `${beat.id}'s table marks ${off.map((m) => `(${m.row}, ${m.col})`).join(", ")}, which is no cell of it (rows and columns count from 0).`,
+        );
+    } else if (lit.kind === "scale") {
+      const items = lit.groups.flatMap((g) => g.items);
+      if (!items.length) out.push(`${beat.id}'s scale has no values.`);
+      text ??= sourceText(source);
+      const bad = items.filter(
+        (it) => !/^\d+(\.\d+)?$/.test(it.value) || !(text as string).includes(it.value),
+      );
+      if (bad.length)
+        out.push(
+          `${beat.id}'s scale draws ${bad.map((it) => `"${it.value}"`).join(", ")}, which the source never states as a number. A scale draws only values the source reports, written as it writes them.`,
+        );
     } else if (lit.kind === "recap") {
       if (!lit.beats.length) out.push(`${beat.id}'s recap names no beats.`);
       for (const id of lit.beats) {
