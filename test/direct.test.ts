@@ -347,8 +347,12 @@ describe("design: the switch", () => {
     // after reading all 46 hold frames of the v2 demo: headline 56, kicker 40,
     // labels and body 40-44, display equations at most 64; entrances are
     // opacity fades, no panel or slab lifts, no divider sweep, glow-only emphasis.
+    // Then the seams of r3's review (2026-10-10), the only diff being seam
+    // tweens: no `wipe` (s2, s7, s11 lose their clip sweep, so the hash picks
+    // re-roll s9-s15's seams), and every seam fades the outgoing eyebrow and
+    // headline out in 0.16s, before the incoming chrome starts at 0.3.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "d122fb13367926ecccac40c627af55d2d2f6c6acb1514e8a677cc2fa534e4b5d",
+      "a454c3f456e285461f99a618f7cace29dfb9e0db4dd789a408dd0cb06b33a203",
     );
   });
 

@@ -19,6 +19,8 @@ import { emitScene } from "../src/emit/archetypes/index.js";
 import { type DeckNarration, emitDeck, openSeconds } from "../src/emit/composition.js";
 import type { Scene, Tween } from "../src/emit/kit.js";
 import {
+  CHROME_OUT,
+  chromeOut,
   EMPH_TOTAL,
   ENTRANCES,
   emphasize,
@@ -28,6 +30,7 @@ import {
   MOTION_EASES,
   type MotionBeat,
   planMotion,
+  restyleChrome,
   restyleEntrance,
   SEAM_CLEAR,
   SEAMS,
@@ -344,38 +347,72 @@ describe("seams", () => {
   });
 
   /**
-   * THE LEGIBILITY RULE, per `HANDOFF_SECONDS`: two lines of type must never be
-   * readable on top of each other. Over the handoff, the outgoing scene's
-   * visibility (opacity, or the unclipped fraction for a wipe) and the incoming
-   * scene's eyebrow and headline opacity are never both at or above one half —
-   * for every seam against every entrance verb. Eases are GSAP's own.
+   * THE LEGIBILITY RULE: two lines of type are never on screen together. Over
+   * the handoff, the outgoing scene's type (its root's visibility times its
+   * chrome's own fade, `chromeOut`) and the incoming scene's eyebrow and
+   * headline are never BOTH above 2% — for every seam, every entrance verb, and
+   * the stock `chromeIn` a bespoke scene is wrapped in (`restyleChrome`).
+   *
+   * Was "never both at or above one half", which passed while r3's s12→s13 and
+   * s13→s14 frames showed two headlines and two eyebrows overprinted: a 40%
+   * headline over a 45% one is not legible either.
    */
-  it("never shows two headlines legibly at once, for every seam × entrance verb", () => {
+  it("never shows two headlines at once, for every seam × entrance verb", () => {
     const over = 0.4;
     const scene = demoScenes()[2] as { sid: string; scene: Scene };
+    const html = `<div id="s1-e"></div><h2 id="s1-h"></h2>`;
+    const at = (t: Tween, tau: number): number => {
+      const d = Number(t.to.duration ?? 0.5);
+      const q = Math.min(1, Math.max(0, (tau - t.at) / d));
+      const ease = gsap.parseEase(String(t.to.ease ?? "power1.out"));
+      const from = Number(t.from.opacity);
+      const to = Number(t.to.opacity);
+      return q <= 0 ? from : from + (to - from) * ease(q);
+    };
+    const outChrome = chromeOut("s1", html, 0, over);
+    expect(outChrome.map((t) => t.target)).toEqual(["#s1-e", "#s1-h"]);
     for (const seam of SEAMS) {
       const [out] = seamOut(seam, "s1", 0, over) as [Tween];
-      const outEase = gsap.parseEase(String(out.to.ease));
       for (const verb of ENTRANCES) {
-        const chrome = restyleEntrance(scene.scene, scene.sid, verb).tl.filter((t) =>
-          /-[eh]$/.test(t.target),
-        );
-        for (let tau = 0; tau <= over + 1e-9; tau += 1 / 120) {
-          const p = Math.min(1, tau / over);
-          const outgoing = 1 - outEase(p);
-          for (const t of chrome) {
-            const d = Number(t.to.duration ?? 0.5);
-            const q = Math.min(1, Math.max(0, (tau - t.at) / d));
-            const ease = gsap.parseEase(String(t.to.ease ?? "power1.out"));
-            const incoming = q <= 0 ? 0 : ease(q);
-            expect(
-              outgoing >= 0.5 && incoming >= 0.5,
-              `${seam} × ${verb}: ${t.target} at ${tau.toFixed(3)}s`,
-            ).toBe(false);
+        const incoming = [
+          restyleEntrance(scene.scene, scene.sid, verb),
+          restyleChrome(scene.scene, scene.sid, verb),
+        ].map((sc) => sc.tl.filter((t) => /-[eh]$/.test(t.target)));
+        for (const chrome of incoming)
+          for (let tau = 0; tau <= over + 1e-9; tau += 1 / 120) {
+            const root = at(out, tau);
+            const outgoing = Math.max(...outChrome.map((t) => root * at(t, tau)));
+            for (const t of chrome) {
+              const shown = tau < t.at ? 0 : at(t, tau);
+              expect(
+                outgoing > 0.02 && shown > 0.02,
+                `${seam} × ${verb}: ${t.target} at ${tau.toFixed(3)}s (${outgoing.toFixed(2)} / ${shown.toFixed(2)})`,
+              ).toBe(false);
+            }
           }
-        }
       }
     }
+  });
+
+  it("clears only the chrome the scene draws, inside the handoff", () => {
+    expect(chromeOut("s4", `<h2 id="s4-h"></h2>`, 10.5, 0.4)).toEqual([
+      {
+        target: "#s4-h",
+        from: { opacity: 1 },
+        to: { opacity: 0, duration: 0.16, ease: "sine.inOut", immediateRender: false },
+        at: 10.5,
+      },
+    ]);
+    expect(CHROME_OUT * 0.4).toBeLessThan(SEAM_CLEAR);
+    expect(chromeOut("s4", "", 10.5, 0.4)).toEqual([]);
+  });
+
+  it("has no hard-edged seam: nothing sweeps a clip across a whole slide", () => {
+    // r3 (2026-10-10): `wipe` left half a robot and a lone chip on an empty slide.
+    expect(SEAMS as readonly string[]).not.toContain("wipe");
+    for (const k of [0, 3, 7, 11])
+      for (const seam of planMotion(`seed-${k}`, beatsFor(k, 16)).seams)
+        expect(seam).not.toBe("wipe");
   });
 });
 

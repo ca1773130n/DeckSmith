@@ -49,10 +49,12 @@ import type { FitManifest } from "./fit.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, type Tween, tweenText } from "./kit.js";
 import {
+  chromeOut,
   emphasize,
   type HoldWindow,
   type MotionPlan,
   planMotion,
+  restyleChrome,
   restyleEntrance,
   seamIn,
   seamOut,
@@ -548,10 +550,16 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // which re-emits without it.
     const emitted = emitScene(beat, ctx);
     // A bespoke scene's entrance is its own; restyling it would rewrite tweens
-    // the shell did not author. Its chrome keeps the stock `chromeIn`.
+    // the shell did not author. Its CHROME is the shell's stock `chromeIn`, so
+    // that alone is restyled — clear of the seam, like every archetype's.
     const bespoke = opts.bespoke?.[beat.id] !== undefined;
+    const verb = motion?.entrances[i] ?? "fade";
     const { scene } = stageScene(
-      motion && !bespoke ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "fade") : emitted,
+      !motion
+        ? emitted
+        : bespoke
+          ? restyleChrome(emitted, sid, verb)
+          : restyleEntrance(emitted, sid, verb),
       speed,
     );
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);
@@ -623,7 +631,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
       const seam = motion?.seams[i];
       const out: Tween[] =
         seam && seam !== "dive"
-          ? seamOut(seam, sid, duration, over)
+          ? [...seamOut(seam, sid, duration, over), ...chromeOut(sid, scene.html, duration, over)]
           : [handoffStatement(sid, duration, over)];
       scene = { ...scene, tl: [...scene.tl, ...out] };
     }

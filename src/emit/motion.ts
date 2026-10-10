@@ -79,14 +79,22 @@ export type Entrance = (typeof ENTRANCES)[number];
  * | dissolve | opacity → 0, power2.in (v0.8.0)  | —                      |
  * | push     | xPercent 0 → −4, opacity → 0     | xPercent 4 → 0         |
  * | lift     | yPercent 0 → −4, opacity → 0     | yPercent 4 → 0         |
- * | wipe     | clip-path closes left to right   | —                      |
  * | zoom     | scale 1 → 1.04, opacity → 0      | scale 0.96 → 1         |
+ *
+ * There was a fifth, `wipe`: a clip-path closing left to right. It was cut
+ * (2026-10-10) because a hard edge sweeping a whole slide is a graphic, not a
+ * picture: at 4fps the r3 deck showed it as half a robot and a lone chip on an
+ * empty slide (s4→s5), a bare blue rectangle (s8→s9). Every seam left is a
+ * fade the eye reads as a cut or a camera move.
+ *
+ * Each seam also clears the outgoing scene's TYPE first (`chromeOut`), so two
+ * headlines are never on screen together.
  *
  * 4% is under the scene's own padding at every format (110px of 1920 is 5.7%,
  * 84px of 1080 is 7.8%), so a mid-seam frame never puts content off the canvas
  * for the layout gate's grid samples to find.
  */
-export const SEAMS = ["dissolve", "push", "lift", "wipe", "zoom"] as const;
+export const SEAMS = ["dissolve", "push", "lift", "zoom"] as const;
 export type Seam = (typeof SEAMS)[number] | "dive";
 
 /**
@@ -150,7 +158,7 @@ export interface MotionPlan {
  * SEAMS are chosen by the RELATION between the two beats first, then varied:
  * same family (two quantity beats) → `push`, a lateral continuation; a role
  * boundary (`background` → `limitations`) → `zoom`, a chapter break; into or
- * out of a title → `lift`; any other family change → `wipe`; into the closing
+ * out of a title → `lift`; any other family change → `zoom` or `dissolve`; into the closing
  * beat → `dissolve`. A seam that would repeat the previous one is replaced by a
  * hashed pick from the rest. Then, for a deck of 10+ beats with fewer than three
  * kinds, the earliest replaceable seams are rotated through the missing kinds.
@@ -176,8 +184,8 @@ export function planMotion(seed: string, beats: readonly MotionBeat[]): MotionPl
     else {
       // A change of family is the common case (most adjacent pairs), so a single
       // answer for it would make that seam the deck's modal one. Hashed among the
-      // three that read as "a new kind of thing" rather than a continuation.
-      const turn = ["wipe", "zoom", "dissolve"] as const;
+      // two that read as "a new kind of thing" rather than a continuation.
+      const turn = ["zoom", "dissolve"] as const;
       want = turn[fnv1a(`${seed}|turn|${b.id}|${i}`) % turn.length] as Seam;
     }
     const prev = seams[i - 1];
@@ -265,6 +273,19 @@ export function restyleEntrance(scene: Scene, sid: string, verb: Entrance): Scen
 }
 
 /**
+ * `restyleEntrance` for the CHROME alone: the eyebrow and headline the shell
+ * draws around a bespoke scene with the stock `chromeIn` (src/bespoke/scene.ts).
+ * The scene's own tweens are its author's and are left exactly as written; the
+ * chrome is ours, and unrestyled it slid up from y:14/22 starting at 0.15s,
+ * straight over the outgoing scene's headline (r3, s13→s14).
+ */
+export function restyleChrome(scene: Scene, sid: string, verb: Entrance): Scene {
+  const chrome = (t: Tween) => t.target === `#${sid}-e` || t.target === `#${sid}-h`;
+  const tl = scene.tl.map((t) => (chrome(t) && isEntrance(t) ? clearOfSeam(revoice(t, verb)) : t));
+  return { ...scene, tl };
+}
+
+/**
  * When the incoming chrome may start, in unpaced seconds: once the outgoing
  * scene's handoff (`HANDOFF_SECONDS`, 0.4) has taken it below half opacity,
  * which a `power2.in` fade does at 0.32.
@@ -332,21 +353,43 @@ export function seamOut(
       return [fromTo(root, { opacity: 1, yPercent: 0 }, { opacity: 0, yPercent: -4, ...done }, t0)];
     case "zoom":
       return [fromTo(root, { opacity: 1, scale: 1 }, { opacity: 0, scale: 1.04, ...done }, t0)];
-    case "wipe":
-      return [
-        fromTo(
-          root,
-          { clipPath: "inset(0% 0% 0% 0%)" },
-          {
-            clipPath: "inset(0% 0% 0% 100%)",
-            duration: d,
-            ease: "power2.inOut",
-            immediateRender: false,
-          },
-          t0,
-        ),
-      ];
   }
+}
+
+/**
+ * The share of a handoff the outgoing scene's TYPE takes to fade out. Its
+ * eyebrow and headline are gone by `CHROME_OUT * over` (0.16s of 0.4), well
+ * before the incoming chrome may start at `SEAM_CLEAR` (0.3), so the two
+ * headlines never share a frame. The picture keeps the whole `over` to
+ * dissolve under the next scene.
+ *
+ * WHY. The root fade alone left the outgoing headline at 23-75% while the
+ * incoming one came up at the same place: r3's s12→s13 and s13→s14 seams
+ * showed both headlines and both eyebrows overprinted for about two frames at
+ * 4fps. `power2.in` on the root holds the old type high exactly when the new
+ * type arrives, so no ease on the root alone can fix it.
+ */
+export const CHROME_OUT = 0.4;
+
+/**
+ * The outgoing half of a seam for the scene's own type: `#sid-e` and
+ * `#sid-h`, whichever of them `html` draws (a title-less scene draws no
+ * eyebrow, and a tween on an absent id is a GSAP warning). `immediateRender:
+ * false`, so it never paints at build time over the chrome's own entrance.
+ */
+export function chromeOut(sid: string, html: string, at: number, over: number): Tween[] {
+  const d = r3(over * CHROME_OUT);
+  if (d <= 0) return [];
+  return ["e", "h"]
+    .filter((p) => html.includes(`id="${sid}-${p}"`))
+    .map((p) =>
+      fromTo(
+        `#${sid}-${p}`,
+        { opacity: 1 },
+        { opacity: 0, duration: d, ease: "sine.inOut", immediateRender: false },
+        r3(at),
+      ),
+    );
 }
 
 /**
