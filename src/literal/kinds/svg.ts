@@ -12,13 +12,12 @@
  * frames to, and the backdrop lookup a text with role "auto" is resolved by.
  */
 import type { Theme } from "../../emit/kit.js";
+import { esc } from "../kit.js";
 import type { DataRgb, Frame, Prim, Raster, Region, Role } from "./common.js";
 
 /** An sRGB colour, 0..255 per channel. */
 export type Rgb8 = [number, number, number];
 
-const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const n2 = (n: number) => String(Math.round(n * 100) / 100);
 const css = (c: Rgb8) => `rgb(${c.map((v) => Math.round(v)).join(",")})`;
 
@@ -39,11 +38,6 @@ export function roleRgb(theme: Theme, role: Role): Rgb8 {
     default:
       return hex(theme[role]);
   }
-}
-
-/** Kept for callers that want the theme's own string. */
-export function roleColor(theme: Theme, role: Role): string {
-  return css(roleRgb(theme, role));
 }
 
 /** The heat ramp: the panel colour at 0, the accent at 1. */

@@ -353,7 +353,7 @@ export function splatting(input: SplatInput, region: Region): MechanismResult {
     x: W * 0.7 + 50,
     y: size + 24,
     w: W * 0.3 - 50,
-    h: H - (size + 24) - (size + 20),
+    h: H - (size + 24),
   };
   const span = Math.max(radius * 1.1, extent);
   const sc = Math.min(inset.w, inset.h) / (2 * span);
@@ -393,11 +393,12 @@ export function splatting(input: SplatInput, region: Region): MechanismResult {
     out.push({
       p: "text",
       id: "ilab",
-      x: inset.x,
-      y: inset.y + inset.h + 12,
+      // Over the inset, right-aligned in the header row: it grows left, never past the region.
+      x: W,
+      y: 0,
       size,
       role: "muted",
-      anchor: "start",
+      anchor: "end",
       slot: "path",
     });
     return out;

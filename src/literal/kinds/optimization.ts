@@ -274,13 +274,15 @@ function axes(
         p: "text",
         id: `yt${v}`,
         x: x0 - 12,
-        y: Y(v) - size / 2,
+        // Inside the box: the top tick's label must not rise into the shell's headline.
+        y: Math.min(y0 + h - size, Math.max(y0, Y(v) - size / 2)),
         size,
         role: "muted",
         anchor: "end",
         text: label(v),
       });
-  for (const v of niceTicks(xr[0], xr[1], 4))
+  // As many ticks as the axis has room for: one per ~180 px, so numbers never touch.
+  for (const v of niceTicks(xr[0], xr[1], Math.max(1, Math.min(4, Math.floor(w / 180)))))
     if (v >= xr[0] && v <= xr[1])
       prims.push({
         p: "text",
@@ -289,7 +291,7 @@ function axes(
         y: y0 + h + 8,
         size,
         role: "muted",
-        anchor: "middle",
+        anchor: v === xr[1] ? "end" : "middle", // the last tick ends at the axis
         text: String(Number(v.toPrecision(6))),
       });
   prims.push({
@@ -315,23 +317,17 @@ function axes(
   return { x0, y0, w, h, X, Y, prims };
 }
 
-/** The part of a polyline with x ≤ cut, ending exactly at the cut (linear between given points). */
-export function prefixAt(
+/** The given points with x ≤ cut: a curve is drawn only through the rows it was given, never between them. */
+export function pointsUpTo(
   points: ReadonlyArray<readonly [number, number]>,
   cut: number,
 ): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i] as readonly [number, number];
-    if (p[0] <= cut) {
-      out.push([p[0], p[1]]);
-      continue;
-    }
-    const q = points[i - 1];
-    if (q) out.push([cut, q[1] + ((p[1] - q[1]) * (cut - q[0])) / (p[0] - q[0])]);
-    break;
-  }
-  return out;
+  return points.filter((p) => p[0] <= cut + 1e-9).map((p) => [p[0], p[1]]);
+}
+
+/** A computed value for a label: 3 significant digits, or an exponent below 1e-3 (never "0" for 5e-14). */
+export function fmtValue(v: number): string {
+  return Math.abs(v) >= 1e-3 || v === 0 ? String(Number(v.toPrecision(3))) : v.toExponential(1);
 }
 
 /** End labels pushed apart vertically so none overlaps another. */
@@ -351,19 +347,18 @@ function spread(ys: number[], gap: number, lo: number, hi: number): number[] {
 function verdict(
   items: Array<{ label: string; value: number }>,
   better: "lower" | "higher",
+  fmt: (v: number) => string,
 ): { best: string; bestValue: string; worst: string; worstValue: string } {
   const sorted = [...items].sort((a, b) =>
     better === "lower" ? a.value - b.value : b.value - a.value,
   );
   const best = sorted[0] as { label: string; value: number };
   const worst = sorted[sorted.length - 1] as { label: string; value: number };
-  const f = (v: number) =>
-    Math.abs(v) >= 1e-3 || v === 0 ? Number(v.toPrecision(3)).toString() : v.toExponential(1);
   return {
     best: best.label,
-    bestValue: f(best.value),
+    bestValue: fmt(best.value),
     worst: worst.label,
-    worstValue: f(worst.value),
+    worstValue: fmt(worst.value),
   };
 }
 
@@ -391,7 +386,14 @@ function curves(input: CurvesInput, region: Region): MechanismResult {
     yr = [Math.min(yr[0], t[0] as number), Math.max(yr[1], t[t.length - 1] as number)];
   }
   const size = TYPE.label;
-  const labelW = Math.max(...series.map((s) => measure(`${s.label} 0.000`, size))) + 24;
+  // A given value is drawn as the plan wrote it; the column is as wide as the widest it will hold.
+  const given = (v: number) => String(v);
+  const labelW =
+    Math.max(
+      ...series.flatMap((s) => s.points.map((p) => measure(`${s.label} ${given(p[1])}`, size))),
+    ) +
+    18 +
+    12;
   const ax = axes(
     { x: 0, y: 0, w: region.width - labelW, h: region.height },
     xr,
@@ -404,15 +406,16 @@ function curves(input: CurvesInput, region: Region): MechanismResult {
   for (let k = 1; k <= F; k++) {
     const cut = xr[0] + ((xr[1] - xr[0]) * k) / F;
     const prims: Prim[] = [...ax.prims];
-    const heads = series.map((s) => prefixAt(s.points, cut));
+    const heads = series.map((s) => pointsUpTo(s.points, cut));
     const ends = spread(
-      heads.map((h) => ax.Y((h[h.length - 1] as [number, number])[1]) - size / 2),
+      heads.map((h) => (h.length ? ax.Y((h[h.length - 1] as [number, number])[1]) - size / 2 : 0)),
       size + 6,
       0,
       ax.y0 + ax.h - size,
     );
     series.forEach((s, i) => {
       const h = heads[i] as Array<[number, number]>;
+      if (!h.length) return; // this series starts later
       const role = ROLES[i % ROLES.length] as Role;
       const end = h[h.length - 1] as [number, number];
       prims.push({
@@ -438,17 +441,20 @@ function curves(input: CurvesInput, region: Region): MechanismResult {
         size,
         role,
         anchor: "start",
-        text: `${s.label} ${Number(end[1].toPrecision(3))}`,
+        text: `${s.label} ${given(end[1])}`,
       });
     });
+    const shown = heads.map((h, i) => [h, i] as const).filter(([h]) => h.length);
     const v = verdict(
-      heads.map((h, i) => ({
+      shown.map(([h, i]) => ({
         label: (series[i] as { label: string }).label,
         value: (h[h.length - 1] as [number, number])[1],
       })),
       input.better ?? "lower",
+      given,
     );
-    frames.push({ id: `k${k}`, prims, vars: { steps: Number(cut.toPrecision(6)), ...v } });
+    const last = Math.max(...shown.map(([h]) => (h[h.length - 1] as [number, number])[0]));
+    frames.push({ id: `k${k}`, prims, vars: { steps: given(last), ...v } });
   }
   return { rasters: {}, frames, data: { xr, yr }, vars: (frames[frames.length - 1] as Frame).vars };
 }
@@ -483,26 +489,30 @@ function landscape(input: LandscapeInput, region: Region): MechanismResult {
   ];
   const allLoss = runs.flatMap((r) => r.loss);
   const lr: [number, number] = [Math.max(1e-12, Math.min(...allLoss)), Math.max(...allLoss)];
+  const F = input.frames ?? 6;
+  const uptos = Array.from({ length: F }, (_, f) => Math.round((input.steps * (f + 1)) / F));
+  // The legend column is as wide as the widest label any frame prints (18 px offset + margin).
+  const legendW =
+    Math.max(
+      ...runs.flatMap((r, i) =>
+        uptos.map((u) =>
+          measure(
+            `${(input.optimizers[i] as OptimizerSpec).label} ${fmtValue(r.loss[u] as number)}`,
+            size,
+          ),
+        ),
+      ),
+    ) + 30;
   const ax = axes(
-    {
-      x: pw + 80,
-      y: 0,
-      w:
-        W -
-        pw -
-        80 -
-        (Math.max(...input.optimizers.map((o) => measure(`${o.label} 0.000`, size))) + 24),
-      h: H,
-    },
+    { x: pw + 80, y: 0, w: W - pw - 80 - legendW, h: H },
     [0, input.steps],
     [10 ** Math.floor(Math.log10(lr[0])), 10 ** Math.ceil(Math.log10(lr[1]))],
     true,
     measure,
   );
-  const F = input.frames ?? 6;
   const frames: Frame[] = [];
   for (let f = 1; f <= F; f++) {
-    const upto = Math.round((input.steps * f) / F);
+    const upto = uptos[f - 1] as number;
     const prims: Prim[] = [
       { p: "image", id: "loss", x: 0, y: 0, w: pw, h: (dy1 - dy0) * k, layer: "loss" },
       { p: "image", id: "cont", x: 0, y: 0, w: pw, h: (dy1 - dy0) * k, layer: "contours" },
@@ -577,7 +587,7 @@ function landscape(input: LandscapeInput, region: Region): MechanismResult {
         size,
         role,
         anchor: "start",
-        text: `${o.label} ${Number((r.loss[upto] as number).toPrecision(3))}`,
+        text: `${o.label} ${fmtValue(r.loss[upto] as number)}`,
       });
     });
     const v = verdict(
@@ -586,6 +596,7 @@ function landscape(input: LandscapeInput, region: Region): MechanismResult {
         value: r.loss[upto] as number,
       })),
       "lower",
+      fmtValue,
     );
     frames.push({ id: `k${f}`, prims, vars: { steps: upto, ...v } });
   }

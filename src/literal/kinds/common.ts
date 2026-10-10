@@ -21,6 +21,10 @@
 
 import { TYPE_SCALE } from "../../emit/type.js";
 import type { LiteralSlot } from "../../types.js";
+
+/** FNV-1a, the repo's one copy (src/emit/motion.ts): a deterministic bucket from text. */
+export { fnv1a } from "../../emit/motion.js";
+
 import type { Rgb } from "../kit.js";
 
 export type { LiteralSlot, Rgb };
@@ -215,16 +219,6 @@ export function normals(rng: () => number): () => number {
     spare = r * Math.sin(2 * Math.PI * v);
     return r * Math.cos(2 * Math.PI * v);
   };
-}
-
-/** FNV-1a of a string: a deterministic seed or bucket from text. */
-export function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
 }
 
 /** `{name}` in a template, replaced by `vars[name]`; throws on a name it was not given. */

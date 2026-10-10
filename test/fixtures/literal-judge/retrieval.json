@@ -1,11 +1,7 @@
 {
   "kind": "retrieval",
-  "run": "retrieval",
-  "seed": null,
-  "input": {
-    "query": {
-      "text": "real-time rendering with Gaussian splatting"
-    },
+  "literal": {
+    "query": "real-time rendering with Gaussian splatting",
     "items": [
       {
         "label": "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis",
@@ -40,14 +36,14 @@
         "text": "Plenoxels: Radiance Fields without Neural Networks"
       }
     ],
-    "method": "bm25",
     "k": 3
   },
   "labels": {
     "query": "query",
-    "score": "BM25",
-    "topk": "top {k}"
+    "score": "{method}",
+    "topk": "top {k}",
+    "example": "example"
   },
   "frames": [0, 1, 2],
-  "takeaway": "Every item is scored against the query (bm25); ranked by score, “3D Gaussian Splatting for Real-Time Radiance Field Rendering” comes first (6.567) and the top 3 are kept."
+  "takeaway": "Every item is scored against the query (BM25); ranked by score, “3D Gaussian Splatting for Real-Time Radiance Field Rendering” comes first (6.567) and the top 3 are kept."
 }

@@ -192,7 +192,9 @@ export function diffusion(input: DiffusionInput, region: Region): MechanismResul
   const { width: W, height: H } = region;
   const size = TYPE.label;
   const leftW = W * 0.6;
-  const main = fitBox(img.w, img.h, 0, size + 24, leftW, H * 0.66 - (size + 24));
+  // Two header lines: the phase, and (reverse steps) the oracle's note.
+  const head = 2 * size + 36;
+  const main = fitBox(img.w, img.h, 0, head, leftW, H * 0.66 - head);
   const stripTop = H * 0.7;
   const thumbs = fwd.map((_, i) => {
     const cw = (leftW - 16 * (fwd.length - 1)) / fwd.length;
@@ -248,7 +250,7 @@ export function diffusion(input: DiffusionInput, region: Region): MechanismResul
         p: "text",
         id: `yt${v}`,
         x: cx0 - 14,
-        y: Y(v) - size / 2,
+        y: Math.max(0, Y(v) - size / 2),
         size,
         role: "muted",
         anchor: "end",
@@ -262,7 +264,7 @@ export function diffusion(input: DiffusionInput, region: Region): MechanismResul
         y: Y(0) + 10,
         size,
         role: "muted",
-        anchor: "middle",
+        anchor: tk === T ? "end" : "middle", // the last tick ends at the axis: inside the region
         text: String(tk),
       });
     return out;
@@ -282,6 +284,20 @@ export function diffusion(input: DiffusionInput, region: Region): MechanismResul
         slot: phase,
         vars: { t, T },
       },
+      ...(phase === "reverse"
+        ? [
+            {
+              p: "text" as const,
+              id: "oracle",
+              x: 0,
+              y: size + 14,
+              size,
+              role: "muted" as const,
+              anchor: "start" as const,
+              slot: "oracle",
+            },
+          ]
+        : []),
     ];
     steps.forEach((s, i) => {
       const b = thumbs[i] as { x: number; y: number; w: number; h: number };

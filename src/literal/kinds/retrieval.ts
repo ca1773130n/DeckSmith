@@ -15,6 +15,8 @@
  * contributed; the items re-ordered by score with the top k joined to the
  * query.
  */
+import type { Theme } from "../../emit/kit.js";
+import { widthOf, wrap } from "../kind.js";
 import {
   type Frame,
   fillTemplate,
@@ -23,14 +25,33 @@ import {
   type Prim,
   type Region,
   type Role,
-  roughMeasure,
   TYPE,
 } from "./common.js";
 
 /* -------------------------------------------------------------------- maths */
 
+/**
+ * Lower-cased runs of letters and digits; a run of Chinese or Japanese script
+ * (Han, kana), which has no spaces between words, becomes its overlapping
+ * character bigrams (a lone character stays one token): the standard
+ * segmenter-free indexing for CJK text. Hangul is spaced, so it stays words.
+ */
 export function tokenize(s: string): string[] {
-  return s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const cjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]/u;
+  const out: string[] = [];
+  for (const run of s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    for (const part of run.match(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]+|[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]+/gu,
+    ) ?? []) {
+      if (!cjk.test(part)) {
+        out.push(part);
+        continue;
+      }
+      const ch = [...part];
+      if (ch.length === 1) out.push(part);
+      for (let i = 0; i + 1 < ch.length; i++) out.push(`${ch[i]}${ch[i + 1]}`);
+    }
+  return out;
 }
 
 export function cosine(a: readonly number[], b: readonly number[]): number {
@@ -109,8 +130,12 @@ export interface RetrievalInput {
   k?: number;
   k1?: number;
   b?: number;
-  measure?: Measure;
+  /** The deck's theme: its face measures and wraps the words. */
+  theme: Theme;
 }
+
+/** The method's own name, filled into the score header: what was computed, never the plan's words. */
+export const METHOD_NAME = { bm25: "BM25", cosine: "cosine", tfidf: "TF-IDF" } as const;
 
 export const TAKEAWAY =
   "Every item is scored against the query ({method}); ranked by score, “{top}” comes first ({score}) and the top {k} are kept.";
@@ -185,7 +210,8 @@ export function retrieval(input: RetrievalInput, region: Region): MechanismResul
 
   // Layout: the query on the left; a row per item on the right — its label, its
   // score, and under the label the score as a bar split by part.
-  const measure = input.measure ?? roughMeasure;
+  const { theme } = input;
+  const measure: Measure = (t, size) => widthOf(t, size, theme);
   const { width: W, height: H } = region;
   const size = TYPE.label;
   const top = size + 24;
@@ -208,12 +234,7 @@ export function retrieval(input: RetrievalInput, region: Region): MechanismResul
     return `${t.trimEnd()}…`;
   };
   const labels = items.map((i) => ellipsize(i.label));
-  const queryLines = wrapWords(
-    input.query.text ?? partNames.join(" "),
-    qW - 40,
-    TYPE.body,
-    measure,
-  );
+  const queryLines = wrap(input.query.text ?? partNames.join(" "), TYPE.body, qW - 40, theme);
   if (queryLines.length > 6)
     throw new Error("retrieval: the query wraps past six lines; shorten it");
   const qBoxH = queryLines.length * (TYPE.body + 14) + 40;
@@ -336,7 +357,17 @@ export function retrieval(input: RetrievalInput, region: Region): MechanismResul
     return out;
   };
   const header = (): Prim[] => [
-    { p: "text", id: "sh", x: W, y: 0, size, role: "muted", anchor: "end", slot: "score" },
+    {
+      p: "text",
+      id: "sh",
+      x: W,
+      y: 0,
+      size,
+      role: "muted",
+      anchor: "end",
+      slot: "score",
+      vars: { method: METHOD_NAME[method] },
+    },
   ];
   const frames: Frame[] = [
     {
@@ -409,28 +440,12 @@ export function retrieval(input: RetrievalInput, region: Region): MechanismResul
       truncated: labels.map((l, i) => l !== (items[i] as { label: string }).label),
     },
     vars: {
-      method,
+      method: METHOD_NAME[method],
       top: (items[topI] as { label: string }).label,
       score: (scores[topI] as number).toFixed(3),
       k,
     },
   };
-}
-
-/** Greedy word wrap to `width` px. */
-export function wrapWords(text: string, width: number, size: number, measure: Measure): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    const t = cur ? `${cur} ${w}` : w;
-    if (cur && measure(t, size) > width) {
-      lines.push(cur);
-      cur = w;
-    } else cur = t;
-  }
-  if (cur) lines.push(cur);
-  return lines;
 }
 
 export function takeaway(r: MechanismResult): string {

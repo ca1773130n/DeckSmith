@@ -1,19 +1,20 @@
 {
   "kind": "diffusion",
-  "run": "diffusion",
-  "seed": 1,
-  "input": {
-    "picture": {
-      "synthetic": "discs",
-      "w": 640,
-      "h": 400
-    }
+  "literal": {
+    "picture": "b01"
   },
   "labels": {
     "forward": "forward: t = {t} of {T}",
     "reverse": "reverse: t = {t} of {T}",
     "signal": "signal √ᾱ",
-    "noise": "noise √(1−ᾱ)"
+    "noise": "noise √(1−ᾱ)",
+    "example": "example",
+    "oracle": "the reverse steps know the clean picture"
+  },
+  "picture": {
+    "synthetic": "discs",
+    "w": 640,
+    "h": 400
   },
   "frames": [0, 5, 10],
   "takeaway": "Noise is added on a fixed schedule until, at step 1000, nothing of the picture is left; the reverse steps remove it on the same schedule and the picture returns."

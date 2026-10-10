@@ -9,8 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Theme } from "../src/emit/kit.js";
+import { textWidth } from "../src/emit/svg.js";
+import { deckLook } from "../src/emit/theme.js";
 import { THEMES } from "../src/emit/themes/index.js";
+import { widthOf } from "../src/literal/kind.js";
 import {
+  type Frame,
+  type Measure,
   type MechanismResult,
   mulberry32,
   niceTicks,
@@ -41,7 +46,7 @@ import {
   textRgb,
 } from "../src/literal/kinds/svg.js";
 import { KINDS } from "../src/literal/registry.js";
-import { literalTruthProblems } from "../src/plan/coverage.js";
+import { literalFindings, literalTruthProblems } from "../src/plan/coverage.js";
 import {
   ATTENTION_RULES,
   DIFFUSION_RULES,
@@ -49,16 +54,20 @@ import {
   literalSchema,
   literalSlotProblems,
   literalSlotsOf,
+  sourceSchema,
 } from "../src/types.js";
-import {
-  judgeFramesSvg,
-  loadJudgeCases,
-  runJudgeCase,
-  takeawayOf,
-} from "./fixtures/literal-judge.js";
+import { loadJudgeCases, runJudgeCase } from "./fixtures/literal-judge.js";
 import { testPng } from "./fixtures/png.js";
 
 const REGION: Region = { width: 1760, height: 920 };
+
+/** The style packs the frames are held to: every dark one and every light one. */
+const PACKS = ["signal", "blueprint", "atlas", "folio", "chalk", "journal"] as const;
+const pack = (name: string): Theme => {
+  const t = THEMES[name];
+  if (!t) throw new Error(`no style pack ${name}`);
+  return t;
+};
 
 /** A 320×200 picture: a diagonal gradient with three flat discs. */
 function picture(w = 320, h = 200): Rgb {
@@ -310,9 +319,9 @@ describe("optimization: textbook updates on analytic landscapes", () => {
       ),
     ).toThrow(/diverged/);
   });
-  it("curves draw the given rows exactly, cut by straight interpolation", () => {
+  it("curves draw only the given rows, never between them, each value as the plan wrote it", () => {
     expect(
-      optimization.prefixAt(
+      optimization.pointsUpTo(
         [
           [0, 10],
           [10, 0],
@@ -323,7 +332,6 @@ describe("optimization: textbook updates on analytic landscapes", () => {
     ).toEqual([
       [0, 10],
       [10, 0],
-      [15, 2.5],
     ]);
     const r = optimization.optimization(
       {
@@ -333,6 +341,7 @@ describe("optimization: textbook updates on analytic landscapes", () => {
             label: "A",
             points: [
               [0, 2],
+              [50, 0.71],
               [100, 0.5],
             ],
           },
@@ -344,6 +353,7 @@ describe("optimization: textbook updates on analytic landscapes", () => {
             ],
           },
         ],
+        frames: 4,
       },
       REGION,
     );
@@ -352,8 +362,15 @@ describe("optimization: textbook updates on analytic landscapes", () => {
       bestValue: "0.5",
       worst: "B",
       worstValue: "0.9",
-      steps: 100,
+      steps: "100",
     });
+    // Every end label is a given value, never an interpolated one.
+    const drawn = r.frames.flatMap((f) =>
+      f.prims
+        .filter((p) => p.p === "text" && p.id?.startsWith("e"))
+        .map((p) => (p as { text: string }).text),
+    );
+    for (const t of drawn) expect(["A 2", "A 0.71", "A 0.5", "B 2", "B 0.9"]).toContain(t);
   });
 });
 
@@ -642,6 +659,7 @@ describe("retrieval: cosine and BM25", () => {
           { label: "w", vector: [1, 0] },
         ],
         k: 2,
+        theme: pack("signal"),
       },
       REGION,
     );
@@ -741,6 +759,7 @@ const CASES: Array<[string, () => MechanismResult]> = [
       retrieval.retrieval(
         {
           query: { text: "gaussian splatting rendering" },
+          theme: pack("signal"),
           items: [
             "3D Gaussian Splatting",
             "NeRF",
@@ -760,7 +779,7 @@ describe("every mechanism kind", () => {
     for (const k of MECHANISM_KIND_NAMES) expect(MECHANISM_TAKEAWAYS[k].length).toBeGreaterThan(20);
   });
   for (const [kind, make] of CASES) {
-    it(`${kind}: same input, same bytes; under 2 s and 200 MB; no text under 40 px; only declared slots`, () => {
+    it(`${kind}: same input, same bytes; under 2 s; result bytes under 200 MB; no text under 40 px; only declared slots`, () => {
       const first = resultBytes(make());
       // Timed warm, as a build that has already run one beat is.
       const t0 = performance.now();
@@ -801,14 +820,6 @@ const MEANING = new Set(["fg", "muted", "dim", "accent", "a", "b", "c", "d"]);
  * opacity, heat or mix ENCODES a value (an attention weight, a message's size)
  * are data, not chrome, and are exempt; so is anything over a picture.
  */
-/** The style packs the frames are held to: every dark one and every light one. */
-const PACKS = ["signal", "blueprint", "atlas", "folio", "chalk", "journal"] as const;
-const pack = (name: string): Theme => {
-  const t = THEMES[name];
-  if (!t) throw new Error(`no style pack ${name}`);
-  return t;
-};
-
 function contrastFailures(r: MechanismResult, themeName: string): string[] {
   const theme = pack(themeName);
   const bad: string[] = [];
@@ -873,21 +884,32 @@ describe("contrast on every style pack, dark and light", () => {
 
 /* --------------------------------------------------- the judge's parameters */
 
-describe("the judge fixtures regenerate from their parameters", () => {
+describe("the judge fixtures regenerate through the deck's own path", () => {
   const cases = loadJudgeCases();
+  let dir = "";
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "decksmith-judge-"));
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
   it("covers all seven kinds", () => {
     expect(new Set(cases.map((c) => c.kind))).toEqual(new Set(MECHANISM_KIND_NAMES));
   });
   for (const c of cases)
-    it(`${c.name}: the kind still says the recorded takeaway, and its three frames are the same twice`, () => {
-      const r = runJudgeCase(c);
-      expect(takeawayOf(c, r)).toBe(c.takeaway);
+    it(`${c.name}: the kind's own layers still say the recorded takeaway, and its frames are the same twice`, async () => {
+      const theme = pack("signal");
+      const a = await runJudgeCase(c, dir, theme);
+      expect(a.takeaway).toBe(c.takeaway);
       expect(c.frames).toHaveLength(3);
-      const href = (l: string) => `${l}.png`;
-      const a = judgeFramesSvg(c, r, pack("signal"), href);
-      expect(judgeFramesSvg(c, runJudgeCase(c), pack("signal"), href)).toEqual(a);
-      expect(contrastFailures(r, "signal")).toEqual([]);
-    });
+      for (const i of c.frames) expect(a.svgs[i]).toBeDefined();
+      // The frames are the production layers': every picture they show is a file `layers` wrote.
+      const files = new Set(Object.values(a.layers.files));
+      for (const svg of a.svgs)
+        for (const m of svg.matchAll(/href="([^"]+)"/g)) expect(files).toContain(m[1]);
+      const b = await runJudgeCase(c, dir, theme);
+      expect(b.svgs).toEqual(a.svgs);
+    }, 30000);
 });
 
 /* ------------------------------------------------- the adapters, end to end */
@@ -910,7 +932,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
         tokens: ["the", "cat", "sat", "on", "the", "mat"],
         path: [4, 1],
       },
-      labels: { content: "letters", position: "positions" },
+      labels: { content: "letters", position: "positions", example: "example" },
     },
     diffusion: {
       literal: { kind: "diffusion", picture: "b01" },
@@ -919,6 +941,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
         reverse: "t = {t} / {T}",
         signal: "signal",
         noise: "noise",
+        oracle: "oracle",
         steps: "1000",
       },
       picture: true,
@@ -931,7 +954,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
           { label: "Adam", rule: "adam", lr: 0.05 },
         ],
       },
-      labels: { xAxis: "step", yAxis: "loss", landscape: "illustrative" },
+      labels: { xAxis: "step", yAxis: "loss", landscape: "illustrative", example: "example" },
     },
     splatting: {
       literal: {
@@ -972,7 +995,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
         terminals: [{ x: 3, y: 0, reward: 1 }],
         start: { x: 0, y: 2 },
       },
-      labels: { sweep: "{k}", step: "{t} {G}", reward: "reward" },
+      labels: { sweep: "{k}", step: "{t} {G}", reward: "reward", example: "example" },
     },
     retrieval: {
       literal: {
@@ -983,7 +1006,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
           { label: "B", text: "radiance fields" },
         ],
       },
-      labels: { query: "query", score: "BM25", topk: "top {k}" },
+      labels: { query: "query", score: "{method}", topk: "top {k}", example: "example" },
     },
   };
   let dir = "";
@@ -1068,7 +1091,409 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
       1,
     );
     expect(
-      literalTruthProblems(ban, { vectors: [[1, 0]] }, ["the dense retriever ranks it first"], ""),
+      literalTruthProblems(
+        ban,
+        { vectors: [[1, 0]] },
+        ["the dense retriever ranks it first"],
+        "vectors (1, 0)",
+      ),
     ).toEqual([]);
+  });
+});
+
+/* ------------------------------------------- the PR #115 review, one by one */
+
+describe("the PR #115 review's findings stay fixed", () => {
+  const sourceOf = (text: string) =>
+    sourceSchema.parse({
+      id: "s",
+      title: "t",
+      sections: [{ id: "sec1", depth: 1, heading: "Method", text }],
+      figures: [],
+      equations: [],
+      tables: [],
+    });
+  /** The repair round's findings for one beat drawn with `literal`. */
+  const findings = (literal: object, text: string, takeaway = "the scene") =>
+    literalFindings(
+      {
+        beats: [
+          {
+            id: "b02",
+            archetype: "statement",
+            params: {},
+            intent: "x",
+            takeaway,
+            literal: literalSchema.parse(literal),
+          },
+        ],
+      } as never,
+      sourceOf(text),
+    );
+  const lbl = (o: Record<string, string>) =>
+    Object.entries(o).map(([slot, text]) => ({ slot, text }));
+  const latin: Measure = (t, size) => textWidth(t, size, 600);
+  /** Every literal text a frame draws, outside the region (slot texts are the plan's, measured elsewhere). */
+  const overflow = (r: MechanismResult, region: Region, measure: Measure) =>
+    r.frames.flatMap((f) =>
+      f.prims.flatMap((p) => {
+        if (p.p !== "text" || p.text === undefined) return [];
+        const w = measure(p.text, p.size);
+        const x0 = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+        const bad =
+          x0 < -0.5 ||
+          x0 + w > region.width + 0.5 ||
+          p.y < -0.5 ||
+          p.y + p.size > region.height + 0.5;
+        return bad
+          ? [
+              `${f.id} ${p.id} "${p.text}" x ${x0.toFixed(0)}..${(x0 + w).toFixed(0)} y ${p.y.toFixed(0)}`,
+            ]
+          : [];
+      }),
+    );
+
+  it("1. the judge's frames are the production layers' (asserted in the judge suite: every href is a file `layers` wrote)", () => {
+    expect(loadJudgeCases().length).toBe(9);
+  });
+
+  it("2. attention on a picture refuses the source's heads and embeddings: it would draw pixels under their claim", () => {
+    const lit = {
+      kind: "attention",
+      picture: "b01",
+      heads: [{ q: [[1]], k: [[1]] }],
+      labels: lbl({ example: "example" }),
+    };
+    const found = findings(
+      lit,
+      "image patches with queries and keys 1",
+      "The trained ViT attends to the dog's head",
+    );
+    expect(found).toContainEqual(
+      expect.stringMatching(/cannot be drawn: `heads` and `embeddings` are per-token rows/),
+    );
+  });
+
+  it("3. invented 'source' numbers neither draw nor lift a ban; the source's own do", () => {
+    const text = "A graph neural network passes messages between nodes A and B.";
+    const gcn = (weights: number[][][]) => ({
+      kind: "message-passing",
+      nodes: [
+        { id: "A", label: "A", features: [1] },
+        { id: "B", label: "B", features: [0] },
+      ],
+      edges: [{ from: "A", to: "B" }],
+      layers: 1,
+      weights,
+      labels: lbl({ layer: "{l}", field: "{count}", example: "example" }),
+    });
+    const claim = "The trained GCN predicts each node's class";
+    const invented = findings(gcn([[[0.37]]]), text, claim);
+    expect(invented).toContainEqual(
+      expect.stringMatching(/gives `weights` with numbers the source never states/),
+    );
+    expect(invented).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
+    const own = findings(gcn([[[2]]]), `${text} Its weight is 2.`, claim);
+    expect(own.filter((f) => /weights|claims/.test(f))).toEqual([]);
+    // A loss curve the source never states is refused.
+    const series = {
+      kind: "optimization",
+      series: [
+        {
+          label: "ours",
+          points: [
+            { x: 0, y: 2.5 },
+            { x: 10, y: 0.31 },
+          ],
+        },
+      ],
+      labels: lbl({ xAxis: "step", yAxis: "loss" }),
+    };
+    expect(
+      findings(series, "SGD lowers the training loss from 2.5 at step 0 to 10."),
+    ).toContainEqual(expect.stringMatching(/gives `series` with numbers the source never states/));
+  });
+
+  it("4. message passing applies the source's σ and refuses a short or misshapen weight list", () => {
+    const base = {
+      nodes: [
+        { id: "a", features: [1] },
+        { id: "b", features: [1] },
+      ],
+      edges: [["a", "b"]] as Array<[string, string]>,
+      layers: 2,
+      aggregate: "sum" as const,
+    };
+    expect(() => messagePassing.messagePassing({ ...base, weights: [[[1]]] }, REGION)).toThrow(
+      /2 layers; give one per layer/,
+    );
+    expect(() =>
+      messagePassing.messagePassing({ ...base, weights: [[[1, 1]], [[1]]] }, REGION),
+    ).toThrow(/1\.\.4 × 1 matrix/);
+    const neg = { ...base, layers: 1, weights: [[[-1]]] };
+    const lin = (
+      messagePassing.messagePassing(neg, REGION).data.features as number[][][]
+    )[1] as number[][];
+    const relu = (
+      messagePassing.messagePassing({ ...neg, relu: true }, REGION).data.features as number[][][]
+    )[1] as number[][];
+    expect(lin[0]?.[0]).toBe(-2);
+    expect(relu[0]?.[0]).toBe(0);
+  });
+
+  it("5. diffusion needs a diffusion source, marks DDPM's defaults as an example, takes a cosine schedule, and says the reverse path is an oracle", async () => {
+    const d = {
+      kind: "diffusion",
+      picture: "b01",
+      labels: lbl({ forward: "{t}", reverse: "{t}", signal: "s", noise: "n", oracle: "oracle" }),
+    };
+    expect(findings(d, "A paper about sorting algorithms.")).toContainEqual(
+      expect.stringMatching(/needs the source to give a diffusion or denoising process/),
+    );
+    expect(findings(d, "a diffusion model")).toContainEqual(
+      expect.stringMatching(/needs the `example` slot/),
+    );
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-diffusion-"));
+    try {
+      const pic = join(dir, "p.png");
+      await writeFile(pic, testPng(64, 40));
+      const sig = async (schedule: string) => {
+        const lit = literalSchema.parse({ ...d, schedule });
+        const L = await KINDS.diffusion.layers({
+          beatId: schedule,
+          image: pic,
+          dir,
+          region: REGION,
+          spec: { labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])), data: lit },
+          earlier: new Map(),
+        });
+        const frames = L.data.frames as Array<{
+          id: string;
+          prims: Array<{ id?: string; pts?: number[]; slot?: string }>;
+        }>;
+        expect(
+          frames
+            .filter((f) => f.id.startsWith("r"))
+            .every((f) => f.prims.some((p) => p.slot === "oracle")),
+        ).toBe(true);
+        return frames[0]?.prims.find((p) => p.id === "sig")?.pts;
+      };
+      expect(await sig("cosine")).not.toEqual(await sig("linear"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("6. material that is the plan's own is drawn under an 'example' tag in the deck's language", async () => {
+    const rl = (labels: Record<string, string>) => ({
+      kind: "rl-rollout",
+      width: 3,
+      height: 1,
+      terminals: [{ x: 2, y: 0, reward: 1 }],
+      start: { x: 0, y: 0 },
+      labels: lbl({ sweep: "{k}", step: "{t}", reward: "r", ...labels }),
+    });
+    const text = "reinforcement learning with a reward and a policy";
+    expect(findings(rl({}), text)).toContainEqual(expect.stringMatching(/needs slot "example"/));
+    expect(findings(rl({ example: "예시" }), text)).toEqual([]);
+    expect(findings(rl({ example: "a fun grid" }), text)).toContainEqual(
+      expect.stringMatching(/does not say "example"/),
+    );
+    const land = {
+      kind: "optimization",
+      optimizers: [{ label: "SGD", rule: "sgd", lr: 0.001 }],
+      labels: lbl({ xAxis: "step", yAxis: "loss" }),
+    };
+    expect(findings(land, "SGD with a learning rate")).toContainEqual(
+      expect.stringMatching(/needs the `example` slot/),
+    );
+    // And the tag is in every frame, under the scene.
+    const lit = literalSchema.parse({
+      ...land,
+      labels: lbl({ xAxis: "step", yAxis: "loss", example: "example" }),
+    });
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-tag-"));
+    try {
+      const L = await KINDS.optimization.layers({
+        beatId: "t",
+        dir,
+        region: REGION,
+        spec: { labels: { example: "example" }, data: lit },
+        earlier: new Map(),
+      });
+      for (const f of L.data.frames as Array<{ prims: Array<{ slot?: string; y?: number }> }>)
+        expect(f.prims.find((p) => p.slot === "example")?.y).toBeGreaterThan(REGION.height - 80);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("7. the score header names the method computed, and a plan cannot rename BM25 as cosine", () => {
+    const lit = (score: string) => ({
+      kind: "retrieval",
+      query: "splatting",
+      items: [
+        { label: "Gaussian splatting", text: "Gaussian splatting" },
+        { label: "Radiance fields", text: "Radiance fields" },
+      ],
+      labels: lbl({ query: "q", score, topk: "{k}", example: "example" }),
+    });
+    const found = findings(lit("Cosine similarity"), "we retrieve and rank papers");
+    expect(found).toContainEqual(expect.stringMatching(/names its method in its own words/));
+    expect(found).toContainEqual(expect.stringMatching(/claims dense, neural, learned or vector/));
+    expect(findings(lit("score ({method})"), "we retrieve and rank papers")).toEqual([]);
+    const r = retrieval.retrieval(
+      {
+        query: { text: "splatting" },
+        items: [
+          { label: "a", text: "splatting" },
+          { label: "b", text: "x" },
+        ],
+        theme: pack("signal"),
+      },
+      REGION,
+    );
+    const head = r.frames[1]?.prims.find((p) => p.id === "sh") as { vars?: Record<string, string> };
+    expect(head.vars?.method).toBe("BM25");
+  });
+
+  it("8. Chinese and Japanese are scored by character bigrams, not as one unspaced token", () => {
+    const r = retrieval.bm25("注意力机制 翻译", [
+      "卷积网络的图像分类",
+      "注意力机制用于机器翻译",
+      "基于注意力机制的翻译模型",
+    ]);
+    expect(r.scores[0]).toBe(0);
+    expect(r.scores[1] as number).toBeGreaterThan(0);
+    expect(r.scores[2] as number).toBeGreaterThan(0);
+    expect(retrieval.tokenize("注意力")).toEqual(["注意", "意力"]);
+    expect(retrieval.tokenize("Gaussian 스플래팅")).toEqual(["gaussian", "스플래팅"]);
+  });
+
+  it("9. a plan the kind cannot draw comes back from the gate, not from build --literal", () => {
+    const text =
+      "attention over tokens, an optimizer with a learning rate and loss, gaussian splatting points, a graph with nodes, reinforcement learning rewards, retrieval and ranking";
+    const cannot = (lit: object) =>
+      findings(lit, text).filter((f) => f.includes("cannot be drawn"));
+    expect(cannot({ kind: "optimization" })).toHaveLength(1);
+    expect(cannot({ kind: "attention" })).toHaveLength(1);
+    expect(cannot({ kind: "splatting" })).toHaveLength(1);
+    expect(cannot({ kind: "attention", tokens: ["a", "b"], path: [9] })).toHaveLength(1);
+    expect(
+      cannot({
+        kind: "message-passing",
+        nodes: [
+          { id: "a", label: "a", features: [1] },
+          { id: "b", label: "b", features: [1] },
+        ],
+        edges: [{ from: "a", to: "z" }],
+      }),
+    ).toHaveLength(1);
+    expect(
+      cannot({
+        kind: "rl-rollout",
+        width: 3,
+        height: 2,
+        walls: [{ x: 0, y: 0 }],
+        terminals: [{ x: 2, y: 0, reward: 1 }],
+        start: { x: 0, y: 0 },
+      }),
+    ).toHaveLength(1);
+    expect(
+      cannot({ kind: "retrieval", query: "q", items: [{ label: "a", text: "a" }] }),
+    ).toHaveLength(1);
+    expect(
+      cannot({ kind: "optimization", optimizers: [{ label: "SGD", rule: "sgd", lr: 1 }] }),
+    ).toEqual([expect.stringMatching(/diverged at step \d+; lower its learning rate/)]);
+  });
+
+  it("10. legends and end labels fit the region, sized from the strings they print", () => {
+    const region = { width: 1760, height: 860 };
+    const r = optimization.optimization(
+      {
+        mode: "landscape",
+        landscape: "quadratic",
+        start: [-2.5, 1.5],
+        steps: 300,
+        optimizers: [
+          { label: "Gradient descent", rule: "sgd", lr: 0.05 },
+          { label: "Momentum", rule: "momentum", lr: 0.05 },
+        ],
+        measure: latin,
+      },
+      region,
+    );
+    expect(overflow(r, region, latin)).toEqual([]);
+    expect(
+      r.frames.some((f) => f.prims.some((p) => p.p === "text" && /e-\d+$/.test(p.text ?? ""))),
+    ).toBe(true);
+  });
+
+  it("11. words are measured in the deck's own face: a Korean deck on a serif pack still fits", () => {
+    const region = { width: 1760, height: 860 };
+    for (const [pk, lang] of [
+      ["folio", "ko"],
+      ["journal", "ja"],
+      ["signal", "en"],
+    ] as const) {
+      const theme = deckLook({ theme: pk, lang } as never).theme;
+      const measure: Measure = (t, size) => widthOf(t, size, theme);
+      const titles = [
+        "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
+        "Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields",
+        "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding",
+      ];
+      const rr = retrieval.retrieval(
+        {
+          query: { text: "radiance fields rendering" },
+          items: titles.map((t) => ({ label: t, text: t })),
+          theme,
+        },
+        region,
+      );
+      expect(overflow(rr, region, measure)).toEqual([]);
+      // No label runs into its score: the label's right edge stays left of the score's left edge.
+      const last = rr.frames[rr.frames.length - 1] as Frame;
+      for (let i = 0; i < titles.length; i++) {
+        const label = last.prims.find((p) => p.id === `lb${i}`) as {
+          x: number;
+          text: string;
+          size: number;
+        };
+        const score = last.prims.find((p) => p.id === `sc${i}`) as {
+          x: number;
+          text: string;
+          size: number;
+        };
+        expect(label.x + measure(label.text, label.size)).toBeLessThan(
+          score.x - measure(score.text, score.size),
+        );
+      }
+      const op = optimization.optimization(
+        {
+          mode: "landscape",
+          landscape: "rosenbrock",
+          start: [-1.6, 2.4],
+          steps: 400,
+          optimizers: [
+            { label: "SGD", rule: "sgd", lr: 0.0012 },
+            { label: "Momentum", rule: "momentum", lr: 0.0012 },
+          ],
+          measure,
+        },
+        region,
+      );
+      expect(overflow(op, region, measure)).toEqual([]);
+    }
+  });
+
+  it("low: a ban's word under negation states the scene's limit, and is not refused", () => {
+    const r = { mustNotClaim: LITERAL_KIND_DOCS.retrieval.mustNotClaim };
+    expect(literalTruthProblems(r, {}, ["word overlap, not semantic similarity"], "")).toEqual([]);
+    const s = { mustNotClaim: LITERAL_KIND_DOCS.splatting.mustNotClaim };
+    expect(
+      literalTruthProblems(s, {}, ["nothing is learned here", "학습 없이 그린다"], ""),
+    ).toEqual([]);
+    expect(literalTruthProblems(s, {}, ["the learned Gaussians"], "")).toHaveLength(1);
   });
 });

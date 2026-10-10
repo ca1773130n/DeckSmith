@@ -22,6 +22,11 @@ export interface KindInput {
   dir: string;
   region: { width: number; height: number };
   spec: KindSpec;
+  /**
+   * The deck's theme, when the pass knows it: a kind that lays out words at
+   * build time measures them in the deck's own face (`widthOf`).
+   */
+  theme?: Theme;
   /** Earlier literal scenes of this deck, by beat id, in deck order. */
   earlier: ReadonlyMap<string, { kind: string; layers: Layers; labels: Record<string, string> }>;
 }

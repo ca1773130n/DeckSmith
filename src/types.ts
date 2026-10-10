@@ -901,6 +901,15 @@ export const ATTENTION_RULES = {
  * since "a diffusion model adds noise" describes the process too.
  */
 export const DIFFUSION_RULES = {
+  requires: [
+    {
+      what: "a diffusion or denoising process: a noise schedule, forward noising, or reverse (denoising) steps",
+      anyOf: [
+        /\b(?:diffusion|denois(?:e|es|ed|ing)|noise schedules?|DDPM|DDIM|score[- ]based|forward process|reverse process)\b/i,
+        /확산|디노이징|노이즈 스케줄|拡散|ノイズスケジュール|扩散|去噪|噪声调度/,
+      ],
+    },
+  ],
   mustNotClaim: [
     {
       what: "what a trained denoiser does: predicting the noise, learning, generating",
@@ -910,7 +919,7 @@ export const DIFFUSION_RULES = {
         /\b(?:denoisers?|denoising (?:networks?|models?)|networks?|U-?Net|learn(?:s|ed|t|ing)?|trained|predict(?:s|ed|ing|ion)?|generat(?:es?|ed|ing|ion))\b|ε_?θ|epsilon_theta|디노이저|네트워크|학습|예측|생성|ネットワーク|学習|予測|生成|网络|学习|训练|预测/i,
     },
   ],
-} as const satisfies Pick<LiteralKindDoc, "mustNotClaim">;
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
 
 /**
  * Truth rules for `optimization`: the landscape mode runs textbook optimizers
@@ -1034,11 +1043,10 @@ export const RETRIEVAL_RULES = {
   ],
   mustNotClaim: [
     {
-      what: "dense, neural or learned retrieval",
-      because:
-        "without the source's vectors the scores are BM25 or TF-IDF: word overlap, not meaning",
+      what: "dense, neural, learned or vector (cosine) retrieval",
+      because: "without the source's vectors the scores are BM25: word overlap between texts",
       pattern:
-        /\b(?:dense|neural|learned|trained|semantic(?:s|ally)?|embedding models?|meaning)\b|의미|신경망|학습된|意味|ニューラル|学習済み|语义|神经|训练好/i,
+        /\b(?:dense|neural|learned|trained|semantic(?:s|ally)?|embeddings?|embedding models?|vectors?|cosine|DPR|ColBERT)\b|의미 검색|신경망|학습된|임베딩|코사인|ニューラル|学習済み|埋め込み|コサイン|语义|神经|训练好|嵌入|余弦/i,
       unlessGiven: ["vectors"],
     },
   ],
@@ -1252,6 +1260,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
         vars: ["h"],
         optional: true,
       },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required when no `heads` or `embeddings` from the source are given (the weights are then the letters' or pixels' similarity, not a model's)",
+        optional: true,
+      },
       query: {
         what: "patches only, under the large picture: the outlined patch is the query and the bright patches are what it weights",
         optional: true,
@@ -1265,7 +1277,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      absent: 1e-4 → 0.02 over 1000), then the reverse steps back
                      to the picture, with √ᾱ (signal) and √(1−ᾱ) (noise) against
                      t. The reverse path knows the clean picture: it shows the
-                     schedule and the process, not a denoiser. Takes \`picture\`.`,
+                     schedule and the process, not a denoiser, and says so on
+                     screen (\`oracle\`). \`schedule\` linear · cosine. Takes
+                     \`picture\`.`,
     slots: {
       steps: { what: "the diffusion steps T the source states", number: true, optional: true },
       betaStart: {
@@ -1278,6 +1292,13 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       reverse: { what: "while noise is removed: the step", vars: ["t", "T"] },
       signal: { what: "legend of the signal curve √ᾱ_t" },
       noise: { what: "legend of the noise curve √(1−ᾱ_t)" },
+      oracle: {
+        what: "on the reverse steps: they are computed from the clean picture (an oracle), not by a trained denoiser",
+      },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required when the source does not state `steps`, `betaStart` and `betaEnd` (the scene then draws DDPM's defaults)",
+        optional: true,
+      },
     },
     ...DIFFUSION_RULES,
   },
@@ -1298,6 +1319,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
         what: "landscape mode only: what the surface is; say it is illustrative of the optimizer",
         optional: true,
       },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required in landscape mode (an analytic surface, not the paper's loss)",
+        optional: true,
+      },
     },
     ...OPTIMIZATION_RULES,
   },
@@ -1316,6 +1341,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
         vars: ["pose", "poses"],
       },
       path: { what: "the inset: the camera path seen from above" },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required unless the source's own `gaussians` are given",
+        optional: true,
+      },
     },
     ...SPLATTING_RULES,
   },
@@ -1325,13 +1354,19 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      each of \`layers\` rounds every node aggregates its
                      neighbours (\`aggregate\`: sum · mean · max · gcn), and the
                      features spread as colour hop by hop; \`focus\`'s receptive
-                     field is outlined. Without the source's \`weights\` a layer
-                     is W = I: aggregation only.`,
+                     field is outlined. With the source's \`weights\` (one d_out ×
+                     d_in matrix per layer) and \`activation\` (none · relu)
+                     each layer is σ(W·AGG); without them W = I: aggregation
+                     only.`,
     slots: {
       layer: { what: "which layer the colours show", vars: ["l", "L"] },
       field: {
         what: "the focus node's outline: how many nodes its features now come from",
         vars: ["count", "l"],
+      },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required unless every node is named in the source and its `weights` are the source's",
+        optional: true,
       },
     },
     ...MESSAGE_PASSING_RULES,
@@ -1347,6 +1382,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       sweep: { what: "while the values converge: which sweep (or episode)", vars: ["k"] },
       step: { what: "while the agent walks: the step and the return so far", vars: ["t", "G"] },
       reward: { what: "title of the reward-per-step bars" },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例): the gridworld is always the plan's own",
+      },
     },
     ...RL_ROLLOUT_RULES,
   },
@@ -1359,8 +1397,15 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      gives them (titles, passages).`,
     slots: {
       query: { what: "over the query: what it is" },
-      score: { what: "over the scores: what is computed (BM25, cosine similarity)" },
+      score: {
+        what: "over the scores: name the method as {method}, which the scene fills with the one it computed (BM25 or cosine)",
+        vars: ["method"],
+      },
       topk: { what: "over the kept items: the cut", vars: ["k"] },
+      example: {
+        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required unless every item is quoted from the source",
+        optional: true,
+      },
     },
     ...RETRIEVAL_RULES,
   },
@@ -1486,7 +1531,13 @@ export const literalSchema = z.discriminatedUnion("kind", [
     picture: z.string().optional(),
     ...literalLabels,
   }),
-  pictureKind("diffusion"),
+  z.object({
+    kind: z.literal("diffusion"),
+    picture: z.string(),
+    /** The source's noise schedule: linear β (Ho et al.) or cosine ᾱ (Nichol & Dhariwal). */
+    schedule: z.enum(["linear", "cosine"]).default("linear"),
+    ...literalLabels,
+  }),
   z.object({
     kind: z.literal("optimization"),
     /** The source's own curves, exactly its rows. */
@@ -1560,8 +1611,10 @@ export const literalSchema = z.discriminatedUnion("kind", [
     directed: z.boolean().default(false),
     layers: z.int().default(3),
     aggregate: z.enum(["sum", "mean", "max", "gcn"]).default("mean"),
-    /** The source's own weights, per layer (d_out × d_in); empty: W = I. */
+    /** The source's own weights, one d_out × d_in matrix per layer; empty: W = I. */
     weights: z.array(z.array(z.array(z.number()))).default([]),
+    /** σ after each layer, the source's; "none" without weights. */
+    activation: z.enum(["none", "relu"]).default("none"),
     /** The node whose receptive field is outlined; empty: the first. */
     focus: z.string().default(""),
     ...literalLabels,

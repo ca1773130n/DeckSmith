@@ -27,6 +27,8 @@
  * cell holding a number the source never states, a claim a kind's truth rules
  * forbid).
  */
+
+import { isMechanism, mechanismProblems } from "../literal/kinds/mechanisms.js";
 import type { Beat, BeatPart, Literal, LiteralKindDoc, Source, Storyboard } from "../types.js";
 import { beatPartSchema, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
 
@@ -240,17 +242,24 @@ export function literalTruthProblems(
   for (const r of rules.requires ?? [])
     if (!r.anyOf.some((re) => re.test(source)))
       out.push(`needs the source to give ${r.what}, and the source never does`);
+  // A field lifts a ban only when it is there AND every number in it is one the
+  // source states: invented "source's own" weights must not unlock the words.
+  let values: readonly number[] | undefined;
   const given = (field: string) => {
     const v = (lit as Record<string, unknown>)[field];
-    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null;
+    const present = Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null;
+    if (!present) return false;
+    values ??= statedValues(source);
+    return groundedIn(v, values);
   };
   for (const b of rules.mustNotClaim ?? []) {
     if (b.unlessGiven?.some(given)) continue;
     const hits = [
       ...new Set(
-        said.flatMap(
-          (t) =>
-            t.match(new RegExp(b.pattern.source, `${b.pattern.flags.replace("g", "")}g`)) ?? [],
+        said.flatMap((t) =>
+          [...t.matchAll(new RegExp(b.pattern.source, `${b.pattern.flags.replace("g", "")}g`))]
+            .filter((m) => !negated(t, m.index ?? 0, m[0].length))
+            .map((m) => m[0]),
         ),
       ),
     ];
@@ -260,6 +269,50 @@ export function literalTruthProblems(
       );
   }
   return out;
+}
+
+/**
+ * Whether a banned word is negated where it stands — "not meaning", "nothing
+ * is learned", "학습 없이", "学習せず", "不需要训练" — so a plan that states the
+ * scene's limit honestly is not refused for it. Lexical, like the bans.
+ */
+function negated(text: string, at: number, len: number): boolean {
+  const before = text.slice(Math.max(0, at - 28), at);
+  const after = text.slice(at + len, at + len + 6);
+  return (
+    /\b(?:not|no|never|without|nothing|non|isn't|aren't|wasn't|doesn't|don't)\b[\s\w'-]{0,14}$/i.test(
+      before,
+    ) ||
+    /^\s*(?:없|않|아니|아닌)/.test(after) ||
+    /^(?:し)?(?:ない|ず|せず|なし)/.test(after) ||
+    /(?:不|没|無|无|非)(?:需要|用|经|經)?.{0,1}$/.test(before)
+  );
+}
+
+/** The values the source states: "1,000" is 1000, "0,5" is 0.5. */
+function statedValues(source: string): number[] {
+  const text = source.replace(/\\[A-Za-z]+/g, " ");
+  const out: number[] = [];
+  for (const n of text.match(NUMBER) ?? []) {
+    if (n.includes("/")) continue;
+    const v = /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(n)
+      ? Number(n.replace(/,/g, ""))
+      : Number(n.replace(",", "."));
+    if (Number.isFinite(v)) out.push(v);
+  }
+  return out;
+}
+
+/** Every number in `v` (arrays and objects, deeply) is one the source states. Signs are the plan's. */
+function groundedIn(v: unknown, values: readonly number[]): boolean {
+  const nums: number[] = [];
+  const walk = (x: unknown) => {
+    if (typeof x === "number") nums.push(x);
+    else if (Array.isArray(x)) x.forEach(walk);
+    else if (x && typeof x === "object") Object.values(x).forEach(walk);
+  };
+  walk(v);
+  return nums.every((n) => values.some((s) => Math.abs(Math.abs(n) - s) <= 1e-9 * Math.max(1, s)));
 }
 
 /** The numbers in `texts` the source never states, once each. `{name}` (a computed value) is not a number. */
@@ -282,7 +335,65 @@ function literalTexts(lit: Literal): string[] {
         ...g.items.flatMap((it) => [it.label, it.value]),
       ]),
     ];
-  return own;
+  switch (lit.kind) {
+    case "attention":
+      return [...own, ...lit.tokens];
+    case "optimization":
+      return [...own, ...lit.series.map((s) => s.label), ...lit.optimizers.map((o) => o.label)];
+    case "message-passing":
+      return [...own, ...lit.nodes.flatMap((n) => [n.id, n.label])];
+    case "retrieval":
+      return [...own, lit.query, ...lit.items.flatMap((it) => [it.label, it.text])];
+    default:
+      return own;
+  }
+}
+
+/**
+ * The fields of a mechanism kind that claim to be the SOURCE'S numbers: each must
+ * be numbers the source states, or the scene shows invented results as the paper's.
+ */
+const SOURCE_NUMBERS: Readonly<Record<string, readonly string[]>> = {
+  attention: ["heads", "embeddings"],
+  optimization: ["series"],
+  splatting: ["gaussians"],
+  "message-passing": ["weights"],
+  retrieval: ["vectors", "queryVector"],
+};
+
+/** A word that marks a scene as an example, in the deck's languages. */
+const EXAMPLE_WORD =
+  /\b(?:example|illustrative|illustration|toy|hypothetical)\b|예시|예제|가상|例|示例|示意|イメージ/i;
+
+/**
+ * Whether a mechanism scene's material is the plan's own rather than the
+ * source's, so the frames must say "example": derived attention heads, DDPM's
+ * default schedule, an analytic landscape, plan-made splats, a graph or a
+ * corpus the source never names, and every gridworld.
+ */
+function illustrative(lit: Literal, source: string, values: () => readonly number[]): boolean {
+  const named = (t: string) => source.toLowerCase().includes(t.trim().toLowerCase());
+  const has = (v: unknown[]) => v.length > 0 && groundedIn(v, values());
+  switch (lit.kind) {
+    case "attention":
+      return !(has(lit.heads) || has(lit.embeddings));
+    case "diffusion": {
+      const l = new Set(lit.labels.filter((x) => x.text.trim()).map((x) => x.slot));
+      return !(l.has("steps") && l.has("betaStart") && l.has("betaEnd"));
+    }
+    case "optimization":
+      return !lit.series.length;
+    case "splatting":
+      return !has(lit.gaussians);
+    case "message-passing":
+      return !(has(lit.weights) && lit.nodes.every((n) => named(n.label)));
+    case "rl-rollout":
+      return true;
+    case "retrieval":
+      return !lit.items.every((it) => named(it.label));
+    default:
+      return false;
+  }
 }
 
 /**
@@ -323,9 +434,52 @@ export function literalFindings(
     const rules = LITERAL_KIND_DOCS[lit.kind];
     if (rules.requires?.length || rules.mustNotClaim?.length) {
       text ??= sourceText(source);
-      const said = [beat.takeaway ?? "", ...lit.labels.map((l) => l.text)];
+      // The words the scene draws count too (item titles, tokens, node and series
+      // labels), unless quoted from the source: those are its words, not the plan's claim.
+      const src = text.toLowerCase();
+      const drawn = literalTexts(lit).filter(
+        (t) => t.trim() && !src.includes(t.trim().toLowerCase()),
+      );
+      const said = [beat.takeaway ?? "", ...lit.labels.map((l) => l.text), ...drawn];
       for (const p of literalTruthProblems(rules, lit, said, text))
         out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
+    }
+    if (isMechanism(lit.kind)) {
+      text ??= sourceText(source);
+      const src = text;
+      let values: readonly number[] | undefined;
+      const vals = () => {
+        values ??= statedValues(src);
+        return values;
+      };
+      // "The source's own" numbers must be the source's.
+      for (const field of SOURCE_NUMBERS[lit.kind] ?? []) {
+        const v = (lit as Record<string, unknown>)[field];
+        if (Array.isArray(v) && v.length && !groundedIn(v, vals()))
+          out.push(
+            `${beat.id}'s ${lit.kind} scene gives \`${field}\` with numbers the source never states. These fields are the source's own; give its numbers exactly, or leave the field empty.`,
+          );
+      }
+      // Material that is the plan's own is drawn as an example, and says so.
+      const tag = lit.labels.find((l) => l.slot === "example")?.text.trim();
+      if (illustrative(lit, src, vals) && !tag)
+        out.push(
+          `${beat.id}'s ${lit.kind} scene draws material that is not the source's own, so it needs the \`example\` slot: a tag in the deck's language saying it is an example.`,
+        );
+      if (tag && !EXAMPLE_WORD.test(tag))
+        out.push(
+          `${beat.id}'s ${lit.kind} scene's \`example\` tag "${tag}" does not say "example" (example · 예시 · 例 · 示例).`,
+        );
+      if (lit.kind === "retrieval") {
+        const score = lit.labels.find((l) => l.slot === "score")?.text ?? "";
+        if (score.trim() && !score.includes("{method}"))
+          out.push(
+            `${beat.id}'s retrieval scene names its method in its own words ("${score}"); write {method}, which the scene fills with the method it computed.`,
+          );
+      }
+      // The kind's own checks, run now: a plan it cannot draw comes back for repair.
+      for (const p of mechanismProblems(lit))
+        out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn: ${p}.`);
     }
     if (beat.archetype === "title") {
       out.push(

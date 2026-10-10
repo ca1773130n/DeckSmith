@@ -1,38 +1,34 @@
 /**
- * The frames-only judge fixtures for the mechanism kinds, as GENERATION
- * PARAMETERS, not pictures: each `literal-judge/<case>.json` holds a kind's
- * input (and seed), the slot texts, which three frames to show, and the
- * takeaway those frames must convey. The frames are regenerated from the kind,
- * deterministically — by test/literal-mechanism-kinds.test.ts, and as PNGs by
+ * The frames-only judge fixtures for the mechanism kinds, as PLANS, not
+ * pictures: each `literal-judge/<case>.json` holds a beat's `literal` (as the
+ * planner writes it), its slot texts, which three frames the judge sees, and
+ * the takeaway they must convey. The frames are regenerated through the
+ * production path — the kind's own `layers` (src/literal/kinds/mechanisms.ts)
+ * and `frameSvgs` — by test/literal-mechanism-kinds.test.ts, and as PNGs by
  * `scripts/literal-kinds-preview.ts --judge` into the gitignored
- * `.cache/literal-judge/` for the judge to read.
+ * `.cache/literal-judge/`.
  *
- * Inputs are JSON with three stand-ins for what JSON cannot hold:
- *   "picture": { "synthetic": "discs", "w", "h" } → `syntheticPicture(w, h)`
- *   "points":  { "scene": "sphere-box-floor" }   → `scenePoints()`
- *   "seriesFrom": { landscape, start, steps, optimizers, every }
- *              → the curves of those optimizer runs, every `every`-th step.
+ * A case with `picture` ({ "synthetic": "discs", "w", "h" }) runs on
+ * `syntheticPicture(w, h)`, written as a PNG beside the layers; a preview may
+ * pass a photograph instead.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Theme } from "../../src/emit/kit.js";
+import { TAKEAWAY_PATCHES } from "../../src/literal/kinds/attention.js";
+import type { Region, Rgb } from "../../src/literal/kinds/common.js";
+import { fillTemplate } from "../../src/literal/kinds/common.js";
+import { MECHANISM_TAKEAWAYS } from "../../src/literal/kinds/index.js";
 import {
-  fillTemplate,
-  type MechanismResult,
-  type Region,
-  type Rgb,
-} from "../../src/literal/kinds/common.js";
-import {
-  attention,
-  diffusion,
-  messagePassing,
-  optimization,
-  retrieval,
-  rlRollout,
-  splatting,
-} from "../../src/literal/kinds/index.js";
-import { frameSvg, layerPaints } from "../../src/literal/kinds/svg.js";
+  frameSvgs,
+  isMechanism,
+  type Mechanism,
+  mechanismLayers,
+} from "../../src/literal/kinds/mechanisms.js";
+import type { Layers } from "../../src/literal/kit.js";
+import { toRgba, writeRaster } from "../../src/literal/kit.js";
+import { type Literal, literalSchema } from "../../src/types.js";
 
 /** Where the cases live. A bundled script passes its own path (bundling moves `import.meta.url`). */
 export const JUDGE_DIR = fileURLToPath(new URL("literal-judge/", import.meta.url));
@@ -41,14 +37,12 @@ export const JUDGE_REGION: Region = { width: 1760, height: 920 };
 export interface JudgeCase {
   /** The file's name without `.json`. */
   name: string;
-  kind: string;
-  /** The kind's function: tokenAttention, patchAttention, diffusion, … */
-  run: string;
-  /** Merged into the input as `seed` when the kind takes one; null when it is not random. */
-  seed: number | null;
-  input: Record<string, unknown>;
+  kind: Mechanism;
+  /** The beat's `literal` as the planner writes it, without its labels. */
+  literal: Record<string, unknown>;
   /** Slot → text, as the planner would write them. */
   labels: Record<string, string>;
+  picture?: { synthetic: "discs"; w: number; h: number };
   /** The three frames the judge sees, by index. */
   frames: number[];
   takeaway: string;
@@ -58,7 +52,21 @@ export function loadJudgeCases(dir = JUDGE_DIR): JudgeCase[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith(".json"))
     .sort()
-    .map((f) => ({ name: f.slice(0, -5), ...JSON.parse(readFileSync(join(dir, f), "utf8")) }));
+    .map((f) => {
+      const c = { name: f.slice(0, -5), ...JSON.parse(readFileSync(join(dir, f), "utf8")) };
+      if (!isMechanism(c.kind))
+        throw new Error(`judge ${c.name}: "${c.kind}" is no mechanism kind`);
+      return c as JudgeCase;
+    });
+}
+
+/** The case's literal, parsed by the planner's own schema (defaults filled), labels included. */
+export function literalOf(c: JudgeCase): Literal {
+  return literalSchema.parse({
+    ...c.literal,
+    kind: c.kind,
+    labels: Object.entries(c.labels).map(([slot, text]) => ({ slot, text })),
+  });
 }
 
 /** A deterministic picture: a sky-to-ground gradient and three shaded discs. */
@@ -88,145 +96,46 @@ export function syntheticPicture(w: number, h: number): Rgb {
   return { w, h, d };
 }
 
-/** Points on a sphere, a box and a floor, coloured by where they are. */
-export function scenePoints(): Array<{
-  p: [number, number, number];
-  color: [number, number, number];
-}> {
-  const pts: Array<{ p: [number, number, number]; color: [number, number, number] }> = [];
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < 260; i++) {
-    const y = 1 - (2 * (i + 0.5)) / 260;
-    const r = Math.sqrt(1 - y * y);
-    const a = golden * i;
-    pts.push({
-      p: [-0.9 + 0.7 * r * Math.cos(a), 0.7 + 0.7 * y, 0.7 * r * Math.sin(a)],
-      color: [0.75 + 0.2 * r * Math.cos(a), 0.35 + 0.25 * y, 0.25],
-    });
-  }
-  for (let f = 0; f < 6; f++)
-    for (let i = 0; i < 6; i++)
-      for (let j = 0; j < 6; j++) {
-        const q: [number, number, number] = [0, 0, 0];
-        const ax = Math.floor(f / 2);
-        q[ax] = f % 2 ? 0.5 : -0.5;
-        q[(ax + 1) % 3] = -0.5 + (i + 0.5) / 6;
-        q[(ax + 2) % 3] = -0.5 + (j + 0.5) / 6;
-        pts.push({
-          p: [0.9 + q[0] * 0.9, 0.45 + q[1] * 0.9, q[2] * 0.9],
-          color: [0.2, 0.35 + 0.1 * f, 0.7],
-        });
-      }
-  for (let i = 0; i < 14; i++)
-    for (let j = 0; j < 14; j++)
-      pts.push({
-        p: [-2 + (4 * (i + 0.5)) / 14, 0, -2 + (4 * (j + 0.5)) / 14],
-        color: (i + j) % 2 ? [0.82, 0.8, 0.74] : [0.55, 0.53, 0.48],
-      });
-  return pts;
+export interface JudgeRun {
+  layers: Layers;
+  /** Every frame as SVG on the theme's ground, rasters by file name in `dir`. */
+  svgs: string[];
+  takeaway: string;
 }
 
-/** The case's input with its stand-ins resolved; `picture` replaces the synthetic one (a preview's photograph). */
-export function resolveInput(c: JudgeCase, picture?: Rgb): Record<string, unknown> {
-  const input: Record<string, unknown> = {
-    ...c.input,
-    ...(c.seed === null ? {} : { seed: c.seed }),
-  };
-  const pic = input.picture as { synthetic?: string; w?: number; h?: number } | undefined;
-  if (pic) {
-    if (pic.synthetic !== "discs")
-      throw new Error(`judge ${c.name}: unknown picture ${JSON.stringify(pic)}`);
-    input.image = picture ?? syntheticPicture(pic.w as number, pic.h as number);
-    delete input.picture;
-  }
-  const pts = input.points as { scene?: string } | undefined;
-  if (pts && !Array.isArray(pts)) {
-    if (pts.scene !== "sphere-box-floor")
-      throw new Error(`judge ${c.name}: unknown scene ${pts.scene}`);
-    input.points = scenePoints();
-  }
-  const from = input.seriesFrom as
-    | {
-        landscape: optimization.LandscapeName;
-        start: [number, number];
-        steps: number;
-        optimizers: optimization.OptimizerSpec[];
-        every: number;
-      }
-    | undefined;
-  if (from) {
-    const L = optimization.LANDSCAPES[from.landscape];
-    input.series = from.optimizers.map((o) => ({
-      label: o.label,
-      points: optimization
-        .runOptimizer(L, o, from.start, from.steps)
-        .loss.map((v, i) => [i, v] as [number, number])
-        .filter((_, i) => i % from.every === 0),
-    }));
-    delete input.seriesFrom;
-  }
-  return input;
-}
-
-type Run = (input: never, region: Region) => MechanismResult;
-const RUNS: Record<string, Run> = {
-  tokenAttention: attention.tokenAttention as Run,
-  patchAttention: attention.patchAttention as Run,
-  diffusion: diffusion.diffusion as Run,
-  optimization: optimization.optimization as Run,
-  splatting: splatting.splatting as Run,
-  messagePassing: messagePassing.messagePassing as Run,
-  rlRollout: rlRollout.rlRollout as Run,
-  retrieval: retrieval.retrieval as Run,
-};
-
-export function runJudgeCase(c: JudgeCase, picture?: Rgb): MechanismResult {
-  const run = RUNS[c.run];
-  if (!run) throw new Error(`judge ${c.name}: no kind function "${c.run}"`);
-  return run(resolveInput(c, picture) as never, JUDGE_REGION);
-}
-
-/** The sentence the kind itself says its frames convey. */
-export function takeawayOf(c: JudgeCase, r: MechanismResult): string {
-  if (c.run === "patchAttention") return attention.TAKEAWAY_PATCHES;
-  const mod = {
-    attention,
-    diffusion,
-    optimization,
-    splatting,
-    "message-passing": messagePassing,
-    "rl-rollout": rlRollout,
-    retrieval,
-  }[c.kind];
-  if (!mod) throw new Error(`judge ${c.name}: no kind "${c.kind}"`);
-  return mod.takeaway(r);
-}
-
-/** A slot's text from the case's labels, filled with the frame's values. */
-export function slotTextOf(c: JudgeCase) {
-  return (slot: string, vars: Readonly<Record<string, string | number>>) => {
-    const t = c.labels[slot];
-    if (t === undefined) throw new Error(`judge ${c.name}: no label for slot "${slot}"`);
-    return fillTemplate(t, vars);
-  };
-}
-
-/** The judge's frames as SVG, rasters by `href(layer)`. */
-export function judgeFramesSvg(
+/**
+ * Regenerate a case through the deck's own path: the kind's `layers` writes its
+ * files into `dir`, `frameSvgs` draws its frames. `photo` replaces the case's
+ * synthetic picture (a preview's photograph).
+ */
+export async function runJudgeCase(
   c: JudgeCase,
-  r: MechanismResult,
+  dir: string,
   theme: Theme,
-  href: (layer: string) => string,
-  pad = 80,
-): string[] {
-  return c.frames.map((i) => {
-    const f = r.frames[i];
-    if (!f) throw new Error(`judge ${c.name}: frame ${i} of ${r.frames.length}`);
-    return frameSvg(f, JUDGE_REGION, href, slotTextOf(c), {
-      theme,
-      pad,
-      ground: true,
-      paint: layerPaints(r.rasters),
-    });
+  opts: { photo?: string; pad?: number } = {},
+): Promise<JudgeRun> {
+  const lit = literalOf(c);
+  let image = opts.photo;
+  if (c.picture && !image) {
+    image = join(dir, `${c.name}-picture.png`);
+    const pic = syntheticPicture(c.picture.w, c.picture.h);
+    await writeRaster(image, pic.w, pic.h, toRgba(pic));
+  }
+  const spec = { labels: c.labels, data: lit };
+  const layers = await mechanismLayers(c.kind, {
+    beatId: c.name,
+    ...(image ? { image } : {}),
+    dir,
+    region: JUDGE_REGION,
+    spec,
+    theme,
   });
+  const svgs = frameSvgs(c.kind, layers, JUDGE_REGION, spec, theme, (f) => f, {
+    ground: true,
+    pad: opts.pad ?? 80,
+  });
+  const vars = layers.data.vars as Record<string, string | number>;
+  const patches = c.kind === "attention" && lit.kind === "attention" && !lit.tokens.length;
+  const takeaway = patches ? TAKEAWAY_PATCHES : fillTemplate(MECHANISM_TAKEAWAYS[c.kind], vars);
+  return { layers, svgs, takeaway };
 }

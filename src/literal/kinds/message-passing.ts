@@ -5,8 +5,9 @@
  *
  * WHAT IS EXACT. h_v^{l+1} = σ(W_l · AGG({h_u : u ∈ N(v)} ∪ {h_v})) with AGG
  * the source's: "sum", "mean", "max", or "gcn" (Kipf & Welling 2017: Σ_u
- * h_u / √(d̃_u d̃_v), d̃ counting the self-loop). W_l and σ are the source's
- * when it gives them; otherwise W = I and σ = identity — pure propagation
+ * h_u / √(d̃_u d̃_v), d̃ counting the self-loop). W_l (one per layer, every
+ * one, shapes checked) and σ (`relu`) are the source's when it gives them;
+ * otherwise W = I and σ = identity — pure propagation
  * (SGC, Wu et al. 2019), which is what message passing does before anything
  * is learned. Messages are the per-edge terms the aggregate sums.
  *
@@ -244,6 +245,29 @@ export function messagePassing(input: GraphInput, region: Region): MechanismResu
     throw new Error(`message-passing: layers must be 1..8, got ${input.layers}`);
   const N = neighbourLists(n, edges, !!input.directed);
   const selfLoops = input.selfLoops ?? true;
+  if (input.weights?.length) {
+    // All or none: a short list would quietly run the later layers as W = I.
+    if (input.weights.length !== input.layers)
+      throw new Error(
+        `message-passing: ${input.weights.length} weight matrices for ${input.layers} layers; give one per layer, or none`,
+      );
+    let din = d;
+    input.weights.forEach((W, l) => {
+      const rows = W.length;
+      if (
+        rows < 1 ||
+        rows > 4 ||
+        W.some((r) => r.length !== din || r.some((x) => !Number.isFinite(x)))
+      )
+        throw new Error(
+          `message-passing: layer ${l + 1}'s weights must be a 1..4 × ${din} matrix of numbers (rows = outputs, columns = the previous layer's ${din} features)`,
+        );
+      din = rows;
+    });
+  } else if (input.relu)
+    throw new Error(
+      "message-passing: an activation without the source's weights would be σ(identity); give both or neither",
+    );
   const H: number[][][] = [input.nodes.map((v) => [...v.features])];
   const msgs: LayerResult["messages"][] = [];
   for (let l = 0; l < input.layers; l++) {

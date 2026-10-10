@@ -117,9 +117,12 @@ export function literalPlanOf(
       takeaway: beat.takeaway?.trim() || beat.intent,
       labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
       ...(image ? { image } : {}),
-      // The literal itself, for a data kind, and for one that reads both a picture and its data
-      // (attention, splatting: `picture: false`, a picture optional).
-      ...(image && KINDS[lit.kind].picture ? {} : { data: lit }),
+      // The literal itself whenever it says more than its picture: a data kind, and a kind
+      // that reads a picture AND fields (attention patches, splatting a picture, diffusion's
+      // schedule). A bare picture kind's plan is as it was.
+      ...(image && Object.keys(lit).every((k) => k === "kind" || k === "picture" || k === "labels")
+        ? {}
+        : { data: lit }),
     };
   }
   return { beats };
@@ -282,6 +285,7 @@ export async function literalPass(
       dir,
       region,
       spec,
+      theme,
       earlier,
     });
     earlier.set(beat.id, { kind: spec.kind, layers, labels: spec.labels });
