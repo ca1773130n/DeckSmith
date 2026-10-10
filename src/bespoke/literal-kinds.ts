@@ -370,7 +370,6 @@ const darkChannelKind: KindImpl = {
         A: A.map(r3),
         missFrac,
         premise,
-        errRatio: missErrorRatio(J, clear, miss),
       },
     };
   },
@@ -381,7 +380,6 @@ const darkChannelKind: KindImpl = {
       tTrue: number;
       missFrac: number;
       premise: string;
-      errRatio: number;
     };
     const K = "dark-channel";
     const f = L.files as Record<string, string>;
@@ -419,7 +417,7 @@ ${panel("p-dark", x2, LAB_H, pw, ph, `${img("dark-u", href(f.hazy as string), 0,
 ${label("l-trans", lab(K, spec, "transmission"), 0, y2 - LAB_H, LABEL, theme.fg)}
 ${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}${label("l-miss", lab(K, spec, "miss", t), 20, ph - 64, SMALL, "", ON_PHOTO)}`)}
 ${label("l-rec", lab(K, spec, "recovered"), x2, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-rec", f.rec as string, x2, y2, img("miss2", href(f.miss as string), 0, 0, pw, ph))}
+${tile("p-rec", f.rec as string, x2, y2)}
 ${label("l-plot", lab(K, spec, "profile"), qx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${py0}" x2="0" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
@@ -431,7 +429,7 @@ ${label("l-truth", lab(K, spec, "truth", t), qx, legendY, SMALL, theme.fg)}
 ${label("l-est", lab(K, spec, "estimate"), qx + qw / 2, legendY, SMALL, theme.accent)}
 ${label("l-premise", lab(K, spec, "premise"), qx, H - LAB_H * 3 + 4, SMALL, theme.fg)}
 ${label("l-premise2", lab(K, spec, "premiseValue", { v: d.premise }), qx, H - LAB_H * 2 + 4, SMALL, theme.accent)}
-${label("l-err", lab(K, spec, "error", { k: d.errRatio.toFixed(1) }), qx, H - LAB_H + 4, SMALL, theme.accent)}
+${label("l-share", lab(K, spec, "missShare", { p: Math.round(d.missFrac * 100) }), qx, H - LAB_H + 4, SMALL, theme.accent)}
 </div>`;
     const [s0, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
     const tl = new Tl();
@@ -458,45 +456,18 @@ ${label("l-err", lab(K, spec, "error", { k: d.errRatio.toFixed(1) }), qx, H - LA
     tl.fromTo("est", { opacity: 0 }, { opacity: 1, duration: 0.8 }, s2 + 1.6);
     tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s2 + 2.6);
     tl.show("l-miss", s2 + 2.8);
-    // Step 4: the recovered picture, the same places marked on it, and what the prior assumed there.
+    // Step 4: the recovered picture — plausible to the eye — and, measured, how much of its
+    // transmission was wrong and what the prior assumed. (Its colour error is NOT larger where
+    // the transmission missed on every picture: measured on the r2 deck it was 0.8×, so the
+    // scene states the miss itself, never "the recovery fails there".)
     tl.show("l-rec", s3);
     tl.show("p-rec", s3, 0.8);
-    tl.fromTo("miss2", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s3 + 1.4);
-    tl.show("l-err", s3 + 1.6);
+    tl.show("l-share", s3 + 1.4);
     tl.show("l-premise", s3 + 2.4);
     tl.show("l-premise2", s3 + 2.8);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };
-
-/**
- * How many times larger the recovery error is where the prior's transmission
- * missed (`miss` > 0) than where it held: mean |J − clear| over colour, each
- * region. The scene states it; it is what "the prior failed here" costs.
- */
-export function missErrorRatio(J: Rgb, clear: Rgb, miss: ArrayLike<number>): number {
-  let eIn = 0;
-  let nIn = 0;
-  let eOut = 0;
-  let nOut = 0;
-  for (let i = 0; i < miss.length; i++) {
-    let e = 0;
-    for (let c = 0; c < 3; c++)
-      e += Math.abs((J.d[i * 3 + c] as number) - (clear.d[i * 3 + c] as number));
-    if ((miss[i] as number) > 0) {
-      eIn += e;
-      nIn++;
-    } else {
-      eOut += e;
-      nOut++;
-    }
-  }
-  if (!nIn || !nOut || eOut === 0)
-    throw new Error(
-      `literal: the dark channel prior missed ${nIn} of ${miss.length} pixels; the scene needs a picture where it both holds and fails`,
-    );
-  return r3(eIn / nIn / (eOut / nOut));
-}
 
 /* ---------------------------------------------------------------- TM-LIF */
 
@@ -659,8 +630,11 @@ const channelThresholdKind: KindImpl = {
     const names = channelNames(spec, n);
     const gap = 24;
     const cw = Math.floor((W - (n - 1) * gap) / n);
-    const ch = even(cw / 1.5);
-    const histH = 150;
+    // Two rows of maps, a histogram row and four label lines must fit the region's height:
+    // the maps shrink (keeping 3:2) before anything runs off the bottom.
+    const histH = 120;
+    const ch = even(Math.min(cw / 1.5, (H - LAB_H * 4 - histH - 24 - 20 - 20) / 2));
+    const mw = even(ch * 1.5);
     const yMap = LAB_H * 2;
     const yHist = yMap + ch + 24;
     const yRow = yHist + histH + 20;
@@ -676,10 +650,10 @@ const channelThresholdKind: KindImpl = {
           )
           .join("");
         return `${label(`n${k}`, names[k] as string, x, LAB_H, SMALL, theme.fg)}
-${panel(`m${k}`, x, yMap, cw, ch, img(`mi${k}`, href(f[`map${k}`] as string), 0, 0, cw, ch), "lit-dark")}
+${panel(`m${k}`, x, yMap, mw, ch, img(`mi${k}`, href(f[`map${k}`] as string), 0, 0, mw, ch), "lit-dark")}
 <svg id="SCENEID-h${k}" width="${cw}" height="${histH}" viewBox="0 0 ${cw} ${histH}" style="left:${px(x)};top:${px(yHist)}">${bars}<line x1="0" y1="${histH}" x2="${cw}" y2="${histH}" stroke="${theme.rule}" stroke-width="2"/></svg>
 <div id="SCENEID-th${k}" style="position:absolute;left:${px(x + d.thetaFixed * cw - 2)};top:${px(yHist - 6)};width:5px;height:${px(histH + 12)};background:${theme.accent}"></div>
-${panel(`s${k}`, x, ySp, cw, ch, `${img(`sf${k}`, href(f[`fix${k}`] as string), 0, 0, cw, ch)}${img(`sc${k}`, href(f[`cal${k}`] as string), 0, 0, cw, ch)}`, "lit-dark")}`;
+${panel(`s${k}`, x, ySp, mw, ch, `${img(`sf${k}`, href(f[`fix${k}`] as string), 0, 0, mw, ch)}${img(`sc${k}`, href(f[`cal${k}`] as string), 0, 0, mw, ch)}`, "lit-dark")}`;
       })
       .join("\n");
     const note = lab(K, spec, "note", { alpha: d.alpha, D: d.D });
@@ -690,7 +664,7 @@ ${label("l-note", note, W - widthOf(note, SMALL, theme) - 8, 0, SMALL, theme.mut
 ${cols}
 ${label("l-fix", lab(K, spec, "fixed"), 0, yRow, LABEL, theme.fg)}
 ${label("l-cal", lab(K, spec, "calibrated"), 0, yRow, LABEL, theme.accent)}
-${label("l-stand", standIn, 0, Math.min(H - LAB_H, ySp + ch + 20), SMALL, theme.muted)}
+${label("l-stand", standIn, 0, ySp + ch + 20, SMALL, theme.muted)}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
     // With one cue, the calibration is the cue's second half.
@@ -1566,8 +1540,17 @@ const tableKind: KindImpl = {
     const headLines = Math.max(...t.columns.map((c, j) => linesOf(c, j, head).length));
     const bodyLines = t.rows.map((r) => Math.max(...r.map((c, j) => linesOf(c, j, size).length)));
     const content = headLines * lineH + bodyLines.reduce((a, b) => a + b, 0) * lineH;
-    // Rows breathe to fill the region (quiet, not crammed), within limits.
-    const pad = Math.max(14, Math.min(44, (H * 0.86 - content - capH) / (2 * (t.rows.length + 1))));
+    // Rows breathe to fill the region (quiet, not crammed), within limits — and never past its
+    // bottom: a table that cannot fit even unpadded is refused, not drawn under its caption.
+    const room = H - content - capH;
+    if (room < 2 * 4 * (t.rows.length + 1))
+      throw new Error(
+        `literal: the table needs ${Math.ceil(content + capH)}px and the scene has ${Math.floor(H)}px; shorten its cells or split it`,
+      );
+    const pad = Math.max(
+      4,
+      Math.min(44, Math.min(H * 0.86 - content - capH, room) / (2 * (t.rows.length + 1))),
+    );
     const headH = headLines * lineH + 2 * pad;
     const bodyH = bodyLines.map((n) => n * lineH + 2 * pad);
     const lit = new Set(t.highlight);
@@ -1617,7 +1600,7 @@ const tableKind: KindImpl = {
     const markup = `<div id="SCENEID-lit">
 <div id="SCENEID-head" style="position:absolute;left:0;top:0;width:100%;height:100%">${headRow}<div style="position:absolute;left:0;top:${px(y0 + headH - 2)};width:${px(W)};height:3px;background:${theme.fg}"></div></div>
 ${bodies.join("\n")}
-${caption ? label("cap", caption, 0, Math.min(H - LAB_H, y + 30), SMALL, theme.muted) : ""}
+${caption ? label("cap", caption, 0, y + Math.min(30, (capH - LAB_H) / 2 + 10), SMALL, theme.muted) : ""}
 </div>`;
     const steps = rowSteps(t.highlight, cues.length);
     const at = stepStarts(cues, steps.length);
@@ -1697,16 +1680,18 @@ const scaleKind: KindImpl = {
       ) + 48;
     const barX = nameW;
     const barW = W - nameW - valW;
-    const barH = 60;
-    const rowH = 104;
     const tileH = 120;
     const caption = lab("scale", spec, "caption");
+    const tiled = (g: ScaleData["groups"][number]) =>
+      s.tile && tiles(g.items.map((it) => Number(it.value))) ? tileH : 0;
+    // A row is as tall as the region allows, between a label's height and a roomy 104px.
+    const fixed =
+      s.groups.reduce((a, g) => a + LAB_H + 10 + tiled(g) + 48, 0) + (caption ? LAB_H : 0);
+    const items = s.groups.reduce((a, g) => a + g.items.length, 0);
+    const rowH = Math.max(64, Math.min(104, (H - fixed) / Math.max(1, items)));
+    const barH = Math.min(60, rowH - 24);
     const groupH = (g: ScaleData["groups"][number]) =>
-      LAB_H +
-      10 +
-      g.items.length * rowH +
-      (s.tile && tiles(g.items.map((it) => Number(it.value))) ? tileH : 0) +
-      48;
+      LAB_H + 10 + g.items.length * rowH + tiled(g) + 48;
     const total = s.groups.reduce((a, g) => a + groupH(g), 0) + (caption ? LAB_H : 0);
     const parts: string[] = [];
     let y = Math.max(0, (H - total) / 2);
@@ -1739,7 +1724,7 @@ const scaleKind: KindImpl = {
     });
     const markup = `<div id="SCENEID-lit">
 ${parts.join("\n")}
-${caption ? label("cap", caption, 0, Math.min(H - LAB_H, y), SMALL, theme.muted) : ""}
+${caption ? label("cap", caption, 0, y, SMALL, theme.muted) : ""}
 </div>`;
     const at = stepStarts(cues, s.groups.length);
     const tl = new Tl();
@@ -1787,7 +1772,7 @@ const recapKind: KindImpl = {
     const result = lab("recap", spec, "result");
     const resultLines = result ? wrap(result, LABEL, W, theme) : [];
     const resH = resultLines.length ? resultLines.length * 58 + 24 : 0;
-    const cols = n <= 3 ? n : Math.ceil(n / 2);
+    const cols = n <= 4 ? n : Math.ceil(n / 2);
     const rows = Math.ceil(n / cols);
     const gap = 64;
     const capH = 64;

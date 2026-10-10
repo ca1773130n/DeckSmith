@@ -330,7 +330,10 @@ async function sobelLayers(image: string, dir: string, beatId: string, box: Box)
   };
   await writeRaster(join(dir, files.hazy), w, h, toRgba(hazy));
   const e = sobel(luma(hazy), w, h);
-  const s = scale(e, 1 / Math.max(1e-6, quantile(e, 0.985)));
+  // Shown on the picture: the strongest structure, not every texel of texture — a p99.5 scale
+  // and a 1.8 gamma, so roads and field boundaries stand out (at p98.5, linear, an aerial
+  // picture's texture washed the whole map yellow).
+  const s = scale(e, 1 / Math.max(1e-6, quantile(e, 0.995))).map((v) => Math.min(1, v) ** 1.8);
   await writeRaster(join(dir, files.edges), w, h, mapRgba(s, EDGE));
   // The feature panels at their own size.
   const fw = box.feat.w;
@@ -771,8 +774,9 @@ ${label("w-label", lab("reweighted"), cx, y2 - 64, LABEL, theme.fg)}
   tl.hide("kernel", s0 + span, 0.3);
   tl.hide("tag-hazy", s0 + span - 0.2, 0.4);
   tl.show("tag-sobel", s0 + span + 0.1);
-  // Then the structure map gates the feature, and the reweighted feature keeps the edges.
-  const f0 = s0 + span + 0.5;
+  // Then the structure map gates the feature, and the reweighted feature keeps the edges —
+  // on the second sentence, when there is one.
+  const f0 = Math.max(s0 + span + 0.5, (cues[1]?.t0 ?? 0) + 0.2);
   tl.show("f-label", f0);
   tl.show("fpanel", f0, 0.4);
   tl.show("wpanel", f0 + 0.6, 0.4);

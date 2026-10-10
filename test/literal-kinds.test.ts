@@ -21,7 +21,6 @@ import {
   type Layers,
   literalFragment,
   MORE_KINDS,
-  missErrorRatio,
   type Rgb,
   rowSteps,
   stepStarts,
@@ -204,7 +203,6 @@ const cases: Array<[Kind, Layers, unknown]> = [
         tTrue: 0.35,
         missFrac: 0.1,
         premise: "0.11",
-        errRatio: 2.5,
       },
     },
     undefined,
@@ -505,17 +503,87 @@ describe("what each scene shows, and does not", () => {
     for (const l of lines) expect(l).not.toMatch(/^[·•|/]/);
   });
 
-  it("the prior's failure is measured: recovery error where it missed against where it held", () => {
-    const n = 4;
-    const clear: Rgb = { w: n, h: 1, d: new Float32Array(n * 3).fill(0.5) };
-    const J: Rgb = {
-      w: n,
-      h: 1,
-      d: Float32Array.from([0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]),
+  it("nothing runs off the bottom: channel rows, a table's caption, a scale's caption", () => {
+    const short = { width: 1700, height: 700 };
+    const topOf = (markup: string, id: string) =>
+      Number(new RegExp(`id="SCENEID-${id}"[^>]*top:(\\d+)px`).exec(markup)?.[1]);
+    const [, chL, chD] = cases.find(([k]) => k === "channel-threshold") as (typeof cases)[number];
+    const ch = literalFragment(
+      "channel-threshold",
+      chL,
+      short,
+      cues,
+      {
+        kind: "channel-threshold",
+        takeaway: "t",
+        labels: slotsFor("channel-threshold", { channelNames: "a · b" }),
+        ...(chD ? { data: chD } : {}),
+      } as never,
+      theme,
+    );
+    expect(topOf(ch.markup, "l-stand") + 46).toBeLessThanOrEqual(short.height);
+    const table = {
+      kind: "table",
+      columns: ["분할", "EM-SNN PSNR", "다른 방법 최고 PSNR", "EM-SNN SSIM", "다른 방법 최고 SSIM"],
+      rows: [
+        ["LHID", "30.56", "29.73 DehazeFormer-b", "0.9106", "0.8964 DehazeFormer-b"],
+        ["DHID", "28.83", "28.89 SFRDP-Net", "0.9073", "0.9070 SFRDP-Net"],
+        ["RICE1", "35.99", "37.38 SFRDP-Net", "0.9630", "0.9650 SFSNiD · SFRDP-Net"],
+        ["RICE2", "36.25", "35.45 SFRDP-Net", "0.9406", "0.9140 4KDehazing"],
+      ],
+      highlight: [0, 1, 2, 3],
+      marks: [],
+      labels: [],
     };
-    // Missed at pixels 2 and 3 (error 0.4 each channel), held at 0 and 1 (errors 0 and 0.1).
-    expect(missErrorRatio(J, clear, [0, 0, 1, 1])).toBeCloseTo(1.2 / 0.15, 3);
-    expect(() => missErrorRatio(J, clear, [0, 0, 0, 0])).toThrow(/both holds and fails/);
+    const draw = (
+      kind: "table" | "scale",
+      region: { width: number; height: number },
+      data: unknown,
+      labels = {},
+    ) =>
+      literalFragment(
+        kind,
+        { files: {}, data: {} },
+        region,
+        cues,
+        { kind, takeaway: "t", labels, data } as never,
+        theme,
+      );
+    expect(
+      topOf(draw("table", short, table, { caption: "표에 보고된 값" }).markup, "cap") + 46,
+    ).toBeLessThanOrEqual(short.height);
+    expect(() => draw("table", { width: 1700, height: 260 }, table)).toThrow(
+      /the table needs \d+px and the scene has 260px/,
+    );
+    const scale = {
+      kind: "scale",
+      groups: [
+        {
+          label: "에너지",
+          unit: "mJ",
+          items: [
+            { label: "A", value: "175.21" },
+            { label: "B", value: "43.62" },
+          ],
+        },
+        {
+          label: "파라미터",
+          unit: "M",
+          items: [
+            { label: "A", value: "5.08" },
+            { label: "B", value: "4.81" },
+          ],
+        },
+      ],
+      tile: true,
+      labels: [],
+    };
+    const sm = draw("scale", short, scale, { caption: "보고값" }).markup;
+    const cap = topOf(sm, "cap");
+    expect(cap + 46).toBeLessThanOrEqual(short.height);
+    // Every row ends above the caption.
+    for (const m of sm.matchAll(/id="SCENEID-i\d+-\d+" style="[^"]*top:(\d+)px;[^"]*height:(\d+)px/g))
+      expect(Number(m[1]) + Number(m[2])).toBeLessThanOrEqual(cap);
   });
 });
 
@@ -616,10 +684,10 @@ describe.skipIf(!ffmpeg)(
       );
     });
 
-    it("dark-channel: the prior misses on the flat bright half, and the recovery error is larger there", async () => {
-      const d = (await run("dark-channel", pic)).data as { missFrac: number; errRatio: number };
+    it("dark-channel: the prior's estimate misses the true transmission on the flat bright half", async () => {
+      const d = (await run("dark-channel", pic)).data as { missFrac: number; premise: string };
       expect(d.missFrac).toBeGreaterThan(0.2);
-      expect(d.errRatio).toBeGreaterThan(1);
+      expect(d.missFrac).toBeLessThan(0.9);
     });
 
     it("backbone and fixed-filters write every layer they name", async () => {

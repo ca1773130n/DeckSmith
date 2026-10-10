@@ -837,9 +837,9 @@ export const LITERAL_SLOTS: Readonly<
     estimate: { what: "legend of the estimate line" },
     premise: { what: "the prior's assumption, in words" },
     premiseValue: { what: "what this picture gives for it", vars: ["v"] },
-    error: {
-      what: "how many times larger the recovery error is where the estimate missed than elsewhere",
-      vars: ["k"],
+    missShare: {
+      what: "how much of the picture the estimate missed, in percent",
+      vars: ["p"],
     },
   },
   "channel-threshold": {
