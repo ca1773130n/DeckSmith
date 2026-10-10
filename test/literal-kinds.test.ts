@@ -525,7 +525,7 @@ describe("what each scene shows, and does not", () => {
         .exec(new RegExp(`id="SCENEID-${id}"[^>]*`).exec(f.markup)?.[0] ?? "")
         ?.slice(1)
         .map(Number) as number[];
-    const [x3, y3, w3, h3] = box("p3");
+    const [x3, y3, w3, h3] = box("p3") as [number, number, number, number];
     expect(y3 + h3).toBeGreaterThan(region.height * 0.6);
     const left = Number(/id="SCENEID-r0"[^>]*left:(\d+)px/.exec(f.markup)?.[1]);
     expect(left).toBeGreaterThan(x3 + w3);
