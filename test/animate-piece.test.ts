@@ -269,7 +269,8 @@ describe("the dsAnimate plugin", () => {
     // Frame 60 is still what the deck's canvas holds, so it is not drawn again.
     DSAnimatePlugin.render(0.5, state);
     expect(frames).toHaveLength(drawn + 120);
-  });
+    // 120 frames drawn in a real browser: 5.4s locally under load, 6.8s on CI.
+  }, 30_000);
 
   /**
    * NO TEXT FROM A PIECE, on the canvas the piece made for itself. morph.js
