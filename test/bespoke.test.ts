@@ -1049,6 +1049,20 @@ describe("the deck-order device pass", () => {
     expect(r.note ?? "").not.toMatch(/picture floor/);
   });
 
+  it("spends the picture cap on data beats first, whatever the model marks (round 6)", async () => {
+    // The model wants pictures on b2 and b3 only; b4 is the data beat.
+    const some = deck.map((b) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: b.id === "b2" || b.id === "b3",
+      idea: "x",
+    }));
+    const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(some) });
+    expect(r.beats.filter((b) => b.illustrate).map((b) => b.beatId)).toEqual(["b2", "b4"]);
+    expect(r.beats.find((b) => b.beatId === "b4")?.forced).toBe(true);
+    expect(r.note).toMatch(/data beats first: b4 given a picture/);
+  });
+
   it("plans the deck's pictures together: a setting and subjects per illustrated beat, none for the rest (round 5)", async () => {
     const all = deck.map((b, i) => ({
       id: b.id,
@@ -1107,7 +1121,8 @@ describe("the deck-order device pass", () => {
     const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
     const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(all) });
     const pictured = r.beats.filter((b) => b.illustrate).map((b) => b.beatId);
-    expect(pictured).toEqual(["b2", "b3"]);
+    // Data beats first under the cap: b4 before b3.
+    expect(pictured).toEqual(["b2", "b4"]);
     const ruled = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
     const ruledPictures = ruled.beats.filter((b) => b.illustrate).map((b) => b.beatId);
     expect(ruledPictures).not.toContain("b1");

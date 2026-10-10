@@ -684,7 +684,13 @@ tl.fromTo("#SCENEID-dot", { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 3);`,
   });
 
   it("caps pictures per deck, and a beat with no picture is drawn without one", async () => {
-    const { calls, run } = fake((args) => (args.images?.length ? PICTURED : SCENE));
+    // A beat whose draft was handed its picture stays a pictured scene through its critiques.
+    const withPicture = new Set<string>();
+    const { calls, run } = fake((args) => {
+      const beat = (args.outPath.split("/").pop() ?? "").split(".")[0] ?? "";
+      if (args.images?.length) withPicture.add(beat);
+      return withPicture.has(beat) ? PICTURED : SCENE;
+    });
     const r = await bespokePass({ ...input({ run, gate: passing }), prefs: prefs({ art: 1 }) });
     expect(calls.filter((c) => c.prompt.startsWith("You are the illustrator"))).toHaveLength(1);
     expect(r.report.scenes.filter((s) => s.art)).toHaveLength(1);

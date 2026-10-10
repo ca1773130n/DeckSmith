@@ -198,3 +198,28 @@ Also short: decks are ~1.5 MB heavier; the en r6c build took 838s while the meas
 beside it (the eight measured builds took 431-696s); not measured: an mp4 render or `drift` of
 a round-6 deck (the gates' seek-only browser was used throughout), and the depth model off
 macOS (it reports `flat`, tested).
+
+## On feat/animate-piece, and the r1 final review (2026-10-10, later)
+
+Rounds 5 and 6 were rebased onto `feat/animate-piece` (`a276422`) as one commit (`8f2cd73`,
+19 files resolved by hand): its `TYPE_SCALE` wiring, seam fixes, `isUiDevice` and
+every-v2-beat `selectBespoke` kept with round 6's depth pictures and gates. There every v2
+beat is bespoke and most have no picture, so the round-6 rules now hold for drawn scenes too.
+decksmith-71's final review of the combined deck (EM-SNN ko) named five defects. Each now has
+a gate, and the shipped readers were run back over that review's own deck
+(`~/.blackhole/DeckSmith/2026-10-10/bespoke/final`) to show they would have caught it:
+
+| review item | fix | gate | on the review's deck |
+|---|---|---|---|
+| labels at 75-80px under a scene's camera | the shell counter-scales every word under the scene's camera tweens (`quietWords`) | `type_scale` (rendered) | largest word 78px |
+| 11/16 scenes animate chips, plates, charts | `ui_motion` also counts paths/polygons grown from under 70%, skips clip reveals; bar race dropped; prompt: drawn scenes are illustrations moved by camera and light | `ui_motion` | 53 tweens in 14/16 scenes |
+| stage empty ~0.6s at 12/15 seams | cue 1 stands from the first frame (rule 3, references) | `seam_blank` (new) | 12/15 seams over 0.15s |
+| 490 `tl.to` against invariant 2 | contract refuses `tl.to`/`tl.from`/keyframes and incomplete from states; prompt, references (82 tweens), repairs and `untangle` are fromTo | `script_fromto` (new) | — (static) |
+| s8 hollow, s15 dots overlapping | — | `hollow_hold`, `marks_overlap` (new) | s8's settled frame filled (0.93), its hold did not |
+
+The smoke build of the rebased branch (one ko deck, 16 beats, fresh cache, `64de487`) kept 13
+of 16 bespoke (6 pictured, 7 drawn) with no UI motion, no blank seam and no word over 57px in
+any of them; verify passed. The three that fell back were drawn data beats, and two of their
+bar-compare fallbacks grew bars: the data-beat prompt still said "bars grow from zero" (round
+5's text), the key label it never named failed `type_hierarchy`, and one beat failed only the
+chart-camera rule. `7ff673d` fixes all three; the second smoke build's numbers are in the PR.

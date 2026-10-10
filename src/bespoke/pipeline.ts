@@ -837,7 +837,6 @@ export async function assignDevices(
     const d = deviceName(decided.get(id)?.device);
     if (d) used.add(d);
   }
-  let pictures = 0;
   const out: BeatDevice[] = [];
   // Round 5: the camera grammar and the data build ride in this same pass, in
   // deck order, each a pure choice given the ones before it.
@@ -869,6 +868,24 @@ export async function assignDevices(
   const floorNote = forced.size
     ? `picture floor: ${[...forced].map((i) => beats[i]?.id).join(", ")} given a picture (${answers ? "the model" : "the rule"} marked ${chosen} of ${eligibleIdx.length} eligible beats; the floor is ${floor})`
     : undefined;
+  // DATA BEATS FIRST under the cap (round 6, measured): a drawn chart is where
+  // the gates refuse most — all five fallbacks of the rebased branch's two smoke
+  // builds were drawn data beats, and their archetype grows its bars — while
+  // every pictured scene passed on its first draft. So an eligible data beat
+  // always asks for a picture, and the cap is spent on data beats before the rest.
+  const dataFirst = new Set<number>();
+  for (const i of eligibleIdx)
+    if (beats[i]?.data && !wants[i]) {
+      wants[i] = true;
+      dataFirst.add(i);
+    }
+  const pictured = new Set(
+    eligibleIdx
+      .filter((i) => wants[i])
+      .sort((x, y) => Number(!beats[x]?.data) - Number(!beats[y]?.data) || x - y)
+      .slice(0, opts.artCap),
+  );
+  for (const i of dataFirst) if (pictured.has(i)) forced.add(i);
   for (const [bi, b] of beats.entries()) {
     const a = byId.get(b.id);
     let device = deviceName(a?.device);
@@ -882,8 +899,7 @@ export async function assignDevices(
       origin = "rule";
     }
     used.add(device);
-    const illustrate = eligibleOf(b) && wants[bi] === true && pictures < opts.artCap;
-    if (illustrate) pictures++;
+    const illustrate = pictured.has(bi);
     const role = roleOf(b);
     const grammar = illustrate ? chooseGrammar(role, grammars) : undefined;
     if (grammar) grammars.push(grammar);
@@ -916,6 +932,11 @@ export async function assignDevices(
   if (ruled.length)
     note = [note, `rule catalogue for ${ruled.join(", ")}`].filter(Boolean).join("; ");
   if (floorNote) note = [note, floorNote].filter(Boolean).join("; ");
+  const firsts = [...dataFirst].filter((i) => pictured.has(i));
+  if (firsts.length)
+    note = [note, `data beats first: ${firsts.map((i) => beats[i]?.id).join(", ")} given a picture`]
+      .filter(Boolean)
+      .join("; ");
   if (dir && from === "codex" && answers) {
     try {
       await mkdir(join(dir, "beats"), { recursive: true });

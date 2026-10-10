@@ -968,7 +968,10 @@ pulled to the subject the voice names, a slow light sweep, the subjects breathin
 plates, chips, label pills or leader-line callouts animate in, and nothing a scene writes
 renders above the 56px headline (`TYPE_SCALE` in `src/emit/type.ts`); the narration and the
 subtitles carry the words. Every beat with two cues gets a picture, data beats included
-(their subjects ARE the quantities, drawn in proportion), up to `--bespoke-art`.
+(their subjects ARE the quantities, drawn in proportion), up to `--bespoke-art` — and the cap
+goes to data beats first: a drawn chart is where the gates refuse most (all five fallbacks of
+the rebased branch's two smoke builds were drawn data beats, whose archetype grows its bars),
+while every pictured scene passed on its first draft.
 
 **Which beats** (`src/bespoke/select.ts`): every beat with a narration cue, except one a
 camera dives into or out of (the dive is aimed at a part the archetype drew) and one the
