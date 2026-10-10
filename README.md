@@ -914,10 +914,14 @@ built — with a grammar planned per deck (`src/emit/motion.ts`):
   (2026-10-10). On a fallback archetype the motion is the picture's — the backdrop's
   drift, the field, the camera — and the seams'; no panel or slab is lifted as it is
   read, and split-compare's divider no longer sweeps a highlight.
-- **Seams.** `dissolve`, `push`, `lift`, `wipe`, `zoom`, picked from how two neighbouring
+- **Seams.** `dissolve`, `push`, `lift`, `zoom`, picked from how two neighbouring
   beats relate (same family → push, a role boundary → zoom, a title → lift, into the close
   → dissolve), never repeated back to back, and at least three kinds in a deck of ten or
-  more beats. A beat `inside` the one before keeps the camera dive.
+  more beats. A beat `inside` the one before keeps the camera dive. Every seam fades the
+  outgoing eyebrow and headline out in the first 0.16s and starts the incoming ones at
+  0.3s — a bespoke scene's chrome included — so two headlines never share a frame. The
+  `wipe` (a clip sweeping the slide) was cut on 2026-10-10: at 4fps it left half a picture
+  and a lone label on an empty slide.
 - **Emphasis while the narrator talks.** The part a sentence is about glows (light only;
   the scale `pulse` and the `underline` went with the entrances), starting on a cue
   boundary of that sentence inside the quiet stretch after its stop, and is back at rest
@@ -949,7 +953,7 @@ it did. A v2 build without narration has no cues to key a scene to, and says so.
 
 ```bash
 decksmith build storyboard.json --source source.json -o deck --design v2
-# bespoke: devices (codex) — b01 kinetic-title, b02 fog-lift+art, b03 edge-sweep, …
+# bespoke: devices (codex) — b01 particle-assembly, b02 fog-lift+art, b03 edge-sweep, …
 # bespoke: b05-backbone — every gate passed and the rubric probe is clean; no critique call
 # bespoke: b07 (bar-compare) FALLBACK · device draining-light-bars · motion graphics — failed the gates after the critique round: error card_row: …
 # bespoke: 12 of 14 beats drawn bespoke (86%; 2 fell back, 0 not eligible), 19 scene call(s) + 1 device call + 6 illustration(s), …
@@ -957,14 +961,21 @@ decksmith build storyboard.json --source source.json -o deck --design v2
 
 **Which beats** (`src/bespoke/select.ts`): every beat with a narration cue, except one a
 camera dives into or out of (the dive is aimed at a part the archetype drew) and one the
-planner marked `bespoke: false` (`plan --bespoke`). When `--bespoke-calls` cannot pay two
+planner marked `bespoke: false` (`plan --bespoke`) that cites a figure or table of the
+paper. A `false` on a beat citing neither is not kept: it was how r3's b12 stayed six grey
+row plates for 16 seconds. When `--bespoke-calls` cannot pay two
 calls a beat, the most mechanical win (mechanism archetypes and words in en/ko/ja/zh, a cited
 equation, weight; ties by a hash) and the rest keep their archetype.
 
 **The device pass** (`assignDevices`, `src/bespoke/pipeline.ts`), once per deck before any
 picture or scene is asked for: one Codex call names, for every beat from its content, the
 visual device its scene is built on (`spike-train`, `fog-lift`, `edge-sweep`,
-`draining-light-bars`, `track-race` …) — never a layout — and which beats get an
+`draining-light-bars`, `track-race` …) — never a layout, and never type or a UI element
+(`kinetic-title`, `word-cascade`, `fill-gauges`, anything named for a card, chip, label,
+plate, tile, badge, gauge or stamp: `isUiDevice`). The founder's rule of 2026-10-10 is in
+the prompt: the motion is the picture's (camera, parallax, light, particles, things in it
+moving), never labels or boxes sliding or popping in, and no giant lettering. A cached
+answer that breaks it is asked again for that beat alone — and which beats get an
 illustration (never a data beat or a one-cue beat, at most `--bespoke-art`; the rest are pure
 motion graphics, so the deck varies). A name the model repeats, garbles or leaves out, and
 every name when there is no call, comes from a rule catalogue; no two beats of a deck share

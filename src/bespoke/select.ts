@@ -11,7 +11,14 @@
  *    a generated scene has nothing to stay in step with;
  *  - a beat a camera enters or leaves (`inside`): the dive is aimed at a part
  *    the archetype drew, which a bespoke scene does not draw;
- *  - a beat the planner marked `bespoke: false`.
+ *  - a beat the planner marked `bespoke: false` that cites a figure or a table
+ *    of the paper — the two reasons the planner is told a `false` is for (a
+ *    real figure the viewer must see, a table read row by row).
+ *
+ * A `false` on a beat that cites NEITHER is not obeyed (2026-10-10). r3's
+ * b12 was one: a comparison citing only a section, which the planner kept as
+ * six grey row plates held still for 16 seconds — exactly the "hardcoded UI
+ * blocks" the founder named, and with nothing the archetype had to keep.
  *
  * Deterministic, so the same storyboard always asks about the same beats and a
  * cache hit is a cache hit. When the call cap cannot pay two calls for every
@@ -171,8 +178,12 @@ export function selectBespoke(beats: readonly Beat[], opts: SelectOptions): Sele
     const segments = opts.narration?.[beat.id] ?? [];
     const cues = segments.reduce((n, s) => n + s.cues.length, 0);
     const camera = beat.inside !== undefined || beats[i + 1]?.inside?.beat === beat.id;
-    if (beat.bespoke === false) {
-      skipped.push({ beatId: beat.id, reason: "the planner marked it bespoke:false" });
+    const keeps = beat.evidence.some((e) => e.kind === "figure" || e.kind === "table");
+    if (beat.bespoke === false && keeps) {
+      skipped.push({
+        beatId: beat.id,
+        reason: "the planner marked it bespoke:false, and it shows a figure or table of the paper",
+      });
       continue;
     }
     if (camera) {
@@ -210,6 +221,7 @@ export function selectBespoke(beats: readonly Beat[], opts: SelectOptions): Sele
       score += 10;
       why.push("planner hint +10");
     }
+    if (beat.bespoke === false) why.push("planner's false not kept: it cites no figure or table");
     scored.push({ beatId: beat.id, score: Math.round(score * 1000) / 1000, why });
   }
 

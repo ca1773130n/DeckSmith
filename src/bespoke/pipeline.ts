@@ -553,23 +553,43 @@ export const DEVICE_VERSION = "devices-2";
  * once per deck. None is a layout: the catalogue is the prompt's own rule.
  */
 const RULE_DEVICES: Readonly<Record<string, readonly string[]>> = {
-  title: ["kinetic-title", "particle-assembly", "light-sweep"],
-  "claim-figure": ["lens-focus", "stamp-seal"],
+  title: ["particle-assembly", "light-sweep", "dawn-reveal"],
+  "claim-figure": ["lens-focus", "horizon-reveal"],
   "equation-walk": ["term-spotlight", "balance-scale"],
   "equation-morph": ["term-morph", "shape-shift"],
   "data-table": ["track-race", "heat-strip"],
   "line-chart": ["traced-curve", "rising-tide"],
-  "bar-compare": ["draining-light-bars", "fill-gauges"],
+  "bar-compare": ["draining-light-bars", "rising-water"],
   "hero-number": ["counter-burst", "odometer-roll"],
-  callout: ["spotlight-word", "ink-stamp"],
+  callout: ["light-beam", "ink-bloom"],
   pipeline: ["conveyor-flow", "relay-baton"],
   "annotated-figure": ["magnifier-sweep", "x-ray-scan"],
   grid: ["constellation", "mosaic-assemble"],
   stack: ["layer-peel", "stacking-tower"],
-  "split-compare": ["tug-of-war", "split-wipe"],
+  "split-compare": ["tug-of-war", "twin-horizons"],
   stage: ["orbit-system", "ripple-wave"],
-  kinetic: ["kinetic-type", "word-cascade"],
+  kinetic: ["drifting-particles", "light-trail"],
 };
+
+/**
+ * A device that is TYPE or a UI ELEMENT doing the moving: kinetic type, giant
+ * lettering, a title, words; cards, chips, labels, plates, tiles, badges,
+ * gauges and stamps. The founder (2026-10-10): "graphic animation by animated
+ * UI elements is old-fashioned, and the fonts are too large" — the motion comes
+ * from the picture. r3's `kinetic-title` drew EM-SNN as 350px letterforms the
+ * type gates cannot see (they are paths, not text).
+ *
+ * Applied to every answer, cached ones included, so DEVICE_VERSION is NOT
+ * bumped: a beat whose decided device is one of these is simply undecided
+ * again, and every other beat keeps its device and the scene cached under it.
+ */
+const UI_DEVICE =
+  /(^|-)(kinetic|type|typo|typography|word|words|letter|letters|lettering|title|headline|text|card|cards|chip|chips|label|labels|tile|tiles|plate|plates|badge|badges|gauge|gauges|stamp|stamps)(-|$)/;
+
+/** Whether a device name is type or a UI element rather than a picture (`UI_DEVICE`). */
+export function isUiDevice(name: string): boolean {
+  return UI_DEVICE.test(name);
+}
 const POOL = [
   "particle-swarm",
   "ripple-wave",
@@ -577,7 +597,7 @@ const POOL = [
   "pendulum-swing",
   "domino-chain",
   "growing-tree",
-  "tide-gauge",
+  "tide-flow",
   "signal-pulse",
   "prism-split",
   "magnet-pull",
@@ -657,6 +677,9 @@ export async function assignDevices(
   let answers: Answer[] | undefined = answersOf(
     ((await read(dir ? join(dir, `${key}.json`) : undefined)) as { answers?: unknown })?.answers,
   );
+  // A deck cached with a type or UI device in it is asked again for that beat
+  // alone: the per-beat cache below keeps every other beat decided.
+  if (answers?.some((a) => isUiDevice(deviceName(a.device)))) answers = undefined;
   let from: DeviceAssignment["from"] = answers ? "cache" : "rule";
   let note: string | undefined;
 
@@ -665,7 +688,8 @@ export async function assignDevices(
   if (!answers)
     for (const b of beats) {
       const hit = answersOf([await read(beatFile(b))])?.[0];
-      if (hit && deviceName(hit.device)) decided.set(b.id, { ...hit, id: b.id });
+      const name = deviceName(hit?.device);
+      if (hit && name && !isUiDevice(name)) decided.set(b.id, { ...hit, id: b.id });
     }
   if (!answers && beats.length && decided.size === beats.length) {
     answers = [...decided.values()];
@@ -730,8 +754,11 @@ export async function assignDevices(
     const a = byId.get(b.id);
     let device = deviceName(a?.device);
     let origin: BeatDevice["from"] = "codex";
-    if (!device || (used.has(device) && !decided.has(b.id))) {
-      if (a) ruled.push(`${b.id}: ${device ? `"${device}" repeated` : "no usable name"}`);
+    if (!device || isUiDevice(device) || (used.has(device) && !decided.has(b.id))) {
+      if (a)
+        ruled.push(
+          `${b.id}: ${!device ? "no usable name" : isUiDevice(device) ? `"${device}" is type or a UI element, not a picture` : `"${device}" repeated`}`,
+        );
       device = nextRule(b.archetype);
       origin = "rule";
     }

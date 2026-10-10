@@ -23,6 +23,7 @@ import {
   GATE_STAMP,
   type GateFn,
   type GateResult,
+  isUiDevice,
   lanes,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
@@ -152,12 +153,22 @@ describe("selection", () => {
     expect(ids).toContain(first);
   });
 
-  it("obeys the planner's false", () => {
-    const first = demo.beats[0]?.id as string;
-    const vetoed = demo.beats.map((b) => (b.id === first ? ({ ...b, bespoke: false } as Beat) : b));
+  it("obeys the planner's false on a beat that shows a figure or table", () => {
+    const shows = demo.beats.find((b) => b.evidence.some((e) => e.kind === "figure"))?.id as string;
+    const vetoed = demo.beats.map((b) => (b.id === shows ? ({ ...b, bespoke: false } as Beat) : b));
     const sel = selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats });
-    expect(sel.picked.map((p) => p.beatId)).not.toContain(first);
-    expect(sel.skipped.find((s) => s.beatId === first)?.reason).toMatch(/bespoke:false/);
+    expect(sel.picked.map((p) => p.beatId)).not.toContain(shows);
+    expect(sel.skipped.find((s) => s.beatId === shows)?.reason).toMatch(/bespoke:false/);
+  });
+
+  it("draws a beat the planner marked false when it cites no figure or table (r3's b12 row plates)", () => {
+    const bare = demo.beats.find((b) => b.evidence.length === 0 && b.archetype !== "title")
+      ?.id as string;
+    const vetoed = demo.beats.map((b) => (b.id === bare ? ({ ...b, bespoke: false } as Beat) : b));
+    const sel = selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats });
+    const pick = sel.picked.find((p) => p.beatId === bare);
+    expect(pick).toBeDefined();
+    expect(pick?.why.join(" ")).toMatch(/planner's false not kept/);
   });
 
   it("when the call cap cannot pay for every beat, draws the most mechanical, in deck order", () => {
@@ -281,6 +292,31 @@ describe("emitting a bespoke scene", () => {
     expect(generated).not.toContain("SCENEID");
     expect(BESPOKE_CSP).toContain("connect-src 'none'");
     expect(BESPOKE_CSP).not.toContain("unsafe-eval");
+  });
+
+  it("restyles only the shell's chrome around it: a fade clear of the seam, no slide-up", () => {
+    // r3 (2026-10-10): the stock chromeIn slid the headline up from y:22 at
+    // 0.3s and the eyebrow from y:14 at 0.15s, over the outgoing headline.
+    const deck = emitComposition(demo, source, deck16, { design: "v2", narration, bespoke });
+    const sid = /id="(s\d+)-dot"/.exec(deck)?.[1] as string;
+    const chrome = [
+      ...deck.matchAll(
+        new RegExp(
+          `tl\\.fromTo\\("#${sid}-[eh]", (\\{[^}]*\\}), (\\{[^}]*\\}), ([\\d.]+)\\);`,
+          "g",
+        ),
+      ),
+    ];
+    expect(chrome.length).toBeGreaterThan(0);
+    for (const m of chrome) {
+      expect(m[1]).not.toMatch(/\by:/);
+      expect(Number(m[3])).toBeGreaterThanOrEqual(0.3);
+    }
+    // The scene's own tweens are its author's, untouched.
+    expect(deck).toContain(`"#${sid}-dot"`);
+    // And every scene that hands off on a seam clears its type first.
+    const outs = [...deck.matchAll(/tl\.fromTo\("#(s\d+)-h", \{ opacity: 1 \}, \{ opacity: 0,/g)];
+    expect(outs.length).toBeGreaterThan(0);
   });
 
   it("writes stops the timing manifest and the island agree on", () => {
@@ -982,7 +1018,7 @@ describe("the deck-order device pass", () => {
 
   it("takes the model's names, kebab-cased, and replaces a repeat or a blank from the catalogue", async () => {
     const run = answer([
-      { id: "b1", device: "Kinetic Title!", illustrate: false, idea: "type lands" },
+      { id: "b1", device: "Particle Assembly!", illustrate: false, idea: "dust gathers" },
       { id: "b2", device: "spike train", illustrate: true, idea: "spikes fire" },
       { id: "b3", device: "spike-train", illustrate: true, idea: "again" },
       { id: "b5", device: "", illustrate: false, idea: "" },
@@ -991,7 +1027,7 @@ describe("the deck-order device pass", () => {
     const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run });
     expect(r.from).toBe("codex");
     const by = new Map(r.beats.map((b) => [b.beatId, b]));
-    expect(by.get("b1")?.device).toBe("kinetic-title");
+    expect(by.get("b1")?.device).toBe("particle-assembly");
     expect(by.get("b2")?.device).toBe("spike-train");
     expect(by.get("b3")?.device).not.toBe("spike-train");
     expect(by.get("b6")?.device).toBe("fog-lift");
@@ -999,6 +1035,64 @@ describe("the deck-order device pass", () => {
     expect(r.note).toMatch(/b3: "spike-train" repeated/);
     expect(r.note).toMatch(/b5: no usable name/);
     expect(deviceName("  Edge   Sweep  ")).toBe("edge-sweep");
+  });
+
+  it("never keeps type or a UI element as the device, even one an earlier run cached", async () => {
+    // r3 (2026-10-10): b01's cached "kinetic-title" drew EM-SNN as 350px letterforms.
+    const cacheDir = join(work, "cache");
+    const prompts: string[] = [];
+    let reply = deck.map((b, i) => ({
+      id: b.id,
+      device: i === 0 ? "kinetic-title" : `scene-${i}`,
+      illustrate: false,
+      idea: `idea ${b.id}`,
+    }));
+    const run = async (args: RunnerArgs) => {
+      prompts.push(args.prompt);
+      await answer(reply)(args);
+    };
+    const opts = { artCap: 6, work, timeoutMs: 1000, run, cacheDir };
+    const first = await assignDevices(deck, opts);
+    expect(first.beats[0]?.device).not.toBe("kinetic-title");
+    expect(isUiDevice(first.beats[0]?.device ?? "")).toBe(false);
+    expect(first.note).toMatch(/b1: "kinetic-title" is type or a UI element/);
+    // A cache written before this rule, with the type device in it.
+    const { readdir } = await import("node:fs/promises");
+    const beatsDir = join(cacheDir, "devices", "beats");
+    const b1 = deck[0] as DeviceBeat;
+    for (const f of await readdir(beatsDir)) {
+      const row = JSON.parse(await readFile(join(beatsDir, f), "utf8")) as { id: string };
+      if (row.id === b1.id) throw new Error("a ruled device must not be cached as decided");
+    }
+    reply = reply.map((r, i) =>
+      i === 0 ? { ...r, device: "dawn-reveal", idea: "light rises" } : r,
+    );
+    const second = await assignDevices(deck, opts);
+    // Asked again about b1 alone; every other beat kept its device.
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toMatch(/id=b2[^\n]*\n(?: {3}[^\n]*\n)* {3}ALREADY DECIDED/);
+    expect(second.beats[0]?.device).toBe("dawn-reveal");
+    for (let i = 1; i < deck.length; i++)
+      expect(second.beats[i]?.device).toBe(first.beats[i]?.device);
+    // The rule catalogue holds none either, whatever the archetype.
+    for (const archetype of [
+      "title",
+      "kinetic",
+      "callout",
+      "bar-compare",
+      "claim-figure",
+      "split-compare",
+    ] as const) {
+      const many = Array.from({ length: 16 }, (_, i) => beat(`r${i}`, { archetype }));
+      const ruled = await assignDevices(many, { artCap: 0, work, timeoutMs: 1000 });
+      for (const d of ruled.beats) expect(isUiDevice(d.device), d.device).toBe(false);
+    }
+    expect(
+      ["kinetic-title", "word-cascade", "fill-gauges", "ink-stamp", "label-pop"].every(isUiDevice),
+    ).toBe(true);
+    expect(["fog-lift", "spike-train", "contrast-fog", "survey-horizon"].some(isUiDevice)).toBe(
+      false,
+    );
   });
 
   it("survives a failed call, and a rerun reads the decided names back without a call", async () => {
@@ -1082,6 +1176,9 @@ describe("the deck-order device pass", () => {
     expect(p).toMatch(/larger or heavier value SINKS/);
     expect(p).toMatch(/proportional to it from zero/);
     expect(p).not.toMatch(/ALREADY DECIDED/);
+    expect(p).toMatch(/THE MOTION IS THE PICTURE/);
+    expect(p).toMatch(/NEVER TYPE AS THE PICTURE/);
+    expect(p).not.toMatch(/kinetic-title|stamp-seal|kinetic type, particle/);
   });
 });
 
