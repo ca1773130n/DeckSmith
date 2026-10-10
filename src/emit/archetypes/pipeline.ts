@@ -674,7 +674,9 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   const grow = v2 && variant !== "stair" ? { budget, region } : undefined;
   const L = tall
     ? columnLayout(W, budget, p.stages, face, loop, grow)
-    : pipeLayout(W, p.stages, loop, face, grow);
+    : // A v2 stair keeps classic's boxes but not classic's 52px labels: v2's
+      // labels are body lines (`TYPE_SCALE`) whatever the variant.
+      pipeLayout(W, p.stages, loop, face, grow, v2 ? TYPE_SCALE.body : undefined);
   /** `stair`: how far each stage steps down from the one before. Zero for a row. */
   const rise = variant === "stair" ? stairRise(beat.id, L, p.stages.length, budget, !!loop) : 0;
   if (variant !== "row") assertVariantFits(beat.id, variant, L, budget);

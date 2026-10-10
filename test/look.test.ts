@@ -391,6 +391,21 @@ describe("pipeline: stair and column", () => {
     }
   });
 
+  it("sets a v2 stair's labels as body lines, not classic's 52px", () => {
+    // r3 (2026-10-10): the one v2 path that still set 52px labels — a stair
+    // keeps classic's boxes, and took classic's type with them.
+    const stair = emitScene(pipe(4), {
+      ...ctx({ variant: "stair", placement: "top" }),
+      design: "v2",
+    });
+    const sizes = [...stair.html.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const n of sizes) expect(n).toBeLessThanOrEqual(44);
+    expect(emitScene(pipe(4), ctx({ variant: "stair", placement: "top" })).html).toContain(
+      'font-size="52"',
+    );
+  });
+
   it("has no stair for a loop or for two stages", () => {
     expect(() => emitScene(pipe(4, true), ctx({ variant: "stair", placement: "top" }))).toThrow(
       /return path/,
