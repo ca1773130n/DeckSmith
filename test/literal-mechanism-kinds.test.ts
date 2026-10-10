@@ -1,7 +1,8 @@
 /**
  * The mechanism kinds (src/literal/kinds/): the maths each one computes, that
- * the same input gives the same bytes, the cost bound per beat, and the type
- * floor. Pure: synthetic pictures, no ffmpeg, no browser.
+ * the same input gives the same bytes, the cost bound per beat, the type
+ * floor, AA contrast in the dark and the light theme, and that the judge
+ * fixtures (parameters only) regenerate their frames and takeaway. Pure: synthetic pictures, no ffmpeg, no browser.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -24,6 +25,22 @@ import {
   rlRollout,
   splatting,
 } from "../src/literal/kinds/index.js";
+import {
+  backdropOf,
+  contrastRatio,
+  fillRgb,
+  hex,
+  type Rgb8,
+  roleRgb,
+  textRgb,
+} from "../src/literal/kinds/svg.js";
+import { MECHANISM_THEMES } from "../src/literal/kinds/theme.js";
+import {
+  judgeFramesSvg,
+  loadJudgeCases,
+  runJudgeCase,
+  takeawayOf,
+} from "./fixtures/literal-judge.js";
 
 const REGION: Region = { width: 1760, height: 920 };
 
@@ -756,4 +773,89 @@ describe("every mechanism kind", () => {
         for (const p of f.prims) if (p.p === "image") expect(r.rasters[p.layer]).toBeDefined();
     });
   }
+});
+
+/* ------------------------------------------------- contrast, dark and light */
+
+/** Roles that carry meaning; `rule`, `panel` and `bg` are containers and dividers, exempt as decoration. */
+const MEANING = new Set(["fg", "muted", "dim", "accent", "a", "b", "c", "d"]);
+
+/**
+ * Every text at 4.5:1 (WCAG 1.4.3) against what it sits on, and every mark
+ * drawn in a meaning role at full opacity at 3:1 (WCAG 1.4.11). Marks whose
+ * opacity, heat or mix ENCODES a value (an attention weight, a message's size)
+ * are data, not chrome, and are exempt; so is anything over a picture.
+ */
+function contrastFailures(r: MechanismResult, themeName: "dark" | "light"): string[] {
+  const theme = MECHANISM_THEMES[themeName];
+  const bad: string[] = [];
+  for (const f of r.frames)
+    for (const [i, p] of f.prims.entries()) {
+      const under = backdropOf(f.prims, i, theme, p.p !== "text");
+      if (!under) continue;
+      const check = (what: string, c: Rgb8, min: number) => {
+        const k = contrastRatio(c, under);
+        if (k < min)
+          bad.push(`${themeName} ${f.id} ${p.id ?? p.p} ${what} ${k.toFixed(2)} < ${min}`);
+      };
+      if (p.opacity !== undefined && p.opacity < 1) continue;
+      if (p.p === "text") {
+        check("text", textRgb(f.prims, i, theme), 4.5);
+        continue;
+      }
+      if ((p.p === "line" || p.p === "path") && !("mix" in p && p.mix) && MEANING.has(p.role)) {
+        check("stroke", roleRgb(theme, p.role), 3);
+        continue;
+      }
+      if (
+        (p.p === "rect" || p.p === "circle") &&
+        p.fill &&
+        MEANING.has(p.fill) &&
+        p.heat === undefined &&
+        !p.mix &&
+        !p.rgb
+      )
+        check("fill", fillRgb(theme, p) as Rgb8, 3);
+      if (
+        (p.p === "rect" || p.p === "circle") &&
+        p.role &&
+        MEANING.has(p.role) &&
+        !fillRgb(theme, p)
+      )
+        check("outline", roleRgb(theme, p.role), 3);
+    }
+  return bad;
+}
+
+describe("contrast in both themes", () => {
+  it("the presets are the repo's ink (dark, the default) and paper (light)", () => {
+    expect(hex(MECHANISM_THEMES.dark.bg)).toEqual([11, 13, 16]);
+    expect(contrastRatio(hex("#000000"), hex("#ffffff"))).toBeCloseTo(21, 6);
+  });
+  for (const [kind, make] of CASES) {
+    const r = make();
+    for (const t of ["dark", "light"] as const)
+      it(`${kind} keeps text at 4.5:1 and marks at 3:1 on the ${t} ground`, () => {
+        expect(contrastFailures(r, t)).toEqual([]);
+      });
+  }
+});
+
+/* --------------------------------------------------- the judge's parameters */
+
+describe("the judge fixtures regenerate from their parameters", () => {
+  const cases = loadJudgeCases();
+  it("covers all seven kinds", () => {
+    expect(new Set(cases.map((c) => c.kind))).toEqual(new Set(MECHANISM_KIND_NAMES));
+  });
+  for (const c of cases)
+    it(`${c.name}: the kind still says the recorded takeaway, and its three frames are the same twice`, () => {
+      const r = runJudgeCase(c);
+      expect(takeawayOf(c, r)).toBe(c.takeaway);
+      expect(c.frames).toHaveLength(3);
+      const href = (l: string) => `${l}.png`;
+      const a = judgeFramesSvg(c, r, MECHANISM_THEMES.dark, href);
+      expect(judgeFramesSvg(c, runJudgeCase(c), MECHANISM_THEMES.dark, href)).toEqual(a);
+      expect(contrastFailures(r, "dark")).toEqual([]);
+    });
 });

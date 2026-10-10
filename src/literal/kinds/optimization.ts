@@ -559,9 +559,9 @@ function landscape(input: LandscapeInput, region: Region): MechanismResult {
       });
       const [hx, hy] = pts[pts.length - 1] as [number, number];
       prims.push({ p: "circle", id: `ph${i}`, cx: PX(hx), cy: PY(hy), r: 10, fill: role });
-      // The momentum trail: the head's last step, drawn at 3× so its direction reads.
+      // The momentum trail: the head's last step, drawn at 3× so its direction reads, and only once it reaches past the head's marker.
       const d = r.steps[upto - 1];
-      if (d && Math.hypot(d[0], d[1]) * k > 2) {
+      if (d && 3 * Math.hypot(d[0], d[1]) * k > 14) {
         const [tx, ty] = clampPt([hx + 3 * d[0], hy + 3 * d[1]]);
         prims.push({
           p: "line",

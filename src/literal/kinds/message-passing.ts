@@ -355,7 +355,24 @@ export function messagePassing(input: GraphInput, region: Region): MechanismResu
         role: i === focus ? "fg" : inField ? "fg" : "rule",
         width: i === focus ? 8 : inField ? 4 : 2,
       });
-      const node = input.nodes[i] as { id: string; label?: string };
+    });
+    // Labels last, each on a panel chip, so one that lands on a neighbour still reads.
+    hl.forEach((_, i) => {
+      const [x, y] = P[i] as [number, number];
+      const text =
+        (input.nodes[i] as { id: string; label?: string }).label ??
+        (input.nodes[i] as { id: string }).id;
+      const w = measure(text, size) + 16;
+      prims.push({
+        p: "rect",
+        id: `tb${i}`,
+        x: x - w / 2,
+        y: y + r + 4,
+        w,
+        h: size * 1.2,
+        fill: "panel",
+        radius: 6,
+      });
       prims.push({
         p: "text",
         id: `t${i}`,
@@ -364,7 +381,7 @@ export function messagePassing(input: GraphInput, region: Region): MechanismResu
         size,
         role: i === focus ? "fg" : "muted",
         anchor: "middle",
-        text: node.label ?? node.id,
+        text,
       });
     });
     const count = dist.filter((x) => x <= l).length;

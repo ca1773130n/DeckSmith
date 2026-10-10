@@ -1,80 +1,206 @@
 /**
  * One frame of a mechanism kind as SVG: what the framework draws, and what the
- * preview strips and the judge fixtures are rasterised from. Pure: rasters are
- * referenced by `href(layer)`, slot texts come from `text(slot, vars)`.
+ * preview strips and the judge frames are rasterised from. Pure: rasters are
+ * referenced by `href(layer)`, slot texts come from `text(slot, vars)`, and
+ * every colour comes from the theme (default dark, see ./theme.ts).
+ *
+ * Also the contrast arithmetic (WCAG 2 relative luminance) the tests hold the
+ * frames to, and the backdrop lookup a text with role "auto" is resolved by.
  */
 import type { Theme } from "../../emit/kit.js";
-import type { Frame, Prim, Region, Role } from "./common.js";
+import type { DataRgb, Frame, Prim, Region, Role } from "./common.js";
+import { DEFAULT_THEME } from "./theme.js";
+
+/** An sRGB colour, 0..255 per channel. */
+export type Rgb8 = [number, number, number];
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const n2 = (n: number) => String(Math.round(n * 100) / 100);
+const css = (c: Rgb8) => `rgb(${c.map((v) => Math.round(v)).join(",")})`;
 
-export function roleColor(theme: Theme, role: Role): string {
-  switch (role) {
-    case "a":
-    case "b":
-    case "c":
-    case "d":
-      return theme.tones[role];
-    default:
-      return theme[role];
-  }
-}
-
-function hex(c: string): [number, number, number] {
+export function hex(c: string): Rgb8 {
   const m = /^#([0-9a-f]{6})$/i.exec(c.trim());
   if (!m) throw new Error(`svg: "${c}" is not a #rrggbb colour`);
   const v = Number.parseInt(m[1] as string, 16);
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
+export function roleRgb(theme: Theme, role: Role): Rgb8 {
+  switch (role) {
+    case "a":
+    case "b":
+    case "c":
+    case "d":
+      return hex(theme.tones[role]);
+    default:
+      return hex(theme[role]);
+  }
+}
+
+/** Kept for callers that want the theme's own string. */
+export function roleColor(theme: Theme, role: Role): string {
+  return css(roleRgb(theme, role));
+}
+
 /** The heat ramp: the panel colour at 0, the accent at 1. */
-export function heatColor(theme: Theme, t: number): string {
+export function heatRgb(theme: Theme, t: number): Rgb8 {
   const a = hex(theme.panel);
   const b = hex(theme.accent);
   const k = Math.max(0, Math.min(1, t));
-  const c = a.map((v, i) => Math.round(v + ((b[i] as number) - v) * k));
-  return `rgb(${c.join(",")})`;
+  return a.map((v, i) => Math.round(v + ((b[i] as number) - v) * k)) as Rgb8;
 }
 
-const rgbOf = (c: readonly [number, number, number]) =>
-  `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")})`;
-
 /** Tone weights (a, b, c, d) mixed over the panel: hue from their proportions, strength from their sum. */
-export function mixColor(theme: Theme, w: readonly number[]): string {
+export function mixRgb(theme: Theme, w: readonly number[]): Rgb8 {
   const tones = [theme.tones.a, theme.tones.b, theme.tones.c, theme.tones.d].map(hex);
   const base = hex(theme.panel);
   const tot = w.reduce((s, x) => s + Math.max(0, x), 0);
-  if (tot <= 0) return `rgb(${base.join(",")})`;
+  if (tot <= 0) return base;
   const hue = [0, 1, 2].map((c) =>
-    w.reduce((s, x, i) => s + (Math.max(0, x) / tot) * ((tones[i] as number[])[c] as number), 0),
+    w.reduce((s, x, i) => s + (Math.max(0, x) / tot) * ((tones[i] as Rgb8)[c] as number), 0),
   );
   const k = Math.min(1, tot);
-  return `rgb(${base.map((v, c) => Math.round(v + ((hue[c] as number) - v) * k)).join(",")})`;
+  return base.map((v, c) => Math.round(v + ((hue[c] as number) - v) * k)) as Rgb8;
 }
 
-function fillOf(
+const dataRgb = (c: DataRgb): Rgb8 =>
+  c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)) as Rgb8;
+
+/** A filled shape's fill, or undefined when it has none. */
+export function fillRgb(
   theme: Theme,
-  p: { fill?: Role; heat?: number; mix?: number[]; rgb?: readonly [number, number, number] },
-): string {
-  if (p.rgb) return rgbOf(p.rgb);
-  if (p.mix) return mixColor(theme, p.mix);
-  if (p.heat !== undefined) return heatColor(theme, p.heat);
-  if (p.fill) return roleColor(theme, p.fill);
-  return "none";
+  p: { fill?: Role; heat?: number; mix?: number[]; rgb?: DataRgb },
+): Rgb8 | undefined {
+  if (p.rgb) return dataRgb(p.rgb);
+  if (p.mix) return mixRgb(theme, p.mix);
+  if (p.heat !== undefined) return heatRgb(theme, p.heat);
+  if (p.fill) return roleRgb(theme, p.fill);
+  return undefined;
 }
+
+/* --------------------------------------------------------------- contrast */
+
+function luminance(c: Rgb8): number {
+  const lin = (v: number) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+}
+
+/** WCAG 2 contrast ratio, 1..21. */
+export function contrastRatio(a: Rgb8, b: Rgb8): number {
+  const x = luminance(a);
+  const y = luminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** Where a primitive sits, for finding what is under it. */
+export function anchorOf(p: Prim): [number, number] {
+  switch (p.p) {
+    case "line":
+      // The far end: a line leaving a marker (an arrow from a head) is judged where it lands.
+      return [p.x2, p.y2];
+    case "path": {
+      const k = Math.floor(p.pts.length / 4) * 2;
+      return [p.pts[k] as number, p.pts[k + 1] as number];
+    }
+    case "rect":
+    case "image":
+      return [p.x + p.w / 2, p.y + p.h / 2];
+    case "circle":
+    case "ellipse":
+      return [p.cx, p.cy];
+    case "text": {
+      const dx = p.anchor === "start" ? p.size * 0.3 : p.anchor === "end" ? -p.size * 0.3 : 0;
+      return [p.x + dx, p.y + p.size / 2];
+    }
+  }
+}
+
+/** A fill that holds things (a panel, a cell, a node) rather than being a mark itself. */
+function isContainer(q: Prim): boolean {
+  if (q.p !== "rect" && q.p !== "circle") return false;
+  return (
+    q.heat !== undefined || !!q.mix || q.fill === "bg" || q.fill === "panel" || q.fill === "rule"
+  );
+}
+
+/**
+ * The colour under prims[index] at its anchor: the last opaque filled rect or
+ * circle drawn before it that contains the point, else the ground. Undefined
+ * when a picture is under it (its colour is the data's, not the theme's).
+ * `containersOnly`: look through marks (another series' head, a start dot) to
+ * the panel or ground they sit on — how a mark is judged.
+ */
+export function backdropOf(
+  prims: readonly Prim[],
+  index: number,
+  theme: Theme,
+  containersOnly = false,
+): Rgb8 | undefined {
+  const [x, y] = anchorOf(prims[index] as Prim);
+  return backdropAt(prims, index, x, y, theme, containersOnly);
+}
+
+/** What is under (x, y) among prims[0..before): a translucent fill is blended over what is under it. */
+function backdropAt(
+  prims: readonly Prim[],
+  before: number,
+  x: number,
+  y: number,
+  theme: Theme,
+  containersOnly: boolean,
+): Rgb8 | undefined {
+  for (let j = before - 1; j >= 0; j--) {
+    const q = prims[j] as Prim;
+    if (q.p === "image") {
+      if (x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h) return undefined;
+      continue;
+    }
+    if (containersOnly && !isContainer(q)) continue;
+    const inside =
+      (q.p === "rect" && x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h) ||
+      (q.p === "circle" && Math.hypot(x - q.cx, y - q.cy) <= q.r);
+    if (!inside || (q.p !== "rect" && q.p !== "circle")) continue;
+    const f = fillRgb(theme, q);
+    if (!f) continue;
+    const a = q.opacity ?? 1;
+    if (a >= 1) return f;
+    const under = backdropAt(prims, j, x, y, theme, containersOnly);
+    if (!under) return undefined;
+    return f.map((v, c) => v * a + (under[c] as number) * (1 - a)) as Rgb8;
+  }
+  return hex(theme.bg);
+}
+
+/** A text's colour: its role's, or for "auto" the ink or the ground, whichever reads better on its backdrop. */
+export function textRgb(prims: readonly Prim[], index: number, theme: Theme): Rgb8 {
+  const p = prims[index] as Extract<Prim, { p: "text" }>;
+  if (p.role !== "auto") return roleRgb(theme, p.role);
+  const under = backdropOf(prims, index, theme) ?? hex(theme.bg);
+  const ink = hex(theme.fg);
+  const ground = hex(theme.bg);
+  return contrastRatio(ink, under) >= contrastRatio(ground, under) ? ink : ground;
+}
+
+/* ----------------------------------------------------------------- drawing */
 
 function prim(
-  p: Prim,
+  prims: readonly Prim[],
+  index: number,
   theme: Theme,
   href: (layer: string) => string,
   text: (slot: string, vars: Readonly<Record<string, string | number>>) => string,
 ): string {
+  const p = prims[index] as Prim;
   const op = p.opacity !== undefined ? ` opacity="${n2(p.opacity)}"` : "";
+  const stroke = (role: Role | undefined, width: number | undefined) =>
+    role ? ` stroke="${css(roleRgb(theme, role))}" stroke-width="${n2(width ?? 2)}"` : "";
   switch (p.p) {
     case "line": {
-      const c = p.mix ? mixColor(theme, p.mix) : roleColor(theme, p.role);
+      const c = css(p.mix ? mixRgb(theme, p.mix) : roleRgb(theme, p.role));
       const dash = p.dash ? ` stroke-dasharray="${n2(p.width * 3)} ${n2(p.width * 2)}"` : "";
       let s = `<line x1="${n2(p.x1)}" y1="${n2(p.y1)}" x2="${n2(p.x2)}" y2="${n2(p.y2)}" stroke="${c}" stroke-width="${n2(p.width)}" stroke-linecap="round"${dash}${op}/>`;
       if (p.arrow) {
@@ -94,53 +220,47 @@ function prim(
       for (let i = 0; i + 1 < p.pts.length; i += 2)
         pts.push(`${n2(p.pts[i] as number)},${n2(p.pts[i + 1] as number)}`);
       const tag = p.closed ? "polygon" : "polyline";
-      const fill = p.fill ? roleColor(theme, p.fill) : "none";
+      const fill = p.fill ? css(roleRgb(theme, p.fill)) : "none";
       const dash = p.dash ? ` stroke-dasharray="${n2(p.width * 3)} ${n2(p.width * 2)}"` : "";
-      return `<${tag} points="${pts.join(" ")}" fill="${fill}" stroke="${roleColor(theme, p.role)}" stroke-width="${n2(p.width)}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
+      return `<${tag} points="${pts.join(" ")}" fill="${fill}" stroke="${css(roleRgb(theme, p.role))}" stroke-width="${n2(p.width)}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
     }
     case "rect": {
-      const stroke = p.role
-        ? ` stroke="${roleColor(theme, p.role)}" stroke-width="${n2(p.width ?? 2)}"`
-        : "";
+      const f = fillRgb(theme, p);
       const r = p.radius ? ` rx="${n2(p.radius)}"` : "";
-      return `<rect x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}"${r} fill="${fillOf(theme, p)}"${stroke}${op}/>`;
+      return `<rect x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}"${r} fill="${f ? css(f) : "none"}"${stroke(p.role, p.width)}${op}/>`;
     }
     case "circle": {
-      const stroke = p.role
-        ? ` stroke="${roleColor(theme, p.role)}" stroke-width="${n2(p.width ?? 2)}"`
-        : "";
-      return `<circle cx="${n2(p.cx)}" cy="${n2(p.cy)}" r="${n2(p.r)}" fill="${fillOf(theme, p)}"${stroke}${op}/>`;
+      const f = fillRgb(theme, p);
+      return `<circle cx="${n2(p.cx)}" cy="${n2(p.cy)}" r="${n2(p.r)}" fill="${f ? css(f) : "none"}"${stroke(p.role, p.width)}${op}/>`;
     }
     case "ellipse": {
-      const stroke = p.role
-        ? ` stroke="${roleColor(theme, p.role)}" stroke-width="${n2(p.width ?? 2)}"`
-        : "";
-      const fill = p.rgb ? rgbOf(p.rgb) : "none";
-      return `<ellipse cx="0" cy="0" rx="${n2(p.rx)}" ry="${n2(p.ry)}" transform="translate(${n2(p.cx)} ${n2(p.cy)}) rotate(${n2(p.angle)})" fill="${fill}"${stroke}${op}/>`;
+      const fill = p.rgb ? css(dataRgb(p.rgb)) : "none";
+      return `<ellipse cx="0" cy="0" rx="${n2(p.rx)}" ry="${n2(p.ry)}" transform="translate(${n2(p.cx)} ${n2(p.cy)}) rotate(${n2(p.angle)})" fill="${fill}"${stroke(p.role, p.width)}${op}/>`;
     }
     case "text": {
       const s = p.text ?? (p.slot ? text(p.slot, p.vars ?? {}) : "");
       if (!s) return "";
       const y = p.y + p.size * 0.8;
-      return `<text x="${n2(p.x)}" y="${n2(y)}" font-size="${p.size}" font-weight="${p.weight ?? 600}" text-anchor="${p.anchor}" fill="${roleColor(theme, p.role)}"${op}>${esc(s)}</text>`;
+      return `<text x="${n2(p.x)}" y="${n2(y)}" font-size="${p.size}" font-weight="${p.weight ?? 600}" text-anchor="${p.anchor}" fill="${css(textRgb(prims, index, theme))}"${op}>${esc(s)}</text>`;
     }
     case "image":
       return `<image x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}" preserveAspectRatio="none" href="${esc(href(p.layer))}"${p.pixelated ? ' style="image-rendering:pixelated"' : ""}${op}/>`;
   }
 }
 
-/** A whole frame, region-sized, on the theme's background. */
+/** A whole frame, region-sized, on the theme's ground. */
 export function frameSvg(
   frame: Frame,
   region: Region,
-  theme: Theme,
   href: (layer: string) => string,
   text: (slot: string, vars: Readonly<Record<string, string | number>>) => string,
-  pad = 0,
+  opts: { theme?: Theme; pad?: number } = {},
 ): string {
+  const theme = opts.theme ?? DEFAULT_THEME;
+  const pad = opts.pad ?? 0;
   const W = region.width + 2 * pad;
   const H = region.height + 2 * pad;
-  const body = frame.prims.map((p) => prim(p, theme, href, text)).join("\n");
+  const body = frame.prims.map((_, i) => prim(frame.prims, i, theme, href, text)).join("\n");
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${esc(theme.fontStack)}">
 <rect width="100%" height="100%" fill="${theme.bg}"/>
 <g transform="translate(${pad} ${pad})">

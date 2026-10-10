@@ -28,6 +28,7 @@ import {
   type Raster,
   type Region,
   type Rgb,
+  type Rgba,
   TYPE,
 } from "./common.js";
 
@@ -243,6 +244,19 @@ export function rasterize(
   return { img: { w, h, d: C }, T };
 }
 
+/** A render over black (premultiplied colour, transmittance T) as straight-alpha RGBA, α = 1 − T. */
+export function straightAlpha(r: { img: Rgb; T: Float32Array }): Rgba {
+  const n = r.img.w * r.img.h;
+  const d = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const a = 1 - (r.T[i] as number);
+    for (let c = 0; c < 3; c++)
+      d[i * 4 + c] = a > 1e-6 ? Math.min(1, (r.img.d[i * 3 + c] as number) / a) : 0;
+    d[i * 4 + 3] = a;
+  }
+  return { w: r.img.w, h: r.img.h, d };
+}
+
 /* ------------------------------------------------------------------- input */
 
 export interface SplatInput {
@@ -265,6 +279,7 @@ export interface SplatInput {
   fov?: number;
   /** Render width (default 512; the cost is linear in its square); the height keeps the region's aspect. */
   renderWidth?: number;
+  /** Composite onto this colour instead of keeping alpha (default: keep alpha; the deck's ground shows). */
   background?: DataRgb;
 }
 
@@ -321,7 +336,9 @@ export function splatting(input: SplatInput, region: Region): MechanismResult {
   const rw = input.renderWidth ?? 512;
   const rh = Math.round((rw * mainBox.h) / mainBox.w);
   const fov = input.fov ?? 50;
-  const bg = input.background ?? [0.96, 0.95, 0.93];
+  // No background baked in unless the source asks: the render keeps its alpha, so the
+  // deck's own ground (dark or light) shows through where no splat covers.
+  const bg = input.background;
   const eyes: Vec3[] = Array.from({ length: poses }, (_, i) => {
     const a = poses === 1 ? 0 : -arc / 2 + (arc * i) / (poses - 1);
     return [
@@ -334,7 +351,9 @@ export function splatting(input: SplatInput, region: Region): MechanismResult {
   const rasters: Record<string, Raster> = {};
   const projected = cams.map((cam, i) => {
     const sp = gs.map((g) => project(g, cam)).filter((s): s is Splat2D => s !== undefined);
-    rasters[`render-${i}`] = { rgb: rasterize(sp, rw, rh, bg).img };
+    rasters[`render-${i}`] = bg
+      ? { rgb: rasterize(sp, rw, rh, bg).img }
+      : { rgba: straightAlpha(rasterize(sp, rw, rh, [0, 0, 0])) };
     return sp;
   });
 

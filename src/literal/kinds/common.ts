@@ -31,8 +31,26 @@ export interface Gray {
   d: Float32Array;
 }
 
-/** A theme colour by name: `Theme`'s own keys and its four tones. */
-export type Role = "fg" | "muted" | "dim" | "rule" | "panel" | "accent" | "a" | "b" | "c" | "d";
+/** A theme colour by name: `Theme`'s own keys (`bg` is the ground) and its four tones. */
+export type Role =
+  | "bg"
+  | "fg"
+  | "muted"
+  | "dim"
+  | "rule"
+  | "panel"
+  | "accent"
+  | "a"
+  | "b"
+  | "c"
+  | "d";
+
+/** A picture with straight alpha, 0..1 per channel, RGBA row-major: drawn over the deck's ground. */
+export interface Rgba {
+  w: number;
+  h: number;
+  d: Float32Array;
+}
 
 /** A colour the data itself computes (a node's features, a splat's colour), 0..1 per channel. */
 export type DataRgb = readonly [number, number, number];
@@ -117,7 +135,8 @@ export type Prim =
       y: number;
       /** Baseline-free: `y` is the top of the line. */
       size: number;
-      role: Role;
+      /** "auto": the theme's ink or ground, whichever reads better on what is under the text. */
+      role: Role | "auto";
       anchor: "start" | "middle" | "end";
       weight?: number;
       /** The input's own string … */
@@ -139,7 +158,7 @@ export type Prim =
     });
 
 /** A raster layer: a picture, or a scalar map drawn in a theme colour with alpha = value × `alpha`. */
-export type Raster = { rgb: Rgb } | { heat: Gray; role: Role; alpha: number };
+export type Raster = { rgb: Rgb } | { rgba: Rgba } | { heat: Gray; role: Role; alpha: number };
 
 export interface Frame {
   id: string;
@@ -277,6 +296,9 @@ export function flat(points: ReadonlyArray<readonly [number, number]>): number[]
   return o;
 }
 
+/** Clamped to 0..1. */
+export const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
 export const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** "Nice" axis ticks (1, 2, 5 × 10^k) covering [lo, hi], about `n` of them. */
@@ -299,7 +321,7 @@ export function resultBytes(r: MechanismResult): Buffer {
   const parts: Buffer[] = [];
   for (const key of Object.keys(r.rasters).sort()) {
     const L = r.rasters[key] as Raster;
-    const m = "rgb" in L ? L.rgb : L.heat;
+    const m = "rgb" in L ? L.rgb : "rgba" in L ? L.rgba : L.heat;
     parts.push(Buffer.from(`${key}:${m.w}x${m.h};`));
     parts.push(Buffer.from(m.d.buffer, m.d.byteOffset, m.d.byteLength));
   }

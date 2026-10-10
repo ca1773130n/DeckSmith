@@ -349,7 +349,7 @@ export function tokenAttention(input: TokenAttentionInput, region: Region): Mech
         x: cx(j),
         y: keyY + 14,
         size,
-        role: "fg",
+        role: "auto",
         anchor: "middle",
         text: t,
       });
@@ -371,7 +371,7 @@ export function tokenAttention(input: TokenAttentionInput, region: Region): Mech
         x: cx(j),
         y: qY + 14,
         size,
-        role: j === qi ? "panel" : "muted",
+        role: j === qi ? "auto" : "muted",
         anchor: "middle",
         text: t,
         weight: j === qi ? 700 : 500,
@@ -543,9 +543,9 @@ export function patchAttention(input: PatchAttentionInput, region: Region): Mech
   path.forEach((qi, s) => {
     weights.forEach((w, h) => {
       rasters[`map-${h}-${s}`] = {
-        // A spotlight: patches the query weights little are darkened, so it reads on any picture.
+        // A spotlight: patches the query weights little fade toward the ground (dark or light), so it reads on any picture.
         heat: spotlight(normalizeMax({ w: cols, h: rows, d: w.slice(qi * n, qi * n + n) })),
-        role: "fg",
+        role: "bg",
         alpha: 0.78,
       };
     });
@@ -577,7 +577,7 @@ export function patchAttention(input: PatchAttentionInput, region: Region): Mech
         y: b.y + qr * ch,
         w: cw,
         h: ch,
-        role: "panel",
+        role: "fg",
         width: pi === 0 ? 6 : 4,
       });
       if (pi === 0 && s > 0)
@@ -592,7 +592,7 @@ export function patchAttention(input: PatchAttentionInput, region: Region): Mech
                   [b.x + ((i % cols) + 0.5) * cw, b.y + (Math.floor(i / cols) + 0.5) * ch] as const,
               ),
           ),
-          role: "panel",
+          role: "fg",
           width: 5,
           dash: true,
         });

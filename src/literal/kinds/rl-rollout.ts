@@ -346,7 +346,7 @@ export function rlRollout(input: RlInput, region: Region): MechanismResult {
           y,
           w: cell,
           h: cell,
-          fill: "fg",
+          fill: "dim",
           role: "rule",
           width: 2,
         });
@@ -364,7 +364,6 @@ export function rlRollout(input: RlInput, region: Region): MechanismResult {
           fill: t >= 0 ? "d" : "c",
           role: "rule",
           width: 2,
-          opacity: 0.9,
         });
         out.push({
           p: "text",
@@ -372,7 +371,7 @@ export function rlRollout(input: RlInput, region: Region): MechanismResult {
           x: x + cell / 2,
           y: y + cell / 2 - size / 2,
           size,
-          role: "panel",
+          role: "auto",
           anchor: "middle",
           text: fmt(t, 2),
           weight: 700,
@@ -387,7 +386,8 @@ export function rlRollout(input: RlInput, region: Region): MechanismResult {
         y,
         w: cell,
         h: cell,
-        heat: (v - lo) / (hi - lo),
+        // The ramp stops at 60% of the accent so the values and arrows read on every cell, dark or light.
+        heat: (0.6 * (v - lo)) / (hi - lo),
         role: "rule",
         width: 2,
       });
@@ -398,7 +398,7 @@ export function rlRollout(input: RlInput, region: Region): MechanismResult {
           x: x + cell / 2,
           y: y + 8,
           size,
-          role: "fg",
+          role: "auto",
           anchor: "middle",
           text: fmt(v, 2),
         });
@@ -506,7 +506,7 @@ export function rlRollout(input: RlInput, region: Region): MechanismResult {
           cx: cx(pos),
           cy: cy(pos),
           r: cell * 0.2,
-          fill: "accent",
+          fill: "fg",
           role: "panel",
           width: 4,
         },
