@@ -217,9 +217,26 @@ a gate, and the shipped readers were run back over that review's own deck
 | 490 `tl.to` against invariant 2 | contract refuses `tl.to`/`tl.from`/keyframes and incomplete from states; prompt, references (82 tweens), repairs and `untangle` are fromTo | `script_fromto` (new) | — (static) |
 | s8 hollow, s15 dots overlapping | — | `hollow_hold`, `marks_overlap` (new) | s8's settled frame filled (0.93), its hold did not |
 
-The smoke build of the rebased branch (one ko deck, 16 beats, fresh cache, `64de487`) kept 13
-of 16 bespoke (6 pictured, 7 drawn) with no UI motion, no blank seam and no word over 57px in
-any of them; verify passed. The three that fell back were drawn data beats, and two of their
-bar-compare fallbacks grew bars: the data-beat prompt still said "bars grow from zero" (round
-5's text), the key label it never named failed `type_hierarchy`, and one beat failed only the
-chart-camera rule. `7ff673d` fixes all three; the second smoke build's numbers are in the PR.
+Three builds of one ko deck (16 beats; the first from a fresh cache, each later one from the
+previous one's cache, so only beats whose prompt or picture changed were redrawn), measured
+with the shipped readers (`ui_motion`'s, widened to archetype scenes so a fallback counts too;
+`seam_blank`'s; the largest word rendered every 0.5s):
+
+| build | commit | bespoke (pictured / drawn) | fell back | UI-motion tweens | blank seams | largest word | verify | tokens | wall |
+|---|---|---|---|---|---|---|---|---|---|
+| r1 final (the review's deck, EM-SNN ko) | `a276422` | 16 (4 / 12) | 0 | 53 in 14 scenes | 12/15 | 78px | PASS | 708k | — |
+| smoke1 | `64de487` | 13 (6 / 7) | b09, b13, b14 (data) | 10, all in 2 fallbacks | 2/15 (fallbacks) | 57px | PASS | 774k | 2107s |
+| smoke2 | `7ff673d` | 14 (6 / 8) | b11, b13 (data) | 10, all in 2 fallbacks | 2/15 (fallbacks) | 56px | PASS | 519k | 2025s |
+| smoke3 | `c421a5d` | 16 (6 / 10) | 0 | 0 | 0/15 | 48px | PASS | 354k | 1453s |
+
+Every bespoke scene in all three builds had no UI motion and no blank seam. What was left came
+from fallbacks to decksmith-71's bar-compare archetype, which grows its bars, and every
+fallback was a drawn data beat. smoke1's three had three causes: the data-beat prompt still
+said "bars grow from zero" (round 5's text), the key label it never named failed
+`type_hierarchy`, and one beat failed only the chart-camera rule. `7ff673d` fixed those, and
+smoke2 then lost two other data beats to `graphic_crosses_text` and `dim_text`. Pictured scenes
+passed on their first draft every time (12 of 12), so `c421a5d` spends the picture cap on data
+beats first, and smoke3 kept all 16. Not measured: run-to-run variance (one build per commit,
+by instruction) and an mp4 render. Seen, not gated: some drawn scenes still draw UI iconography
+as their subject (ko s5's text and image "cards" as encoder icons). They stand still, so they
+are not UI motion, but they are the look the founder dislikes.
