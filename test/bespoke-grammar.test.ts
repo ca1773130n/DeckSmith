@@ -417,16 +417,12 @@ describe("data builds", () => {
   };
 
   for (const b of BUILDS)
-    it(`"${b}" passes with its marks and a camera, and fails without them`, () => {
+    it(`"${b}" passes with its marks, with or without a camera, and fails without its marks`, () => {
       expect(checkBuild(ok[b], b)).toEqual([]);
       // Declared as another build.
       expect(checkBuild(ok[b], b === "delta" ? "line-callout" : "delta").length).toBeGreaterThan(0);
-      // No camera.
-      expect(
-        checkBuild({ ...ok[b], script: ok[b].script.replace(cam, "") }, b).some((f) =>
-          /camera/.test(f.message),
-        ),
-      ).toBe(true);
+      // No camera: the scene's choice since round 6.
+      expect(checkBuild({ ...ok[b], script: ok[b].script.replace(cam, "") }, b)).toEqual([]);
       // Its marks gone.
       const bare = { ...ok[b], markup: `<g data-build="${b}"></g>` };
       expect(checkBuild(bare, b).length).toBeGreaterThan(0);

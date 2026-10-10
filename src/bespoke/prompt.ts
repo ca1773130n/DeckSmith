@@ -39,7 +39,7 @@ import { type Box, CAMERA_MAX_SCALE, CLOSE_MIN, ESTABLISH, MIN_HOLD, MOVE } from
 export { CAMERA_MAX_SCALE };
 
 /** Bump with any change to either prompt or to a reference: it is part of every cache key. */
-export const PROMPT_VERSION = "bespoke-12";
+export const PROMPT_VERSION = "bespoke-13";
 /** Bump with any change to what `checkFragment` accepts. Also part of every key. */
 export const CONTRACT_VERSION = "contract-5";
 
@@ -637,18 +637,20 @@ bars, no table, no counter racing up.
   return `
 # THIS IS A DATA BEAT — build the chart, not a picture
 Its numbers are the point. Draw the chart (or table) yourself in SVG across the whole box and
-BUILD it with the narration: axes draw on; bars grow from zero while their counters count up;
-a line traces left to right with a dot riding it and a readout following; the value the voice
-names lights in the accent while the rest dims to 0.3; a gap becomes a bracket with its
-difference counted in. Take every value from the beat's own params above, exactly — do not
+BUILD it with the narration: axes draw on; each mark comes on AT ITS SIZE, by drawing its
+outline or fading in — never a bar grown from zero or slid into place (gate: ui_motion); a line
+traces left to right with a dot riding it; the value the voice names lights in the accent while
+the rest dims to 0.3; a gap becomes a bracket with its difference counted in. The ONE value
+the voice stresses is the key label, ${TYPE_SCALE.body}-${TYPE_SCALE.headline}px (gate: type_hierarchy); every other word ${TYPE_SCALE.floor}px, and
+no two words share a line or overlap (gate: text_overlap). Take every value from the beat's own params above, exactly — do not
 invent or round. A table only when the beat IS a table: rows build one at a time and the
 column the voice names highlights. No illustration and no decorative pictures. "shots": [].${
     b.build
       ? `
 THIS CHART'S BUILD (the deck gives each data beat a different one; a static check holds you to it):
 ${BUILD_NOTES[b.build]}
-Declare it on the chart's root group: <g id="${T}-chart" data-build="${b.build}">. THE CAMERA WORKS ON THE CHART:
-push "#${T}-cam" in on the value the voice names (1.6-2x, rule 10), hold, and come home for the whole by the last cue.`
+Declare it on the chart's root group: <g id="${T}-chart" data-build="${b.build}">. The camera may work on
+the chart: push "#${T}-cam" in on the value the voice names (rule 10), hold, and come home for the whole by the last cue.`
       : ""
   }
 `;

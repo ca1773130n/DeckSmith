@@ -11,8 +11,9 @@
  * in on the value the voice names and pulls back for the whole.
  *
  * Each build is checked statically (`checkBuild`): the scene declares it on
- * its root group (`data-build`), carries the marks the build is made of, and
- * moves the camera; the shell stamps it on the scene (`data-ds-build`) so the
+ * its root group (`data-build`) and carries the marks the build is made of
+ * (round 6: the camera is the scene's choice, no longer required — r1's smoke
+ * deck lost a data beat to that rule alone); the shell stamps it on the scene (`data-ds-build`) so the
  * deck gate (`verify`) refuses two data beats that build alike.
  *
  * ROUND 6 dropped the bar race: bars growing from zero and sliding to their
@@ -64,7 +65,7 @@ export interface BuildFinding {
 /**
  * Whether a data scene builds as `build` asks: it declares the build on a
  * group, carries the marks the build is made of, animates them the build's
- * way, and moves the camera. Markup and script are the fragment's (token form).
+ * way. Markup and script are the fragment's (token form).
  */
 export function checkBuild(
   f: { markup: string; script: string },
@@ -91,11 +92,6 @@ export function checkBuild(
   }
   if (build === "small-multiples" && count("data-panel") < 3)
     bad('small multiples are three or more <g data-panel="1"> panels');
-  // The camera works on a chart as on a picture: in on the value named, back for the whole.
-  if (!/["'`]#SCENEID-cam(?![\w-])/.test(s))
-    bad(
-      'the camera ("#SCENEID-cam") never moves: push in on the value the voice names, and come back home for the whole',
-    );
   return out;
 }
 

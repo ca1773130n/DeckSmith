@@ -1085,8 +1085,9 @@ over an illustration (`data_over_picture`). Since round 5 each data beat of a de
 differently (`src/bespoke/databuild.ts`): a line traced with a callout, the delta
 highlighted and counted, or small multiples lit in turn (round 6 dropped the bar race: bars
 growing from zero and sliding to their rank are what `ui_motion` refuses) — declared on the
-chart (`data-build`), checked statically with its marks, and with the camera pushing in on the
-value the voice names. `verify` refuses two data scenes of a deck that build alike
+chart (`data-build`) and checked statically with its marks; the camera may push in on the
+value the voice names (required until round 6, when a smoke deck lost a data beat to that rule
+alone). `verify` refuses two data scenes of a deck that build alike
 (`build_repeat`).
 
 **The camera** of an illustrated scene is the shell's (`src/bespoke/shots.ts`), in one of
