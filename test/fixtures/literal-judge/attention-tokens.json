@@ -7,7 +7,8 @@
     "path": [4, 7, 9]
   },
   "labels": {
-    "head": "head {h}: {basis}"
+    "content": "letters alike",
+    "position": "positions near"
   },
   "frames": [0, 1, 2],
   "takeaway": "Each query's weights are a softmax over its scores with every key, so they sum to 1; the query “tired” weights “tired” most (0.88)."

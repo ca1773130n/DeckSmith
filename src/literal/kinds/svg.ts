@@ -2,14 +2,17 @@
  * One frame of a mechanism kind as SVG: what the framework draws, and what the
  * preview strips and the judge frames are rasterised from. Pure: rasters are
  * referenced by `href(layer)`, slot texts come from `text(slot, vars)`, and
- * every colour comes from the theme (default dark, see ./theme.ts).
+ * every colour is a style-pack token (fg, muted, dim, rule, panel, accent,
+ * tones): a heat layer is a white alpha mask the theme colours here, so one
+ * computed file serves a dark pack and a light one. The ground (`bg`) is the
+ * shell's: it is painted only in a preview (`ground: true`), and read only to
+ * judge contrast against.
  *
  * Also the contrast arithmetic (WCAG 2 relative luminance) the tests hold the
  * frames to, and the backdrop lookup a text with role "auto" is resolved by.
  */
 import type { Theme } from "../../emit/kit.js";
-import type { DataRgb, Frame, Prim, Region, Role } from "./common.js";
-import { DEFAULT_THEME } from "./theme.js";
+import type { DataRgb, Frame, Prim, Raster, Region, Role } from "./common.js";
 
 /** An sRGB colour, 0..255 per channel. */
 export type Rgb8 = [number, number, number];
@@ -122,9 +125,7 @@ export function anchorOf(p: Prim): [number, number] {
 /** A fill that holds things (a panel, a cell, a node) rather than being a mark itself. */
 function isContainer(q: Prim): boolean {
   if (q.p !== "rect" && q.p !== "circle") return false;
-  return (
-    q.heat !== undefined || !!q.mix || q.fill === "bg" || q.fill === "panel" || q.fill === "rule"
-  );
+  return q.heat !== undefined || !!q.mix || q.fill === "panel" || q.fill === "rule";
 }
 
 /**
@@ -175,25 +176,47 @@ function backdropAt(
   return hex(theme.bg);
 }
 
-/** A text's colour: its role's, or for "auto" the ink or the ground, whichever reads better on its backdrop. */
+/** A text's colour: its role's, or for "auto" the ink or the panel colour, whichever reads better on its backdrop. */
 export function textRgb(prims: readonly Prim[], index: number, theme: Theme): Rgb8 {
   const p = prims[index] as Extract<Prim, { p: "text" }>;
   if (p.role !== "auto") return roleRgb(theme, p.role);
   const under = backdropOf(prims, index, theme) ?? hex(theme.bg);
   const ink = hex(theme.fg);
-  const ground = hex(theme.bg);
-  return contrastRatio(ink, under) >= contrastRatio(ground, under) ? ink : ground;
+  const panel = hex(theme.panel);
+  return contrastRatio(ink, under) >= contrastRatio(panel, under) ? ink : panel;
+}
+
+/**
+ * An "auto" text's halo: when neither ink nor panel reaches 4.5:1 on a
+ * mid-tone fill (a bright accent at half strength), the text gets a 6px
+ * outline in the other colour, and that outline is what it is read against.
+ */
+export function textHalo(prims: readonly Prim[], index: number, theme: Theme): Rgb8 | undefined {
+  const p = prims[index] as Extract<Prim, { p: "text" }>;
+  if (p.role !== "auto") return undefined;
+  const c = textRgb(prims, index, theme);
+  const under = backdropOf(prims, index, theme) ?? hex(theme.bg);
+  if (contrastRatio(c, under) >= 4.5) return undefined;
+  const ink = hex(theme.fg);
+  return c.every((v, i) => v === ink[i]) ? hex(theme.panel) : ink;
 }
 
 /* ----------------------------------------------------------------- drawing */
 
-function prim(
-  prims: readonly Prim[],
-  index: number,
-  theme: Theme,
-  href: (layer: string) => string,
-  text: (slot: string, vars: Readonly<Record<string, string | number>>) => string,
-): string {
+/** How a raster layer is drawn: a picture as itself, a heat mask in a theme colour at an opacity. */
+export type LayerPaint = { mask: Role; alpha: number } | undefined;
+
+interface Draw {
+  theme: Theme;
+  href: (layer: string) => string;
+  text: (slot: string, vars: Readonly<Record<string, string | number>>) => string;
+  paint: (layer: string) => LayerPaint;
+  /** Prefix of every id this frame defines (masks), so two frames in one page never collide. */
+  ids: string;
+}
+
+function prim(prims: readonly Prim[], index: number, d: Draw): string {
+  const { theme, href, text } = d;
   const p = prims[index] as Prim;
   const op = p.opacity !== undefined ? ` opacity="${n2(p.opacity)}"` : "";
   const stroke = (role: Role | undefined, width: number | undefined) =>
@@ -241,30 +264,65 @@ function prim(
       const s = p.text ?? (p.slot ? text(p.slot, p.vars ?? {}) : "");
       if (!s) return "";
       const y = p.y + p.size * 0.8;
-      return `<text x="${n2(p.x)}" y="${n2(y)}" font-size="${p.size}" font-weight="${p.weight ?? 600}" text-anchor="${p.anchor}" fill="${css(textRgb(prims, index, theme))}"${op}>${esc(s)}</text>`;
+      const halo = textHalo(prims, index, theme);
+      const outline = halo
+        ? ` stroke="${css(halo)}" stroke-width="6" stroke-linejoin="round" paint-order="stroke"`
+        : "";
+      return `<text x="${n2(p.x)}" y="${n2(y)}" font-size="${p.size}" font-weight="${p.weight ?? 600}" text-anchor="${p.anchor}" fill="${css(textRgb(prims, index, theme))}"${outline}${op}>${esc(s)}</text>`;
     }
-    case "image":
-      return `<image x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}" preserveAspectRatio="none" href="${esc(href(p.layer))}"${p.pixelated ? ' style="image-rendering:pixelated"' : ""}${op}/>`;
+    case "image": {
+      const box = `x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}"`;
+      const pix = p.pixelated ? ' style="image-rendering:pixelated"' : "";
+      const img = `<image ${box} preserveAspectRatio="none" href="${esc(href(p.layer))}"${pix}/>`;
+      const paint = d.paint(p.layer);
+      if (!paint) return img.replace("/>", `${op}/>`);
+      // A heat layer: white where the value is, alpha = value; the theme colours it.
+      const id = `${d.ids}m${index}`;
+      return `<mask id="${id}" maskUnits="userSpaceOnUse" ${box}>${img}</mask><rect ${box} fill="${css(roleRgb(theme, paint.mask))}" opacity="${n2((p.opacity ?? 1) * paint.alpha)}" mask="url(#${id})"/>`;
+    }
   }
 }
 
-/** A whole frame, region-sized, on the theme's ground. */
+/** A whole frame as one region-sized SVG. `ground` paints the theme's ground under it (previews only). */
 export function frameSvg(
   frame: Frame,
   region: Region,
   href: (layer: string) => string,
   text: (slot: string, vars: Readonly<Record<string, string | number>>) => string,
-  opts: { theme?: Theme; pad?: number } = {},
+  opts: {
+    theme: Theme;
+    pad?: number;
+    ground?: boolean;
+    paint?: (layer: string) => LayerPaint;
+    ids?: string;
+    attrs?: string;
+  },
 ): string {
-  const theme = opts.theme ?? DEFAULT_THEME;
+  const { theme } = opts;
   const pad = opts.pad ?? 0;
   const W = region.width + 2 * pad;
   const H = region.height + 2 * pad;
-  const body = frame.prims.map((_, i) => prim(frame.prims, i, theme, href, text)).join("\n");
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${esc(theme.fontStack)}">
-<rect width="100%" height="100%" fill="${theme.bg}"/>
-<g transform="translate(${pad} ${pad})">
+  const d: Draw = {
+    theme,
+    href,
+    text,
+    paint: opts.paint ?? (() => undefined),
+    ids: opts.ids ?? `${frame.id}-`,
+  };
+  const body = frame.prims.map((_, i) => prim(frame.prims, i, d)).join("\n");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${esc(theme.fontStack)}"${opts.attrs ?? ""}>
+${opts.ground ? `<rect width="100%" height="100%" fill="${theme.bg}"/>\n` : ""}<g transform="translate(${pad} ${pad})">
 ${body}
 </g>
 </svg>`;
+}
+
+/** How each raster of a result is drawn (see `LayerPaint`). */
+export function layerPaints(
+  rasters: Readonly<Record<string, Raster>>,
+): (layer: string) => LayerPaint {
+  return (layer) => {
+    const L = rasters[layer];
+    return L && "heat" in L ? { mask: L.role, alpha: L.alpha } : undefined;
+  };
 }

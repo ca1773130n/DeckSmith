@@ -21,7 +21,6 @@ import {
   fillTemplate,
   flat,
   fmt,
-  type LiteralSlot,
   type MechanismResult,
   mulberry32,
   type Prim,
@@ -268,12 +267,6 @@ export interface RlInput extends Grid {
   seed?: number;
   maxSteps?: number;
 }
-
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  sweep: { what: "while the values converge: which sweep (or episode) this is", vars: ["k"] },
-  step: { what: "while the agent walks: the step and the return so far", vars: ["t", "G"] },
-  reward: { what: "title of the reward-per-step bars" },
-};
 
 export const TAKEAWAY =
   "The values spread back from the reward until they settle; following the arrows to higher value, the agent reaches the goal in {steps} steps with return {G}.";

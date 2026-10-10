@@ -29,7 +29,6 @@ import {
   fmt,
   fnv1a,
   type Gray,
-  type LiteralSlot,
   type Measure,
   type MechanismResult,
   type Prim,
@@ -241,14 +240,6 @@ export interface PatchAttentionInput {
 
 /* --------------------------------------------------------------- the slots */
 
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  head: { what: "under each head's map: which head, by what it compares", vars: ["h", "basis"] },
-  query: {
-    what: "patches only, under the large picture: the outlined patch is the query, and the bright patches are what it weights",
-    optional: true,
-  },
-};
-
 /** One sentence the frames alone must convey. */
 export const TAKEAWAY =
   "Each query's weights are a softmax over its scores with every key, so they sum to 1; the query “{query}” weights “{top}” most ({weight}).";
@@ -446,8 +437,7 @@ export function tokenAttention(input: TokenAttentionInput, region: Region): Mech
         size,
         role: "muted",
         anchor: "middle",
-        slot: "head",
-        vars: { h: h + 1, basis: hd.name },
+        ...headSlot(hd.name, h),
       });
     });
     return {
@@ -543,9 +533,9 @@ export function patchAttention(input: PatchAttentionInput, region: Region): Mech
   path.forEach((qi, s) => {
     weights.forEach((w, h) => {
       rasters[`map-${h}-${s}`] = {
-        // A spotlight: patches the query weights little fade toward the ground (dark or light), so it reads on any picture.
+        // A spotlight: patches the query weights little fade toward the panel colour (dark or light), so it reads on any picture.
         heat: spotlight(normalizeMax({ w: cols, h: rows, d: w.slice(qi * n, qi * n + n) })),
-        role: "bg",
+        role: "panel",
         alpha: 0.78,
       };
     });
@@ -616,8 +606,7 @@ export function patchAttention(input: PatchAttentionInput, region: Region): Mech
         size,
         role: "muted",
         anchor: "start",
-        slot: "head",
-        vars: { h: h + 1, basis: (heads[h] as HeadQK).name },
+        ...headSlot((heads[h] as HeadQK).name, h),
       });
     });
     const row = (weights[0] as Float32Array).subarray(qi * n, qi * n + n);
@@ -660,3 +649,12 @@ export function takeaway(r: MechanismResult): string {
 /** The patch mode's sentence: a patch has no word to name. */
 export const TAKEAWAY_PATCHES =
   "Each patch's weights over every patch are a softmax that sums to 1; the outlined query patch weights the patches that look like it most, and nearby patches most in the position head.";
+
+/**
+ * A head's caption slot: a derived head is captioned by what it compares
+ * (`content`, `position`), the source's own heads (and embeddings) by number.
+ */
+function headSlot(name: string, h: number): { slot: string; vars?: Record<string, number> } {
+  if (name === "content" || name === "position") return { slot: name };
+  return { slot: "head", vars: { h: h + 1 } };
+}

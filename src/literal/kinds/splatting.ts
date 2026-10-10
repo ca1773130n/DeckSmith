@@ -22,7 +22,6 @@ import {
   fillTemplate,
   fitBox,
   flat,
-  type LiteralSlot,
   type MechanismResult,
   type Prim,
   type Raster,
@@ -282,16 +281,6 @@ export interface SplatInput {
   /** Composite onto this colour instead of keeping alpha (default: keep alpha; the deck's ground shows). */
   background?: DataRgb;
 }
-
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  points: { what: "stage 1: the input points", vars: ["n"] },
-  splats: { what: "stage 2: each point as an anisotropic Gaussian, drawn at 2σ", vars: ["n"] },
-  render: {
-    what: "stage 3: the Gaussians sorted by depth and alpha-composited",
-    vars: ["pose", "poses"],
-  },
-  path: { what: "the inset: the camera path seen from above" },
-};
 
 export const TAKEAWAY =
   "Each of the {n} points becomes an oriented Gaussian; projected, sorted by depth and alpha-blended, they render the scene from any camera on the path.";

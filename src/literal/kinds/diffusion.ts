@@ -26,7 +26,6 @@ import {
   fitBox,
   flat,
   fmt,
-  type LiteralSlot,
   type MechanismResult,
   mulberry32,
   niceTicks,
@@ -124,13 +123,6 @@ export interface DiffusionInput {
   /** Working size: the longer side, in px (default 512). */
   maxSide?: number;
 }
-
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  forward: { what: "the forward phase: noise is added", vars: ["t", "T"] },
-  reverse: { what: "the reverse phase: noise is removed", vars: ["t", "T"] },
-  signal: { what: "the signal curve √ᾱ_t's legend" },
-  noise: { what: "the noise curve √(1−ᾱ_t)'s legend" },
-};
 
 export const TAKEAWAY =
   "Noise is added on a fixed schedule until, at step {T}, nothing of the picture is left; the reverse steps remove it on the same schedule and the picture returns.";

@@ -23,7 +23,6 @@
 import {
   type Frame,
   fillTemplate,
-  type LiteralSlot,
   type Measure,
   type MechanismResult,
   mulberry32,
@@ -217,14 +216,6 @@ export interface GraphInput {
   seed?: number;
   measure?: Measure;
 }
-
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  layer: { what: "which layer the colours show", vars: ["l", "L"] },
-  field: {
-    what: "the focus node's outline: the nodes its features now come from",
-    vars: ["count", "l"],
-  },
-};
 
 export const TAKEAWAY =
   "Each layer, every node aggregates its neighbours' features ({agg}); after {L} layers {focus}'s colour carries {count} nodes, everything within {L} hops.";

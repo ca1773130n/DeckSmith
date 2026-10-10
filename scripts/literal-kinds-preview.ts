@@ -9,7 +9,7 @@
  *   npx esbuild scripts/literal-kinds-preview.ts --bundle --platform=node \
  *     --format=esm --outfile=<scratch>/preview.mjs
  *   node --expose-gc <scratch>/preview.mjs [--out <dir>] [--judge [.cache/literal-judge]] \
- *     [--theme dark|light] [--image <photo>]
+ *     [--pack signal] [--image <photo>]
  *
  * Run from the repository root. `--image` replaces the synthetic picture in the
  * preview strips only; the judge frames always use the committed parameters.
@@ -19,12 +19,12 @@ import { execFile } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { mapRgba, readRgb, toRgba, writeRaster } from "../src/bespoke/literal-kit.js";
 import type { Theme } from "../src/emit/kit.js";
+import { THEMES } from "../src/emit/themes/index.js";
 import type { MechanismResult, Raster, Rgb } from "../src/literal/kinds/common.js";
 import { clamp01, resultBytes } from "../src/literal/kinds/common.js";
-import { frameSvg, roleRgb } from "../src/literal/kinds/svg.js";
-import { MECHANISM_THEMES } from "../src/literal/kinds/theme.js";
+import { frameSvg, layerPaints } from "../src/literal/kinds/svg.js";
+import { mapRgba, readRgb, toRgba, writeRaster } from "../src/literal/kit.js";
 import {
   JUDGE_REGION,
   type JudgeCase,
@@ -45,11 +45,14 @@ const arg = (name: string) => {
 };
 const out = arg("--out");
 const judge = flag("--judge") ? resolve(arg("--judge") ?? ".cache/literal-judge") : undefined;
-const themeName = (arg("--theme") ?? "dark") as "dark" | "light";
-const theme: Theme | undefined = MECHANISM_THEMES[themeName];
-if (!theme) throw new Error(`--theme must be dark or light, got ${themeName}`);
+/** A style pack (src/emit/themes): a dark one by default, as decks are. */
+const themeName = arg("--pack") ?? "signal";
+const found: Theme | undefined = THEMES[themeName];
+if (!found)
+  throw new Error(`--pack must be one of ${Object.keys(THEMES).join(", ")}, got ${themeName}`);
+const theme: Theme = found;
 if (!out && !judge)
-  throw new Error("usage: [--out <dir>] [--judge [dir]] [--theme dark|light] [--image <photo>]");
+  throw new Error("usage: [--out <dir>] [--judge [dir]] [--pack signal] [--image <photo>]");
 const image = arg("--image");
 const PAD = 80;
 const cases = loadJudgeCases(resolve("test/fixtures/literal-judge"));
@@ -70,9 +73,8 @@ function rasterRgba(L: Raster, k: number): { w: number; h: number; rgba: Uint8Ar
       rgba[i] = Math.round(clamp01(L.rgba.d[i] as number) * 255);
   } else {
     ({ w, h } = L.heat);
-    const scaled = new Float32Array(L.heat.d.length);
-    for (let i = 0; i < scaled.length; i++) scaled[i] = (L.heat.d[i] as number) * L.alpha;
-    rgba = mapRgba(scaled, roleRgb(theme as Theme, L.role));
+    // A white alpha mask: svg.ts colours it in the pack's token (as the deck does).
+    rgba = mapRgba(L.heat.d, [255, 255, 255]);
   }
   if (k <= 1) return { w, h, rgba };
   const W = w * k;
@@ -130,7 +132,12 @@ async function preview(c: JudgeCase, dir: string): Promise<string> {
   for (const [i, f] of r.frames.entries()) {
     const name = `frame-${String(i).padStart(2, "0")}`;
     await svgToPng(
-      frameSvg(f, JUDGE_REGION, (l) => `${l}.png`, slotTextOf(c), { theme, pad: PAD }),
+      frameSvg(f, JUDGE_REGION, (l) => `${l}.png`, slotTextOf(c), {
+        theme,
+        pad: PAD,
+        ground: true,
+        paint: layerPaints(r.rasters),
+      }),
       dir,
       name,
       1920,
@@ -161,14 +168,14 @@ async function judgeFrames(c: JudgeCase, dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
   await writeRasters(r, dir);
   const files: string[] = [];
-  for (const [j, svg] of judgeFramesSvg(c, r, theme as Theme, (l) => `${l}.png`, PAD).entries()) {
+  for (const [j, svg] of judgeFramesSvg(c, r, theme, (l) => `${l}.png`, PAD).entries()) {
     await svgToPng(svg, dir, `frame-${j + 1}`, 960);
     files.push(`frame-${j + 1}.png`);
   }
   for (const key of Object.keys(r.rasters)) await rm(join(dir, `${key}.png`));
   await writeFile(
     join(dir, "takeaway.json"),
-    `${JSON.stringify({ kind: c.kind, theme: themeName, frames: files, takeaway: sentence }, null, 2)}\n`,
+    `${JSON.stringify({ kind: c.kind, pack: themeName, frames: files, takeaway: sentence }, null, 2)}\n`,
   );
 }
 
@@ -184,7 +191,7 @@ if (out) {
     join(out, "index.html"),
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Literal mechanism kinds</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;margin:24px;background:${theme.bg};color:${theme.fg}}section{margin:0 0 40px}img.strip{max-width:100%;border:1px solid ${theme.rule}}img.f{width:480px;max-width:100%;margin:4px;border:1px solid ${theme.rule}}.t{font-size:18px}.m{color:${theme.muted};font:13px ui-monospace,monospace}a{color:${theme.accent}}</style>
-<h1>Literal mechanism kinds</h1><p>Theme: ${themeName}. Each strip is every frame of one beat, left to right, regenerated from test/fixtures/literal-judge/&lt;case&gt;.json${photo ? " (picture kinds on a photograph)" : ""}.</p>
+<h1>Literal mechanism kinds</h1><p>Style pack: ${themeName}. Each strip is every frame of one beat, left to right, regenerated from test/fixtures/literal-judge/&lt;case&gt;.json${photo ? " (picture kinds on a photograph)" : ""}.</p>
 ${sections.join("\n")}`,
   );
 }

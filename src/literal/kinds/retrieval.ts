@@ -18,7 +18,6 @@
 import {
   type Frame,
   fillTemplate,
-  type LiteralSlot,
   type Measure,
   type MechanismResult,
   type Prim,
@@ -112,12 +111,6 @@ export interface RetrievalInput {
   b?: number;
   measure?: Measure;
 }
-
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  query: { what: "over the query: what it is" },
-  score: { what: "over the scores: what is computed (BM25, cosine similarity)" },
-  topk: { what: "beside the kept items: the cut", vars: ["k"] },
-};
 
 export const TAKEAWAY =
   "Every item is scored against the query ({method}); ranked by score, “{top}” comes first ({score}) and the top {k} are kept.";

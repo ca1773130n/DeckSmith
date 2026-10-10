@@ -20,7 +20,6 @@ import {
   fillTemplate,
   flat,
   type Gray,
-  type LiteralSlot,
   type Measure,
   type MechanismResult,
   niceTicks,
@@ -213,15 +212,6 @@ export interface CurvesInput {
 }
 
 export type OptimizationInput = LandscapeInput | CurvesInput;
-
-export const SLOTS: Readonly<Record<string, LiteralSlot>> = {
-  xAxis: { what: "the x axis: what a step is (iteration, epoch)" },
-  yAxis: { what: "the y axis: the quantity (training loss, accuracy)" },
-  landscape: {
-    what: "landscape mode only: what the surface is; say it is illustrative of the optimizer, not the paper's loss",
-    optional: true,
-  },
-};
 
 export const TAKEAWAY =
   "After {steps} steps, {best} reaches {bestValue} while {worst} is at {worstValue}.";

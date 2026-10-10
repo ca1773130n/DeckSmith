@@ -18,9 +18,10 @@
  * name plus the computed values the slot's text may name as `{var}`, exactly
  * like the literal kinds' `slotText` (src/types.ts `LiteralSlot`).
  */
-import type { Rgb } from "../../bespoke/literal-kit.js";
+
 import { TYPE_SCALE } from "../../emit/type.js";
 import type { LiteralSlot } from "../../types.js";
+import type { Rgb } from "../kit.js";
 
 export type { LiteralSlot, Rgb };
 
@@ -31,19 +32,12 @@ export interface Gray {
   d: Float32Array;
 }
 
-/** A theme colour by name: `Theme`'s own keys (`bg` is the ground) and its four tones. */
-export type Role =
-  | "bg"
-  | "fg"
-  | "muted"
-  | "dim"
-  | "rule"
-  | "panel"
-  | "accent"
-  | "a"
-  | "b"
-  | "c"
-  | "d";
+/**
+ * A theme colour by name — the style pack's tokens and nothing else: ink (fg),
+ * muted, dim, rule, panel, accent and the four tones. The ground is the shell's;
+ * a kind never paints it.
+ */
+export type Role = "fg" | "muted" | "dim" | "rule" | "panel" | "accent" | "a" | "b" | "c" | "d";
 
 /** A picture with straight alpha, 0..1 per channel, RGBA row-major: drawn over the deck's ground. */
 export interface Rgba {
@@ -135,7 +129,7 @@ export type Prim =
       y: number;
       /** Baseline-free: `y` is the top of the line. */
       size: number;
-      /** "auto": the theme's ink or ground, whichever reads better on what is under the text. */
+      /** "auto": the theme's ink (fg) or its panel, whichever reads better on what is under the text. */
       role: Role | "auto";
       anchor: "start" | "middle" | "end";
       weight?: number;

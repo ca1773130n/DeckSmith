@@ -771,6 +771,13 @@ export const LITERAL_KIND_NAMES = [
   "table",
   "scale",
   "recap",
+  "attention",
+  "diffusion",
+  "optimization",
+  "splatting",
+  "message-passing",
+  "rl-rollout",
+  "retrieval",
 ] as const;
 
 /**
@@ -854,8 +861,8 @@ export interface LiteralClaimBan {
 }
 
 /**
- * Truth rules for `attention` (src/literal/kinds/attention.ts, not yet
- * registered), spread into its `LITERAL_KIND_DOCS` entry when it is. Without
+ * Truth rules for `attention` (src/literal/kinds/attention.ts), spread into
+ * its `LITERAL_KIND_DOCS` entry. Without
  * the source's Q/K or embeddings each head's Q = K is a surface feature of the
  * input (character trigrams, pixels, position), so it shows how attention
  * weighs, never what a trained model attends to.
@@ -886,8 +893,8 @@ export const ATTENTION_RULES = {
 } as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
 
 /**
- * Truth rules for `diffusion` (src/literal/kinds/diffusion.ts, not yet
- * registered), spread into its `LITERAL_KIND_DOCS` entry when it is. The
+ * Truth rules for `diffusion` (src/literal/kinds/diffusion.ts), spread into
+ * its `LITERAL_KIND_DOCS` entry. The
  * reverse path is an ORACLE that knows x₀, so the scene is exact about the
  * noise schedule and the process and says nothing about a trained denoiser.
  * "Denoising" alone names the process and is allowed; "model" is not banned,
@@ -904,6 +911,138 @@ export const DIFFUSION_RULES = {
     },
   ],
 } as const satisfies Pick<LiteralKindDoc, "mustNotClaim">;
+
+/**
+ * Truth rules for `optimization`: the landscape mode runs textbook optimizers
+ * on an analytic function chosen to show the update rule, so it is never the
+ * paper's own loss surface; the curves mode draws only the rows the plan gives.
+ */
+export const OPTIMIZATION_RULES = {
+  requires: [
+    {
+      what: "an optimizer, a training procedure or loss curves to draw (SGD, momentum, Adam, a learning rate, a loss over steps)",
+      anyOf: [
+        /\b(?:optimi[sz](?:er|ation)|SGD|Adam(?:W)?|RMSProp|momentum|learning rate|gradient descent|loss|converge(?:s|nce|d)?|training curves?)\b/i,
+        /최적화|옵티마이저|학습률|손실|경사 하강|収束|最適化|学習率|損失|勾配降下|优化|学习率|损失|梯度下降|收敛/,
+      ],
+    },
+  ],
+  mustNotClaim: [
+    {
+      what: "that the drawn surface is the paper's or a model's real loss landscape",
+      because:
+        "the landscape is an analytic function (quadratic, Rosenbrock, Himmelblau) that shows the optimizer's update rule, not any network's loss",
+      pattern:
+        /\b(?:(?:our|the|its|this) (?:model|network)'s loss (?:landscape|surface)|loss (?:landscape|surface) of (?:our|the|this) (?:model|network))\b|모델의 손실 지형|モデルの損失地形|模型的损失曲面/i,
+      unlessGiven: ["series"],
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
+
+/**
+ * Truth rules for `splatting`: the Gaussians come from the plan's points (or
+ * the picture laid on a plane) and are rendered by exact EWA splatting; nothing
+ * was optimised against photographs, so no reconstruction quality is shown.
+ */
+export const SPLATTING_RULES = {
+  requires: [
+    {
+      what: "Gaussian splatting, point clouds or 3D points rendered by splatting",
+      anyOf: [
+        /\b(?:gaussians?|splat(?:s|ting)?|point[- ]clouds?|3D points?|radiance fields?|EWA)\b/i,
+        /가우시안|스플래팅|포인트 클라우드|ガウシアン|スプラッティング|点群|高斯|泼溅|点云/,
+      ],
+    },
+  ],
+  mustNotClaim: [
+    {
+      what: "optimised or trained Gaussians, or the paper's reconstruction quality",
+      because:
+        "the Gaussians are made from the plan's points by their neighbours' covariance and rendered as they are; nothing is fitted to photographs",
+      pattern:
+        /\b(?:trained|optimi[sz](?:ed|es|ing|ation)|learn(?:s|ed|t|ing)?|photorealistic|PSNR|SSIM|LPIPS|state[- ]of[- ]the[- ]art)\b|학습|최적화된|学習|最適化された|训练|优化后/i,
+      unlessGiven: ["gaussians"],
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
+
+/**
+ * Truth rules for `message-passing`: without the source's weights the layers
+ * are pure propagation (W = I), so the scene shows aggregation, not what a
+ * trained network learns or predicts.
+ */
+export const MESSAGE_PASSING_RULES = {
+  requires: [
+    {
+      what: "a graph and message passing over it (a GNN, graph convolution, neighbours, aggregation)",
+      anyOf: [
+        /\b(?:graphs?|GNNs?|GCNs?|graph (?:neural )?networks?|message[- ]passing|neighbou?rs?|nodes?|edges?|aggregat(?:e|es|ed|ion))\b/i,
+        /그래프|노드|이웃|메시지 전달|グラフ|ノード|近傍|メッセージパッシング|图神经|节点|邻居|消息传递/,
+      ],
+    },
+  ],
+  mustNotClaim: [
+    {
+      what: "what a trained network learns, predicts or classifies",
+      because:
+        "without the source's weights each layer is W = I: pure aggregation of the given features",
+      pattern:
+        /\b(?:learn(?:s|ed|t|ing)?|trained|predict(?:s|ed|ing|ion)?|classif(?:y|ies|ied|ication))\b|학습|예측|분류|学習|予測|分類|学习|训练|预测|分类/i,
+      unlessGiven: ["weights"],
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
+
+/**
+ * Truth rules for `rl-rollout`: the gridworld is the plan's own small MDP,
+ * solved exactly (or by tabular Q-learning); it is not the paper's environment.
+ */
+export const RL_ROLLOUT_RULES = {
+  requires: [
+    {
+      what: "a reinforcement-learning setting: states, actions, rewards, a policy or a value function",
+      anyOf: [
+        /\b(?:reinforcement learning|RL|polic(?:y|ies)|rewards?|value (?:function|iteration)|Q-?learning|MDPs?|agents?|Bellman)\b/i,
+        /강화학습|정책|보상|가치 함수|強化学習|方策|報酬|価値関数|强化学习|策略|奖励|价值函数/,
+      ],
+    },
+  ],
+  mustNotClaim: [
+    {
+      what: "results on the paper's own environment or benchmark",
+      because:
+        "the scene solves the plan's small gridworld; it shows how values and a policy arise, not the paper's results",
+      pattern:
+        /\b(?:benchmarks?|Atari|MuJoCo|outperform(?:s|ed)?|state[- ]of[- ]the[- ]art|SOTA|human[- ]level)\b|벤치마크|능가|ベンチマーク|上回|基准|超越/i,
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
+
+/**
+ * Truth rules for `retrieval`: BM25 and TF-IDF are lexical; only the source's
+ * own vectors make a scene about dense or learned retrieval.
+ */
+export const RETRIEVAL_RULES = {
+  requires: [
+    {
+      what: "retrieval, search or ranking of items against a query",
+      anyOf: [
+        /\b(?:retriev(?:e|es|al|ed|er)|search|rank(?:s|ed|ing)?|BM25|TF-?IDF|similarity|nearest neighbou?rs?|top-?k|recall@)\b/i,
+        /검색|순위|유사도|検索|ランキング|類似度|检索|排序|相似度/,
+      ],
+    },
+  ],
+  mustNotClaim: [
+    {
+      what: "dense, neural or learned retrieval",
+      because:
+        "without the source's vectors the scores are BM25 or TF-IDF: word overlap, not meaning",
+      pattern:
+        /\b(?:dense|neural|learned|trained|semantic(?:s|ally)?|embedding models?|meaning)\b|의미|신경망|학습된|意味|ニューラル|学習済み|语义|神经|训练好/i,
+      unlessGiven: ["vectors"],
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
 
 /**
  * THE PLANNER'S LIST OF KINDS: one entry per name in `LITERAL_KIND_NAMES`, a
@@ -1090,6 +1229,141 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       result: { what: "what the source reports came of it, in its own numbers", optional: true },
     },
   },
+  attention: {
+    doc: `scaled dot-product attention, softmax(QKᵀ/√d), computed for
+                     real over the plan's \`tokens\` (or, with a \`picture\`, its
+                     patches): every query's weights over the keys as lines and
+                     as each head's matrix, the query walking \`path\` (token
+                     indexes from 0). With \`heads\` (per-head \`q\`/\`k\` rows) or
+                     \`embeddings\` from the source, they are used; without them a
+                     head compares letters or pixels (\`content\`) or positions
+                     (\`position\`), never a trained model's projections.`,
+    slots: {
+      content: {
+        what: "under the content head: what it compares (the tokens' letters, or the patches' pixels); needed when no heads or embeddings are given",
+        optional: true,
+      },
+      position: {
+        what: "under the position head: what it compares (where tokens or patches sit); needed when no heads or embeddings are given",
+        optional: true,
+      },
+      head: {
+        what: "under each of the source's own heads, by number",
+        vars: ["h"],
+        optional: true,
+      },
+      query: {
+        what: "patches only, under the large picture: the outlined patch is the query and the bright patches are what it weights",
+        optional: true,
+      },
+    },
+    ...ATTENTION_RULES,
+  },
+  diffusion: {
+    doc: `the forward noising of the picture on a real DDPM schedule (β
+                     linear from \`betaStart\` to \`betaEnd\` over \`steps\` steps;
+                     absent: 1e-4 → 0.02 over 1000), then the reverse steps back
+                     to the picture, with √ᾱ (signal) and √(1−ᾱ) (noise) against
+                     t. The reverse path knows the clean picture: it shows the
+                     schedule and the process, not a denoiser. Takes \`picture\`.`,
+    slots: {
+      steps: { what: "the diffusion steps T the source states", number: true, optional: true },
+      betaStart: {
+        what: "the first noise level β₁ the source states",
+        number: true,
+        optional: true,
+      },
+      betaEnd: { what: "the last noise level β_T the source states", number: true, optional: true },
+      forward: { what: "while noise is added: the step", vars: ["t", "T"] },
+      reverse: { what: "while noise is removed: the step", vars: ["t", "T"] },
+      signal: { what: "legend of the signal curve √ᾱ_t" },
+      noise: { what: "legend of the noise curve √(1−ᾱ_t)" },
+    },
+    ...DIFFUSION_RULES,
+  },
+  optimization: {
+    doc: `how training moves. With \`series\` (each a \`label\` and
+                     \`points\` of {x, y}, exactly the source's rows), the curves
+                     draw step by step, \`logY\` on a log axis. Otherwise
+                     \`optimizers\` (each a \`label\`, a \`rule\` sgd · momentum ·
+                     rmsprop · adam, and \`lr\`) run for real from \`start\` for
+                     \`steps\` on an analytic \`landscape\` (quadratic ·
+                     rosenbrock · himmelblau): paths, momentum arrows and loss
+                     per step. The landscape is illustrative, never the paper's
+                     loss surface.`,
+    slots: {
+      xAxis: { what: "the x axis: what a step is (iteration, epoch)" },
+      yAxis: { what: "the y axis: the quantity (training loss, accuracy)" },
+      landscape: {
+        what: "landscape mode only: what the surface is; say it is illustrative of the optimizer",
+        optional: true,
+      },
+    },
+    ...OPTIMIZATION_RULES,
+  },
+  splatting: {
+    doc: `3D Gaussian splatting computed for real: the plan's \`points\`
+                     ({x, y, z, r, g, b}) become anisotropic Gaussians from their
+                     neighbours (or the source's own \`gaussians\`; with neither,
+                     the picture laid on a plane), projected by EWA, sorted by
+                     depth and alpha-blended along a camera orbit: points, then
+                     splats, then renders.`,
+    slots: {
+      points: { what: "stage 1: the input points", vars: ["n"] },
+      splats: { what: "stage 2: each point as an anisotropic Gaussian, drawn at 2σ", vars: ["n"] },
+      render: {
+        what: "stage 3: sorted by depth and alpha-blended, from one camera",
+        vars: ["pose", "poses"],
+      },
+      path: { what: "the inset: the camera path seen from above" },
+    },
+    ...SPLATTING_RULES,
+  },
+  "message-passing": {
+    doc: `a graph network's layers run for real on the plan's small graph
+                     (\`nodes\`: id, label, 1–4 \`features\`; \`edges\`: from, to):
+                     each of \`layers\` rounds every node aggregates its
+                     neighbours (\`aggregate\`: sum · mean · max · gcn), and the
+                     features spread as colour hop by hop; \`focus\`'s receptive
+                     field is outlined. Without the source's \`weights\` a layer
+                     is W = I: aggregation only.`,
+    slots: {
+      layer: { what: "which layer the colours show", vars: ["l", "L"] },
+      field: {
+        what: "the focus node's outline: how many nodes its features now come from",
+        vars: ["count", "l"],
+      },
+    },
+    ...MESSAGE_PASSING_RULES,
+  },
+  "rl-rollout": {
+    doc: `a policy computed for real in the plan's gridworld (\`width\`,
+                     \`height\`, \`walls\`, \`terminals\` with rewards, \`stepReward\`,
+                     \`gamma\`, \`slip\`): value iteration (or tabular Q-learning)
+                     spreads value back from the reward, then the agent walks
+                     from \`start\` along the arrows, its reward per step beside
+                     the grid. A small example MDP, not the paper's environment.`,
+    slots: {
+      sweep: { what: "while the values converge: which sweep (or episode)", vars: ["k"] },
+      step: { what: "while the agent walks: the step and the return so far", vars: ["t", "G"] },
+      reward: { what: "title of the reward-per-step bars" },
+    },
+    ...RL_ROLLOUT_RULES,
+  },
+  retrieval: {
+    doc: `a query scored against every item for real, ranked, and the
+                     top \`k\` kept: BM25 over the \`query\` and the \`items\`' texts,
+                     or cosine over the source's \`vectors\` (one per item) and
+                     \`queryVector\`; each score a plain value, its bar split by
+                     what each query term contributed. Item texts as the source
+                     gives them (titles, passages).`,
+    slots: {
+      query: { what: "over the query: what it is" },
+      score: { what: "over the scores: what is computed (BM25, cosine similarity)" },
+      topk: { what: "over the kept items: the cut", vars: ["k"] },
+    },
+    ...RETRIEVAL_RULES,
+  },
 };
 
 /** The slots a kind has: its own and the common ones. */
@@ -1193,6 +1467,126 @@ export const literalSchema = z.discriminatedUnion("kind", [
     kind: z.literal("recap"),
     /** Earlier literal beats whose computed layers come back, in order. */
     beats: z.array(z.string()),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("attention"),
+    /** The tokens attention runs over, as the source writes them. */
+    tokens: z.array(z.string()).default([]),
+    /** Query indexes (from 0) the scene walks, in spoken order; empty: every token. */
+    path: z.array(z.int()).default([]),
+    /** The source's own per-head queries and keys, one row per token. */
+    heads: z
+      .array(z.object({ q: z.array(z.array(z.number())), k: z.array(z.array(z.number())) }))
+      .default([]),
+    /** The source's own token vectors, one per token: used as both Q and K. */
+    embeddings: z.array(z.array(z.number())).default([]),
+    causal: z.boolean().default(false),
+    /** A beat whose picture is cut into patches, instead of `tokens`. */
+    picture: z.string().optional(),
+    ...literalLabels,
+  }),
+  pictureKind("diffusion"),
+  z.object({
+    kind: z.literal("optimization"),
+    /** The source's own curves, exactly its rows. */
+    series: z
+      .array(
+        z.object({
+          label: z.string(),
+          points: z.array(z.object({ x: z.number(), y: z.number() })),
+        }),
+      )
+      .default([]),
+    logY: z.boolean().default(false),
+    /** Without `series`: optimizers run on an analytic landscape. */
+    landscape: z.enum(["quadratic", "rosenbrock", "himmelblau"]).default("rosenbrock"),
+    optimizers: z
+      .array(
+        z.object({
+          label: z.string(),
+          rule: z.enum(["sgd", "momentum", "rmsprop", "adam"]),
+          lr: z.number(),
+        }),
+      )
+      .default([]),
+    start: z.object({ x: z.number(), y: z.number() }).default({ x: -1.6, y: 2.4 }),
+    steps: z.int().default(300),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("splatting"),
+    points: z
+      .array(
+        z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+          r: z.number(),
+          g: z.number(),
+          b: z.number(),
+        }),
+      )
+      .default([]),
+    /** The source's own Gaussians: mean, scale, rotation quaternion (w, x, y, z), colour, opacity. */
+    gaussians: z
+      .array(
+        z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+          sx: z.number(),
+          sy: z.number(),
+          sz: z.number(),
+          qw: z.number(),
+          qx: z.number(),
+          qy: z.number(),
+          qz: z.number(),
+          r: z.number(),
+          g: z.number(),
+          b: z.number(),
+          opacity: z.number(),
+        }),
+      )
+      .default([]),
+    /** With neither, the picture of this beat laid on a plane. */
+    picture: z.string().optional(),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("message-passing"),
+    nodes: z.array(z.object({ id: z.string(), label: z.string(), features: z.array(z.number()) })),
+    edges: z.array(z.object({ from: z.string(), to: z.string() })),
+    directed: z.boolean().default(false),
+    layers: z.int().default(3),
+    aggregate: z.enum(["sum", "mean", "max", "gcn"]).default("mean"),
+    /** The source's own weights, per layer (d_out × d_in); empty: W = I. */
+    weights: z.array(z.array(z.array(z.number()))).default([]),
+    /** The node whose receptive field is outlined; empty: the first. */
+    focus: z.string().default(""),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("rl-rollout"),
+    width: z.int(),
+    height: z.int(),
+    walls: z.array(z.object({ x: z.int(), y: z.int() })).default([]),
+    terminals: z.array(z.object({ x: z.int(), y: z.int(), reward: z.number() })),
+    stepReward: z.number().default(0),
+    gamma: z.number().default(0.9),
+    slip: z.number().default(0),
+    start: z.object({ x: z.int(), y: z.int() }),
+    algorithm: z.enum(["value-iteration", "q-learning"]).default("value-iteration"),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("retrieval"),
+    query: z.string(),
+    items: z.array(z.object({ label: z.string(), text: z.string() })),
+    /** The source's own vectors, one per item, and the query's: cosine instead of BM25. */
+    vectors: z.array(z.array(z.number())).default([]),
+    queryVector: z.array(z.number()).default([]),
+    k: z.int().default(3),
     ...literalLabels,
   }),
 ]);

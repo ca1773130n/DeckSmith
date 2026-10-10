@@ -4,7 +4,12 @@
  * floor, AA contrast in the dark and the light theme, and that the judge
  * fixtures (parameters only) regenerate their frames and takeaway. Pure: synthetic pictures, no ffmpeg, no browser.
  */
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Theme } from "../src/emit/kit.js";
+import { THEMES } from "../src/emit/themes/index.js";
 import {
   type MechanismResult,
   mulberry32,
@@ -18,7 +23,7 @@ import {
   attention,
   diffusion,
   MECHANISM_KIND_NAMES,
-  MECHANISM_KINDS,
+  MECHANISM_TAKEAWAYS,
   messagePassing,
   optimization,
   retrieval,
@@ -32,15 +37,26 @@ import {
   hex,
   type Rgb8,
   roleRgb,
+  textHalo,
   textRgb,
 } from "../src/literal/kinds/svg.js";
-import { MECHANISM_THEMES } from "../src/literal/kinds/theme.js";
+import { KINDS } from "../src/literal/registry.js";
+import { literalTruthProblems } from "../src/plan/coverage.js";
+import {
+  ATTENTION_RULES,
+  DIFFUSION_RULES,
+  LITERAL_KIND_DOCS,
+  literalSchema,
+  literalSlotProblems,
+  literalSlotsOf,
+} from "../src/types.js";
 import {
   judgeFramesSvg,
   loadJudgeCases,
   runJudgeCase,
   takeawayOf,
 } from "./fixtures/literal-judge.js";
+import { testPng } from "./fixtures/png.js";
 
 const REGION: Region = { width: 1760, height: 920 };
 
@@ -741,8 +757,7 @@ const CASES: Array<[string, () => MechanismResult]> = [
 describe("every mechanism kind", () => {
   it("lists all seven, each with slots and a takeaway", () => {
     expect([...MECHANISM_KIND_NAMES].sort()).toEqual(CASES.map(([k]) => k).sort());
-    for (const k of MECHANISM_KIND_NAMES)
-      expect(MECHANISM_KINDS[k].takeaway.length).toBeGreaterThan(20);
+    for (const k of MECHANISM_KIND_NAMES) expect(MECHANISM_TAKEAWAYS[k].length).toBeGreaterThan(20);
   });
   for (const [kind, make] of CASES) {
     it(`${kind}: same input, same bytes; under 2 s and 200 MB; no text under 40 px; only declared slots`, () => {
@@ -756,7 +771,7 @@ describe("every mechanism kind", () => {
       expect(ms).toBeLessThan(2000);
       expect(bytes.length).toBeLessThan(200 * 2 ** 20);
       expect(r.frames.length).toBeGreaterThan(1);
-      const slots = MECHANISM_KINDS[kind as keyof typeof MECHANISM_KINDS].slots;
+      const slots = literalSlotsOf(kind as (typeof MECHANISM_KIND_NAMES)[number]);
       for (const f of r.frames)
         for (const p of f.prims) {
           if (p.p !== "text") continue;
@@ -786,8 +801,16 @@ const MEANING = new Set(["fg", "muted", "dim", "accent", "a", "b", "c", "d"]);
  * opacity, heat or mix ENCODES a value (an attention weight, a message's size)
  * are data, not chrome, and are exempt; so is anything over a picture.
  */
-function contrastFailures(r: MechanismResult, themeName: "dark" | "light"): string[] {
-  const theme = MECHANISM_THEMES[themeName];
+/** The style packs the frames are held to: every dark one and every light one. */
+const PACKS = ["signal", "blueprint", "atlas", "folio", "chalk", "journal"] as const;
+const pack = (name: string): Theme => {
+  const t = THEMES[name];
+  if (!t) throw new Error(`no style pack ${name}`);
+  return t;
+};
+
+function contrastFailures(r: MechanismResult, themeName: string): string[] {
+  const theme = pack(themeName);
   const bad: string[] = [];
   for (const f of r.frames)
     for (const [i, p] of f.prims.entries()) {
@@ -800,7 +823,13 @@ function contrastFailures(r: MechanismResult, themeName: "dark" | "light"): stri
       };
       if (p.opacity !== undefined && p.opacity < 1) continue;
       if (p.p === "text") {
-        check("text", textRgb(f.prims, i, theme), 4.5);
+        // An outlined ("auto") text is read against its own outline.
+        const halo = textHalo(f.prims, i, theme);
+        const c = textRgb(f.prims, i, theme);
+        if (halo) {
+          const k = contrastRatio(c, halo);
+          if (k < 4.5) bad.push(`${themeName} ${f.id} ${p.id ?? p.p} halo ${k.toFixed(2)} < 4.5`);
+        } else check("text", c, 4.5);
         continue;
       }
       if ((p.p === "line" || p.p === "path") && !("mix" in p && p.mix) && MEANING.has(p.role)) {
@@ -827,17 +856,18 @@ function contrastFailures(r: MechanismResult, themeName: "dark" | "light"): stri
   return bad;
 }
 
-describe("contrast in both themes", () => {
-  it("the presets are the repo's ink (dark, the default) and paper (light)", () => {
-    expect(hex(MECHANISM_THEMES.dark.bg)).toEqual([11, 13, 16]);
+describe("contrast on every style pack, dark and light", () => {
+  it("covers dark packs and light packs, and measures WCAG contrast", () => {
+    const grounds = PACKS.map((p) => (pack(p) as { ground?: string }).ground);
+    expect(grounds).toContain("dark");
+    expect(grounds).toContain("light");
     expect(contrastRatio(hex("#000000"), hex("#ffffff"))).toBeCloseTo(21, 6);
   });
   for (const [kind, make] of CASES) {
     const r = make();
-    for (const t of ["dark", "light"] as const)
-      it(`${kind} keeps text at 4.5:1 and marks at 3:1 on the ${t} ground`, () => {
-        expect(contrastFailures(r, t)).toEqual([]);
-      });
+    it(`${kind} keeps text at 4.5:1 and marks at 3:1 on ${PACKS.join(", ")}`, () => {
+      expect(PACKS.flatMap((p) => contrastFailures(r, p))).toEqual([]);
+    });
   }
 });
 
@@ -854,8 +884,191 @@ describe("the judge fixtures regenerate from their parameters", () => {
       expect(takeawayOf(c, r)).toBe(c.takeaway);
       expect(c.frames).toHaveLength(3);
       const href = (l: string) => `${l}.png`;
-      const a = judgeFramesSvg(c, r, MECHANISM_THEMES.dark, href);
-      expect(judgeFramesSvg(c, runJudgeCase(c), MECHANISM_THEMES.dark, href)).toEqual(a);
-      expect(contrastFailures(r, "dark")).toEqual([]);
+      const a = judgeFramesSvg(c, r, pack("signal"), href);
+      expect(judgeFramesSvg(c, runJudgeCase(c), pack("signal"), href)).toEqual(a);
+      expect(contrastFailures(r, "signal")).toEqual([]);
     });
+});
+
+/* ------------------------------------------------- the adapters, end to end */
+
+describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.ts)", () => {
+  const region = { width: 1760, height: 860 };
+  const cues = [
+    { t0: 0.5, t1: 3 },
+    { t0: 3, t1: 6 },
+    { t0: 6, t1: 9.5 },
+  ];
+  /** A plan's literal for each kind, parsed by the planner's own schema (defaults filled). */
+  const PLANS: Record<
+    (typeof MECHANISM_KIND_NAMES)[number],
+    { literal: unknown; labels: Record<string, string>; picture?: boolean }
+  > = {
+    attention: {
+      literal: {
+        kind: "attention",
+        tokens: ["the", "cat", "sat", "on", "the", "mat"],
+        path: [4, 1],
+      },
+      labels: { content: "letters", position: "positions" },
+    },
+    diffusion: {
+      literal: { kind: "diffusion", picture: "b01" },
+      labels: {
+        forward: "t = {t} / {T}",
+        reverse: "t = {t} / {T}",
+        signal: "signal",
+        noise: "noise",
+        steps: "1000",
+      },
+      picture: true,
+    },
+    optimization: {
+      literal: {
+        kind: "optimization",
+        optimizers: [
+          { label: "SGD", rule: "sgd", lr: 0.001 },
+          { label: "Adam", rule: "adam", lr: 0.05 },
+        ],
+      },
+      labels: { xAxis: "step", yAxis: "loss", landscape: "illustrative" },
+    },
+    splatting: {
+      literal: {
+        kind: "splatting",
+        points: Array.from({ length: 60 }, (_, i) => ({
+          x: Math.cos(i),
+          y: (i % 7) / 7,
+          z: Math.sin(i),
+          r: 0.8,
+          g: 0.4,
+          b: 0.2,
+        })),
+      },
+      labels: { points: "{n}", splats: "{n}", render: "{pose}/{poses}", path: "path" },
+    },
+    "message-passing": {
+      literal: {
+        kind: "message-passing",
+        nodes: ["a", "b", "c", "d"].map((id, i) => ({
+          id,
+          label: id,
+          features: [i === 0 ? 1 : 0],
+        })),
+        edges: [
+          { from: "a", to: "b" },
+          { from: "b", to: "c" },
+          { from: "c", to: "d" },
+        ],
+        layers: 2,
+      },
+      labels: { layer: "{l}/{L}", field: "{count}" },
+    },
+    "rl-rollout": {
+      literal: {
+        kind: "rl-rollout",
+        width: 4,
+        height: 3,
+        terminals: [{ x: 3, y: 0, reward: 1 }],
+        start: { x: 0, y: 2 },
+      },
+      labels: { sweep: "{k}", step: "{t} {G}", reward: "reward" },
+    },
+    retrieval: {
+      literal: {
+        kind: "retrieval",
+        query: "gaussian splatting",
+        items: [
+          { label: "A", text: "gaussian splatting" },
+          { label: "B", text: "radiance fields" },
+        ],
+      },
+      labels: { query: "query", score: "BM25", topk: "top {k}" },
+    },
+  };
+  let dir = "";
+  let pic = "";
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "decksmith-mechanism-"));
+    pic = join(dir, "pic.png");
+    await writeFile(pic, testPng(320, 200, { shade: true }));
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const theme = pack("signal");
+
+  for (const kind of MECHANISM_KIND_NAMES) {
+    it(`${kind}: registered, its plan parses, and its fragment keeps the deck's invariants`, async () => {
+      const p = PLANS[kind];
+      const data = literalSchema.parse({
+        ...(p.literal as object),
+        labels: Object.entries(p.labels).map(([slot, text]) => ({ slot, text })),
+      });
+      expect(literalSlotProblems(kind, data.labels)).toEqual([]);
+      const spec = { labels: p.labels, data };
+      const impl = KINDS[kind];
+      expect(impl.picture).toBe(!!p.picture);
+      const L = await impl.layers({
+        beatId: "b07",
+        ...(p.picture ? { image: pic } : {}),
+        dir,
+        region,
+        spec,
+        earlier: new Map(),
+      });
+      for (const f of Object.values(L.files))
+        expect((await stat(join(dir, f))).size).toBeGreaterThan(0);
+      const f = impl.fragment(L, region, cues, spec, theme, (x) => `assets/literal/${x}`);
+      // Invariants 2, 3: every tween is fromTo on a scoped id that exists.
+      const calls = f.script.match(/tl\.\w+\(/g) ?? [];
+      expect(calls.length).toBeGreaterThan(1);
+      expect(new Set(calls)).toEqual(new Set(["tl.fromTo("]));
+      for (const m of f.script.matchAll(/tl\.fromTo\("#(SCENEID-[\w-]+)"/g))
+        expect(f.markup).toContain(`id="${m[1]}"`);
+      // Invariants 4, 11: no callbacks, no clock, no randomness.
+      expect(f.script).not.toMatch(/on(Update|Start|Complete|Repeat)|Date\.now|Math\.random|fetch/);
+      // Invariant 5: no text under 40px; every layer under assets/literal; every colour a token.
+      const sizes = [...f.markup.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+      expect(sizes.length).toBeGreaterThan(0);
+      for (const s of sizes) expect(s).toBeGreaterThanOrEqual(40);
+      for (const m of f.markup.matchAll(/href="([^"]+)"/g))
+        expect(m[1]).toMatch(/^assets\/literal\/b07-/);
+      // Invariant 10: times and durations at 3 decimals.
+      for (const m of f.script.matchAll(/, (\d+\.\d+)\);$/gm))
+        expect((m[1] as string).split(".")[1]?.length).toBeLessThanOrEqual(3);
+      // A required slot left out is refused, with no default in any language.
+      const required = Object.entries(literalSlotsOf(kind)).find(
+        ([, d]) => !d.optional && !d.number,
+      );
+      if (required) {
+        const labels = { ...p.labels };
+        delete labels[required[0]];
+        expect(() => impl.fragment(L, region, cues, { ...spec, labels }, theme, (x) => x)).toThrow(
+          new RegExp(`needs the label slot "${required[0]}"`),
+        );
+      }
+    });
+  }
+
+  it("the truth rules are the kinds' own, and the planner is shown them", () => {
+    expect(LITERAL_KIND_DOCS.attention.requires).toEqual(ATTENTION_RULES.requires);
+    expect(LITERAL_KIND_DOCS.diffusion.mustNotClaim).toEqual(DIFFUSION_RULES.mustNotClaim);
+    for (const k of MECHANISM_KIND_NAMES) {
+      expect(LITERAL_KIND_DOCS[k].mustNotClaim?.length ?? 0).toBeGreaterThan(0);
+      // Every kind's own takeaway template keeps its own rules.
+      const said = MECHANISM_TAKEAWAYS[k].replace(/\{\w+\}/g, "x");
+      expect(
+        literalTruthProblems({ mustNotClaim: LITERAL_KIND_DOCS[k].mustNotClaim }, {}, [said], ""),
+      ).toEqual([]);
+    }
+    // A claim the scene cannot back is refused; the source's own material lifts it.
+    const ban = { mustNotClaim: LITERAL_KIND_DOCS.retrieval.mustNotClaim };
+    expect(literalTruthProblems(ban, {}, ["the dense retriever ranks it first"], "")).toHaveLength(
+      1,
+    );
+    expect(
+      literalTruthProblems(ban, { vectors: [[1, 0]] }, ["the dense retriever ranks it first"], ""),
+    ).toEqual([]);
+  });
 });

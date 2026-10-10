@@ -11,7 +11,8 @@
     "grid": 12
   },
   "labels": {
-    "head": "head {h}: {basis}",
+    "content": "pixels alike",
+    "position": "patches near",
     "query": "outlined: the query patch; bright: what it weights"
   },
   "frames": [0, 1, 3],

@@ -32,7 +32,7 @@ import {
   rlRollout,
   splatting,
 } from "../../src/literal/kinds/index.js";
-import { frameSvg } from "../../src/literal/kinds/svg.js";
+import { frameSvg, layerPaints } from "../../src/literal/kinds/svg.js";
 
 /** Where the cases live. A bundled script passes its own path (bundling moves `import.meta.url`). */
 export const JUDGE_DIR = fileURLToPath(new URL("literal-judge/", import.meta.url));
@@ -222,6 +222,11 @@ export function judgeFramesSvg(
   return c.frames.map((i) => {
     const f = r.frames[i];
     if (!f) throw new Error(`judge ${c.name}: frame ${i} of ${r.frames.length}`);
-    return frameSvg(f, JUDGE_REGION, href, slotTextOf(c), { theme, pad });
+    return frameSvg(f, JUDGE_REGION, href, slotTextOf(c), {
+      theme,
+      pad,
+      ground: true,
+      paint: layerPaints(r.rasters),
+    });
   });
 }
