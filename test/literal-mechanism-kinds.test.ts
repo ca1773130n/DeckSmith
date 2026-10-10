@@ -4,6 +4,8 @@
  * floor, AA contrast in the dark and the light theme, and that the judge
  * fixtures (parameters only) regenerate their frames and takeaway. Pure: synthetic pictures, no ffmpeg, no browser.
  */
+
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,6 +91,11 @@ function picture(w = 320, h = 200): Rgb {
 }
 
 /* --------------------------------------------------------------- common */
+
+/** The picture kinds write their layers through ffmpeg; a runner without it skips those tests (as test/literal-kinds.test.ts does). */
+const ffmpeg = await new Promise<boolean>((done) =>
+  execFile("ffmpeg", ["-version"], (err) => done(!err)),
+);
 
 describe("the shared helpers", () => {
   it("mulberry32 is seeded, uniform on [0, 1)", () => {
@@ -898,19 +905,23 @@ describe("the judge fixtures regenerate through the deck's own path", () => {
     expect(new Set(cases.map((c) => c.kind))).toEqual(new Set(MECHANISM_KIND_NAMES));
   });
   for (const c of cases)
-    it(`${c.name}: the kind's own layers still say the recorded takeaway, and its frames are the same twice`, async () => {
-      const theme = pack("signal");
-      const a = await runJudgeCase(c, dir, theme);
-      expect(a.takeaway).toBe(c.takeaway);
-      expect(c.frames).toHaveLength(3);
-      for (const i of c.frames) expect(a.svgs[i]).toBeDefined();
-      // The frames are the production layers': every picture they show is a file `layers` wrote.
-      const files = new Set(Object.values(a.layers.files));
-      for (const svg of a.svgs)
-        for (const m of svg.matchAll(/href="([^"]+)"/g)) expect(files).toContain(m[1]);
-      const b = await runJudgeCase(c, dir, theme);
-      expect(b.svgs).toEqual(a.svgs);
-    }, 30000);
+    it.skipIf(!ffmpeg)(
+      `${c.name}: the kind's own layers still say the recorded takeaway, and its frames are the same twice`,
+      async () => {
+        const theme = pack("signal");
+        const a = await runJudgeCase(c, dir, theme);
+        expect(a.takeaway).toBe(c.takeaway);
+        expect(c.frames).toHaveLength(3);
+        for (const i of c.frames) expect(a.svgs[i]).toBeDefined();
+        // The frames are the production layers': every picture they show is a file `layers` wrote.
+        const files = new Set(Object.values(a.layers.files));
+        for (const svg of a.svgs)
+          for (const m of svg.matchAll(/href="([^"]+)"/g)) expect(files).toContain(m[1]);
+        const b = await runJudgeCase(c, dir, theme);
+        expect(b.svgs).toEqual(a.svgs);
+      },
+      30000,
+    );
 });
 
 /* ------------------------------------------------- the adapters, end to end */
@@ -1023,57 +1034,63 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
   const theme = pack("signal");
 
   for (const kind of MECHANISM_KIND_NAMES) {
-    it(`${kind}: registered, its plan parses, and its fragment keeps the deck's invariants`, async () => {
-      const p = PLANS[kind];
-      const data = literalSchema.parse({
-        ...(p.literal as object),
-        labels: Object.entries(p.labels).map(([slot, text]) => ({ slot, text })),
-      });
-      expect(literalSlotProblems(kind, data.labels)).toEqual([]);
-      const spec = { labels: p.labels, data };
-      const impl = KINDS[kind];
-      expect(impl.picture).toBe(!!p.picture);
-      const L = await impl.layers({
-        beatId: "b07",
-        ...(p.picture ? { image: pic } : {}),
-        dir,
-        region,
-        spec,
-        earlier: new Map(),
-        theme: pack("signal"),
-      });
-      for (const f of Object.values(L.files))
-        expect((await stat(join(dir, f))).size).toBeGreaterThan(0);
-      const f = impl.fragment(L, region, cues, spec, theme, (x) => `assets/literal/${x}`);
-      // Invariants 2, 3: every tween is fromTo on a scoped id that exists.
-      const calls = f.script.match(/tl\.\w+\(/g) ?? [];
-      expect(calls.length).toBeGreaterThan(1);
-      expect(new Set(calls)).toEqual(new Set(["tl.fromTo("]));
-      for (const m of f.script.matchAll(/tl\.fromTo\("#(SCENEID-[\w-]+)"/g))
-        expect(f.markup).toContain(`id="${m[1]}"`);
-      // Invariants 4, 11: no callbacks, no clock, no randomness.
-      expect(f.script).not.toMatch(/on(Update|Start|Complete|Repeat)|Date\.now|Math\.random|fetch/);
-      // Invariant 5: no text under 40px; every layer under assets/literal; every colour a token.
-      const sizes = [...f.markup.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
-      expect(sizes.length).toBeGreaterThan(0);
-      for (const s of sizes) expect(s).toBeGreaterThanOrEqual(40);
-      for (const m of f.markup.matchAll(/href="([^"]+)"/g))
-        expect(m[1]).toMatch(/^assets\/literal\/b07-/);
-      // Invariant 10: times and durations at 3 decimals.
-      for (const m of f.script.matchAll(/, (\d+\.\d+)\);$/gm))
-        expect((m[1] as string).split(".")[1]?.length).toBeLessThanOrEqual(3);
-      // A required slot left out is refused, with no default in any language.
-      const required = Object.entries(literalSlotsOf(kind)).find(
-        ([, d]) => !d.optional && !d.number,
-      );
-      if (required) {
-        const labels = { ...p.labels };
-        delete labels[required[0]];
-        expect(() => impl.fragment(L, region, cues, { ...spec, labels }, theme, (x) => x)).toThrow(
-          new RegExp(`needs the label slot "${required[0]}"`),
+    it.skipIf(!ffmpeg)(
+      `${kind}: registered, its plan parses, and its fragment keeps the deck's invariants`,
+      async () => {
+        const p = PLANS[kind];
+        const data = literalSchema.parse({
+          ...(p.literal as object),
+          labels: Object.entries(p.labels).map(([slot, text]) => ({ slot, text })),
+        });
+        expect(literalSlotProblems(kind, data.labels)).toEqual([]);
+        const spec = { labels: p.labels, data };
+        const impl = KINDS[kind];
+        expect(impl.picture).toBe(!!p.picture);
+        const L = await impl.layers({
+          beatId: "b07",
+          ...(p.picture ? { image: pic } : {}),
+          dir,
+          region,
+          spec,
+          earlier: new Map(),
+          theme: pack("signal"),
+        });
+        for (const f of Object.values(L.files))
+          expect((await stat(join(dir, f))).size).toBeGreaterThan(0);
+        const f = impl.fragment(L, region, cues, spec, theme, (x) => `assets/literal/${x}`);
+        // Invariants 2, 3: every tween is fromTo on a scoped id that exists.
+        const calls = f.script.match(/tl\.\w+\(/g) ?? [];
+        expect(calls.length).toBeGreaterThan(1);
+        expect(new Set(calls)).toEqual(new Set(["tl.fromTo("]));
+        for (const m of f.script.matchAll(/tl\.fromTo\("#(SCENEID-[\w-]+)"/g))
+          expect(f.markup).toContain(`id="${m[1]}"`);
+        // Invariants 4, 11: no callbacks, no clock, no randomness.
+        expect(f.script).not.toMatch(
+          /on(Update|Start|Complete|Repeat)|Date\.now|Math\.random|fetch/,
         );
-      }
-    }, 30000); // diffusion writes 22 rasters: ~2 s alone, more under a parallel run
+        // Invariant 5: no text under 40px; every layer under assets/literal; every colour a token.
+        const sizes = [...f.markup.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+        expect(sizes.length).toBeGreaterThan(0);
+        for (const s of sizes) expect(s).toBeGreaterThanOrEqual(40);
+        for (const m of f.markup.matchAll(/href="([^"]+)"/g))
+          expect(m[1]).toMatch(/^assets\/literal\/b07-/);
+        // Invariant 10: times and durations at 3 decimals.
+        for (const m of f.script.matchAll(/, (\d+\.\d+)\);$/gm))
+          expect((m[1] as string).split(".")[1]?.length).toBeLessThanOrEqual(3);
+        // A required slot left out is refused, with no default in any language.
+        const required = Object.entries(literalSlotsOf(kind)).find(
+          ([, d]) => !d.optional && !d.number,
+        );
+        if (required) {
+          const labels = { ...p.labels };
+          delete labels[required[0]];
+          expect(() =>
+            impl.fragment(L, region, cues, { ...spec, labels }, theme, (x) => x),
+          ).toThrow(new RegExp(`needs the label slot "${required[0]}"`));
+        }
+      },
+      30000,
+    ); // diffusion writes 22 rasters: ~2 s alone, more under a parallel run
   }
 
   it("the truth rules are the kinds' own, and the planner is shown them", () => {
@@ -1180,11 +1197,11 @@ describe("the PR #115 review's findings stay fixed", () => {
 
   it("3. invented 'source' numbers neither draw nor lift a ban; the source's own do", () => {
     const text = "A graph neural network passes messages between nodes A and B.";
-    const gcn = (weights: number[][][]) => ({
+    const gcn = (weights: number[][][], dim = 2) => ({
       kind: "message-passing",
       nodes: [
-        { id: "A", label: "A", features: [1] },
-        { id: "B", label: "B", features: [0] },
+        { id: "A", label: "A", features: dim === 2 ? [1, 0] : [1] },
+        { id: "B", label: "B", features: dim === 2 ? [0, 1] : [0] },
       ],
       edges: [{ from: "A", to: "B" }],
       layers: 1,
@@ -1192,13 +1209,34 @@ describe("the PR #115 review's findings stay fixed", () => {
       labels: lbl({ layer: "{l}", field: "{count}", example: "example" }),
     });
     const claim = "The trained GCN predicts each node's class";
-    const invented = findings(gcn([[[0.37]]]), text, claim);
+    const invented = findings(
+      gcn([
+        [
+          [0.37, 0.1],
+          [0.2, 0.4],
+        ],
+      ]),
+      text,
+      claim,
+    );
     expect(invented).toContainEqual(
       expect.stringMatching(/gives `weights` the source does not print/),
     );
     expect(invented).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
-    const own = findings(gcn([[[2]]]), `${text} Its weight is 2.`, claim);
+    const own = findings(
+      gcn([
+        [
+          [2, 3],
+          [4, 5],
+        ],
+      ]),
+      `${text} W = [[2, 3], [4, 5]].`,
+      claim,
+    );
     expect(own.filter((f) => /weights|claims/.test(f))).toEqual([]);
+    // A lone number is no evidence (PR #115 round 3): "Its weight is 2" does not ground a 1×1 W.
+    const lone = findings(gcn([[[2]]], 1), `${text} Its weight is 2.`, claim);
+    expect(lone).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
     // A loss curve the source never states is refused.
     const series = {
       kind: "optimization",
@@ -1245,94 +1283,104 @@ describe("the PR #115 review's findings stay fixed", () => {
     expect(relu[0]?.[0]).toBe(0);
   });
 
-  it("5. diffusion needs a diffusion source, marks DDPM's defaults as an example, takes a cosine schedule, and says the reverse path is an oracle", async () => {
-    const d = {
-      kind: "diffusion",
-      picture: "b01",
-      labels: lbl({ forward: "{t}", reverse: "{t}", signal: "s", noise: "n", oracle: "oracle" }),
-    };
-    expect(findings(d, "A paper about sorting algorithms.")).toContainEqual(
-      expect.stringMatching(/needs the source to give a diffusion or denoising process/),
-    );
-    expect(findings(d, "a diffusion model")).toContainEqual(
-      expect.stringMatching(/needs the `example` slot/),
-    );
-    const dir = await mkdtemp(join(tmpdir(), "decksmith-diffusion-"));
-    try {
-      const pic = join(dir, "p.png");
-      await writeFile(pic, testPng(64, 40));
-      const sig = async (schedule: string) => {
-        const lit = literalSchema.parse({ ...d, schedule });
-        const L = await KINDS.diffusion.layers({
-          beatId: schedule,
-          image: pic,
+  it.skipIf(!ffmpeg)(
+    "5. diffusion needs a diffusion source, marks DDPM's defaults as an example, takes a cosine schedule, and says the reverse path is an oracle",
+    async () => {
+      const d = {
+        kind: "diffusion",
+        picture: "b01",
+        labels: lbl({ forward: "{t}", reverse: "{t}", signal: "s", noise: "n", oracle: "oracle" }),
+      };
+      expect(findings(d, "A paper about sorting algorithms.")).toContainEqual(
+        expect.stringMatching(/needs the source to give a diffusion or denoising process/),
+      );
+      expect(findings(d, "a diffusion model")).toContainEqual(
+        expect.stringMatching(/needs the `example` slot/),
+      );
+      const dir = await mkdtemp(join(tmpdir(), "decksmith-diffusion-"));
+      try {
+        const pic = join(dir, "p.png");
+        await writeFile(pic, testPng(64, 40));
+        const sig = async (schedule: string) => {
+          const lit = literalSchema.parse({ ...d, schedule });
+          const L = await KINDS.diffusion.layers({
+            beatId: schedule,
+            image: pic,
+            dir,
+            region: REGION,
+            spec: {
+              labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
+              data: lit,
+            },
+            earlier: new Map(),
+            theme: pack("signal"),
+          });
+          const frames = L.data.frames as Array<{
+            id: string;
+            prims: Array<{ id?: string; pts?: number[]; slot?: string }>;
+          }>;
+          expect(
+            frames
+              .filter((f) => f.id.startsWith("r"))
+              .every((f) => f.prims.some((p) => p.slot === "oracle")),
+          ).toBe(true);
+          return frames[0]?.prims.find((p) => p.id === "sig")?.pts;
+        };
+        expect(await sig("cosine")).not.toEqual(await sig("linear"));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    30000,
+  );
+
+  it.skipIf(!ffmpeg)(
+    "6. material that is the plan's own is drawn under an 'example' tag in the deck's language",
+    async () => {
+      const rl = (labels: Record<string, string>) => ({
+        kind: "rl-rollout",
+        width: 3,
+        height: 1,
+        terminals: [{ x: 2, y: 0, reward: 1 }],
+        start: { x: 0, y: 0 },
+        labels: lbl({ sweep: "{k}", step: "{t}", reward: "r", ...labels }),
+      });
+      const text = "reinforcement learning with a reward and a policy";
+      expect(findings(rl({}), text)).toContainEqual(expect.stringMatching(/needs slot "example"/));
+      expect(findings(rl({ example: "예시" }), text)).toEqual([]);
+      expect(findings(rl({ example: "a fun grid" }), text)).toContainEqual(
+        expect.stringMatching(/does not say "example"/),
+      );
+      const land = {
+        kind: "optimization",
+        optimizers: [{ label: "SGD", rule: "sgd", lr: 0.001 }],
+        labels: lbl({ xAxis: "step", yAxis: "loss" }),
+      };
+      expect(findings(land, "SGD with a learning rate")).toContainEqual(
+        expect.stringMatching(/needs the `example` slot/),
+      );
+      // And the tag is in every frame, under the scene.
+      const lit = literalSchema.parse({
+        ...land,
+        labels: lbl({ xAxis: "step", yAxis: "loss", example: "example" }),
+      });
+      const dir = await mkdtemp(join(tmpdir(), "decksmith-tag-"));
+      try {
+        const L = await KINDS.optimization.layers({
+          beatId: "t",
           dir,
           region: REGION,
-          spec: { labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])), data: lit },
+          spec: { labels: { example: "example" }, data: lit },
           earlier: new Map(),
           theme: pack("signal"),
         });
-        const frames = L.data.frames as Array<{
-          id: string;
-          prims: Array<{ id?: string; pts?: number[]; slot?: string }>;
-        }>;
-        expect(
-          frames
-            .filter((f) => f.id.startsWith("r"))
-            .every((f) => f.prims.some((p) => p.slot === "oracle")),
-        ).toBe(true);
-        return frames[0]?.prims.find((p) => p.id === "sig")?.pts;
-      };
-      expect(await sig("cosine")).not.toEqual(await sig("linear"));
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }, 30000);
-
-  it("6. material that is the plan's own is drawn under an 'example' tag in the deck's language", async () => {
-    const rl = (labels: Record<string, string>) => ({
-      kind: "rl-rollout",
-      width: 3,
-      height: 1,
-      terminals: [{ x: 2, y: 0, reward: 1 }],
-      start: { x: 0, y: 0 },
-      labels: lbl({ sweep: "{k}", step: "{t}", reward: "r", ...labels }),
-    });
-    const text = "reinforcement learning with a reward and a policy";
-    expect(findings(rl({}), text)).toContainEqual(expect.stringMatching(/needs slot "example"/));
-    expect(findings(rl({ example: "예시" }), text)).toEqual([]);
-    expect(findings(rl({ example: "a fun grid" }), text)).toContainEqual(
-      expect.stringMatching(/does not say "example"/),
-    );
-    const land = {
-      kind: "optimization",
-      optimizers: [{ label: "SGD", rule: "sgd", lr: 0.001 }],
-      labels: lbl({ xAxis: "step", yAxis: "loss" }),
-    };
-    expect(findings(land, "SGD with a learning rate")).toContainEqual(
-      expect.stringMatching(/needs the `example` slot/),
-    );
-    // And the tag is in every frame, under the scene.
-    const lit = literalSchema.parse({
-      ...land,
-      labels: lbl({ xAxis: "step", yAxis: "loss", example: "example" }),
-    });
-    const dir = await mkdtemp(join(tmpdir(), "decksmith-tag-"));
-    try {
-      const L = await KINDS.optimization.layers({
-        beatId: "t",
-        dir,
-        region: REGION,
-        spec: { labels: { example: "example" }, data: lit },
-        earlier: new Map(),
-        theme: pack("signal"),
-      });
-      for (const f of L.data.frames as Array<{ prims: Array<{ slot?: string; y?: number }> }>)
-        expect(f.prims.find((p) => p.slot === "example")?.y).toBeGreaterThan(REGION.height - 80);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+        for (const f of L.data.frames as Array<{ prims: Array<{ slot?: string; y?: number }> }>)
+          expect(f.prims.find((p) => p.slot === "example")?.y).toBeGreaterThan(REGION.height - 80);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("7. the score header names the method computed, and a plan cannot rename BM25 as cosine", () => {
     const lit = (score: string) => ({
@@ -1540,6 +1588,30 @@ describe("the PR #115 re-review's findings stay fixed", () => {
       } as never,
       sourceOf(text),
     );
+
+  it("round 3 HIGH: one-number rows never ground, in heads, embeddings or any matrix", () => {
+    // The reviewer's probe: q/k and embeddings of 1-dim rows off "1 model with 0 dropout".
+    const src =
+      "The model applies self-attention over tokens with queries and keys. We train 1 model with 0 dropout.";
+    const take = { takeaway: "The trained model attends to cat from sat" };
+    const col = [[1], [0], [1]];
+    const attn = {
+      kind: "attention",
+      tokens: ["the", "cat", "sat"],
+      heads: [{ q: col, k: col }],
+      labels: lbl({ content: "c", position: "p" }),
+    };
+    expect(findings(attn, src, take)).toContainEqual(
+      expect.stringMatching(/claims what a trained model attends to/),
+    );
+    const emb = { ...attn, heads: undefined, embeddings: col };
+    expect(findings(emb, src, take)).toContainEqual(
+      expect.stringMatching(/claims what a trained model attends to/),
+    );
+    // The column printed whole, in order, does ground.
+    const printed = `${src} The query column is [1, 0, 1] and the key column is [1, 0, 1].`;
+    expect(findings(attn, printed, take)).toEqual([]);
+  });
 
   it("HIGH 1. a row counts as the source's only when printed whole, in order, with its sign", () => {
     // The reviewer's probe: small integers from "2 heads (Figure 1)" and "Section 3 … 0 failures".

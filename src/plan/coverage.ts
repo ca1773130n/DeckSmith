@@ -320,19 +320,17 @@ export function numberSequence(source: string): number[] {
 function rowsOf(field: string, v: unknown): number[][] {
   const nums = (x: unknown): number[] =>
     Array.isArray(x) ? x.filter((n): n is number => typeof n === "number") : [];
+  // A one-column matrix is read as its column, in every field: a lone number is no evidence.
+  const matrix = (m: unknown): number[][] => {
+    const rows = (Array.isArray(m) ? m : []).map(nums);
+    return rows.length && rows.every((r) => r.length === 1) ? [rows.flat()] : rows;
+  };
   if (!Array.isArray(v)) return [];
   switch (field) {
     case "heads":
-      return v.flatMap((h) =>
-        [...((h?.q ?? []) as unknown[]), ...((h?.k ?? []) as unknown[])].map(nums),
-      );
-    case "weights": {
-      // A one-column matrix is read as its column: a lone number is no evidence.
-      return v.flatMap((W) => {
-        const rows = (W as unknown[]).map(nums);
-        return rows.every((r) => r.length === 1) ? [rows.flat()] : rows;
-      });
-    }
+      return v.flatMap((h) => [...matrix(h?.q), ...matrix(h?.k)]);
+    case "weights":
+      return v.flatMap(matrix);
     case "series":
       return v.flatMap((s) =>
         ((s?.points ?? []) as Array<{ x: number; y: number }>).map((p) => [p.x, p.y]),
@@ -346,7 +344,7 @@ function rowsOf(field: string, v: unknown): number[][] {
     case "queryVector":
       return [nums(v)];
     default:
-      return (v as unknown[]).map(nums);
+      return matrix(v);
   }
 }
 
@@ -362,7 +360,8 @@ function containsRow(seq: readonly number[], row: readonly number[]): boolean {
 /** A field of "the source's own" numbers is grounded when every row of it is printed in the source. */
 function groundedField(field: string, v: unknown, seq: readonly number[]): boolean {
   const rows = rowsOf(field, v);
-  return rows.length > 0 && rows.every((r) => containsRow(seq, r));
+  // A row of one number (a 1×1 matrix, a 1-dim vector) is never evidence: any "1" in the text would match.
+  return rows.length > 0 && rows.every((r) => r.length > 1 && containsRow(seq, r));
 }
 
 /** The numbers in `texts` the source never states, once each. `{name}` (a computed value) is not a number. */
