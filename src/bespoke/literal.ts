@@ -412,7 +412,16 @@ async function spikeLayers(image: string, dir: string, beatId: string, box: Box)
   const runs = x.map((xi) => lif(xi * gain * 0.999, STEPS, LEAK, THETA));
   const counts = runs.map((r) => r.spikes.length);
   // Three witnesses: a strong, a middling and a weak cell, each its own trace.
-  const order = x.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  // Interior cells only: a witness on the map's border is half hidden by the panel's edge.
+  const inside = (i: number) =>
+    i % cols > 0 &&
+    i % cols < cols - 1 &&
+    Math.floor(i / cols) > 0 &&
+    Math.floor(i / cols) < rows - 1;
+  const order = x
+    .map((v, i) => [v, i] as const)
+    .filter(([, i]) => inside(i))
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const pick = (q: number) =>
     (order[Math.round(q * (order.length - 1))] as readonly [number, number])[1];
   const witnesses = [pick(0.93), pick(0.62), pick(0.22)].map((i) => ({
@@ -640,15 +649,15 @@ function hazeFragment(
   const markup = `<div id="SCENEID-lit">
 <div id="SCENEID-photo" class="lit-panel" style="left:0;top:0;width:${px(iw)};height:${px(ih)}">
 <img id="SCENEID-clear" src="${href(L.files.clear as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
-<img id="SCENEID-hazy" src="${href(L.files.hazy as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
+<div id="SCENEID-front" style="position:absolute;left:0;bottom:0;width:${px(iw)};height:0;overflow:hidden"><img src="${href(L.files.hazy as string)}" style="left:0;top:auto;bottom:0;width:${px(iw)};height:${px(ih)}" alt=""></div>
 <div id="SCENEID-scan" style="position:absolute;left:0;top:${px(d.row - 2)};width:${px(iw)};height:4px;background:${theme.accent};transform-origin:0 50%"></div>
 ${label("tag-clear", lab("clear", "맑은 날"), 28, 22, LABEL, "", ON_PHOTO)}
-${label("tag-hazy", lab("hazy", "안개"), 28, 22, LABEL, "", ON_PHOTO)}
+${label("tag-hazy", lab("hazy", "안개"), 28, ih - 76, LABEL, "", ON_PHOTO)}
 </div>
 ${label("edge-label", lab("edges", "에지 지도 (Sobel)"), cx, 0, LABEL, theme.fg)}
-<div class="lit-panel lit-dark" style="left:${px(cx)};top:64px;width:${px(ew)};height:${px(eh)}">
-<img id="SCENEID-edge-clear" src="${href(L.files.edgeClear as string)}" style="left:0;top:0;width:${px(ew)};height:${px(eh)}" alt="">
-<img id="SCENEID-edge-hazy" src="${href(L.files.edgeHazy as string)}" style="left:0;top:0;width:${px(ew)};height:${px(eh)}" alt="">
+<div id="SCENEID-edge" class="lit-panel lit-dark" style="left:${px(cx)};top:64px;width:${px(ew)};height:${px(eh)}">
+<img src="${href(L.files.edgeClear as string)}" style="left:0;top:0;width:${px(ew)};height:${px(eh)}" alt="">
+<div id="SCENEID-edge-front" style="position:absolute;left:0;bottom:0;width:${px(ew)};height:0;overflow:hidden;background:#0d1014"><img src="${href(L.files.edgeHazy as string)}" style="left:0;top:auto;bottom:0;width:${px(ew)};height:${px(eh)}" alt=""></div>
 </div>
 ${label("prof-label", lab("profile", "선 위의 밝기"), cx, 64 + eh + 36, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${cw}" height="${H}" viewBox="0 0 ${cw} ${H}" style="left:${px(cx)};top:0">
@@ -665,31 +674,31 @@ ${label("prof-label", lab("profile", "선 위의 밝기"), cx, 64 + eh + 36, LAB
   tl.show("tag-clear", 0.3, 0.5);
   tl.fromTo("scan", { scaleX: 0 }, { scaleX: 1, duration: 0.8, ease: "power2.inOut" }, 0.5);
   tl.show("edge-label", 0.5);
-  tl.show("edge-clear", 0.6);
+  tl.show("edge", 0.6);
   tl.show("prof-label", 0.9);
   tl.show("plot", 1.0);
-  tl.fromTo("hazy", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-  tl.fromTo("edge-hazy", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-  tl.fromTo("tag-hazy", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-  // ONE causal step: transmission falls from 1 to t, everywhere at once.
+  // ONE causal step: the haze rises from the bottom; where it has arrived the
+  // transmission is t, so a still mid-rise shows the picture, its edges and the
+  // line's brightness both before and after.
   const h0 = Math.max(2.4, c0.t0 + 1.4);
-  const dur = Math.max(2.5, Math.min(4.5, (c0.t1 - h0) * 0.6));
-  const ease = "sine.inOut";
-  tl.fromTo("hazy", { opacity: 0 }, { opacity: 1, duration: dur, ease }, h0);
-  tl.fromTo("edge-hazy", { opacity: 0 }, { opacity: 1, duration: dur, ease }, h0);
-  tl.fromTo(
-    "prof",
-    { scaleY: 1, svgOrigin: `0 ${airY}` },
-    { scaleY: d.t, svgOrigin: `0 ${airY}`, duration: dur, ease },
-    h0,
-  );
-  tl.hide("tag-clear", h0, 0.6);
+  const dur = Math.max(3, Math.min(4.5, (c0.t1 - h0) * 0.7));
+  tl.fromTo("front", { height: 0 }, { height: ih, duration: dur, ease: "none" }, h0);
+  tl.fromTo("edge-front", { height: 0 }, { height: eh, duration: dur, ease: "none" }, h0);
   tl.fromTo(
     "tag-hazy",
     { opacity: 0 },
-    { opacity: 1, duration: 0.8, ease: "power2.out" },
-    h0 + 0.3,
+    { opacity: 1, duration: 0.6, ease: "power2.out" },
+    h0 + 0.2,
   );
+  // The brightness line flattens toward the airlight when the front crosses it.
+  const atRow = h0 + (dur * (ih - d.row)) / ih;
+  tl.fromTo(
+    "prof",
+    { scaleY: 1, svgOrigin: `0 ${airY}` },
+    { scaleY: d.t, svgOrigin: `0 ${airY}`, duration: 0.7, ease: "sine.inOut" },
+    atRow - 0.35,
+  );
+  tl.hide("tag-clear", h0 + dur - 0.6, 0.5);
   return { markup, css: baseCss(theme), script: tl.script };
 }
 
@@ -728,7 +737,7 @@ function spikeFragment(
   const bw = W - bx;
   const cw = pw / d.cols;
   const chh = ph / d.rows;
-  const heat = "#ffc23d";
+  const heat = "#f4f1ea"; // a neutral, so the witnesses' tones read against it
   const tones = [theme.tones.a, theme.tones.b, theme.tones.c];
   const cellRects = (prefix: string, alpha: (i: number) => number) =>
     d.x
@@ -814,7 +823,7 @@ ${dots}
 ${label("a-label", lab("features", "특징 맵 (안개 영상)"), ax, 0, LABEL, theme.fg)}
 <div class="lit-panel" style="left:${px(ax)};top:${px(top)};width:${px(pw)};height:${px(ph)}">
 <img id="SCENEID-photo" src="${href(L.files.hazy as string)}" style="left:0;top:0;width:${px(pw)};height:${px(ph)}" alt="">
-<svg width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}" style="left:0;top:0"><rect id="SCENEID-shade" width="${pw}" height="${ph}" fill="#0d1014"/><g id="SCENEID-heat">${cellRects("h", (i) => 0.12 + 0.88 * (d.x[i] as number))}</g>${d.witnesses.map((wt, k) => outline(wt.cell, k, "oa")).join("")}</svg>
+<svg width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}" style="left:0;top:0"><rect id="SCENEID-shade" width="${pw}" height="${ph}" fill="#0d1014"/><g id="SCENEID-heat">${cellRects("h", (i) => d.x[i] as number)}</g>${d.witnesses.map((wt, k) => outline(wt.cell, k, "oa")).join("")}</svg>
 </div>
 ${label("b-label", lab("membrane", "막전위 → 스파이크"), bx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-traces" width="${bw}" height="${H}" viewBox="0 0 ${bw} ${H}" style="left:${px(bx)};top:0">
@@ -826,7 +835,7 @@ ${ghost}
 ${label("theta", lab("threshold", "임계값"), bx + plotW + 18, thetaY - 26, SMALL, theme.fg)}
 ${label("ghost-label", lab("noLeak", "누설이 없다면"), bx + 16, rowY(2) + 38, SMALL, tones[2] as string)}
 ${label("c-label", lab("output", "스파이크로 전달된 맵"), ax, cyp - 56, LABEL, theme.fg)}
-<div class="lit-panel lit-dark" style="left:${px(ax)};top:${px(cyp)};width:${px(pw)};height:${px(ph)}">
+<div id="SCENEID-cpanel" class="lit-panel lit-dark" style="left:${px(ax)};top:${px(cyp)};width:${px(pw)};height:${px(ph)}">
 <svg width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}" style="left:0;top:0">${cellRects("c", () => 0)}${d.witnesses.map((wt, k) => outline(wt.cell, k, "oc")).join("")}</svg>
 </div>
 </div>`;
@@ -842,7 +851,7 @@ ${label("c-label", lab("output", "스파이크로 전달된 맵"), ax, cyp - 56,
   tl.fromTo(
     "shade",
     { opacity: 0 },
-    { opacity: 0.55, duration: 0.8, ease: "power2.out" },
+    { opacity: 0.85, duration: 0.8, ease: "power2.out" },
     c0.t0 + 0.2,
   );
   tl.show("heat", c0.t0 + 0.4, 0.9);
@@ -854,6 +863,7 @@ ${label("c-label", lab("output", "스파이크로 전달된 맵"), ax, cyp - 56,
   tl.show("b-label", c0.t0 + 1.4);
   tl.show("theta", c0.t0 + 1.9);
   tl.show("c-label", c0.t0 + 2.2);
+  tl.show("cpanel", c0.t0 + 2.2);
   for (let k = 0; k < d.witnesses.length; k++) tl.show(`oc${k}`, c0.t0 + 2.3, 0.4);
   // The time steps: the head sweeps, the potentials integrate, leak and fire.
   const s0 = c0.t0 + 2.6;
@@ -946,11 +956,11 @@ ${label("tag-sobel", lab("structure", "Sobel 구조 맵"), 28, 22, LABEL, "", ON
 </div>
 <div id="SCENEID-kernel" style="position:absolute;left:${px(kx)};top:${px(ky)};width:${px(3 * k)};height:${px(3 * k)}">${label("k-label", "Sobel 3×3", 0, -58, SMALL, "", ON_PHOTO)}${kcells}</div>
 ${label("f-label", lab("feature", "평활화된 특징"), cx, 0, LABEL, theme.fg)}
-<div class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y1)};width:${px(fw)};height:${px(fh)}">
+<div id="SCENEID-fpanel" class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y1)};width:${px(fw)};height:${px(fh)}">
 <img id="SCENEID-feat" src="${href(L.files.feat as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
 </div>
 ${label("w-label", lab("reweighted", "구조 맵으로 재가중"), cx, y2 - 64, LABEL, theme.fg)}
-<div class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y2)};width:${px(fw)};height:${px(fh)}">
+<div id="SCENEID-wpanel" class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y2)};width:${px(fw)};height:${px(fh)}">
 <img id="SCENEID-feat2" src="${href(L.files.feat as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
 <img id="SCENEID-featw" src="${href(L.files.featW as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
 <img id="SCENEID-feats" src="${href(L.files.featS as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
@@ -978,6 +988,8 @@ ${label("w-label", lab("reweighted", "구조 맵으로 재가중"), cx, y2 - 64,
   // Then the structure map gates the feature, and the reweighted feature keeps the edges.
   const f0 = s0 + span + 0.5;
   tl.show("f-label", f0);
+  tl.show("fpanel", f0, 0.4);
+  tl.show("wpanel", f0 + 0.6, 0.4);
   tl.show("feat", f0, 0.6);
   tl.show("w-label", f0 + 0.6);
   tl.show("feat2", f0 + 0.6, 0.6);
