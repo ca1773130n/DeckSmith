@@ -1,0 +1,53 @@
+{
+  "kind": "rl-rollout",
+  "literal": {
+    "width": 6,
+    "height": 5,
+    "walls": [
+      {
+        "x": 1,
+        "y": 1
+      },
+      {
+        "x": 2,
+        "y": 1
+      },
+      {
+        "x": 3,
+        "y": 3
+      },
+      {
+        "x": 4,
+        "y": 1
+      }
+    ],
+    "terminals": [
+      {
+        "x": 5,
+        "y": 0,
+        "reward": 1
+      },
+      {
+        "x": 5,
+        "y": 1,
+        "reward": -1
+      }
+    ],
+    "stepReward": -0.04,
+    "gamma": 0.95,
+    "slip": 0.2,
+    "start": {
+      "x": 0,
+      "y": 4
+    },
+    "algorithm": "value-iteration"
+  },
+  "labels": {
+    "sweep": "value iteration, sweep {k}",
+    "step": "step {t}, return {G}",
+    "reward": "reward per step",
+    "example": "example"
+  },
+  "frames": [1, 5, 14],
+  "takeaway": "The values spread back from the reward until they settle; following the arrows to higher value, the agent reaches the goal in 9 steps with return 0.37."
+}

@@ -421,23 +421,38 @@ describe("literal truth rules (src/types.ts `LiteralKindDoc`)", () => {
       expect(found).toEqual([expect.stringMatching(/^claims what a trained model attends to/)]);
     }
     const claim = ["The trained model attends to the subject"];
-    expect(literalTruthProblems(ATTENTION_RULES, { embeddings: [[1, 0]] }, claim, src)).toEqual([]);
+    // The source's own embeddings lift the ban: numbers the source states (PR #115 review).
+    const stated = `${src}\nThe embeddings are (1, 0).`;
+    expect(literalTruthProblems(ATTENTION_RULES, { embeddings: [[1, 0]] }, claim, stated)).toEqual(
+      [],
+    );
+    // Invented ones do not: non-empty is not the same as the source's.
+    expect(
+      literalTruthProblems(ATTENTION_RULES, { embeddings: [[0.37, 0.91]] }, claim, stated),
+    ).toHaveLength(1);
     expect(literalTruthProblems(ATTENTION_RULES, { heads: [] }, claim, src)).toHaveLength(1);
   });
 
   it("diffusion describes the schedule and the process, never a trained denoiser", () => {
     const own =
       "Noise is added on a fixed schedule until, at step 1000, nothing of the picture is left; the reverse steps remove it on the same schedule and the picture returns.";
-    expect(literalTruthProblems(DIFFUSION_RULES, {}, [own, "denoising, step by step"], "")).toEqual(
-      [],
-    );
+    // The source names a diffusion process (DIFFUSION_RULES.requires, PR #115 review).
+    const src = "We train a diffusion model with a linear noise schedule.";
+    expect(
+      literalTruthProblems(DIFFUSION_RULES, {}, [own, "denoising, step by step"], src),
+    ).toEqual([]);
+    expect(
+      literalTruthProblems(DIFFUSION_RULES, {}, [own], "A paper about sorting algorithms."),
+    ).toEqual([
+      expect.stringMatching(/^needs the source to give a diffusion or denoising process/),
+    ]);
     for (const said of [
       "The denoiser predicts the noise at each step",
       "a U-Net learns to reverse the process",
       "네트워크가 노이즈를 예측한다",
       "ε_θ removes the noise",
     ])
-      expect(literalTruthProblems(DIFFUSION_RULES, {}, [said], "")).toEqual([
+      expect(literalTruthProblems(DIFFUSION_RULES, {}, [said], src)).toEqual([
         expect.stringMatching(/^claims what a trained denoiser does/),
       ]);
   });

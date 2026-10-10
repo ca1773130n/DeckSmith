@@ -27,8 +27,12 @@
  * cell holding a number the source never states, a claim a kind's truth rules
  * forbid).
  */
+
+import { bespokeRegion } from "../bespoke/scene.js";
+import { deckLook } from "../emit/theme.js";
+import { isMechanism, mechanismProblems } from "../literal/kinds/mechanisms.js";
 import type { Beat, BeatPart, Literal, LiteralKindDoc, Source, Storyboard } from "../types.js";
-import { beatPartSchema, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
+import { beatPartSchema, FORMATS, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
 
 /** The order a deck covers its parts in. */
 export const PART_ORDER: readonly BeatPart[] = beatPartSchema.options;
@@ -240,17 +244,21 @@ export function literalTruthProblems(
   for (const r of rules.requires ?? [])
     if (!r.anyOf.some((re) => re.test(source)))
       out.push(`needs the source to give ${r.what}, and the source never does`);
+  // A field lifts a ban only when it is GROUNDED: every row of it is printed in the
+  // source, whole, in order, signs included (`groundedField`). Present is not enough.
+  let seq: readonly number[] | undefined;
   const given = (field: string) => {
-    const v = (lit as Record<string, unknown>)[field];
-    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null;
+    seq ??= numberSequence(source);
+    return groundedField(field, (lit as Record<string, unknown>)[field], seq);
   };
   for (const b of rules.mustNotClaim ?? []) {
     if (b.unlessGiven?.some(given)) continue;
     const hits = [
       ...new Set(
-        said.flatMap(
-          (t) =>
-            t.match(new RegExp(b.pattern.source, `${b.pattern.flags.replace("g", "")}g`)) ?? [],
+        said.flatMap((t) =>
+          [...t.matchAll(new RegExp(b.pattern.source, `${b.pattern.flags.replace("g", "")}g`))]
+            .filter((m) => !negated(t, m.index ?? 0, m[0].length))
+            .map((m) => m[0]),
         ),
       ),
     ];
@@ -260,6 +268,100 @@ export function literalTruthProblems(
       );
   }
   return out;
+}
+
+/**
+ * Whether a banned word is negated BY THE WORD GOVERNING IT — "not semantic",
+ * "nothing is learned", "without trained weights", "학습 없이", "学習せず",
+ * "不需要训练" — so a plan that states the scene's limit honestly is not
+ * refused for it. Conservative: the negator must stand directly before the
+ * banned word (one auxiliary or article between at most), or directly after it
+ * in Korean and Japanese. "Given no labels GCN predicts" keeps its ban.
+ */
+function negated(text: string, at: number, len: number): boolean {
+  const before = text.slice(Math.max(0, at - 40), at);
+  const after = text.slice(at + len, at + len + 6);
+  return (
+    /(?:^|[^\p{L}'])(?:not|no|never|without|nothing|non|isn't|aren't|wasn't|weren't|doesn't|don't|didn't)(?:[\s-]+(?:a|an|the|any|is|are|was|were|be|been|being))?[\s-]+$/iu.test(
+      before,
+    ) ||
+    /^\s?(?:없|않|아니|아닌)/.test(after) ||
+    /^(?:し)?(?:ない|ず|せず|なし)/.test(after) ||
+    /(?:不|没|無|无|非)(?:需要|用|经|經)?$/.test(before)
+  );
+}
+
+/** A number's position is a reference, not a value: "Section 3", "Figure 1", "Table 2", "Eq. 4". */
+const REFERENCE =
+  /(?:section|sec\.|figure|fig\.|table|tab\.|eq\.|equation|chapter|appendix|algorithm|line|page|§|그림|표|図|表|节|章|第)\s*$/iu;
+
+/**
+ * The source's numbers in reading order, signs kept, references left out. A
+ * list "[0.5,0.25]" or "1,2,3" is its numbers one by one; "1,000" is one
+ * thousand; "1e-3" is one number.
+ */
+export function numberSequence(source: string): number[] {
+  const text = source.replace(/\\[A-Za-z]+/g, " ");
+  const out: number[] = [];
+  const re = /(?<![\p{L}\d.])(\d{1,3}(?:,\d{3})+(?![\d.])|\d+(?:\.\d+)?(?:e[-+]?\d+)?)/giu;
+  for (const m of text.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (REFERENCE.test(text.slice(Math.max(0, at - 14), at))) continue;
+    // A sign is the character directly before, when that is not a range's dash ("1-2").
+    const prev = text[at - 1] ?? "";
+    const signed = (prev === "-" || prev === "−") && !/[\p{L}\d)]/u.test(text[at - 2] ?? "");
+    const v = Number((m[1] as string).replace(/,/g, ""));
+    if (Number.isFinite(v)) out.push(signed ? -v : v);
+  }
+  return out;
+}
+
+/** The rows a field's numbers come in: each matrix row, each vector, each series point (x, y). */
+function rowsOf(field: string, v: unknown): number[][] {
+  const nums = (x: unknown): number[] =>
+    Array.isArray(x) ? x.filter((n): n is number => typeof n === "number") : [];
+  // A one-column matrix is read as its column, in every field: a lone number is no evidence.
+  const matrix = (m: unknown): number[][] => {
+    const rows = (Array.isArray(m) ? m : []).map(nums);
+    return rows.length && rows.every((r) => r.length === 1) ? [rows.flat()] : rows;
+  };
+  if (!Array.isArray(v)) return [];
+  switch (field) {
+    case "heads":
+      return v.flatMap((h) => [...matrix(h?.q), ...matrix(h?.k)]);
+    case "weights":
+      return v.flatMap(matrix);
+    case "series":
+      return v.flatMap((s) =>
+        ((s?.points ?? []) as Array<{ x: number; y: number }>).map((p) => [p.x, p.y]),
+      );
+    case "gaussians":
+      return v.map((g) =>
+        Object.values(g as Record<string, unknown>).filter(
+          (n): n is number => typeof n === "number",
+        ),
+      );
+    case "queryVector":
+      return [nums(v)];
+    default:
+      return matrix(v);
+  }
+}
+
+/** Whether `row` appears in `seq` whole, in order, with its signs. */
+function containsRow(seq: readonly number[], row: readonly number[]): boolean {
+  const eq = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  if (!row.length) return false;
+  for (let i = 0; i + row.length <= seq.length; i++)
+    if (row.every((x, j) => eq(x, seq[i + j] as number))) return true;
+  return false;
+}
+
+/** A field of "the source's own" numbers is grounded when every row of it is printed in the source. */
+function groundedField(field: string, v: unknown, seq: readonly number[]): boolean {
+  const rows = rowsOf(field, v);
+  // A row of one number (a 1×1 matrix, a 1-dim vector) is never evidence: any "1" in the text would match.
+  return rows.length > 0 && rows.every((r) => r.length > 1 && containsRow(seq, r));
 }
 
 /** The numbers in `texts` the source never states, once each. `{name}` (a computed value) is not a number. */
@@ -282,7 +384,108 @@ function literalTexts(lit: Literal): string[] {
         ...g.items.flatMap((it) => [it.label, it.value]),
       ]),
     ];
-  return own;
+  switch (lit.kind) {
+    case "attention":
+      return [...own, ...lit.tokens];
+    case "optimization":
+      return [...own, ...lit.series.map((s) => s.label), ...lit.optimizers.map((o) => o.label)];
+    case "message-passing":
+      return [...own, ...lit.nodes.map((n) => n.label)]; // ids are never drawn
+    case "retrieval":
+      return [...own, lit.query, ...lit.items.flatMap((it) => [it.label, it.text])];
+    default:
+      return own;
+  }
+}
+
+/**
+ * The fields of a mechanism kind that claim to be the SOURCE'S numbers: each must
+ * be numbers the source states, or the scene shows invented results as the paper's.
+ */
+const SOURCE_NUMBERS: Readonly<Record<string, readonly string[]>> = {
+  attention: ["heads", "embeddings"],
+  optimization: ["series"],
+  splatting: ["gaussians"],
+  "message-passing": ["weights"],
+  retrieval: ["vectors", "queryVector"],
+};
+
+/** A word that marks a scene as an example, in the deck's languages. */
+const EXAMPLE_WORD =
+  /\b(?:example|illustrative|illustration|toy|hypothetical)\b|예시|예제|가상|例|示例|示意|イメージ/i;
+
+/** A title or passage counts as the source's only when it is long enough to be one and printed in it. */
+const quoted = (source: string, t: string) => {
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, " ").trim();
+  const n = norm(t);
+  return [...n].length >= 8 && norm(source).includes(n);
+};
+
+/** A node name counts as the source's when it is at least two characters and a whole word of it. */
+const named = (source: string, t: string) => {
+  const n = t.trim();
+  if ([...n].length < 2) return false;
+  const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "iu").test(source);
+};
+
+/**
+ * Whether a mechanism scene's material is the plan's own rather than the
+ * source's, so the frames must say "example": derived attention heads, a
+ * schedule the source does not state, an analytic landscape, plan-made
+ * splats, a graph or a corpus the source does not print, and every gridworld.
+ */
+function illustrative(lit: Literal, source: string, seq: () => readonly number[]): boolean {
+  const has = (field: string, v: unknown) => groundedField(field, v, seq());
+  switch (lit.kind) {
+    case "attention":
+      return !(has("heads", lit.heads) || has("embeddings", lit.embeddings));
+    case "diffusion": {
+      const l = new Set(lit.labels.filter((x) => x.text.trim()).map((x) => x.slot));
+      // The schedule the scene draws: cosine reads only T; linear also reads the betas.
+      const needs = lit.schedule === "cosine" ? ["steps"] : ["steps", "betaStart", "betaEnd"];
+      return !needs.every((n) => l.has(n));
+    }
+    case "optimization":
+      return !lit.series.length;
+    case "splatting":
+      return !has("gaussians", lit.gaussians);
+    case "message-passing":
+      return !(has("weights", lit.weights) && lit.nodes.every((n) => named(source, n.label)));
+    case "rl-rollout":
+      return true;
+    case "retrieval":
+      return !lit.items.every((it) => quoted(source, it.label) && quoted(source, it.text));
+    default:
+      return false;
+  }
+}
+
+/**
+ * A mechanism kind's own checks at plan time, run as the build runs it: the
+ * scene's region (`bespokeRegion`, from the beat's headline and eyebrow) and the
+ * deck's theme and language face, once per format size a deck can be built in.
+ * Each problem once, with the formats it fails in.
+ */
+function gateProblems(beat: Beat, lit: Literal, storyboard: Storyboard): string[] {
+  const { theme } = deckLook({ theme: storyboard.theme ?? "ink", lang: storyboard.lang ?? "en" });
+  const eyebrow = lit.labels.find((l) => l.slot === "eyebrow")?.text.trim() || undefined;
+  const params = beat.params as Record<string, unknown> | undefined;
+  const staged = {
+    ...beat,
+    params: { ...params, headline: String(params?.headline ?? "") },
+  } as Beat;
+  const seen = new Map<string, string[]>();
+  const sizes = new Set<string>();
+  for (const format of Object.values(FORMATS)) {
+    const region = bespokeRegion(staged, { format, theme }, eyebrow);
+    const key = `${region.width}x${region.height}`;
+    if (sizes.has(key)) continue;
+    sizes.add(key);
+    for (const p of mechanismProblems(lit, region, theme))
+      seen.set(p, [...(seen.get(p) ?? []), format.id]);
+  }
+  return [...seen].map(([p, ids]) => ` in ${ids.join(", ")}: ${p}`);
 }
 
 /**
@@ -323,9 +526,61 @@ export function literalFindings(
     const rules = LITERAL_KIND_DOCS[lit.kind];
     if (rules.requires?.length || rules.mustNotClaim?.length) {
       text ??= sourceText(source);
-      const said = [beat.takeaway ?? "", ...lit.labels.map((l) => l.text)];
+      // The words the scene draws count too (item titles, tokens, node and series
+      // labels), unless quoted from the source: those are its words, not the plan's claim.
+      const src = text.toLowerCase();
+      const drawn = literalTexts(lit).filter(
+        (t) => t.trim() && !src.includes(t.trim().toLowerCase()),
+      );
+      const said = [beat.takeaway ?? "", ...lit.labels.map((l) => l.text), ...drawn];
       for (const p of literalTruthProblems(rules, lit, said, text))
         out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
+    }
+    if (isMechanism(lit.kind)) {
+      text ??= sourceText(source);
+      const src = text;
+      let sq: readonly number[] | undefined;
+      const seqOf = () => {
+        sq ??= numberSequence(src);
+        return sq;
+      };
+      // "The source's own" numbers must be printed in the source, row by row.
+      for (const field of SOURCE_NUMBERS[lit.kind] ?? []) {
+        const v = (lit as Record<string, unknown>)[field];
+        if (Array.isArray(v) && v.length && !groundedField(field, v, seqOf()))
+          out.push(
+            `${beat.id}'s ${lit.kind} scene gives \`${field}\` the source does not print. These fields are the source's own: every row must appear in it as written (in order, signs included); give its rows exactly, or leave the field empty.`,
+          );
+      }
+      if (
+        lit.kind === "message-passing" &&
+        lit.activation === "relu" &&
+        !/\bReLU\b|rectifi/i.test(src)
+      )
+        out.push(
+          `${beat.id}'s message-passing scene gives \`activation\` relu, which the source never names; give the source's own, or none.`,
+        );
+      // Material that is the plan's own is drawn as an example, and says so.
+      const tag = lit.labels.find((l) => l.slot === "example")?.text.trim();
+      if (illustrative(lit, src, seqOf) && !tag)
+        out.push(
+          `${beat.id}'s ${lit.kind} scene draws material that is not the source's own, so it needs the \`example\` slot: a tag in the deck's language saying it is an example.`,
+        );
+      if (tag && !EXAMPLE_WORD.test(tag))
+        out.push(
+          `${beat.id}'s ${lit.kind} scene's \`example\` tag "${tag}" does not say "example" (example · 예시 · 例 · 示例).`,
+        );
+      if (lit.kind === "retrieval") {
+        const score = lit.labels.find((l) => l.slot === "score")?.text ?? "";
+        if (score.trim() && !score.includes("{method}"))
+          out.push(
+            `${beat.id}'s retrieval scene names its method in its own words ("${score}"); write {method}, which the scene fills with the method it computed.`,
+          );
+      }
+      // The kind's own checks, run now, in every format the deck can be built in, at the
+      // region and in the face the build lays it out with: a gate pass means the build draws it.
+      for (const p of gateProblems(beat, lit, storyboard))
+        out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn${p}.`);
     }
     if (beat.archetype === "title") {
       out.push(

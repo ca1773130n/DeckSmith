@@ -1,0 +1,19 @@
+{
+  "kind": "attention",
+  "literal": {
+    "picture": "b01"
+  },
+  "labels": {
+    "content": "pixels alike",
+    "position": "patches near",
+    "query": "outlined: the query patch; bright: what it weights",
+    "example": "example"
+  },
+  "picture": {
+    "synthetic": "discs",
+    "w": 640,
+    "h": 400
+  },
+  "frames": [0, 1, 3],
+  "takeaway": "Each patch's weights over every patch are a softmax that sums to 1; the outlined query patch weights the patches that look like it most, and nearby patches most in the position head."
+}

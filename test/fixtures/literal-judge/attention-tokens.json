@@ -1,0 +1,14 @@
+{
+  "kind": "attention",
+  "literal": {
+    "tokens": ["the", "cat", "sat", "on", "the", "mat", "because", "it", "was", "tired"],
+    "path": [4, 7, 9]
+  },
+  "labels": {
+    "content": "letters alike",
+    "position": "positions near",
+    "example": "example"
+  },
+  "frames": [0, 1, 2],
+  "takeaway": "Each query's weights are a softmax over its scores with every key, so they sum to 1; the query “tired” weights “tired” most (0.88)."
+}

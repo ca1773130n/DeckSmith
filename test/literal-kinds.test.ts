@@ -660,6 +660,7 @@ describe.skipIf(!ffmpeg)(
         dir,
         region,
         spec: { labels: slotsFor(kind, over) },
+        theme,
         earlier: new Map(),
       });
 
