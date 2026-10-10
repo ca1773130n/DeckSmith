@@ -34,15 +34,15 @@ const GOOD: Fragment = {
     var dots = root.querySelectorAll("#SCENEID .dot");
     gsap.set("#SCENEID-wire", { drawSVG: "0% 0%" });
     gsap.set(["#SCENEID-lab", "#SCENEID-eq"], { opacity: 0 });
-    tl.to("#SCENEID-lab", { opacity: 1, duration: 0.5, ease: "power2.out" }, 1.2);
+    tl.fromTo("#SCENEID-lab", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, 1.2);
     tl.fromTo("#SCENEID-wire", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 1.4, immediateRender: false }, 2.0);
     for (var i = 0; i < 3; i++) {
-      tl.to("#SCENEID-dot" + i, { attr: { cx: 400 + i * 120 }, duration: 0.8, repeat: 2 }, 3 + i * 0.3);
+      tl.fromTo("#SCENEID-dot" + i, { attr: { cx: 300 } }, { attr: { cx: 400 + i * 120 }, duration: 0.8, repeat: 2 }, 3 + i * 0.3);
     }
     var tones = { a: "#5ec8f2", b: "#f7c948" };
     var k = "a";
-    tl.to("#SCENEID-box", { fill: tones[k], duration: 0.4 }, 4);
-    tl.to("#SCENEID-eq", { opacity: 1, y: Math.round(Math.sin(0.5) * 10), duration: 0.6 }, 5.5);
+    tl.fromTo("#SCENEID-box", { fill: tones.b }, { fill: tones[k], duration: 0.4 }, 4);
+    tl.fromTo("#SCENEID-eq", { opacity: 0, y: 0 }, { opacity: 1, y: Math.round(Math.sin(0.5) * 10), duration: 0.6 }, 5.5);
     var pts = [0, 1, 2].map(function (j) { return [100 + j * 50, 300 - j * 20].join(","); }).join(" ");
     tl.set("#SCENEID-poly", { attr: { points: pts } }, 6);
   `,
@@ -89,26 +89,42 @@ describe("the script allowlist", () => {
     ["timers", `setTimeout(function () {}, 10);`, "script_name"],
     ["clock", `var t = Date.now();`, "script_name"],
     ["random", `var r = Math.random();`, "script_random"],
-    ["gsap random string", `tl.to("#SCENEID-a", { x: "random(0, 100)" }, 1);`, "script_random"],
+    [
+      "gsap random string",
+      `tl.fromTo("#SCENEID-a", { x: 0 }, { x: "random(0, 100)" }, 1);`,
+      "script_random",
+    ],
     [
       "a callback",
-      `tl.to("#SCENEID-a", { x: 1, onUpdate: function () {} }, 1);`,
+      `tl.fromTo("#SCENEID-a", { x: 0 }, { x: 1, onUpdate: function () {} }, 1);`,
       "script_callback",
     ],
     [
       "a function value",
-      `tl.to("#SCENEID-a", { x: function () { return 1; } }, 1);`,
+      `tl.fromTo("#SCENEID-a", { x: 1 }, { x: function () { return 1; }, immediateRender: false }, 1);`,
       "script_callback",
     ],
     ["tl.call", `tl.call(function () {}, [], 1);`, "script_api"],
     ["gsap.to off the timeline", `gsap.to("#SCENEID-a", { x: 1 });`, "script_api"],
     ["gsap.from", `gsap.from("#SCENEID-a", { x: 1 });`, "script_api"],
-    ["no position", `tl.to("#SCENEID-a", { x: 1 });`, "script_position"],
-    ["relative position", `tl.to("#SCENEID-a", { x: 1 }, "+=1");`, "script_position"],
-    ["vars by reference", `var v = { x: 1 }; tl.to("#SCENEID-a", v, 1);`, "script_vars"],
-    ["unscoped target", `tl.to(".dot", { x: 1 }, 1);`, "script_scope"],
+    ["no position", `tl.fromTo("#SCENEID-a", { x: 0 }, { x: 1 });`, "script_position"],
+    [
+      "relative position",
+      `tl.fromTo("#SCENEID-a", { x: 1 }, { x: 1, immediateRender: false }, "+=1");`,
+      "script_position",
+    ],
+    [
+      "vars by reference",
+      `var v = { x: 1 }; tl.fromTo("#SCENEID-a", { x: 0 }, v, 1);`,
+      "script_vars",
+    ],
+    ["unscoped target", `tl.fromTo(".dot", { x: 0 }, { x: 1 }, 1);`, "script_scope"],
     ["unscoped query", `root.querySelector("body");`, "script_scope"],
-    ["infinite repeat", `tl.to("#SCENEID-a", { x: 1, repeat: -1 }, 1);`, "script_repeat"],
+    [
+      "infinite repeat",
+      `tl.fromTo("#SCENEID-a", { x: 1 }, { x: 1, repeat: -1, immediateRender: false }, 1);`,
+      "script_repeat",
+    ],
     ["new", `var a = new Array(3);`, "script_node"],
     ["this", `var g = this;`, "script_node"],
     ["while", `while (true) {}`, "script_node"],
@@ -126,7 +142,7 @@ describe("the script allowlist", () => {
     ["writing a shell object", `gsap.foo = 1;`, "script_api"],
     ["a stored callback", `var o = {}; o.f = function () {};`, "script_callback"],
     ["layout reads", `var b = root.querySelector("#SCENEID-a").getBBox();`, "script_name"],
-    ["syntax", `tl.to(`, "script_syntax"],
+    ["syntax", `tl.fromTo(`, "script_syntax"],
   ];
   for (const [what, script, rule] of refused) {
     it(`refuses ${what}`, () => {
@@ -249,20 +265,34 @@ describe("cue groups (semantic grouping)", () => {
 
 describe("morphSVG", () => {
   it("morphs to the scene's own path or to path data, never to another scene's", () => {
-    expect(checkScript(`tl.to("#SCENEID-a", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`)).toEqual(
-      [],
-    );
     expect(
-      checkScript(`tl.to("#SCENEID-a", { morphSVG: "M0 0 L10 10", duration: 1 }, 2);`),
+      checkScript(
+        `tl.fromTo("#SCENEID-a", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
+      ),
     ).toEqual([]);
     expect(
-      checkScript(`tl.to("#SCENEID-a", { morphSVG: { shape: "#SCENEID-b" }, duration: 1 }, 2);`),
+      checkScript(
+        `tl.fromTo("#SCENEID-a", { morphSVG: "#SCENEID-b" }, { morphSVG: "M0 0 L10 10", duration: 1, immediateRender: false }, 2);`,
+      ),
     ).toEqual([]);
     expect(
-      rules(checkScript(`tl.to("#SCENEID-a", { morphSVG: "#s3-logo", duration: 1 }, 2);`)),
+      checkScript(
+        `tl.fromTo("#SCENEID-a", { morphSVG: "M0 0 L10 10" }, { morphSVG: { shape: "#SCENEID-b" }, duration: 1, immediateRender: false }, 2);`,
+      ),
+    ).toEqual([]);
+    expect(
+      rules(
+        checkScript(
+          `tl.fromTo("#SCENEID-a", { morphSVG: { shape: "#SCENEID-b" } }, { morphSVG: "#s3-logo", duration: 1, immediateRender: false }, 2);`,
+        ),
+      ),
     ).toContain("script_scope");
     expect(
-      rules(checkScript(`var t = "#s3"; tl.to("#SCENEID-a", { morphSVG: t, duration: 1 }, 2);`)),
+      rules(
+        checkScript(
+          `var t = "#s3"; tl.fromTo("#SCENEID-a", { morphSVG: "#s3-logo" }, { morphSVG: t, duration: 1, immediateRender: false }, 2);`,
+        ),
+      ),
     ).toContain("script_morph");
   });
 });
@@ -270,13 +300,13 @@ describe("morphSVG", () => {
 describe("motion kinds", () => {
   it("reads the verbs a timeline asks for off its tweens", () => {
     const kinds = motionKinds(`
-      tl.to("#SCENEID-svg", { attr: { viewBox: "0 0 10 10" }, duration: 1 }, 1);
-      tl.to("#SCENEID-n", { textContent: 83, snap: { textContent: 1 }, duration: 1 }, 2);
-      tl.to("#SCENEID-a", { morphSVG: "#SCENEID-b", duration: 1 }, 3);
-      tl.to("#SCENEID-p", { x: 100, y: 20, duration: 1, repeat: 3 }, 4);
-      tl.to("#SCENEID-q", { opacity: 0.3, duration: 1 }, 5);
-      tl.to(["#SCENEID-r", "#SCENEID-s"], { scale: 1, stagger: 0.1, duration: 1 }, 6);
-      tl.to("#SCENEID-w", { drawSVG: "0% 100%", duration: 1 }, 7);
+      tl.fromTo("#SCENEID-svg", { attr: { viewBox: "0 0 20 20" } }, { attr: { viewBox: "0 0 10 10" }, duration: 1 }, 1);
+      tl.fromTo("#SCENEID-n", { textContent: 0 }, { textContent: 83, snap: { textContent: 1 }, duration: 1 }, 2);
+      tl.fromTo("#SCENEID-a", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 3);
+      tl.fromTo("#SCENEID-p", { x: 0, y: 0 }, { x: 100, y: 20, duration: 1, repeat: 3 }, 4);
+      tl.fromTo("#SCENEID-q", { opacity: 1 }, { opacity: 0.3, duration: 1 }, 5);
+      tl.fromTo(["#SCENEID-r", "#SCENEID-s"], { scale: 1 }, { scale: 1, stagger: 0.1, duration: 1 }, 6);
+      tl.fromTo("#SCENEID-w", { drawSVG: "0% 100%" }, { drawSVG: "0% 100%", duration: 1 }, 7);
     `);
     expect(kinds).toEqual([
       "draw",
@@ -288,7 +318,9 @@ describe("motion kinds", () => {
       "scale",
       "focus",
     ]);
-    expect(motionKinds(`tl.to("#SCENEID-a", { opacity: 1, duration: 1 }, 1);`)).toEqual([]);
+    expect(
+      motionKinds(`tl.fromTo("#SCENEID-a", { opacity: 1 }, { opacity: 1, duration: 1 }, 1);`),
+    ).toEqual([]);
     expect(motionKinds("not js (")).toEqual([]);
   });
 });
@@ -297,7 +329,7 @@ describe("an illustrated scene's staging (round 4)", () => {
   const STAGED: Fragment = {
     markup: `<svg id="SCENEID-svg" width="1700" height="700"><image id="SCENEID-p" data-art="1"/><g id="SCENEID-a" data-cue="1" data-subject="1"><text id="SCENEID-t1">cup</text></g><g id="SCENEID-b" data-cue="2" data-subject="2"><text id="SCENEID-t2">arm</text></g></svg>`,
     css: "",
-    script: `tl.to("#SCENEID-a", { opacity: 1, duration: 0.4 }, 1);`,
+    script: `tl.fromTo("#SCENEID-a", { opacity: 1 }, { opacity: 1, duration: 0.4 }, 1);`,
     shots: [
       { cue: 2, at: 0, subject: 1 },
       { cue: 3, at: 0.2, subject: 2 },
@@ -313,7 +345,7 @@ describe("an illustrated scene's staging (round 4)", () => {
   it("refuses a script that moves the shell's camera", () => {
     const moved = {
       ...STAGED,
-      script: `${STAGED.script}\ntl.to("#SCENEID-cam", { scale: 1.3, duration: 1 }, 4);`,
+      script: `${STAGED.script}\ntl.fromTo("#SCENEID-cam", { scale: 1 }, { scale: 1.3, duration: 1 }, 4);`,
     };
     expect(rules(moved)).toEqual(["script_camera"]);
   });
@@ -475,6 +507,32 @@ describe("card_row: cards, panels or tiles as the main visual", () => {
       .join("\n");
     expect(cardRow(byRule, box, css)).toMatch(/row of 3/);
     expect(cardRow(byRule, box)).toBeUndefined();
+  });
+});
+
+describe("every tween is a fromTo (AGENTS.md invariant 2)", () => {
+  const rules = (script: string) => checkScript(script).map((x) => x.rule);
+  it("refuses tl.to and tl.from", () => {
+    expect(rules(`tl.to("#SCENEID-a", { x: 1, duration: 1 }, 1);`)).toEqual(["script_fromto"]);
+    expect(rules(`tl.from("#SCENEID-a", { x: 1, duration: 1 }, 1);`)).toEqual(["script_fromto"]);
+  });
+  it("refuses a fromTo whose from state misses a property it moves, or that rides keyframes", () => {
+    expect(rules(`tl.fromTo("#SCENEID-a", { x: 0 }, { x: 1, y: 2, duration: 1 }, 1);`)).toEqual([
+      "script_fromto",
+    ]);
+    expect(
+      rules(`tl.fromTo("#SCENEID-a", { attr: { cx: 0 } }, { attr: { cx: 1, cy: 2 } }, 1);`),
+    ).toEqual(["script_fromto"]);
+    expect(
+      rules(`tl.fromTo("#SCENEID-a", { x: 0 }, { keyframes: [{ x: 1 }, { x: 2 }] }, 1);`),
+    ).toContain("script_fromto");
+  });
+  it("passes a fromTo that names every start, its settings left out", () => {
+    expect(
+      rules(
+        `tl.fromTo("#SCENEID-a", { x: 0, attr: { cx: 3 } }, { x: 1, attr: { cx: 4 }, duration: 1, ease: "none", stagger: 0.1, immediateRender: false }, 1);`,
+      ),
+    ).toEqual([]);
   });
 });
 

@@ -6,6 +6,7 @@
  * The runner and the gate are injected (`BespokeInput.run`, `.gate`), so every
  * branch of the pipeline is driven here with canned replies and canned verdicts.
  */
+
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +57,7 @@ import {
   sourceSchema,
   storyboardSchema,
 } from "../src/types.js";
+import { asBuilt } from "./fixtures/build.js";
 
 const repo = (p: string) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 const demo = storyboardSchema.parse(
@@ -97,7 +99,7 @@ const SCENE: Fragment = {
   markup: `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600"><g id="SCENEID-a" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="300" r="30" fill="#f7c948"/></g><g id="SCENEID-b" data-cue="2"></g></svg>`,
   css: "#SCENEID-svg { overflow: visible; }",
   script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
 };
 
 /* ----------------------------------------------------------------- selection */
@@ -390,7 +392,10 @@ describe("the bespoke pass", () => {
       calls.push(args);
       const r = reply(args, calls.length);
       if (r instanceof Error) throw r;
-      await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...r }));
+      await writeFile(
+        args.outPath,
+        JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, r) }),
+      );
       args.onUsage?.(1000);
     };
     return { calls, run };
@@ -487,7 +492,10 @@ describe("the bespoke pass", () => {
           return;
         }
         calls.push(args);
-        await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...SCENE }));
+        await writeFile(
+          args.outPath,
+          JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, SCENE) }),
+        );
       };
       return { calls, run };
     };
@@ -774,7 +782,7 @@ describe("the bespoke pass", () => {
     const draft = SCENE;
     const broken: Fragment = {
       ...SCENE,
-      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { x: 1 }, 2);`,
+      script: `${SCENE.script}\ntl.fromTo("#SCENEID-dot", { x: 0 }, { x: 1 }, 2);`,
     };
     const { run } = fake((args) =>
       args.prompt.includes("strict motion-design reviewer") ? broken : draft,
@@ -857,8 +865,8 @@ describe("the bespoke pass", () => {
   const RICH: Fragment = {
     ...SCENE,
     script: `${SCENE.script}
-tl.to("#SCENEID-n", { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
-tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
+tl.fromTo("#SCENEID-n", { textContent: 0 }, { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
+tl.fromTo("#SCENEID-dot", { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 3);`,
   };
   const clean = { fill: 0.9, cells: 0.8, maxType: 44, cueChange: [0.02, 0.03] };
 
@@ -1343,7 +1351,7 @@ describe("a scene that morphs", () => {
     const ctx = { source, format: deck16, theme: resolveTheme("ink"), sid: "s3", start: 0 };
     const morph = {
       ...SCENE,
-      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
+      script: `${SCENE.script}\ntl.fromTo("#SCENEID-dot", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
     };
     expect(usesMorph(morph.script)).toBe(true);
     expect(bespokeScene(beat, ctx, { fragment: morph, holds: [1] }).plugins).toEqual(["morphSVG"]);

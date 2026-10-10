@@ -39,7 +39,7 @@ import { type Box, CAMERA_MAX_SCALE, CLOSE_MIN, ESTABLISH, MIN_HOLD, MOVE } from
 export { CAMERA_MAX_SCALE };
 
 /** Bump with any change to either prompt or to a reference: it is part of every cache key. */
-export const PROMPT_VERSION = "bespoke-11";
+export const PROMPT_VERSION = "bespoke-12";
 /** Bump with any change to what `checkFragment` accepts. Also part of every key. */
 export const CONTRACT_VERSION = "contract-5";
 
@@ -315,12 +315,17 @@ function contract(b: Brief): string {
 3. SEMANTIC GROUPS. Each part a cue brings on is ONE <g id="${T}-<part>" data-cue="N">
    (N = the cue that introduces it, 1..${b.cues.length}); animate the group, not its pieces one by one,
    unless the pieces themselves are the point. ${b.art?.band ? "Every group you draw is one." : "At least two groups."} A
-   group must be invisible (opacity 0, or drawn to 0%) until 0.5s before its cue.
+   group must be invisible (opacity 0, or drawn to 0%) until 0.5s before its cue — except
+   cue 1's, which STANDS FROM THE FIRST FRAME (shown by 0.2s): the seam cuts straight to
+   it, and an empty stage at a seam reads as a dropout (gate: seam_blank).
 4. SEEK-ONLY TIMELINE. The renderer calls seek(t) for any t in any order and photographs.
-   - Motion goes on the given paused timeline \`tl\`: tl.to / tl.fromTo / tl.set(target,
-     {vars}, SECONDS) with SECONDS a number (absolute scene time).
-   - First set every animated element's start state with gsap.set(target, {vars}); then
-     tl.to. A second fromTo on a target needs immediateRender:false.
+   - Motion goes on the given paused timeline \`tl\`: tl.fromTo(target, {from}, {to}, SECONDS)
+     or tl.set(target, {vars}, SECONDS), SECONDS a number (absolute scene time). EVERY TWEEN
+     IS A fromTo: tl.to and tl.from are refused (gate: script_fromto). The from state names
+     every property the tween moves, at the value it holds when the tween starts.
+   - First set every animated element's start state with gsap.set(target, {vars}); the
+     first fromTo on a property starts from that state. Every LATER fromTo on the same
+     target and property starts where the one before it ended, with immediateRender:false.
    - vars are object literals. No functions in vars, no callbacks (onStart/onUpdate/…), no
      repeat:-1 (repeat is a NUMBER LITERAL 0..60), no "random(…)", no stagger from:"random".
    - Allowed: gsap.set, gsap.utils.interpolate/clamp/mapRange/normalize/snap/wrap,
@@ -346,7 +351,10 @@ ${anchors(W, H)}
     b.art?.band
       ? "The picture fills the frame; your layer adds little to it."
       : `The settled frame's drawing spans >= 80% of the box's AREA (its bounding box
-   over ${W}x${H}): reach column F, row 4, and the A1 corner region. Gate: stage_fill.`
+   over ${W}x${H}): reach column F, row 4, and the A1 corner region. Gate: stage_fill.
+   While cue 2 onward holds, the drawing spans >= 70% of the box's HEIGHT — never a band
+   across the top with the bottom empty (gate: hollow_hold). Alike dots never sit inside
+   each other: space them by their diameter (gate: marks_overlap).`
   }
 8. TYPE IS QUIET (the founder: "the fonts are too large"; the subtitles carry the words).
    Words ${TYPE_SCALE.floor}-${TYPE_SCALE.body}px; ONE key number or word may reach ${TYPE_SCALE.headline}px; NOTHING above
@@ -360,13 +368,21 @@ ${anchors(W, H)}
    BOX, BADGE or a BAR into place: no plate or pill behind a word, no leader-line callouts, no
    bars growing from zero, no cards sliding in. Words appear and leave by OPACITY ONLY, where
    they stay. What may move: the thing itself (particles, a flow along a path, a wave, a
-   morph, a traced curve) — motion that IS the idea.
+   morph, a traced curve) — motion that IS the idea.${
+     b.art
+       ? ""
+       : `
+   WITHOUT A PICTURE this holds the same: draw a vector ILLUSTRATION of the idea — the thing
+   itself, not a diagram of boxes and labels — and move it with quiet camera and light (a
+   slow push-in on what the voice names, a light sweep, one part lit while the rest dims).`
+}
 9. PACK "${b.pack}": ${palette(b.theme)}. Font: inherit. Main strokes 5-8px, round caps.
    ${b.art ? "No images (the picture is the shell's, rule 13), no" : "No images, no"} external URLs, no web fonts.
 10. LIBRARIES: gsap 3.14, DrawSVGPlugin (drawSVG:"0% 0%" -> "0% 100%") and MorphSVGPlugin
    (morphSVG:"#${T}-<path id>" or path data; morph <path> to <path>). No MotionPath: move
-   along a route with keyframes:[{x,y},…] or attr tweens. Counters: tl.to(textEl,
-   {textContent: 83, snap:{textContent: 1}}, t).
+   along a route with one fromTo per segment (each from where the last ended,
+   immediateRender:false after the first) or attr tweens; no keyframes. Counters:
+   tl.fromTo(textEl, {textContent: 0}, {textContent: 83, snap:{textContent: 1}}, t).
    ${b.art?.subjects?.length ? shotRule(b) : cameraRule(b)}
 11. NO SVG MARKERS. An arrowhead is a small <path> of its own that appears when its line
    has finished drawing (gate: stray_marker fails an arrowhead shown where its line is not).
@@ -380,11 +396,13 @@ ${anchors(W, H)}
 function cameraRule(b: Brief): string {
   const { width: W, height: H } = b.region;
   return `CAMERA = the shell's wrapper "#${T}-cam" (transform-origin 0 0, box clipped while it moves):
-   gsap.set("#${T}-cam", {scale:1, x:0, y:0, transformOrigin:"0 0"}) once, then tl.to it with
-   {scale, x, y}. To frame the box region (x0, y0, w, h): s = min(${W}/w, ${H}/h, ${CAMERA_MAX_SCALE}),
+   gsap.set("#${T}-cam", {scale:1, x:0, y:0, transformOrigin:"0 0"}) once, then tl.fromTo it
+   from where it is to {scale, x, y} (immediateRender:false after the first move). To frame the box region (x0, y0, w, h): s = min(${W}/w, ${H}/h, ${CAMERA_MAX_SCALE}),
    x = (${W} - w*s)/2 - x0*s, y = (${H} - h*s)/2 - y0*s (write the arithmetic in a comment).
    Push in on the part the cue names (1.0-1.5s, power3.inOut), and be back at {scale:1, x:0, y:0}
-   before the last cue ends. Never write an element with id "${T}-cam" yourself.`;
+   before the last cue ends. Never write an element with id "${T}-cam" yourself. Words under the
+   camera keep their declared size (the shell counter-scales them): a push-in enlarges the
+   drawing, never the type.`;
 }
 
 /** Rule 10's camera, for an illustrated scene: the scene names shots, the shell moves the camera in the beat's grammar. */
@@ -455,8 +473,8 @@ function digest(b: Brief): string {
   return `# CONTRACT IN BRIEF (unchanged from the draft; the checker enforces all of it)
 - Body only, in <svg id="${T}-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">; ids "${T}-<name>"; every selector starts "#${T}".
 - Groups <g id="${T}-<part>" data-cue="N"> (N in 1..${b.cues.length}), invisible until 0.5s before cue N.
-- Script = body of function (tl, root): gsap.set baselines, then tl.to/fromTo/set(target, {literal vars}, SECONDS). No callbacks, no function values, repeat a literal 0..60, nothing random, no window/document/new/timers/Date/getBBox/innerHTML/String/Object/JSON, no while.
-- drawSVG, morphSVG (path to path), keyframes, attr tweens, textContent+snap counters. ${
+- Script = body of function (tl, root): gsap.set baselines, then tl.fromTo(target, {from}, {to}, SECONDS) / tl.set — never tl.to or tl.from; a later fromTo on the same property has immediateRender:false. No callbacks, no function values, repeat a literal 0..60, nothing random, no window/document/new/timers/Date/getBBox/innerHTML/String/Object/JSON, no while.
+- drawSVG, morphSVG (path to path), a path as one fromTo per segment, attr tweens, textContent+snap counters. ${
     b.art?.subjects?.length
       ? `The CAMERA and the PICTURE are the shell's, in the "${b.grammar ?? "tour"}" grammar: never touch "#${T}-cam", never place the picture; return "shots" [{cue, at, subject}] (subject 1..${b.art.subjects.length}, 0 = whole picture) naming at least ${Math.min(2, b.art.subjects.length)} subjects; the end frame is the whole scene. Your layer is fixed to the frame: at most two short phrases or one number, y ${(b.art.band ?? 0) + 24}-${H - 240}, fading by opacity; nothing aimed at a subject.`
       : `The shell's camera "#${T}-cam" (never declare it yourself; {scale,x,y}, origin 0 0; frame region x0,y0,w,h with s=min(${W}/w,${H}/h,${CAMERA_MAX_SCALE}), x=(${W}-w*s)/2-x0*s, y=(${H}-h*s)/2-y0*s; home {scale:1,x:0,y:0} before the last cue ends). "shots": [].`
@@ -739,7 +757,7 @@ ${measuredLines(measured, b)}
 
 # GATE FINDINGS (every one must be gone)
 ${findings.length ? findings.map((f) => `- ${f}`).join("\n") : "(none)"}
-"ui_motion" = a word, plate, chip, card or bar is moved, scaled or grown into place (rule 8b) — fade it in place, or drop it; "text_clipped" = a word cut by the frame's edge while the shot holds (a push-in or a viewBox zoom crops it) — frame so every word is wholly in or wholly out, or fade it out for that shot; "morph_glitch" = a path tween that throws its shape across the stage mid-way — tween \`d\` only between paths with the same commands and number count (use morphSVG otherwise, or cross-fade); "dim_text" = a word held under 3:1 contrast with what is behind it — dim text to 0.6 at least, dim shapes instead; "card_row" = the main visual is a row, column or grid of alike rectangles (cards, panels, tiles) — redraw it as the beat's content itself, its device; "type_hierarchy"/"type_ceiling" = rule 8; "type_scale" = a word over ${TYPE_SCALE.headline}px (rule 8); "label_anchor" = a label of yours away from the subject it names; "shot_variety" = the shots do not open wide or push in on enough different subjects (rule 10); "data_over_picture" = numbers painted over the picture (rule 15); "shots"/"script_camera" = the shot list is invalid, or the script touched the camera; "end_dimmed" = the last frame leaves dimmed what the scene had lit; "camera_end" = the camera is not home at the end; "static_hold" = a cue during which the picture barely changed; "graphic_crosses_text" = a stroke through a label or a shape over one; "stage_fill" = rule 7; "stray_marker" = rule 11; "early_reveal"/"cue_groups" = rule 3; "seek_order" = the frame depends on seek history (a fromTo without immediateRender:false, or a missing gsap.set baseline); "script_*"/"css_*"/"markup_*" = the contract.
+"ui_motion" = a word, plate, chip, card or bar is moved, scaled or grown into place (rule 8b) — fade it in place, or drop it; "text_clipped" = a word cut by the frame's edge while the shot holds (a push-in or a viewBox zoom crops it) — frame so every word is wholly in or wholly out, or fade it out for that shot; "morph_glitch" = a path tween that throws its shape across the stage mid-way — tween \`d\` only between paths with the same commands and number count (use morphSVG otherwise, or cross-fade); "dim_text" = a word held under 3:1 contrast with what is behind it — dim text to 0.6 at least, dim shapes instead; "card_row" = the main visual is a row, column or grid of alike rectangles (cards, panels, tiles) — redraw it as the beat's content itself, its device; "type_hierarchy"/"type_ceiling" = rule 8; "type_scale" = a word over ${TYPE_SCALE.headline}px (rule 8); "label_anchor" = a label of yours away from the subject it names; "shot_variety" = the shots do not open wide or push in on enough different subjects (rule 10); "data_over_picture" = numbers painted over the picture (rule 15); "shots"/"script_camera" = the shot list is invalid, or the script touched the camera; "end_dimmed" = the last frame leaves dimmed what the scene had lit; "camera_end" = the camera is not home at the end; "static_hold" = a cue during which the picture barely changed; "graphic_crosses_text" = a stroke through a label or a shape over one; "stage_fill" = rule 7; "stray_marker" = rule 11; "early_reveal"/"cue_groups" = rule 3; "seam_blank" = the stage is empty at the seam into the scene — cue 1's group stands from the first frame (rule 3); "hollow_hold" = while a later cue holds, the drawing spans under 70% of the box's height (rule 7); "marks_overlap" = alike dots drawn into each other (rule 7); "seek_order" = the frame depends on seek history (a fromTo without immediateRender:false, or a missing gsap.set baseline); "script_fromto" = a tl.to/tl.from, or a fromTo whose from state misses a property it moves; "script_*"/"css_*"/"markup_*" = the contract.
 
 ${beat(b)}
 visual device: "${b.device}" — keep it${b.idea ? ` (planned as: ${b.idea})` : ""}. No row of cards, boxes-and-arrows, bullet columns or tile grid as the main visual (gate: card_row), and no plates behind words.

@@ -7,6 +7,7 @@
  *
  * No model and no browser: the runner and the gate are injected.
  */
+
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +51,7 @@ import { chromePath } from "../src/render/capture.js";
 import { FORMATS, type Format, sourceSchema, storyboardSchema } from "../src/types.js";
 import { decodePng } from "../src/verify/fidelity.js";
 import type { Layout } from "../src/verify/scenes.js";
+import { asBuilt } from "./fixtures/build.js";
 import { type Disc, testPng } from "./fixtures/png.js";
 
 const repo = (p: string) => fileURLToPath(new URL(`../${p}`, import.meta.url));
@@ -201,7 +203,7 @@ describe("a bespoke scene's shell", () => {
       fragment: {
         markup,
         css: "",
-        script: `tl.to("#SCENEID-cam", { scale: 1.5, x: -100, y: -50, duration: 1 }, 2);`,
+        script: `tl.fromTo("#SCENEID-cam", { scale: 1, x: 0, y: 0 }, { scale: 1.5, x: -100, y: -50, duration: 1 }, 2);`,
       },
       holds: [1],
     });
@@ -246,9 +248,9 @@ describe("the bespoke pass, with illustrations and repairs", () => {
     markup: `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600"><g id="SCENEID-a" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="300" r="30" fill="#f7c948"/></g><g id="SCENEID-b" data-cue="2"></g></svg>`,
     css: "",
     script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);
-tl.to("#SCENEID-n", { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
-tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);
+tl.fromTo("#SCENEID-n", { textContent: 0 }, { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
+tl.fromTo("#SCENEID-dot", { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 3);`,
   };
   /** The same scene, built on the illustration: placed, two subjects labelled, shots named. */
   const PICTURED: Fragment = {
@@ -312,7 +314,10 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
       }
       const r = scene(args);
       if (r instanceof Error) throw r;
-      await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...r }));
+      await writeFile(
+        args.outPath,
+        JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, r) }),
+      );
       args.onUsage?.(1000);
     };
     return { calls, run };
@@ -402,6 +407,7 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
       expect(draft?.prompt).toContain(`camera GRAMMAR is "${g}"`);
     });
   });
+
   it("draws one picture per beat first, attaches it to the scene call, and places it", async () => {
     const { calls, run } = fake(() => PICTURED);
     const seen: string[] = [];
@@ -410,10 +416,10 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
       return passing(m, round);
     };
     const r = await bespokePass({ ...input({ run, gate }), prefs: prefs() });
-    // Every beat but a data beat (its chart is its picture) is illustrated.
-    const n = r.report.scenes.filter((s) => !s.data).length;
+    // Every beat with two cues is illustrated, data beats too (round 6), up to the cap.
+    const n = r.report.scenes.filter((s) => s.art).length;
     expect(n).toBeGreaterThan(0);
-    expect(r.report.scenes.filter((s) => s.art)).toHaveLength(n);
+    expect(r.report.scenes.some((s) => s.data && s.art)).toBe(true);
     const arts = calls.filter((c) => c.prompt.startsWith("You are the illustrator"));
     const drafts = calls.filter(
       (c) =>

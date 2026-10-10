@@ -103,6 +103,47 @@ export function usesCamera(script: string): boolean {
 }
 
 /**
+ * The shell's (round 6): every word under a scene's own camera keeps the size it
+ * declares. For each camera tween — the wrapper's `scale`, or the svg's
+ * `viewBox` — the words get the inverse scale about their own centres over the
+ * same span, so a push-in enlarges the drawing and never the type (the r1
+ * review found labels at 75-80px under zoom; `type_scale` holds the rendered
+ * size). Tweens marked `data: "shell"`, which `ui_motion` does not count.
+ */
+export function quietWords(sid: string): string {
+  return `// The shell's: the words keep their declared size under the camera.
+(function () {
+  var cam = root.querySelector("#${sid}-cam");
+  if (!cam) return;
+  var svg = root.querySelector("#${sid}-svg");
+  var W = svg ? parseFloat(svg.getAttribute("width")) : 0;
+  var html = "p, span, div, b, strong, em, small, i, sub, sup";
+  var words = Array.prototype.filter.call(cam.querySelectorAll("text, " + html), function (el) {
+    if (el.closest(".katex") && !el.classList.contains("katex")) return false;
+    if (el.tagName.toLowerCase() === "text") return true;
+    if (el.parentElement && el.parentElement.closest(html) && cam.contains(el.parentElement.closest(html))) return false;
+    return Array.prototype.some.call(el.childNodes, function (n) { return n.nodeType === 3 && n.textContent.trim(); }) || el.classList.contains("katex");
+  });
+  if (!words.length) return;
+  var scaleOf = function (tw, from) {
+    var v = from ? tw.vars.startAt || {} : tw.vars;
+    if (tw.targets()[0] === cam) return typeof v.scale === "number" ? v.scale : undefined;
+    var box = v.attr && v.attr.viewBox;
+    if (typeof box !== "string" || !W) return undefined;
+    var w = parseFloat(box.trim().split(/[s,]+/)[2]);
+    return w > 0 ? W / w : undefined;
+  };
+  tl.getChildren(false, true, false).forEach(function (tw) {
+    var t = tw.targets();
+    if (t.length !== 1 || (t[0] !== cam && t[0] !== svg)) return;
+    var a = scaleOf(tw, true), b = scaleOf(tw, false);
+    if (!a || !b || Math.abs(a - b) < 0.001) return;
+    tl.fromTo(words, { scale: 1 / a }, { scale: 1 / b, duration: tw.duration(), ease: tw.vars.ease, repeat: tw.vars.repeat || 0, yoyo: !!tw.vars.yoyo, transformOrigin: "50% 50%", immediateRender: false, data: "shell" }, tw.startTime());
+  });
+})();`;
+}
+
+/**
  * The illustration's href AND its placement, written by the shell into the
  * scene's one `<image data-art="1">` — the contract refuses an href from the
  * model, so the deck only ever references a file the build copied under its
@@ -297,7 +338,10 @@ export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry):
           ...(depth ? { depth } : {}),
         })
       : "";
-  const script = [shot, f.script].filter(Boolean).join("\n");
+  // A scene that moves its own camera (not a full-frame shot, whose words sit
+  // outside the camera on #sid-fx) keeps its words at their declared size.
+  const quiet = !cine && (usesCamera(f.script) || /\bviewBox\b/.test(f.script));
+  const script = [shot, f.script, quiet ? quietWords(sid) : ""].filter(Boolean).join("\n");
   // THE CAMERA is the shell's: a wrapper the size of the box, transformed from
   // its top-left corner, so a scene frames a part by tweening its scale/x/y —
   // seek-safe like any tween, and it carries HTML overlays (KaTeX) with the

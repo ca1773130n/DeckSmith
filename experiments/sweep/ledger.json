@@ -1,6 +1,6 @@
 {
-  "tool": "f8c014223d2c7563",
-  "planSha": "60f9af2a30939180fdfa7f8ccb16f99250bb7a6c753c2f4ab0ba333b717b3dd3",
+  "tool": "4bb899054630df05",
+  "planSha": "16af10ec427480f271863e0a412e941ba8a39f322559d69f44fc02a7754ac9c2",
   "corpus": {
     "b04-grid:0": {
       "verdict": "ok",
@@ -71,7 +71,7 @@
   },
   "open": {},
   "format": "deck-16x9",
-  "updated": "2026-10-10T02:07:25.695Z",
+  "updated": "2026-10-10T05:02:39.199Z",
   "levels": [],
   "cells": {
     "b01-title:0": {
@@ -497,6 +497,30 @@
       "reason": "callout b12: 1224px of panel in a 638px box — shorten the lines or split the beat",
       "deck": null,
       "scene": null
+    },
+    "b13-claim-figure-piece:0": {
+      "verdict": "ok",
+      "axis": "piece aspect",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-0/deck",
+      "scene": "s13"
+    },
+    "b13-claim-figure-piece:1": {
+      "verdict": "ok",
+      "axis": "piece aspect",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-1/deck",
+      "scene": "s13"
+    },
+    "b13-claim-figure-piece:2": {
+      "verdict": "ok",
+      "axis": "piece aspect",
+      "rules": [],
+      "reason": null,
+      "deck": "node_modules/.cache/decksmith-sweep/decks/level-2/deck",
+      "scene": "s12"
     }
   }
 }

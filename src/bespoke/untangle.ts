@@ -48,6 +48,8 @@ interface Tween {
   /** The target argument when it is an array literal of strings (editable). */
   array?: AnyNode;
   vars: AnyNode;
+  /** A fromTo's from state: what is stripped from `vars` is stripped here too. */
+  from?: AnyNode;
   props: string[];
   start: number;
   end: number;
@@ -117,8 +119,9 @@ function read(script: string): Tween[] | undefined {
     const callee = call.callee as AnyNode;
     if (callee.type !== "MemberExpression" || (callee.object as AnyNode).name !== "tl") continue;
     const method = (callee.property as AnyNode).name;
-    if (method !== "to" && method !== "set") continue;
-    const [t, vars, at] = call.arguments as AnyNode[];
+    if (method !== "to" && method !== "set" && method !== "fromTo") continue;
+    const args = call.arguments as AnyNode[];
+    const [t, from, vars, at] = method === "fromTo" ? args : [args[0], undefined, args[1], args[2]];
     const start = num(at);
     if (!t || !vars || vars.type !== "ObjectExpression" || start === undefined) continue;
     let targets: string[] | undefined;
@@ -143,11 +146,12 @@ function read(script: string): Tween[] | undefined {
       targets,
       ...(array ? { array } : {}),
       vars,
+      ...(from?.type === "ObjectExpression" ? { from } : {}),
       props: keys(vars),
       start,
       end: start + (duration + repeatDelay) * (repeat + 1),
       plain:
-        method === "to" &&
+        (method === "to" || method === "fromTo") &&
         !complex &&
         (dNode === undefined || num(dNode.value as AnyNode) !== undefined),
       ...(dNode ? { duration: dNode } : {}),
@@ -162,8 +166,23 @@ interface Edit {
   text: string;
 }
 
-/** One fix for the first tangle found, or undefined when there is none it can fix. */
-function oneFix(script: string, tweens: Tween[]): Edit | undefined {
+/** The edit that removes the first of `props` an object literal names, with its comma. */
+function stripProp(script: string, obj: AnyNode, props: readonly string[]): Edit | undefined {
+  const p = (obj.properties as AnyNode[]).find((x) => {
+    if (x.type !== "Property") return false;
+    const k = x.key as AnyNode;
+    return props.includes(String(k.type === "Identifier" ? k.name : k.value));
+  });
+  if (!p) return undefined;
+  const after = script.slice(p.end).match(/^\s*,\s*/)?.[0].length ?? 0;
+  if (after) return { from: p.start, to: p.end + after, text: "" };
+  // The last property: its comma is the one before it.
+  const before = script.slice(0, p.start).match(/,\s*$/)?.[0].length ?? 0;
+  return { from: p.start - before, to: p.end, text: "" };
+}
+
+/** One fix for the first tangle found (its edits, any order), or undefined when there is none it can fix. */
+function oneFix(script: string, tweens: Tween[]): Edit[] | undefined {
   for (let i = 0; i < tweens.length; i++)
     for (let j = 0; j < tweens.length; j++) {
       if (i === j) continue;
@@ -178,12 +197,14 @@ function oneFix(script: string, tweens: Tween[]): Edit | undefined {
       if (a.start < b.start) {
         const d = Math.round((b.start - a.start) * 1000) / 1000;
         if (a.duration)
-          return {
-            from: (a.duration.value as AnyNode).start,
-            to: (a.duration.value as AnyNode).end,
-            text: String(d),
-          };
-        return { from: a.vars.start + 1, to: a.vars.start + 1, text: ` duration: ${d},` };
+          return [
+            {
+              from: (a.duration.value as AnyNode).start,
+              to: (a.duration.value as AnyNode).end,
+              text: String(d),
+            },
+          ];
+        return [{ from: a.vars.start + 1, to: a.vars.start + 1, text: ` duration: ${d},` }];
       }
       // Same second. Strip the target, else the properties, else the whole tween.
       if (a.array && a.targets.length > 1) {
@@ -192,27 +213,28 @@ function oneFix(script: string, tweens: Tween[]): Edit | undefined {
         const k = els.indexOf(el);
         const next = els[k + 1];
         const prev = els[k - 1];
-        return next
-          ? { from: el.start, to: next.start, text: "" }
-          : { from: (prev as AnyNode).end, to: el.end, text: "" };
+        return [
+          next
+            ? { from: el.start, to: next.start, text: "" }
+            : { from: (prev as AnyNode).end, to: el.end, text: "" },
+        ];
       }
       if (a.targets.length === 1 && a.props.length > shared.length) {
-        const p = (a.vars.properties as AnyNode[]).find((x) => {
-          if (x.type !== "Property") return false;
-          const k = x.key as AnyNode;
-          return shared.includes(String(k.type === "Identifier" ? k.name : k.value));
-        });
-        if (p) {
-          const end = script.slice(p.end).match(/^\s*,\s*/)?.[0].length ?? 0;
-          return { from: p.start, to: p.end + end, text: "" };
+        const name = shared[0] as string;
+        const edit = stripProp(script, a.vars, [name]);
+        if (edit) {
+          const twin = a.from ? stripProp(script, a.from, [name]) : undefined;
+          return twin ? [edit, twin] : [edit];
         }
       }
       if (a.targets.length === 1 && a.statement)
-        return {
-          from: a.statement.start,
-          to: a.statement.end,
-          text: "/* untangled: a later tween at the same second owns this property */",
-        };
+        return [
+          {
+            from: a.statement.start,
+            to: a.statement.end,
+            text: "/* untangled: a later tween at the same second owns this property */",
+          },
+        ];
     }
   return undefined;
 }
@@ -227,9 +249,10 @@ export function untangle(script: string): string | undefined {
   for (let n = 0; n < 40; n++) {
     const tweens = read(out);
     if (!tweens) return undefined;
-    const edit = oneFix(out, tweens);
-    if (!edit) break;
-    out = out.slice(0, edit.from) + edit.text + out.slice(edit.to);
+    const edits = oneFix(out, tweens);
+    if (!edits) break;
+    for (const e of [...edits].sort((x, y) => y.from - x.from))
+      out = out.slice(0, e.from) + e.text + out.slice(e.to);
     changed = true;
   }
   return changed ? out : undefined;

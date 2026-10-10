@@ -1079,11 +1079,12 @@ A picture whose subjects merged into one is staged as a zoom-out, not a follow, 
 cutaway.
 
 **Data beats** without a picture (line-chart, bar-compare, data-table) get their scene asked
-for the chart that builds with the voice — axes draw, bars grow with their counters, the
+for the chart that builds with the voice — axes draw, the marks come on at their size, the
 line traces, the named value lights — from the beat's own numbers, never a table painted
 over an illustration (`data_over_picture`). Since round 5 each data beat of a deck builds
-differently (`src/bespoke/databuild.ts`): a bar race that re-sorts, a line traced with a
-callout, the delta highlighted and counted, or small multiples lit in turn — declared on the
+differently (`src/bespoke/databuild.ts`): a line traced with a callout, the delta
+highlighted and counted, or small multiples lit in turn (round 6 dropped the bar race: bars
+growing from zero and sliding to their rank are what `ui_motion` refuses) — declared on the
 chart (`data-build`), checked statically with its marks, and with the camera pushing in on the
 value the voice names. `verify` refuses two data scenes of a deck that build alike
 (`build_repeat`).
@@ -1107,7 +1108,11 @@ travel), and that the backdrop moves less than the subjects; `verify` refuses tw
 consecutive illustrated scenes in one grammar (`grammar_repeat`). Every
 camera tween is a `fromTo` with explicit from-values, and no two touch. The scene's own
 script may not move `#sN-cam` (`script_camera`). A scene without a picture still moves the
-wrapper itself (`scale`/`x`/`y`, arithmetic in the prompt). A scene with a moving camera is
+wrapper itself (`scale`/`x`/`y`, arithmetic in the prompt), and since round 6 its words keep
+their declared size under it: for every camera tween (the wrapper's `scale`, or the svg's
+`viewBox`) the shell adds the inverse scale on each word about its own centre over the same
+span (`quietWords` in `src/bespoke/scene.ts`; r1's final review measured labels at 75-80px
+under zoom). A scene with a moving camera is
 clipped to its box and marked `data-ds-clip`, so `verify` does not count what a push-in
 carries past the canvas edge as off-canvas.
 
@@ -1199,7 +1204,10 @@ a fallback the beat did not earn (cap, quota, timeout) is not.
 
 **What a generated scene may run.** Three layers. (1) A static walk before anything is
 built or opened (`src/bespoke/contract.ts`, acorn): GSAP timeline calls with literal vars
-at explicit seconds, `gsap.set`, scoped `root.querySelector`, `Math` minus `random`, local
+at explicit seconds — `tl.fromTo` whose from state names every property it moves, and
+`tl.set`; `tl.to`, `tl.from` and keyframes are refused (`script_fromto`, AGENTS.md invariant
+2: a `to` starts from whatever the page holds when it first renders) — `gsap.set`, scoped
+`root.querySelector`, `Math` minus `random`, local
 code; `window`, `document`, `fetch`, `eval`, timers, storage, navigation, callbacks and
 function-valued tween vars are refused by name; CSS must be scoped to the scene with no
 at-rules, `url()` or animation; markup is SVG and inline HTML with no handlers, SMIL or
@@ -1229,8 +1237,15 @@ draws RENDERS above the 56px headline at any graded frame, its camera's zoom inc
 round 2's 64px key-label floor is gone), `ui_motion` (round 6: the scene's own GSAP
 timeline animates no label, plate, chip, card or bar into place — read off the tweens'
 targets and properties, so an opacity fade passes and a particle or a traced path is not
-UI), `stray_marker` (an SVG marker painted where its line is not drawn),
-`early_reveal` (a `data-cue="N"` group showing more than 0.5s before cue N),
+UI; a bar is a rect resized, or a path or polygon grown from under 70% of its size; the
+shell's own counter-scale of words under a camera is not counted), `seam_blank` (round 6:
+the stage — everything but the headlines — painted under 0.2% of the frame for more than
+0.15s across the seam into a generated scene; r1's final deck showed nothing for ~0.6s at 12
+of 15 seams, so cue 1's group now stands from the scene's first frame), `hollow_hold` (while
+cue 2 onward holds, and at the end, the drawing spans under 70% of the box's height),
+`marks_overlap` (at those frames, alike filled dots drawn into each other, deeper than half
+the smaller's radius), `stray_marker` (an SVG marker painted where its line is not drawn),
+`early_reveal` (a `data-cue="N"` group, N of 2 or more, showing more than 0.5s before cue N),
 `text_clipped` (a word cut by the frame's edge while held: sampled every 0.5s, three samples
 in a row, under 96% of its width or 75% of its line box inside the clip), `morph_glitch` (a
 path tween — `attr: { d }` or morphSVG — whose shape, at any in-between sample, reaches more

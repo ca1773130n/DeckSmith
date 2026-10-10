@@ -142,6 +142,28 @@ export const TYPE_MAX_PX = TYPE_SCALE.headline + 0.5;
 /** A cue group may appear this long before its cue starts (the prompt's own sync window). */
 export const EARLY_SLACK = 0.5;
 /**
+ * The longest a seam may leave the stage empty (round 6): r1's final review
+ * found 12 of 15 seams showing nothing but the headline for ~0.6s — the
+ * outgoing scene gone, the incoming one's first group not yet in.
+ */
+export const SEAM_BLANK_MAX = 0.15;
+/**
+ * The height share of its box a bespoke scene's drawing spans while a later
+ * cue holds (`hollow_hold`): the fill module's EMPTY band. r1's final s8 held
+ * three calipers across the top 58% for seconds; its settled end frame filled.
+ */
+export const HOLD_SPAN_MIN = 0.7;
+/** Filled dots this size (radius, px) are marks a viewer counts; drawn into each other, they read as a glitch. */
+const MARK_R: readonly [number, number] = [10, 60];
+/**
+ * Below this share of the frame painted (headlines aside), the stage is empty:
+ * about one 64px mark. r1's blank seams read exactly 0.
+ */
+export const SEAM_PAINT_MIN = 0.002;
+/** How finely, and over what span around the seam, the stage is read. */
+const SEAM_STEP = 0.05;
+const SEAM_SPAN: readonly [number, number] = [-0.2, 1.2];
+/**
  * At the settled frame, at most this share of a scene's parts may be ones it
  * showed lit (>= `LIT`) earlier and has left dimmed (< `DIM`). Round 2 kept
  * three scenes that ended on a frame of ghosts; the founder's rule is that the
@@ -178,7 +200,7 @@ export interface Geo {
   boxes: Array<{ a: string; u: string | null; o: number; b: [number, number, number, number] }>;
   /** Visible stroke samples, body px, with the label unit they belong to. */
   points: Array<[number, number, string | null]>;
-  /** Each visible part's opacity and what dims it (`tag:index`, `#id` appended when it has one). */
+  /** Each visible part's opacity and what dims it (`tag:index`, `#id` appended when it has one, then `@` its own opacity). */
   parts: Array<{ a: string; al: number; dim: string[] }>;
 }
 
@@ -237,6 +259,10 @@ export interface Layout {
   faint?: string[];
   /** End row: the scene's own tweens that animate a label, plate, chip, card or bar into place (`ui_motion`). */
   uiMotion?: string[];
+  /** Height share of the body box the drawing spans (bespoke scenes), for \`hollow_hold\`. */
+  span?: number;
+  /** Pairs of alike filled dots drawn into each other (\`marks_overlap\`). */
+  marksOverlap?: string[];
 }
 
 /**
@@ -645,9 +671,10 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
       );
     add("stray_marker", r, r.strays ?? [], "a marker without its line —");
     const starts = r.cueStarts ?? [];
+    // Cue 1's group may stand from the first frame: the seam cuts to it (`seam_blank`).
     const early = (r.revealed ?? []).filter((g) => {
       const t0 = starts[g.cue - 1];
-      return t0 !== undefined && r.t < t0 - EARLY_SLACK;
+      return g.cue > 1 && t0 !== undefined && r.t < t0 - EARLY_SLACK;
     });
     add(
       "early_reveal",
@@ -693,6 +720,22 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         r,
         [`${r.onPicture} numbers`],
         "a table or chart is painted over the illustration — a data beat gets its own chart, not a picture under it:",
+      );
+    // Held frames — a later cue's end, and the end: no hollow band, no dots piled on each other.
+    const held = r.key === "end" || Number(/^c(\d+)z$/.exec(r.key)?.[1] ?? 0) >= 2;
+    if (held && r.span !== undefined && r.span < HOLD_SPAN_MIN)
+      add(
+        "hollow_hold",
+        r,
+        [`${Math.round(100 * r.span)}% of its height`],
+        `the drawing spans under ${100 * HOLD_SPAN_MIN}% of the box's height while the cue holds — a band through empty space:`,
+      );
+    if (held)
+      add(
+        "marks_overlap",
+        r,
+        r.marksOverlap ?? [],
+        "alike dots are drawn into each other — space them, or make the overlap the point and show it:",
       );
     if (r.key !== "end" || r.fill === undefined) continue;
     // The settled frame is the summary: the whole scene, lit, at full view.
@@ -988,6 +1031,52 @@ export interface ProbedFrame {
   png: Buffer;
 }
 
+/** How long the stage stood empty across the seam into one scene (`seam_blank`). */
+export interface SeamSample {
+  sid: string;
+  /** The longest run, seconds, with under `SEAM_PAINT_MIN` of the frame painted. */
+  blank: number;
+  /** Scene seconds (negative: before the seam) where that run starts. */
+  at: number;
+  /** Whether the incoming scene is a generated (bespoke) one. */
+  bespoke: boolean;
+}
+
+export function gradeSeams(rows: readonly SeamSample[]): Finding[] {
+  return rows
+    .filter((r) => r.blank > SEAM_BLANK_MAX + 1e-6)
+    .map((r) => ({
+      severity: r.bespoke ? ("error" as const) : ("warning" as const),
+      gate: "layout",
+      rule: "seam_blank",
+      message: `#${r.sid}: the stage is empty for ${r.blank.toFixed(2)}s at the seam into it (from ${r.at >= 0 ? "+" : ""}${r.at.toFixed(2)}s; at most ${SEAM_BLANK_MAX}s) — cue 1's group stands from the scene's first frame, so the seam cuts straight to it.`,
+    }));
+}
+
+/**
+ * Serialised into the page: the share of the frame painted by everything but
+ * the headline chrome (#sid-e, #sid-h) — shapes, pictures and words, each by
+ * its visible box times its opacity, capped at the whole frame.
+ */
+const STAGE_PAINT = `() => {
+  const W = innerWidth, H = innerHeight;
+  const alpha = (el) => { let o = 1; for (let e = el; e && e.nodeType === 1; e = e.parentElement) { const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return 0; o *= Number(cs.opacity); } return o; };
+  let paint = 0;
+  const words = (el) => !(el instanceof SVGElement) && Array.prototype.some.call(el.childNodes, (n) => n.nodeType === 3 && n.textContent.trim());
+  for (const el of document.querySelectorAll("path,rect,circle,ellipse,line,polyline,polygon,text,image,img,canvas,video,p,span,div,li,h1,h2,h3,b,strong,em,small")) {
+    if (!(el instanceof SVGElement) && !/^(img|canvas|video)$/i.test(el.tagName) && !words(el)) continue;
+    if (el.closest("defs, clipPath, mask, marker, pattern, symbol")) continue;
+    const c = el.closest("[id$='-e'], [id$='-h']");
+    if (c && /^s\\d+-(e|h)$/.test(c.id)) continue;
+    const r = el.getBoundingClientRect();
+    const w = Math.max(0, Math.min(W, r.right) - Math.max(0, r.left)), h = Math.max(0, Math.min(H, r.bottom) - Math.max(0, r.top));
+    if (w * h < 64) continue;
+    const a = alpha(el);
+    if (a >= 0.15) paint += w * h * a;
+  }
+  return Math.min(1, paint / (W * H));
+}`;
+
 export interface Probe {
   findings: Finding[];
   /** Ascending-pass frames, for a contact sheet. */
@@ -1001,6 +1090,8 @@ export interface Probe {
   cuts: CutSample[];
   /** Each morphSVG tween's shape through its run (`morph_glitch`). */
   morphs: MorphSample[];
+  /** The stage across each seam into a probed scene (`seam_blank`). */
+  seams: SeamSample[];
 }
 
 export interface ProbeOptions {
@@ -1038,6 +1129,7 @@ export async function probeScenes(
   const cams: CamSample[] = [];
   const cuts: CutSample[] = [];
   const morphs: MorphSample[] = [];
+  const seams: SeamSample[] = [];
   const warm = new Map<string, Map<string, Buffer>>();
   const deck = await opts.open();
   try {
@@ -1182,6 +1274,26 @@ export async function probeScenes(
           [...times].sort((a, b) => ((a.t * 7919) % 1) - ((b.t * 7919) % 1)),
         );
       }
+      // The seam into this scene, after its own probe made its first history.
+      if (gates.has("layout") && w.start > 0) {
+        let run = 0;
+        let best = { blank: 0, at: 0 };
+        for (let t = SEAM_SPAN[0]; t <= SEAM_SPAN[1] + 1e-9; t += SEAM_STEP) {
+          await deck.seek(w.start + t);
+          const p = (await deck.page.evaluate(`(${STAGE_PAINT})()`)) as number;
+          run = p < SEAM_PAINT_MIN ? run + SEAM_STEP : 0;
+          if (run > best.blank + 1e-9) best = { blank: run, at: t - run + SEAM_STEP };
+        }
+        const bespoke = (await deck.page.evaluate(
+          `!!document.querySelector(${JSON.stringify(`#${w.sid}-g.ds-bespoke`)})`,
+        )) as boolean;
+        seams.push({
+          sid: w.sid,
+          blank: Math.round(best.blank * 100) / 100,
+          at: Math.round(best.at * 100) / 100,
+          bespoke,
+        });
+      }
     }
   } finally {
     await deck.close();
@@ -1223,8 +1335,9 @@ export async function probeScenes(
     ...(gates.has("layout") ? gradeCuts(cuts) : []),
     ...(gates.has("motion") ? gradeMorphs(morphs) : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
+    ...(gates.has("layout") ? gradeSeams(seams) : []),
   ];
-  return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs };
+  return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs, seams };
 }
 
 /**
@@ -1332,7 +1445,9 @@ const CAM = `(sid) => {
  * what a frame happens to show. A tween counts when it MOVES or RESIZES (x, y,
  * scale, width, height, their attr forms…) an element of the scene that is
  * a label (carries text), a plate, chip or card (a rect, a foreignObject or a
- * boxed HTML element), or a bar (a rect whose size grows). A word that only
+ * boxed HTML element), or a bar (a rect whose size changes, or a path or
+ * polygon GROWN into place from under 70% of its size — r1's final review
+ * found charts and strands grown on paths the rect rule missed). A word that only
  * fades, a dot or a path that travels (flow, particles), and everything the
  * shell owns (its camera, depth planes, light and breathing) do not count.
  */
@@ -1348,6 +1463,8 @@ const UI = `(sid) => {
   const out = new Set();
   for (const tw of tl.getChildren(true, true, false)) {
     const vars = tw.vars || {};
+    // The shell's own tweens (its counter-scale of words under a camera) are not the scene's.
+    if (vars.data === "shell") continue;
     const from = vars.startAt || {};
     const moved = (k, a) => {
       const to = num(a ? (vars.attr || {})[k] : vars[k]);
@@ -1355,12 +1472,22 @@ const UI = `(sid) => {
       if (!Number.isFinite(to) || !Number.isFinite(fr)) return true;
       return /scale/.test(k) ? Math.abs(to - fr) > 0.02 : Math.abs(to - fr) > 2;
     };
+    // A size tween that GROWS the element into place (from under 70% of where it ends): a bar, a chart.
+    const grows = (k, a) => {
+      const to = num(a ? (vars.attr || {})[k] : vars[k]);
+      const fr = num(a ? (from.attr || {})[k] : from[k]);
+      return !Number.isFinite(to) || !Number.isFinite(fr) || fr < 0.7 * to;
+    };
+    const grown = Object.keys(vars).some((k) => SIZE.test(k) && grows(k, false)) ||
+      Object.keys(vars.attr || {}).some((k) => /^(width|height)$/.test(k) && grows(k, true));
     const props = Object.keys(vars).filter((k) => MOVE.test(k) && moved(k, false))
       .concat(Object.keys(vars.attr || {}).filter((k) => ATTR.test(k) && moved(k, true)).map((k) => "attr." + k));
     if (!props.length) continue;
     for (const el of tw.targets()) {
       if (!(el instanceof Element) || !box.contains(el)) continue;
       if ((el.id && shell.test(el.id)) || el.closest(".ds-plane, .ds-air, .ds-subjects")) continue;
+      // A clip or a mask's shape is a reveal, not a thing on screen.
+      if (el.closest("defs, clipPath, mask")) continue;
       const tag = el.tagName.toLowerCase();
       const text = (el.textContent || "").trim().length > 0;
       const boxed = tag === "rect" || tag === "foreignobject" || !!el.querySelector("rect, foreignObject") ||
@@ -1369,6 +1496,8 @@ const UI = `(sid) => {
       if (text && boxed) kind = "plate";
       else if (text) kind = "label";
       else if (tag === "rect" && props.some((k) => SIZE.test(k))) kind = "bar";
+      // A filled path or polygon grown into place is a bar or a chart drawn the template way.
+      else if ((tag === "path" || tag === "polygon") && grown && (() => { const cs = getComputedStyle(el); return cs.fill !== "none" || el.getBBox().width * el.getBBox().height > 400; })()) kind = "bar";
       else if (boxed && tag !== "rect") kind = "card";
       if (kind) out.add(kind + " " + (el.id || tag) + " (" + props.join("/") + ")");
     }
@@ -1561,7 +1690,7 @@ const MEASURE = `(sid, wantGeo) => {
   // The body box a bespoke scene draws in. Absent on an archetype's scene, and
   // then there is no stage to fill and no cue group to reveal.
   const box = document.getElementById(sid + "-g");
-  let fill, maxType, maxDeclared, cells, groups, revealed, dimmed, faint;
+  let fill, span, maxType, maxDeclared, cells, groups, revealed, dimmed, faint, marksOverlap;
   if (box) {
     const b = box.getBoundingClientRect();
     const mine = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, x: t.x, y: t.y, w: t.w, h: t.h }))
@@ -1578,6 +1707,7 @@ const MEASURE = `(sid, wantGeo) => {
     if (parts.length && b.width > 0 && b.height > 0) {
       const u = parts.reduce((a, p) => ({ x0: Math.min(a.x0, p.x0), y0: Math.min(a.y0, p.y0), x1: Math.max(a.x1, p.x1), y1: Math.max(a.y1, p.y1) }));
       fill = ((u.x1 - u.x0) * (u.y1 - u.y0)) / (b.width * b.height);
+      span = (u.y1 - u.y0) / b.height;
       // How many of a 6x4 grid's cells something is drawn in: a bbox can be
       // stretched by one stray dot, a grid cannot.
       let n = 0;
@@ -1625,6 +1755,28 @@ const MEASURE = `(sid, wantGeo) => {
       }
       return false;
     };
+    // Alike filled dots drawn into each other: deeper than half the smaller's radius.
+    const dots = [];
+    for (const el of box.querySelectorAll("circle, ellipse")) {
+      if (el.closest("defs, clipPath, mask, marker, pattern, symbol, .ds-plane, .ds-subjects")) continue;
+      const cs = getComputedStyle(el);
+      if (!cs.fill || cs.fill === "none" || Number(cs.fillOpacity) < 0.3) continue;
+      let a = 1;
+      for (let e = el; e && e !== document.body; e = e.parentElement) { const c = getComputedStyle(e); if (c.display === "none" || c.visibility === "hidden") { a = 0; break; } a *= Number(c.opacity); }
+      if (a < 0.5) continue;
+      const r = el.getBoundingClientRect();
+      const rr = Math.min(r.width, r.height) / 2;
+      if (rr < ${MARK_R[0]} || rr > ${MARK_R[1]} || Math.abs(r.width - r.height) > 0.2 * r.width) continue;
+      dots.push({ id: el.id || "circle", x: r.x + r.width / 2, y: r.y + r.height / 2, r: rr });
+    }
+    marksOverlap = [];
+    for (let i = 0; i < dots.length && marksOverlap.length < 6; i++)
+      for (let j = i + 1; j < dots.length; j++) {
+        const p = dots[i], q = dots[j];
+        if (Math.max(p.r, q.r) > 1.5 * Math.min(p.r, q.r)) continue;
+        const d = Math.hypot(p.x - q.x, p.y - q.y);
+        if (d < p.r + q.r - 0.5 * Math.min(p.r, q.r)) marksOverlap.push(p.id + " × " + q.id + " (" + Math.round(d) + "px apart)");
+      }
     faint = [];
     for (const t of texts) {
       if (!box.contains(t.el) || t.o <= 0.15) continue;
@@ -1791,7 +1943,7 @@ const MEASURE = `(sid, wantGeo) => {
         const dim = [];
         if (p.o < 0.95)
           for (let e = p.el; e && e !== box; e = e.parentElement)
-            if (index.has(e) && own(e) < 0.95) dim.push(index.get(e) + (e.id ? "#" + e.id : ""));
+            if (index.has(e) && own(e) < 0.95) dim.push(index.get(e) + (e.id ? "#" + e.id : "") + "@" + own(e).toFixed(2));
         return { a: index.get(p.el) || "", al: Math.round(p.o * 100) / 100, dim };
       });
     const camEl = document.getElementById(sid + "-cam");
@@ -1799,7 +1951,7 @@ const MEASURE = `(sid, wantGeo) => {
     const cs = ct && ct !== "none" ? Number(ct.slice(ct.indexOf("(") + 1).split(",")[0]) || 1 : 1;
     geo = { w: Math.round(ob.width), h: Math.round(ob.height), cs: Math.round(cs * 1000) / 1000, labels, boxes, points, parts };
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, maxDeclared, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint };
+  return { crossings, occlusions, overlaps, small, off, strays, fill, span, cells, maxType, maxDeclared, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint, marksOverlap };
 }`;
 
 /**

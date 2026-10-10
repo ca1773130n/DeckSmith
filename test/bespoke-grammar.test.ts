@@ -388,26 +388,26 @@ describe("effective resolution", () => {
 describe("data builds", () => {
   it("gives each data beat of a deck its own build, best fit first", () => {
     const prior: DataBuild[] = [];
-    for (const a of ["bar-compare", "bar-compare", "line-chart", "data-table"])
-      prior.push(chooseBuild(a, prior));
-    expect(new Set(prior).size).toBe(4);
+    for (const a of ["bar-compare", "bar-compare", "line-chart"]) prior.push(chooseBuild(a, prior));
+    expect(new Set(prior).size).toBe(3);
     expect(prior[0]).toBe("delta");
-    expect(buildRepeats(["delta", "bar-race", "delta"])).toEqual(["delta"]);
+    // A fourth reuses one, never the one before it.
+    expect(chooseBuild("data-table", prior)).not.toBe(prior[2]);
+    expect(buildRepeats(["delta", "line-callout", "delta"])).toEqual(["delta"]);
+    // Round 6: no bar race — bars that grow and slide to their rank are UI motion.
+    expect(BUILDS).not.toContain("bar-race");
   });
 
-  const cam = 'tl.to("#SCENEID-cam", { scale: 1.8, x: -300, y: -100, duration: 1 }, 4);';
+  const cam =
+    'tl.fromTo("#SCENEID-cam", { scale: 1, x: 0, y: 0 }, { scale: 1.8, x: -300, y: -100, duration: 1 }, 4);';
   const ok: Record<DataBuild, { markup: string; script: string }> = {
-    "bar-race": {
-      markup: '<g data-build="bar-race"><g data-bar="1"/><g data-bar="1"/><g data-bar="1"/></g>',
-      script: `tl.to("#SCENEID-b1", { y: 120, duration: 0.6 }, 5);\n${cam}`,
-    },
     "line-callout": {
       markup: '<g data-build="line-callout"><path id="SCENEID-l"/><g data-callout="1"/></g>',
-      script: `tl.to("#SCENEID-l", { drawSVG: "0% 100%", duration: 2 }, 1);\n${cam}`,
+      script: `tl.fromTo("#SCENEID-l", { drawSVG: "0% 100%" }, { drawSVG: "0% 100%", duration: 2 }, 1);\n${cam}`,
     },
     delta: {
       markup: '<g data-build="delta"><g data-delta="1"/></g>',
-      script: `tl.to("#SCENEID-d", { textContent: 12, snap: { textContent: 1 }, duration: 1 }, 3);\n${cam}`,
+      script: `tl.fromTo("#SCENEID-d", { textContent: 0 }, { textContent: 12, snap: { textContent: 1 }, duration: 1 }, 3);\n${cam}`,
     },
     "small-multiples": {
       markup:
@@ -420,7 +420,7 @@ describe("data builds", () => {
     it(`"${b}" passes with its marks and a camera, and fails without them`, () => {
       expect(checkBuild(ok[b], b)).toEqual([]);
       // Declared as another build.
-      expect(checkBuild(ok[b], b === "delta" ? "bar-race" : "delta").length).toBeGreaterThan(0);
+      expect(checkBuild(ok[b], b === "delta" ? "line-callout" : "delta").length).toBeGreaterThan(0);
       // No camera.
       expect(
         checkBuild({ ...ok[b], script: ok[b].script.replace(cam, "") }, b).some((f) =>
@@ -439,7 +439,7 @@ describe("the deck's variety, in verify", () => {
   it("refuses two consecutive illustrated scenes in one grammar, and two data scenes that build alike", () => {
     const fine = scanStagingVariety([
       scene(2, "rack") + scene(3) + scene(5, "follow"),
-      scene(7, "wipe") + scene(8, undefined, "delta") + scene(9, undefined, "bar-race"),
+      scene(7, "wipe") + scene(8, undefined, "delta") + scene(9, undefined, "small-multiples"),
     ]);
     expect(fine.filter((f) => f.severity === "error")).toEqual([]);
     const bad = scanStagingVariety([

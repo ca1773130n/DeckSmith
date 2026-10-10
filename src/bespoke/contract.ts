@@ -534,8 +534,40 @@ const DENY_NAMES = new Set([
 /** GSAP: what a seek-only scene may ask of it. No `from`, no `to` off the timeline, no ticker. */
 const GSAP_OK = new Set(["set", "utils"]);
 const UTILS_OK = new Set(["interpolate", "clamp", "mapRange", "normalize", "snap", "wrap"]);
-/** The scene's timeline: tweens at explicit positions, and nothing that plays it or calls back. */
-const TL_OK = new Set(["to", "fromTo", "set"]);
+/**
+ * The scene's timeline: tweens at explicit positions, and nothing that plays it
+ * or calls back. Every tween is a `fromTo` (AGENTS.md invariant 2): a `to` reads
+ * its start from whatever the page holds when GSAP first renders it, so a seek
+ * out of order can start it from the wrong place.
+ */
+const TL_OK = new Set(["fromTo", "set"]);
+/** A tween's settings, not the properties it animates: a `fromTo`'s from state needs none of them. */
+const TWEEN_META = new Set([
+  "duration",
+  "ease",
+  "delay",
+  "repeat",
+  "yoyo",
+  "repeatDelay",
+  "stagger",
+  "immediateRender",
+  "overwrite",
+  "snap",
+  "transformOrigin",
+  "svgOrigin",
+]);
+/** The properties a vars literal animates (`attr.x` for a nested attr), its settings left out. */
+function tweenKeys(o: AnyNode): string[] {
+  return (o.properties as AnyNode[]).flatMap((p) => {
+    if (p.type !== "Property") return [];
+    const k = p.key as AnyNode;
+    const name = String(k.type === "Identifier" ? k.name : k.value);
+    const v = p.value as AnyNode;
+    if (v.type === "ObjectExpression" && (name === "attr" || name === "css"))
+      return tweenKeys(v).map((x) => `${name}.${x}`);
+    return TWEEN_META.has(name) ? [] : [name];
+  });
+}
 const ROOT_OK = new Set(["querySelector", "querySelectorAll"]);
 
 /** Vars keys that make state depend on something other than the seek time. */
@@ -774,7 +806,12 @@ export function checkScript(script: string): StaticFinding[] {
           const o = obj.name as string;
           const allowed =
             o === "gsap" ? GSAP_OK : o === "tl" ? TL_OK : o === "root" ? ROOT_OK : undefined;
-          if (allowed && (name === undefined || !allowed.has(name)))
+          if (o === "tl" && (name === "to" || name === "from"))
+            bad(
+              "script_fromto",
+              `tl.${name}(…) is refused — every tween is tl.fromTo(target, {from}, {to}, SECONDS), its start state written out (invariant 2)`,
+            );
+          else if (allowed && (name === undefined || !allowed.has(name)))
             bad("script_api", `${o}.${name ?? "[…]"} is not part of the scene contract`);
           if (o === "Math" && (name === undefined || name === "random"))
             bad(
@@ -986,6 +1023,25 @@ function checkCall(n: AnyNode, bad: (rule: string, message: string) => void): vo
       if (v?.type !== "ObjectExpression")
         bad("script_vars", `${what} needs its vars as an object literal, so they can be read here`);
       else checkMorph(v, what, bad);
+    }
+    const [from, to] = vars;
+    if (
+      method === "fromTo" &&
+      from?.type === "ObjectExpression" &&
+      to?.type === "ObjectExpression"
+    ) {
+      const has = new Set(tweenKeys(from));
+      const missing = tweenKeys(to).filter((k) => k !== "keyframes" && !has.has(k));
+      if (missing.length)
+        bad(
+          "script_fromto",
+          `${what} names no start for ${missing.join(", ")} — the from state gives every property the tween moves (invariant 2)`,
+        );
+      if (tweenKeys(to).includes("keyframes"))
+        bad(
+          "script_fromto",
+          `${what} with keyframes — a path is one fromTo per segment, each from where the last ended, immediateRender:false after the first`,
+        );
     }
     if (on === "tl") {
       const posIndex = method === "fromTo" ? 3 : 2;

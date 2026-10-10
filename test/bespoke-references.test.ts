@@ -130,7 +130,7 @@ const DEPTH_CUES = [
 const DEPTH_SCENE: Fragment = {
   markup: `<svg id="SCENEID-svg" width="1920" height="1080" viewBox="0 0 1920 1080" style="position:absolute;left:0;top:0;overflow:visible"><g id="SCENEID-say" data-cue="4"><text id="SCENEID-t" x="960" y="760" font-size="44" fill="{{fg}}" text-anchor="middle" dominant-baseline="middle">one whistle</text></g></svg>`,
   css: "",
-  script: `gsap.set("#SCENEID-say", { opacity: 0 });\ntl.to("#SCENEID-say", { opacity: 1, duration: 0.6 }, 13.6);`,
+  script: `gsap.set("#SCENEID-say", { opacity: 0 });\ntl.fromTo("#SCENEID-say", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 13.6);`,
   shots: [
     { cue: 2, at: 0, subject: 1 },
     { cue: 3, at: 0, subject: 2 },

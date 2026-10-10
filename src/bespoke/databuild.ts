@@ -14,45 +14,43 @@
  * its root group (`data-build`), carries the marks the build is made of, and
  * moves the camera; the shell stamps it on the scene (`data-ds-build`) so the
  * deck gate (`verify`) refuses two data beats that build alike.
+ *
+ * ROUND 6 dropped the bar race: bars growing from zero and sliding to their
+ * rank are the animated UI the founder called old-fashioned, and `ui_motion`
+ * refuses them. A chart's marks stand at their size and come on by drawing or
+ * fading; the camera and the voice carry the comparison.
  */
 
 /** A data beat's build. */
-export type DataBuild = "bar-race" | "line-callout" | "delta" | "small-multiples";
+export type DataBuild = "line-callout" | "delta" | "small-multiples";
 
-export const BUILDS: readonly DataBuild[] = [
-  "bar-race",
-  "line-callout",
-  "delta",
-  "small-multiples",
-];
+export const BUILDS: readonly DataBuild[] = ["line-callout", "delta", "small-multiples"];
 
 /** Each data archetype's builds, best fit first; every build appears for every archetype. */
 const FIT: Readonly<Record<string, readonly DataBuild[]>> = {
-  "bar-compare": ["delta", "bar-race", "small-multiples", "line-callout"],
-  "line-chart": ["line-callout", "small-multiples", "delta", "bar-race"],
-  "data-table": ["bar-race", "small-multiples", "delta", "line-callout"],
+  "bar-compare": ["delta", "small-multiples", "line-callout"],
+  "line-chart": ["line-callout", "small-multiples", "delta"],
+  "data-table": ["small-multiples", "delta", "line-callout"],
 };
 
 /**
  * The build for a data beat of `archetype`, given the builds of the data beats
- * before it in deck order: the best fit the deck has not used; past four data
+ * before it in deck order: the best fit the deck has not used; past three data
  * beats, the best fit that is not the previous one.
  */
 export function chooseBuild(archetype: string, prior: readonly DataBuild[]): DataBuild {
   const order = FIT[archetype] ?? BUILDS;
   const used = new Set(prior);
   const last = prior[prior.length - 1];
-  return order.find((b) => !used.has(b)) ?? order.find((b) => b !== last) ?? "bar-race";
+  return order.find((b) => !used.has(b)) ?? order.find((b) => b !== last) ?? "delta";
 }
 
 /** What each build is, as the prompt says it. */
 export const BUILD_NOTES: Readonly<Record<DataBuild, string>> = {
-  "bar-race":
-    'A BAR RACE. The bars grow from zero together (counters counting with them), then RE-SORT: each bar slides to its rank (tween its group\'s y, or x for columns) so the order itself is the reveal; the winner lights in the accent, the rest dim to 0.3. Mark every bar group data-bar="1".',
   "line-callout":
     'A LINE DRAWN WITH A CALLOUT. Axes draw on; the line traces left to right (drawSVG on its path) with a dot riding its head; at the point the voice names, the line pauses and a CALLOUT draws on — a ring on the point, a leader, and its value counted in. Put the callout in <g data-callout="1">.',
   delta:
-    'HIGHLIGHT THE DELTA. The two (or few) values come on side by side; then the GAP between them is the subject: a bracket draws across it, the gap fills in the accent, and the difference counts in big beside it. Put the bracket, fill and difference in <g data-delta="1">, and count the difference with a textContent tween.',
+    'HIGHLIGHT THE DELTA. The two (or few) values come on side by side, each standing at its size (it fades or draws on; a bar never grows from zero); then the GAP between them is the subject: a bracket draws across it, the gap fills in the accent, and the difference counts in big beside it. Put the bracket, fill and difference in <g data-delta="1">, and count the difference with a textContent tween.',
   "small-multiples":
     'SMALL MULTIPLES. One small panel per series or condition, three or more, side by side with the same axes; each builds in turn as the voice names it (its mark draws on, its value counts), then all light together for the comparison. Mark every panel <g data-panel="1">.',
 };
@@ -83,12 +81,6 @@ export function checkBuild(
     );
   const count = (attr: string) =>
     [...m.matchAll(new RegExp(`\\s${attr}\\s*=\\s*["']?1`, "g"))].length;
-  if (build === "bar-race") {
-    if (count("data-bar") < 3) bad('a bar race has three or more bars, each a <g data-bar="1">');
-    // The re-sort: a bar group moved along y (or x) after it has grown.
-    if (!/\b(y|x)\s*:\s*-?[\d.]+/.test(s) && !/attr\s*:\s*\{[^}]*\b(y|x|transform)\b/.test(s))
-      bad("a bar race re-sorts: tween each bar group's y (or x) to its rank after it grows");
-  }
   if (build === "line-callout") {
     if (!/drawSVG/.test(s)) bad("the line is traced with drawSVG");
     if (count("data-callout") < 1) bad('the callout is a <g data-callout="1">');

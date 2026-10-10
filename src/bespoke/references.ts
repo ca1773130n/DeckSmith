@@ -13,6 +13,10 @@
  * motion-design habits round 1 lacked:
  *
  *  - THE STAGE IS FILLED: every reference spans >= 85% of its box at the end.
+ *  - CUE 1 STANDS FROM THE FIRST FRAME (round 6): the seam cuts to it, so the
+ *    stage is never empty between scenes (`seam_blank`).
+ *  - EVERY TWEEN IS A fromTo (AGENTS.md invariant 2), its start written out; a
+ *    later one on the same property has immediateRender:false.
  *  - QUIET TYPE (the v2 scale, `TYPE_SCALE`, since 2026-10-10): one focal
  *    label or number per cue at 56px at most; labels 40-44px; nothing under
  *    40px. They were 88-120px focal and 48-60px labels, and the founder's
@@ -127,43 +131,44 @@ gsap.set(ps, { opacity: 0, x: 0, y: 0 });
 gsap.set("#SCENEID-saving", { opacity: 0 });
 
 // C1 1.0-4.6 "Every token arrives at the router." — the queue pops in, then streams into the router.
-tl.to("#SCENEID-tokens-label", { opacity: 1, duration: 0.4 }, 1.0);
-tl.to(tokens, { scale: 1, duration: 0.5, ease: "back.out(2)", stagger: 0.08 }, 1.05);
-tl.to(["#SCENEID-disc", "#SCENEID-disc-fill"], { scale: 1, duration: 0.7, ease: "expo.out" }, 1.4);
-tl.to("#SCENEID-router-label", { opacity: 1, duration: 0.4 }, 1.8);
+tl.fromTo("#SCENEID-tokens-label", { opacity: 0 }, { opacity: 1, duration: 0.2 }, 0);
+tl.fromTo(tokens, { scale: 0 }, { scale: 1, duration: 0.5, ease: "back.out(2)", stagger: 0.08 }, 1.05);
+tl.fromTo(["#SCENEID-disc", "#SCENEID-disc-fill"], { scale: 0 }, { scale: 1, duration: 0.7, ease: "expo.out" }, 1.4);
+tl.fromTo("#SCENEID-router-label", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.8);
 for (var k = 0; k < 5; k++) {
-  tl.to(stream[k], { opacity: 1, duration: 0.1 }, 2.2 + k * 0.15);
-  tl.to(stream[k], { x: 440, y: 370 - ys[k], duration: 0.9, ease: "power2.in", repeat: 2 }, 2.2 + k * 0.15);
-  tl.to(stream[k], { opacity: 0, duration: 0.1 }, 4.9 + k * 0.15);
+  tl.fromTo(stream[k], { opacity: 0 }, { opacity: 1, duration: 0.1 }, 2.2 + k * 0.15);
+  tl.fromTo(stream[k], { x: 0, y: 0 }, { x: 440, y: 370 - ys[k], duration: 0.9, ease: "power2.in", repeat: 2 }, 2.2 + k * 0.15);
+  tl.fromTo(stream[k], { opacity: 1 }, { opacity: 0, duration: 0.1, immediateRender: false }, 4.9 + k * 0.15);
 }
 
 // C2 4.6-9.0 "The router scores all four experts," — experts fade in where they stand, wires draw, scores light.
-tl.to(experts, { opacity: 1, duration: 0.6, ease: "power3.out", stagger: 0.15 }, 4.7);
-tl.to(wires, { opacity: 1, duration: 0.01, stagger: 0.2 }, 5.0);
-tl.to(wires, { drawSVG: "0% 100%", duration: 0.7, ease: "power2.inOut", stagger: 0.2 }, 5.0);
-tl.to(bars, { opacity: 1, duration: 0.9, ease: "power2.out", stagger: 0.3 }, 6.4);
-tl.to("#SCENEID-disc", { scale: 1.05, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.6);
+tl.fromTo(experts, { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power3.out", stagger: 0.15 }, 4.7);
+tl.fromTo(wires, { opacity: 0 }, { opacity: 1, duration: 0.01, stagger: 0.2 }, 5.0);
+tl.fromTo(wires, { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 0.7, ease: "power2.inOut", stagger: 0.2 }, 5.0);
+tl.fromTo(bars, { opacity: 0 }, { opacity: 1, duration: 0.9, ease: "power2.out", stagger: 0.3 }, 6.4);
+tl.fromTo("#SCENEID-disc", { scale: 1 }, { scale: 1.05, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut", immediateRender: false }, 7.6);
 
 // C3 9.0-13.4 "and sends each token to its top two." — focus: the two winners light, the rest dim; particles flow.
 // Shapes dim to 0.25; words no lower than 0.6, so they keep 3:1 (gate: dim_text).
-tl.to(["#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 0.25, duration: 0.5 }, 9.1);
-tl.to(["#SCENEID-expert1", "#SCENEID-expert3"], { opacity: 0.6, duration: 0.5 }, 9.1);
-tl.to(["#SCENEID-wire0", "#SCENEID-wire2"], { stroke: "{{accent}}", strokeWidth: 12, duration: 0.5 }, 9.1);
+tl.fromTo(["#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 1 }, { opacity: 0.25, duration: 0.5, immediateRender: false }, 9.1);
+tl.fromTo(["#SCENEID-expert1", "#SCENEID-expert3"], { opacity: 1 }, { opacity: 0.6, duration: 0.5, immediateRender: false }, 9.1);
+tl.fromTo(["#SCENEID-wire0", "#SCENEID-wire2"], { stroke: "{{rule}}", strokeWidth: 7 }, { stroke: "{{accent}}", strokeWidth: 12, duration: 0.5 }, 9.1);
 var dest = [[286, -268], [286, 84]];
 for (var n = 0; n < 6; n++) {
   var d = dest[n % 2];
-  tl.to(ps[n], { opacity: 1, duration: 0.15 }, 9.6 + n * 0.35);
-  tl.to(ps[n], { x: d[0], y: d[1], duration: 0.9, ease: "none", repeat: 2 }, 9.6 + n * 0.35);
-  tl.to(ps[n], { opacity: 0, duration: 0.2 }, 13.1);
+  tl.fromTo(ps[n], { opacity: 0 }, { opacity: 1, duration: 0.15 }, 9.6 + n * 0.35);
+  tl.fromTo(ps[n], { x: 0, y: 0 }, { x: d[0], y: d[1], duration: 0.9, ease: "none", repeat: 2 }, 9.6 + n * 0.35);
+  tl.fromTo(ps[n], { opacity: 1 }, { opacity: 0, duration: 0.2, immediateRender: false }, 13.1);
 }
 
 // C4 13.4-17.8 "Only those run, so compute drops by half." — the consequence, as a number that moves.
-tl.to("#SCENEID-saving", { opacity: 1, duration: 0.5, ease: "power3.out" }, 13.5);
-tl.to("#SCENEID-count", { textContent: 50, snap: { textContent: 1 }, duration: 1.8, ease: "power2.inOut" }, 13.7);
-tl.to(["#SCENEID-box0", "#SCENEID-box2"], { stroke: "{{accent}}", fillOpacity: 0.32, duration: 0.5 }, 13.7);
-tl.to(["#SCENEID-bar0", "#SCENEID-bar2"], { opacity: 0.55, duration: 0.45, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.6);
+tl.fromTo("#SCENEID-saving", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power3.out" }, 13.5);
+tl.fromTo("#SCENEID-count", { textContent: 100 }, { textContent: 50, snap: { textContent: 1 }, duration: 1.8, ease: "power2.inOut" }, 13.7);
+tl.fromTo(["#SCENEID-box0", "#SCENEID-box2"], { stroke: "{{rule}}", fillOpacity: 0.16 }, { stroke: "{{accent}}", fillOpacity: 0.32, duration: 0.5 }, 13.7);
+tl.fromTo(["#SCENEID-bar0", "#SCENEID-bar2"], { opacity: 1 }, { opacity: 0.55, duration: 0.45, yoyo: true, repeat: 3, ease: "sine.inOut", immediateRender: false }, 15.6);
 // The end frame is the summary: everything back at full strength; the winners keep their accent.
-tl.to(["#SCENEID-expert1", "#SCENEID-expert3", "#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 1, duration: 0.5 }, 16.6);`,
+tl.fromTo(["#SCENEID-wire1", "#SCENEID-wire3"], { opacity: 0.25 }, { opacity: 1, duration: 0.5, immediateRender: false }, 16.6);
+tl.fromTo(["#SCENEID-expert1", "#SCENEID-expert3"], { opacity: 0.6 }, { opacity: 1, duration: 0.5, immediateRender: false }, 16.6);`,
   },
 };
 
@@ -241,30 +246,30 @@ gsap.set(links, { drawSVG: "0% 0%", opacity: 0 });
 gsap.set(glows, { opacity: 0 });
 
 // C1 1.0-4.8 "a stack of twelve identical blocks." — a staggered build, then the count lands.
-tl.to(slabs, { opacity: 1, duration: 0.6, ease: "expo.out", stagger: 0.12 }, 1.0);
-tl.to(["#SCENEID-in", "#SCENEID-out"], { opacity: 1, duration: 0.4 }, 2.4);
-tl.to("#SCENEID-times", { opacity: 1, duration: 0.5 }, 2.9);
-tl.to(slabs, { y: -10, duration: 0.3, yoyo: true, repeat: 1, ease: "sine.inOut", stagger: 0.08 }, 3.4);
+tl.fromTo(slabs, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "expo.out", stagger: 0.08 }, 0);
+tl.fromTo(["#SCENEID-in", "#SCENEID-out"], { opacity: 0 }, { opacity: 1, duration: 0.4 }, 2.4);
+tl.fromTo("#SCENEID-times", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 2.9);
+tl.fromTo(slabs, { y: 0 }, { y: -10, duration: 0.3, yoyo: true, repeat: 1, ease: "sine.inOut", stagger: 0.08 }, 3.4);
 
 // C2 4.8-9.2 "Inside each one, attention" — the camera flies into block 6; the others become ghosts.
-tl.to(labels, { opacity: 0, duration: 0.3 }, 4.85);
-tl.to("#SCENEID-svg", { attr: { viewBox: close }, duration: 1.4, ease: "power3.inOut" }, 4.9);
-tl.to(slabs, { opacity: 0.15, duration: 0.5 }, 5.9);
-tl.to("#SCENEID-inside", { opacity: 1, duration: 0.5 }, 6.2);
-tl.to("#SCENEID-att", { opacity: 0.55, duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.2);
+tl.fromTo(labels, { opacity: 1 }, { opacity: 0, duration: 0.3, immediateRender: false }, 4.85);
+tl.fromTo("#SCENEID-svg", { attr: { viewBox: "0 0 1700 732" } }, { attr: { viewBox: close }, duration: 1.4, ease: "power3.inOut" }, 4.9);
+tl.fromTo(slabs, { opacity: 1 }, { opacity: 0.15, duration: 0.5, immediateRender: false }, 5.9);
+tl.fromTo("#SCENEID-inside", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 6.2);
+tl.fromTo("#SCENEID-att", { opacity: 1 }, { opacity: 0.55, duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.2);
 
 // C3 9.2-13.6 "lets every token read from every other." — every link draws; one token's reads are the focus.
-tl.to(links, { opacity: 0.35, duration: 0.01 }, 9.25);
-tl.to(links, { drawSVG: "0% 100%", duration: 0.6, ease: "power2.out", stagger: 0.06 }, 9.3);
-tl.to(row3, { opacity: 1, duration: 0.4 }, 11.4);
-tl.to("#SCENEID-q2", { scale: 1.3, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3 }, 11.6);
+tl.fromTo(links, { opacity: 0 }, { opacity: 0.35, duration: 0.01 }, 9.25);
+tl.fromTo(links, { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 0.6, ease: "power2.out", stagger: 0.06 }, 9.3);
+tl.fromTo(row3, { opacity: 0.35 }, { opacity: 1, duration: 0.4, immediateRender: false }, 11.4);
+tl.fromTo("#SCENEID-q2", { scale: 1 }, { scale: 1.3, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3 }, 11.6);
 
 // C4 13.6-18.0 "the next block does it again, twelve times over." — out to the whole; block after block lights.
-tl.to(["#SCENEID-inside", "#SCENEID-links"], { opacity: 0, duration: 0.3 }, 13.65);
-tl.to(slabs, { opacity: 1, duration: 0.4 }, 13.9);
-tl.to("#SCENEID-svg", { attr: { viewBox: wide }, duration: 1.3, ease: "power3.inOut" }, 13.9);
-tl.to(labels, { opacity: 1, duration: 0.4 }, 15.0);
-tl.to(glows, { opacity: 0.5, duration: 0.3, ease: "power2.out", stagger: 0.14 }, 15.3);`,
+tl.fromTo(["#SCENEID-inside", "#SCENEID-links"], { opacity: 1 }, { opacity: 0, duration: 0.3, immediateRender: false }, 13.65);
+tl.fromTo(slabs, { opacity: 0.15 }, { opacity: 1, duration: 0.4, immediateRender: false }, 13.9);
+tl.fromTo("#SCENEID-svg", { attr: { viewBox: "467 234.4 630 271.3" } }, { attr: { viewBox: wide }, duration: 1.3, ease: "power3.inOut", immediateRender: false }, 13.9);
+tl.fromTo(labels, { opacity: 0 }, { opacity: 1, duration: 0.4, immediateRender: false }, 15.0);
+tl.fromTo(glows, { opacity: 0 }, { opacity: 0.5, duration: 0.3, ease: "power2.out", stagger: 0.14 }, 15.3);`,
   },
 };
 
@@ -334,7 +339,7 @@ const growth: Reference = {
 // Both curves come from one function, so the tracking dot and the line agree.
 function yAt(peak, u) { return 600 - (600 - peak) * (1 - Math.exp(-4 * u)); }
 function trace(peak) {
-  var d = "M220 600", pts = [];
+  var d = "M220 600", pts = [{ x: 0, y: 0 }];
   for (var i = 1; i <= 24; i++) {
     var u = i / 24, x = 220 + 1420 * u, y = yAt(peak, u);
     d += " L" + x.toFixed(1) + " " + y.toFixed(1);
@@ -361,37 +366,41 @@ gsap.set("#SCENEID-ours-area", { opacity: 0 });
 gsap.set("#SCENEID-gain", { opacity: 0 });
 
 // C1 1.0-4.6 "Baseline accuracy rises with more training data" — axes, then the curve traced live.
-tl.to("#SCENEID-axis", { drawSVG: "0% 100%", duration: 0.8, ease: "power2.inOut" }, 1.0);
-tl.to(["#SCENEID-xlab", "#SCENEID-ylab"], { opacity: 1, duration: 0.4 }, 1.5);
-tl.to(["#SCENEID-base-dot", "#SCENEID-readout"], { opacity: 1, duration: 0.3 }, 1.8);
-tl.to("#SCENEID-base-curve", { drawSVG: "0% 100%", duration: 2.6, ease: "none" }, 1.9);
-tl.to("#SCENEID-base-dot", { keyframes: base.pts, duration: 2.6, ease: "none" }, 1.9);
-tl.to("#SCENEID-read", { textContent: 71, snap: { textContent: 1 }, duration: 2.6, ease: "power1.out" }, 1.9);
+tl.fromTo("#SCENEID-axis", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 0.6, ease: "power2.out" }, 0);
+tl.fromTo(["#SCENEID-xlab", "#SCENEID-ylab"], { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.5);
+tl.fromTo(["#SCENEID-base-dot", "#SCENEID-readout"], { opacity: 0 }, { opacity: 1, duration: 0.3 }, 1.8);
+tl.fromTo("#SCENEID-base-curve", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 2.6, ease: "none" }, 1.9);
+// The dot rides the trace: one fromTo per segment, each from where the last ended.
+for (var q = 1; q < base.pts.length; q++)
+  tl.fromTo("#SCENEID-base-dot", { x: base.pts[q - 1].x, y: base.pts[q - 1].y }, { x: base.pts[q].x, y: base.pts[q].y, duration: 2.6 / 24, ease: "none", immediateRender: false }, 1.9 + ((q - 1) * 2.6) / 24);
+tl.fromTo("#SCENEID-read", { textContent: 0 }, { textContent: 71, snap: { textContent: 1 }, duration: 2.6, ease: "power1.out" }, 1.9);
 
 // C2 4.6-9.0 "but flattens out near seventy-one percent." — the ceiling, named where it is.
-tl.to("#SCENEID-plateau-line", { drawSVG: "0% 100%", duration: 1.0, ease: "power2.inOut" }, 4.7);
-tl.to("#SCENEID-plateau-label", { opacity: 1, duration: 0.4 }, 5.4);
-tl.to("#SCENEID-ceiling", { opacity: 1, duration: 0.9, ease: "power3.out" }, 5.6);
-tl.to("#SCENEID-base-dot", { scale: 1.5, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 5, ease: "sine.inOut" }, 6.0);
+tl.fromTo("#SCENEID-plateau-line", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 1.0, ease: "power2.inOut" }, 4.7);
+tl.fromTo("#SCENEID-plateau-label", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 5.4);
+tl.fromTo("#SCENEID-ceiling", { opacity: 0 }, { opacity: 1, duration: 0.9, ease: "power3.out" }, 5.6);
+tl.fromTo("#SCENEID-base-dot", { scale: 1 }, { scale: 1.5, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 5, ease: "sine.inOut" }, 6.0);
 
 // C3 9.0-13.4 "Our method keeps climbing, to eighty-three." — a second trace overtakes; the readout follows it.
 // Shapes dim to 0.3; the word "plateau" no lower than 0.6 (gate: dim_text).
-tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line"], { opacity: 0.3, duration: 0.5 }, 9.05);
-tl.to("#SCENEID-plateau-label", { opacity: 0.6, duration: 0.5 }, 9.05);
-tl.to(["#SCENEID-read", "#SCENEID-read-unit"], { fill: "{{accent}}", duration: 0.3 }, 9.1);
-tl.to("#SCENEID-ours-dot", { opacity: 1, duration: 0.2 }, 9.2);
-tl.to("#SCENEID-ours-curve", { drawSVG: "0% 100%", duration: 3.0, ease: "none" }, 9.3);
-tl.to("#SCENEID-ours-dot", { keyframes: ours.pts, duration: 3.0, ease: "none" }, 9.3);
-tl.to("#SCENEID-read", { textContent: 83, snap: { textContent: 1 }, duration: 3.0, ease: "power1.out" }, 9.3);
-tl.to("#SCENEID-ours-area", { opacity: 1, duration: 0.8, ease: "power2.out" }, 12.4);
+tl.fromTo(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line"], { opacity: 1 }, { opacity: 0.3, duration: 0.5, immediateRender: false }, 9.05);
+tl.fromTo("#SCENEID-plateau-label", { opacity: 1 }, { opacity: 0.6, duration: 0.5, immediateRender: false }, 9.05);
+tl.fromTo(["#SCENEID-read", "#SCENEID-read-unit"], { fill: "{{b}}" }, { fill: "{{accent}}", duration: 0.3 }, 9.1);
+tl.fromTo("#SCENEID-ours-dot", { opacity: 0 }, { opacity: 1, duration: 0.2 }, 9.2);
+tl.fromTo("#SCENEID-ours-curve", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 3.0, ease: "none" }, 9.3);
+for (var r = 1; r < ours.pts.length; r++)
+  tl.fromTo("#SCENEID-ours-dot", { x: ours.pts[r - 1].x, y: ours.pts[r - 1].y }, { x: ours.pts[r].x, y: ours.pts[r].y, duration: 3.0 / 24, ease: "none", immediateRender: false }, 9.3 + ((r - 1) * 3.0) / 24);
+tl.fromTo("#SCENEID-read", { textContent: 71 }, { textContent: 83, snap: { textContent: 1 }, duration: 3.0, ease: "power1.out", immediateRender: false }, 9.3);
+tl.fromTo("#SCENEID-ours-area", { opacity: 0 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, 12.4);
 
 // C4 13.4-17.8 "A twelve-point gain at the same data budget." — the gap is shaded, then BECOMES the number.
-tl.to("#SCENEID-gap", { opacity: 1, duration: 0.5 }, 13.5);
-tl.to("#SCENEID-gap", { morphSVG: "#SCENEID-badge-shape", fillOpacity: 1, duration: 1.2, ease: "power3.inOut" }, 14.3);
-tl.to("#SCENEID-gain", { opacity: 1, duration: 0.4 }, 15.4);
-tl.to("#SCENEID-gain-n", { opacity: 0.6, duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);
+tl.fromTo("#SCENEID-gap", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 13.5);
+tl.fromTo("#SCENEID-gap", { morphSVG: "M1380 307 L1640 301 L1640 158 L1380 167 Z", fillOpacity: 0.22 }, { morphSVG: "#SCENEID-badge-shape", fillOpacity: 1, duration: 1.2, ease: "power3.inOut" }, 14.3);
+tl.fromTo("#SCENEID-gain", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 15.4);
+tl.fromTo("#SCENEID-gain-n", { opacity: 1 }, { opacity: 0.6, duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);
 // The end frame is the summary: the baseline comes back beside the gain it lost to.
-tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line", "#SCENEID-plateau-label"], { opacity: 1, duration: 0.5 }, 16.4);`,
+tl.fromTo(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line"], { opacity: 0.3 }, { opacity: 1, duration: 0.5, immediateRender: false }, 16.4);
+tl.fromTo("#SCENEID-plateau-label", { opacity: 0.6 }, { opacity: 1, duration: 0.5, immediateRender: false }, 16.4);`,
   },
 };
 
@@ -484,32 +493,33 @@ gsap.set("#SCENEID-band-fill", { opacity: 0 });
 gsap.set("#SCENEID-band-label", { opacity: 0 });
 
 // C1 1.0-4.8 "activations spread wide," — the scatter lands, the scale opens under it.
-tl.to(dots, { scale: 1, duration: 0.45, ease: "back.out(2)", stagger: 0.06 }, 1.0);
-tl.to("#SCENEID-axis", { drawSVG: "0% 100%", duration: 1.1, ease: "power3.out" }, 2.4);
-tl.to(["#SCENEID-lo", "#SCENEID-mid", "#SCENEID-hi"], { opacity: 1, duration: 0.4 }, 2.9);
-tl.to(["#SCENEID-sigma", "#SCENEID-sigma-n"], { opacity: 1, duration: 0.4 }, 3.1);
-tl.to(dots, { y: -8, duration: 0.5, yoyo: true, repeat: 1, ease: "sine.inOut", stagger: 0.03 }, 3.6);
+tl.fromTo(dots, { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(2)", stagger: 0.04 }, 0);
+tl.fromTo("#SCENEID-axis", { drawSVG: "50% 50%" }, { drawSVG: "0% 100%", duration: 1.1, ease: "power3.out" }, 2.4);
+tl.fromTo(["#SCENEID-lo", "#SCENEID-mid", "#SCENEID-hi"], { opacity: 0 }, { opacity: 1, duration: 0.4 }, 2.9);
+tl.fromTo(["#SCENEID-sigma", "#SCENEID-sigma-n"], { opacity: 0 }, { opacity: 1, duration: 0.4 }, 3.1);
+tl.fromTo(dots, { y: 0 }, { y: -8, duration: 0.5, yoyo: true, repeat: 1, ease: "sine.inOut", stagger: 0.03 }, 3.6);
 
 // C2 4.8-9.0 "a few outliers dominate every update." — focus: rings draw on the four, the rest dim.
-tl.to(rings, { opacity: 1, duration: 0.01, stagger: 0.2 }, 4.9);
-tl.to(rings, { drawSVG: "0% 100%", duration: 0.6, ease: "power2.out", stagger: 0.2 }, 4.9);
-tl.to("#SCENEID-outlier-label", { opacity: 1, duration: 0.4 }, 5.6);
-tl.to(rest, { opacity: 0.3, duration: 0.5 }, 6.0);
-tl.to(rings, { scale: 1.15, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 6.8);
+tl.fromTo(rings, { opacity: 0 }, { opacity: 1, duration: 0.01, stagger: 0.2 }, 4.9);
+tl.fromTo(rings, { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 0.6, ease: "power2.out", stagger: 0.2 }, 4.9);
+tl.fromTo("#SCENEID-outlier-label", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 5.6);
+tl.fromTo(rest, { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 6.0);
+tl.fromTo(rings, { scale: 1 }, { scale: 1.15, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 6.8);
 
 // C3 9.0-13.4 "Normalizing reshapes them onto one standard scale," — every dot travels into the bell.
-tl.to(rings.concat(["#SCENEID-outlier-label"]), { opacity: 0, duration: 0.4 }, 9.05);
-tl.to(rest, { opacity: 1, duration: 0.4 }, 9.1);
-tl.to("#SCENEID-norm-label", { opacity: 1, duration: 0.5, ease: "power3.out" }, 9.2);
+tl.fromTo(rings.concat(["#SCENEID-outlier-label"]), { opacity: 1 }, { opacity: 0, duration: 0.4, immediateRender: false }, 9.05);
+tl.fromTo(rest, { opacity: 0.3 }, { opacity: 1, duration: 0.4, immediateRender: false }, 9.1);
+tl.fromTo("#SCENEID-norm-label", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power3.out" }, 9.2);
 for (var n = 0; n < 24; n++) {
-  tl.to(dots[n], { x: to[n][0] - from[n][0], y: to[n][1] - from[n][1], attr: { r: 30 }, fill: "{{accent}}", duration: 1.2, ease: "power3.inOut" }, 9.5 + n * 0.07);
+  // An outlier (every 7th) starts bigger and in the outlier colour.
+  tl.fromTo(dots[n], { x: 0, y: 0, attr: { r: n % 7 ? 26 : 36 }, fill: n % 7 ? "{{a}}" : "{{d}}" }, { x: to[n][0] - from[n][0], y: to[n][1] - from[n][1], attr: { r: 30 }, fill: "{{accent}}", duration: 1.2, ease: "power3.inOut", immediateRender: false }, 9.5 + n * 0.07);
 }
 
 // C4 13.4-17.6 "cutting the spread from three point two to one." — the band opens, the number follows it.
-tl.to("#SCENEID-band-fill", { opacity: 1, duration: 0.9, ease: "power3.out" }, 13.5);
-tl.to("#SCENEID-band-label", { opacity: 1, duration: 0.4 }, 14.1);
-tl.to("#SCENEID-sigma-n", { textContent: 1, snap: { textContent: 0.1 }, fill: "{{accent}}", duration: 1.4, ease: "power3.inOut" }, 13.6);
-tl.to(dots, { scale: 1.12, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut", stagger: 0.02 }, 15.3);`,
+tl.fromTo("#SCENEID-band-fill", { opacity: 0 }, { opacity: 1, duration: 0.9, ease: "power3.out" }, 13.5);
+tl.fromTo("#SCENEID-band-label", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 14.1);
+tl.fromTo("#SCENEID-sigma-n", { textContent: 3.2, fill: "{{fg}}" }, { textContent: 1, snap: { textContent: 0.1 }, fill: "{{accent}}", duration: 1.4, ease: "power3.inOut" }, 13.6);
+tl.fromTo(dots, { scale: 1 }, { scale: 1.12, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut", stagger: 0.02, immediateRender: false }, 15.3);`,
   },
 };
 
