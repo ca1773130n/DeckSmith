@@ -1770,28 +1770,34 @@ const recapKind: KindImpl = {
     const n = d.beats.length;
     // The summary's last word: what the source reports came of it (its own numbers), after the steps.
     const result = lab("recap", spec, "result");
-    const resultLines = result ? wrap(result, LABEL, W, theme) : [];
-    const resH = resultLines.length ? resultLines.length * 58 + 24 : 0;
-    const cols = n <= 4 ? n : Math.ceil(n / 2);
+    const cols = n <= 3 ? n : Math.ceil(n / 2);
     const rows = Math.ceil(n / cols);
     const gap = 64;
     const capH = 64;
+    // Two rows of tiles take the region's height and the result stands to their right; one row
+    // takes its width and the result goes under it. Either way the scene fills its region
+    // (r1's 2×2 above a full-width result line left most of the frame empty).
+    const beside = rows > 1 && !!result;
+    const tileH = (H - rows * capH - (rows - 1) * 32) / rows;
     const tw = even(
-      Math.min(
-        (W - (cols - 1) * gap) / cols,
-        ((H - resH - rows * capH - (rows - 1) * 32) / rows) * 1.5,
-      ),
+      beside
+        ? Math.min(tileH * 1.5, (W * 0.62 - (cols - 1) * gap) / cols)
+        : Math.min((W - (cols - 1) * gap) / cols, (tileH - (result ? 140 : 0) / rows) * 1.5),
     );
     const th = even(tw / 1.5);
-    // Left-aligned, like the headline above it.
-    const x0 = 0;
+    const gw = cols * tw + (cols - 1) * gap;
+    const gh = rows * (th + capH) + (rows - 1) * 32;
+    const rx = beside ? gw + gap : 0;
+    const resultLines = result ? wrap(result, LABEL, W - rx, theme) : [];
+    const ry = beside ? Math.max(0, gh - capH - resultLines.length * 58) : gh + 24;
     const words = lab("recap", spec, "caption")
       .split("→")
       .map((s) => s.trim())
       .filter(Boolean);
     const at = stepStarts(cues, n + (resultLines.length ? 1 : 0));
+    // Left-aligned, like the headline above it.
     const pos = (i: number) =>
-      [x0 + (i % cols) * (tw + gap), Math.floor(i / cols) * (th + capH + 32)] as const;
+      [(i % cols) * (tw + gap), Math.floor(i / cols) * (th + capH + 32)] as const;
     const tilesMarkup = d.beats
       .map((_, i) => {
         const [x, y] = pos(i);
@@ -1801,7 +1807,7 @@ ${label(`w${i}`, text, x, y + th + 10, SMALL, theme.fg)}`;
       })
       .join("\n");
     const resultMarkup = resultLines
-      .map((t, i) => label(`r${i}`, t, 0, H - resH + 24 + i * 58, LABEL, theme.accent))
+      .map((t, i) => label(`r${i}`, t, rx, ry + i * 58, LABEL, theme.accent))
       .join("");
     const markup = `<div id="SCENEID-lit">\n${tilesMarkup}\n${resultMarkup}\n</div>`;
     const tl = new Tl();

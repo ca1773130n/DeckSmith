@@ -503,6 +503,34 @@ describe("what each scene shows, and does not", () => {
     for (const l of lines) expect(l).not.toMatch(/^[·•|/]/);
   });
 
+  it("a recap of four fills its region: two rows of tiles, the result beside them", () => {
+    const layers = {
+      files: { p0: "a.jpg", p1: "b.png", p2: "c.png", p3: "d.png" },
+      data: { beats: ["a", "b", "c", "d"] },
+    };
+    const f = literalFragment(
+      "recap",
+      layers,
+      region,
+      cues,
+      {
+        kind: "recap",
+        takeaway: "t",
+        labels: { caption: "a → b → c → d", result: "결과: 보고 에너지 43.62 대 175.21 mJ" },
+      } as never,
+      theme,
+    );
+    const box = (id: string) =>
+      /left:(\d+)px;top:(\d+)px;width:(\d+)px;height:(\d+)px/
+        .exec(new RegExp(`id="SCENEID-${id}"[^>]*`).exec(f.markup)?.[0] ?? "")
+        ?.slice(1)
+        .map(Number) as number[];
+    const [x3, y3, w3, h3] = box("p3");
+    expect(y3 + h3).toBeGreaterThan(region.height * 0.6);
+    const left = Number(/id="SCENEID-r0"[^>]*left:(\d+)px/.exec(f.markup)?.[1]);
+    expect(left).toBeGreaterThan(x3 + w3);
+  });
+
   it("nothing runs off the bottom: channel rows, a table's caption, a scale's caption", () => {
     const short = { width: 1700, height: 700 };
     const topOf = (markup: string, id: string) =>
@@ -582,7 +610,9 @@ describe("what each scene shows, and does not", () => {
     const cap = topOf(sm, "cap");
     expect(cap + 46).toBeLessThanOrEqual(short.height);
     // Every row ends above the caption.
-    for (const m of sm.matchAll(/id="SCENEID-i\d+-\d+" style="[^"]*top:(\d+)px;[^"]*height:(\d+)px/g))
+    for (const m of sm.matchAll(
+      /id="SCENEID-i\d+-\d+" style="[^"]*top:(\d+)px;[^"]*height:(\d+)px/g,
+    ))
       expect(Number(m[1]) + Number(m[2])).toBeLessThanOrEqual(cap);
   });
 });
