@@ -37,7 +37,7 @@
  * whichever position its beat lands at in a later cut.
  */
 import { type Node, parse } from "acorn";
-import { LABEL_MIN_PX, type Label } from "./callouts.js";
+import { TYPE_SCALE } from "../emit/type.js";
 import type { Shot } from "./shots.js";
 
 /** What a model hands back for one beat. Token form: ids are `SCENEID-…`. */
@@ -50,11 +50,6 @@ export interface Fragment {
    * camera frames on which cue (src/bespoke/shots.ts). Absent on any other scene.
    */
   shots?: Shot[];
-  /**
-   * An illustrated scene's subject labels, which the shell draws ON their
-   * subjects (src/bespoke/callouts.ts). Absent on any other scene.
-   */
-  labels?: Label[];
 }
 
 /** One reason a fragment may not be used. */
@@ -79,7 +74,6 @@ export function instantiate(f: Fragment, sid: string): Fragment {
     css: swap(f.css),
     script: swap(f.script),
     ...(f.shots ? { shots: f.shots } : {}),
-    ...(f.labels ? { labels: f.labels } : {}),
   };
 }
 
@@ -87,7 +81,8 @@ export function instantiate(f: Fragment, sid: string): Fragment {
 export function checkFragment(f: Fragment, ctx: FragmentContext = {}): StaticFinding[] {
   return [
     ...checkMarkup(f.markup, ctx),
-    ...checkCueGroups(f.markup),
+    // A scene on a picture (round 6) may add one phrase, or nothing: the picture is the scene.
+    ...(ctx.art && ctx.subjects ? [] : checkCueGroups(f.markup)),
     ...checkCss(f.css),
     ...checkScript(f.script),
     ...(ctx.subjects ? checkStaging(f, ctx) : []),
@@ -97,8 +92,9 @@ export function checkFragment(f: Fragment, ctx: FragmentContext = {}): StaticFin
 /**
  * An illustrated scene's staging (round 4): the shell moves the camera, so the
  * script must not; the shot list must push in on the picture's subjects; and
- * the labels that name a subject say so (`data-subject="K"`), which is what
- * `label_anchor` holds to that subject's box.
+ * a scene's own label that names a subject says so (`data-subject="K"`).
+ * Round 6 dropped the shell's subject labels: the narration and the subtitles
+ * name the subjects, and a scene is not asked to label any.
  */
 function checkStaging(f: Fragment, ctx: FragmentContext): StaticFinding[] {
   const out: StaticFinding[] = [];
@@ -140,27 +136,6 @@ function checkStaging(f: Fragment, ctx: FragmentContext): StaticFinding[] {
         message: `data-subject="${(m[1] ?? "").slice(0, 12)}" is not a subject of this picture (1..${subjects})`,
       });
   }
-  const labels = f.labels ?? [];
-  const named = new Set<number>();
-  for (const l of labels) {
-    // One naming a subject that is not there, or a second for one subject, is
-    // dropped by the shell (`calloutLayer`); only too few names is refused.
-    if (!Number.isInteger(l.subject) || l.subject < 1 || l.subject > subjects) continue;
-    if (named.has(l.subject)) continue;
-    named.add(l.subject);
-    const text = l.text.trim();
-    if (!text) out.push({ rule: "labels", message: `subject ${l.subject}'s label is empty` });
-    else if (ctx.labelFits && !ctx.labelFits(text, l.subject))
-      out.push({
-        rule: "labels",
-        message: `"${text.slice(0, 40)}" does not fit S${l.subject}'s label zone even at ${LABEL_MIN_PX}px — say it in fewer, shorter words`,
-      });
-  }
-  if (named.size < want)
-    out.push({
-      rule: "labels",
-      message: `${named.size} subject(s) labelled; name at least ${want} of the picture's subjects in "labels" (the shell draws each ON its subject)`,
-    });
   return out;
 }
 
@@ -249,12 +224,13 @@ export interface FragmentContext {
   subjects?: number;
   /** How many narration cues the scene has, for its shot list. */
   cues?: number;
-  /** Whether a label's text fits its subject's zone (src/bespoke/callouts.ts `fitLabel`). */
-  labelFits?: (text: string, subject: number) => boolean;
 }
 
-/** Ids the shell owns inside a bespoke scene: the body box, eyebrow, headline, camera. */
-const SHELL_IDS = /^SCENEID-(g|e|h|cam|callout\d.*)$/;
+/**
+ * Ids the shell owns inside a bespoke scene: the body box, eyebrow, headline,
+ * camera, and (round 6) the depth planes, the light and the fixed layer.
+ */
+const SHELL_IDS = /^SCENEID-(g|e|h|cam|fx|light|wipe|(plate|plane\d+|subj\d+)(-soft)?)$/;
 
 /** `url(#SCENEID-…)` is a reference inside the scene; every other `url(` is a fetch. */
 const LOCAL_URL = new RegExp(`url\\(\\s*['"]?#${SID_TOKEN}-[\\w-]+['"]?\\s*\\)`, "g");
@@ -342,7 +318,7 @@ export function checkMarkup(markup: string, ctx: FragmentContext = {}): StaticFi
         else if (SHELL_IDS.test(value))
           bad(
             "markup_id",
-            `id "${value}" is the shell's — the body box, eyebrow, headline or camera`,
+            `id "${value}" is the shell's — the body box, eyebrow, headline, camera, depth planes, light or fixed layer`,
           );
         else if (ids.has(value)) bad("markup_id", `id "${value}" is used twice`);
         ids.add(value);
@@ -360,10 +336,16 @@ export function checkMarkup(markup: string, ctx: FragmentContext = {}): StaticFi
       if (/javascript:/i.test(value)) bad("markup_ref", `<${name} ${attr}=…> names javascript:`);
     }
     const size = /font-size\s*[:=]\s*["']?\s*([\d.]+)/i.exec(attrs);
-    if (size && Number(size[1]) < 40)
+    if (size && Number(size[1]) < TYPE_SCALE.floor)
       bad(
         "markup_type_floor",
-        `<${name}> sets font-size ${size[1]} — audience text is 40px or more`,
+        `<${name}> sets font-size ${size[1]} — audience text is ${TYPE_SCALE.floor}px or more`,
+      );
+    // Round 6: quiet type — never above the deck's headline (`type_scale`).
+    if (size && Number(size[1]) > TYPE_SCALE.headline)
+      bad(
+        "type_scale",
+        `<${name}> sets font-size ${size[1]} — nothing in a scene is bigger than the ${TYPE_SCALE.headline}px headline; the subtitles carry the words`,
       );
   }
   return out;
@@ -417,8 +399,16 @@ export function checkCss(css: string): StaticFinding[] {
     if (!scopedSelector(selector))
       bad("css_scope", `"${selector.slice(0, 60)}" is not scoped to #${SID_TOKEN}`);
     for (const m of rule.slice(open + 1).matchAll(/font-size\s*:\s*([\d.]+)px/gi)) {
-      if (Number(m[1]) < 40)
-        bad("css_type_floor", `font-size ${m[1]}px — audience text is 40px or more`);
+      if (Number(m[1]) < TYPE_SCALE.floor)
+        bad(
+          "css_type_floor",
+          `font-size ${m[1]}px — audience text is ${TYPE_SCALE.floor}px or more`,
+        );
+      if (Number(m[1]) > TYPE_SCALE.headline)
+        bad(
+          "type_scale",
+          `font-size ${m[1]}px — nothing in a scene is bigger than the ${TYPE_SCALE.headline}px headline`,
+        );
     }
   }
   return out;

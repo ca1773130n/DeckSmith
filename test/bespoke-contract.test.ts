@@ -302,15 +302,11 @@ describe("an illustrated scene's staging (round 4)", () => {
       { cue: 2, at: 0, subject: 1 },
       { cue: 3, at: 0.2, subject: 2 },
     ],
-    labels: [
-      { subject: 1, text: "cup" },
-      { subject: 2, text: "arm" },
-    ],
   };
-  const ctx = { art: true, subjects: 3, cues: 4, labelFits: (t: string) => t.length <= 12 };
+  const ctx = { art: true, subjects: 3, cues: 4 };
   const rules = (f: Fragment) => checkFragment(f, ctx).map((x) => x.rule);
 
-  it("passes a scene that names its shots and labels its subjects", () => {
+  it("passes a scene that names its shots (round 6: no labels asked for)", () => {
     expect(checkFragment(STAGED, ctx)).toEqual([]);
   });
 
@@ -348,32 +344,7 @@ describe("an illustrated scene's staging (round 4)", () => {
     ).toEqual(["shots"]);
   });
 
-  it("asks the scene to NAME the subjects (the shell places the names), and refuses names that do not fit", () => {
-    // Round 3's row of plates: words drawn by the scene, none given to the shell.
-    expect(rules({ ...STAGED, labels: [] })).toEqual(["labels"]);
-    expect(rules({ ...STAGED, labels: [{ subject: 1, text: "cup" }] })).toEqual(["labels"]);
-    // A second name for one subject is dropped by the shell, not refused.
-    expect(
-      rules({ ...STAGED, labels: [...(STAGED.labels ?? []), { subject: 2, text: "again" }] }),
-    ).toEqual([]);
-    expect(
-      rules({
-        ...STAGED,
-        labels: [
-          { subject: 1, text: "a very long label indeed" },
-          { subject: 2, text: "arm" },
-        ],
-      }),
-    ).toEqual(["labels"]);
-    expect(
-      rules({
-        ...STAGED,
-        labels: [
-          { subject: 1, text: "cup" },
-          { subject: 7, text: "x" },
-        ],
-      }),
-    ).toEqual(["labels"]);
+  it("refuses a scene's own label group that names no subject of the picture", () => {
     // A scene's own label group must name a real subject.
     const wrong = {
       ...STAGED,
@@ -504,5 +475,52 @@ describe("card_row: cards, panels or tiles as the main visual", () => {
       .join("\n");
     expect(cardRow(byRule, box, css)).toMatch(/row of 3/);
     expect(cardRow(byRule, box)).toBeUndefined();
+  });
+});
+
+describe("quiet type (round 6)", () => {
+  const svg = (inner: string) =>
+    `<svg id="SCENEID-svg" width="1920" height="1080"><g id="SCENEID-a" data-cue="1">${inner}</g><g id="SCENEID-b" data-cue="2"></g></svg>`;
+  const rules = (markup: string, css = "") =>
+    checkFragment({ markup, css, script: "" }).map((x) => x.rule);
+
+  it("refuses a font-size over the 56px headline, in markup or css, and keeps the 40px floor", () => {
+    expect(rules(svg('<text id="SCENEID-t" font-size="44">a</text>'))).toEqual([]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="56">a</text>'))).toEqual([]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="64">a</text>'))).toEqual(["type_scale"]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="120">a</text>'))).toEqual(["type_scale"]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="36">a</text>'))).toEqual([
+      "markup_type_floor",
+    ]);
+    expect(rules(svg(""), "#SCENEID-t{font-size:88px}")).toEqual(["type_scale"]);
+  });
+
+  it("asks a scene on a picture for no cue groups: it may add nothing at all", () => {
+    const empty = {
+      markup: '<svg id="SCENEID-svg" width="1920" height="1080"></svg>',
+      css: "",
+      script: "",
+    };
+    expect(checkFragment(empty).map((x) => x.rule)).toContain("markup_cue");
+    expect(
+      checkFragment(
+        {
+          ...empty,
+          shots: [
+            { cue: 1, at: 0.5, subject: 1 },
+            { cue: 2, at: 0, subject: 2 },
+          ],
+        },
+        { art: true, subjects: 3, cues: 3 },
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the shell's round-6 ids out of a scene's hands", () => {
+    for (const id of ["fx", "light", "plate", "plane1", "subj2", "plate-soft"])
+      expect(rules(svg(`<circle id="SCENEID-${id}" r="4"/>`))).toContain("markup_id");
+    // A scene's own "sN"/"dN" ids stay its own (the references use them).
+    for (const id of ["s1", "d2"])
+      expect(rules(svg(`<circle id="SCENEID-${id}" r="4"/>`))).not.toContain("markup_id");
   });
 });

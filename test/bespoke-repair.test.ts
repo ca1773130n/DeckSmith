@@ -198,8 +198,8 @@ tl.to("#SCENEID-x", { scale: 1, duration: 0.4 }, 2);`),
 describe("the markup surgery", () => {
   const markup = `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600">
 <!-- <g> in a comment is not an element -->
-<g id="SCENEID-a" data-cue="1"><text id="SCENEID-t0" x="10" y="10" font-size="60">a</text></g>
-<g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="60">b</text></g>
+<g id="SCENEID-a" data-cue="1"><text id="SCENEID-t0" x="10" y="10" font-size="56">a</text></g>
+<g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="56">b</text></g>
 </svg>`;
 
   it("wraps the addressed unit in a translate, and keeps the contract", () => {
@@ -208,10 +208,10 @@ describe("the markup surgery", () => {
       { u: "text:0", dx: 12.5, dy: 0 },
     ]);
     expect(out).toContain(
-      '<g transform="translate(0 -24)"><g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="60">b</text></g></g>',
+      '<g transform="translate(0 -24)"><g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="56">b</text></g></g>',
     );
     expect(out).toContain(
-      '<g transform="translate(12.5 0)"><text id="SCENEID-t0" x="10" y="10" font-size="60">a</text></g>',
+      '<g transform="translate(12.5 0)"><text id="SCENEID-t0" x="10" y="10" font-size="56">a</text></g>',
     );
     expect(checkFragment({ markup: out, css: "", script: "" })).toEqual([]);
   });
@@ -280,7 +280,7 @@ describe("the end-state gates", () => {
     small: [],
     off: [],
     fill: 0.9,
-    maxType: 96,
+    maxType: 44,
     groups: [1],
     cueStarts: [1],
     geo: frame({ parts }),
@@ -355,7 +355,7 @@ type Box = { width: number; height: number };
 const SVG = (b: Box, inner: string) =>
   `<svg id="SCENEID-svg" width="${b.width}" height="${b.height}" viewBox="0 0 ${b.width} ${b.height}" style="position:absolute;left:0;top:0">${inner}</svg>`;
 const BASE = (b: Box) =>
-  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="56" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g><g id="SCENEID-c" data-cue="1">${[
+  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g><g id="SCENEID-c" data-cue="1">${[
     [30, 30],
     [b.width - 30, 30],
     [30, b.height - 30],
@@ -372,7 +372,7 @@ tl.to("#SCENEID-dot", { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, 
 const COLLIDE = (b: Box): Fragment => ({
   markup: SVG(
     b,
-    `${BASE(b)}<g id="SCENEID-n" data-cue="1"><text id="SCENEID-note" x="${b.width / 2 + 160}" y="${b.height / 2 + 30}" font-size="44" text-anchor="middle" dominant-baseline="middle" fill="#f7c948">decoder</text></g><g id="SCENEID-w" data-cue="1"><line id="SCENEID-wire" x1="140" y1="${b.height / 2}" x2="${b.width / 2 - 360}" y2="${b.height / 2}" stroke="#4cc9f0" stroke-width="6"/><line id="SCENEID-wire2" x1="${b.width / 2 - 200}" y1="${b.height / 2 - 4}" x2="${b.width / 2 + 40}" y2="${b.height / 2 - 4}" stroke="#4cc9f0" stroke-width="6"/></g>`,
+    `${BASE(b)}<g id="SCENEID-n" data-cue="1"><text id="SCENEID-note" x="${b.width / 2 + 160}" y="${b.height / 2 + 44}" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#f7c948">decoder</text></g><g id="SCENEID-w" data-cue="1"><line id="SCENEID-wire" x1="140" y1="${b.height / 2}" x2="${b.width / 2 - 360}" y2="${b.height / 2}" stroke="#4cc9f0" stroke-width="6"/><line id="SCENEID-wire2" x1="${b.width / 2 - 200}" y1="${b.height / 2 - 4}" x2="${b.width / 2 + 40}" y2="${b.height / 2 - 4}" stroke="#4cc9f0" stroke-width="6"/></g>`,
   ),
   css: "",
   script: MOVE(b),
@@ -594,7 +594,7 @@ describe("a plate too small for its text (round 4)", () => {
     parts: [],
   });
   const markup = (rect: string) =>
-    `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-sum">${rect}<text id="SCENEID-t" x="820" y="660" font-size="64">条件分布的乘积</text></g></svg>`;
+    `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-sum">${rect}<text id="SCENEID-t" x="820" y="660" font-size="56">条件分布的乘积</text></g></svg>`;
 
   it("is grown to hold its text with a margin, and nothing else moves", () => {
     const before = markup('<rect id="SCENEID-p" x="640" y="630" width="360" height="60" rx="20"/>');
@@ -655,7 +655,7 @@ describe("a disc too small for its symbol, inside a moving group (round 4)", () 
   it("is grown in its own units, whatever the group's translation", () => {
     // The group is translated by (300, 40): the disc's markup is at (100,100) r 30,
     // measured at (400,140); the symbol inside measures 60x76.
-    const markup = `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-tok"><circle id="SCENEID-disc" cx="100" cy="100" r="30"/><text id="SCENEID-sym" x="100" y="100" font-size="60">∑</text></g></svg>`;
+    const markup = `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-tok"><circle id="SCENEID-disc" cx="100" cy="100" r="30"/><text id="SCENEID-sym" x="100" y="100" font-size="56">∑</text></g></svg>`;
     const g: Geo = {
       w: 1700,
       h: 700,

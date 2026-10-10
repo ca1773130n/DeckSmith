@@ -8,6 +8,8 @@
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { buildRepeats } from "../bespoke/databuild.js";
+import { diversityWanted, grammarRepeats } from "../bespoke/grammar.js";
 import { BESPOKE_FILE } from "../bespoke/scene.js";
 import { prepareMorph } from "../emit/archetypes/equation-morph.js";
 import { prepareWalk } from "../emit/archetypes/equation-walk.js";
@@ -214,7 +216,8 @@ export async function verify(
   // both are in hand — `build`, not `verify <dir>`. Absent either, silence: a
   // check that cannot see its inputs must not report that it found nothing.
   const lead = kept && timing ? scanNarrationLead(kept, timing) : [];
-  const ours = [...determinism, ...narration, ...budget, ...type, ...lead];
+  const variety = scanStagingVariety(html.map(([, text]) => text));
+  const ours = [...determinism, ...narration, ...budget, ...type, ...lead, ...variety];
   // ONE READING OF THE STOPS, HANDED TO BOTH GATES.
   //
   // `fidelity` already worked this out for itself and `check` never knew the
@@ -1205,4 +1208,56 @@ async function readCompositions(dir: string): Promise<Array<[string, string]>> {
   return Promise.all(
     files.map(async (f) => [relative(dir, f), await readFile(f, "utf8")] as [string, string]),
   );
+}
+
+/**
+ * ROUND 5, the deck's variety: the camera grammars its illustrated scenes are
+ * staged in (`data-ds-grammar`, stamped by the shell) and the builds of its
+ * data scenes (`data-ds-build`), in scene order. Two consecutive illustrated
+ * scenes in one grammar, or two data scenes that build alike, is the "same
+ * animation every card" one level up; fewer distinct grammars than
+ * `diversityWanted` is reported.
+ */
+export function scanStagingVariety(compositions: readonly string[]): Finding[] {
+  const grammar = new Map<number, string>();
+  const build = new Map<number, string>();
+  for (const text of compositions)
+    for (const m of text.matchAll(/<div\b[^>]*\bid="s(\d+)-g"[^>]*>/g)) {
+      const n = Number(m[1]);
+      const g = /\sdata-ds-grammar="([\w-]+)"/.exec(m[0])?.[1];
+      const b = /\sdata-ds-build="([\w-]+)"/.exec(m[0])?.[1];
+      if (g) grammar.set(n, g);
+      if (b) build.set(n, b);
+    }
+  const out: Finding[] = [];
+  const order = (m: Map<number, string>) =>
+    [...m].sort((a, b) => a[0] - b[0]).map(([n, v]) => ({ sid: `s${n}`, v }));
+  const gs = order(grammar);
+  const { distinct, adjacent } = grammarRepeats(gs.map((x) => x.v));
+  for (const [i, g] of adjacent)
+    out.push({
+      severity: "error",
+      gate: "motion",
+      rule: "grammar_repeat",
+      message: `#${gs[i]?.sid}: staged in the "${g}" camera grammar, like the illustrated scene before it (#${gs[i - 1]?.sid}) — consecutive scenes must move differently.`,
+    });
+  if (gs.length > 1 && distinct < diversityWanted(gs.length))
+    out.push({
+      severity: "warning",
+      gate: "motion",
+      rule: "grammar_diversity",
+      message: `${gs.length} illustrated scenes use ${distinct} camera grammar(s); ${diversityWanted(gs.length)} wanted.`,
+    });
+  const bs = order(build);
+  for (const b of buildRepeats(bs.map((x) => x.v)))
+    out.push({
+      severity: "error",
+      gate: "motion",
+      rule: "build_repeat",
+      message: `two data scenes build as "${b}" (${bs
+        .filter((x) => x.v === b)
+        .map((x) => `#${x.sid}`)
+        .join(", ")}) — each data beat of a deck builds differently.`,
+    });
+  return out;
 }

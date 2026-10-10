@@ -959,6 +959,17 @@ decksmith build storyboard.json --source source.json -o deck --design v2
 # bespoke: 12 of 14 beats drawn bespoke (86%; 2 fell back, 0 not eligible), 19 scene call(s) + 1 device call + 6 illustration(s), …
 ```
 
+**Round 6: the picture moves, not UI over it.** After the founder's verdict on round 5
+("graphic animation by animated UI elements is old-fashioned, and the fonts are too
+large"), every bespoke scene with a picture is a FULL-FRAME SHOT: the picture covers the
+frame behind the deck's own headline (which keeps its place and entrance, over a soft
+scrim), and its motion is the picture's own — a camera moving through its depth, focus
+pulled to the subject the voice names, a slow light sweep, the subjects breathing. No
+plates, chips, label pills or leader-line callouts animate in, and nothing a scene writes
+renders above the 56px headline (`TYPE_SCALE` in `src/emit/type.ts`); the narration and the
+subtitles carry the words. Every beat with two cues gets a picture, data beats included
+(their subjects ARE the quantities, drawn in proportion), up to `--bespoke-art`.
+
 **Which beats** (`src/bespoke/select.ts`): every beat with a narration cue, except one a
 camera dives into or out of (the dive is aimed at a part the archetype drew) and one the
 planner marked `bespoke: false` (`plan --bespoke`) that cites a figure or table of the
@@ -1028,38 +1039,93 @@ boxes are known in box px before the scene is written. It is read only from
 12 MB. `--bespoke-art <n>` (default 6; `bespoke.art`) caps pictures per deck, counted apart
 from `--bespoke-calls`; a beat whose picture cannot be had is drawn without one.
 
-**Data beats** (line-chart, bar-compare, data-table) get no picture: their scene is asked
+Since round 5 a picture is TWO LAYERS from one art call: a backdrop of the setting (an
+environment with depth, no subjects, quiet in the top fifth), then the subjects drawn with
+the image tool's `transparent_background` and the backdrop as a reference image, so they
+stand in it. The subjects are inspected laid on the pack's ground; the backdrop is read for
+writing too. Round 5's shell drew the backdrop behind the camera's wrapper and moved it at half
+the camera's zoom; round 6 cuts both pictures into depth planes instead (below). The deck's pictures are planned together in the up-front
+device pass — a different setting and different subjects per illustrated beat — and stock
+stand-ins (robots, mascots, brains, light bulbs, gears, screens) are forbidden unless the
+beat names one. A picture that draws one, shares a subject noun with another picture of the
+deck, or sits closer than `SIMILAR_MAX` to one by Vision's feature print is redrawn once,
+told what the deck already shows; `bespoke.json` reports the closest pair (`repetition`).
+
+**Depth planes** (round 6, `src/bespoke/depth.ts`, `src/bespoke/sheet.ts`). The kept
+picture is cut into a multiplane image (Zhou et al. 2018; Tucker & Snavely 2020): the
+backdrop's depth is estimated by Depth Anything V2 Small (Apple's Core ML build, F16, run on
+the CPU by a Swift helper compiled once; 1.5s and 156 MB a picture, measured), the backdrop
+is sliced at its depth quantiles into up to three planes (none closer in depth than 0.12),
+what a nearer plane uncovers on the one behind is filled by push-pull at quarter
+resolution, and each subject is cut onto its own plane at the depth where its foot meets
+the backdrop's floor, held in front of the farthest band. Each plane is given a distance
+(the subjects' plane is 1; others 0.8-3). The shell moves every plane EXACTLY as a pinhole
+camera sees it at that distance (`planeFrame`: for fronto-parallel planes a homography is
+a scale and an offset, so it is a CSS transform per plane), enlarged just enough to keep
+covering the frame (`overscan`), so a push-in or a truck shows real parallax. Focus is
+racked by cross-fading each plane with a blurred twin (`softAt`; a CSS `filter: blur()`
+tween cost ~1.5s a frame in the gates' browser). Before slicing, both pictures are
+upscaled 2x by Real-ESRGAN's `realesr-animevideov3` model through its ncnn/Vulkan build
+(1.6s and 129 MB a picture, measured), so a push-in stays sharp: the cap `EFF_MIN` is now
+0.85 picture px per output px. BOTH MODELS ARE OPTIONAL and never in git:
+`DECKSMITH_DEPTH_MODEL` names the `.mlpackage` (else
+`~/.cache/decksmith/models/DepthAnythingV2SmallF16.mlpackage`) and `DECKSMITH_UPSCALER`
+the `realesrgan-ncnn-vulkan` binary with a `models/` folder beside it (else
+`~/.cache/decksmith/tools/realesrgan/`). Without them — off macOS, on CI — the backdrop is
+one plane at distance 2 and the subjects stay at 1 (round 5's parallax, in the new layout),
+and `bespoke.json` says which and why (`art.depth.info`). A wipe in depth LIGHTS the
+subjects in turn (they stand dim from the first frame) instead of clipping the picture.
+A picture whose subjects merged into one is staged as a zoom-out, not a follow, rack or
+cutaway.
+
+**Data beats** without a picture (line-chart, bar-compare, data-table) get their scene asked
 for the chart that builds with the voice — axes draw, bars grow with their counters, the
 line traces, the named value lights — from the beat's own numbers, never a table painted
-over an illustration (`data_over_picture`).
+over an illustration (`data_over_picture`). Since round 5 each data beat of a deck builds
+differently (`src/bespoke/databuild.ts`): a bar race that re-sorts, a line traced with a
+callout, the delta highlighted and counted, or small multiples lit in turn — declared on the
+chart (`data-build`), checked statically with its marks, and with the camera pushing in on the
+value the voice names. `verify` refuses two data scenes of a deck that build alike
+(`build_repeat`).
 
-**The camera** of an illustrated scene is the shell's, staged in one of two grammars
-(`src/bespoke/shots.ts`), alternated over a deck's illustrated beats in deck order: one
-grammar for all of them made r1's three illustrated scenes the same tour three times. The
-scene names its `shots` — on which cue, how far into it, which subject — and the shell
-compiles them. `close-open` starts CLOSE on the first named subject at t=0 and opens out to
-the whole picture only at the reveal; `tour` starts with an ESTABLISHING shot of the whole
-picture for at
-least 1.6s, then a PUSH IN (1.1s, power3.inOut) that frames the named subject and its label at
-1.6-2.2x, a move straight to the next subject, a 3% creep while a shot is held, and a
-REVEAL back to the whole picture at the last cue; shots closer than 1.6s are dropped. Every
+**The camera** of an illustrated scene is the shell's (`src/bespoke/shots.ts`), in one of
+seven GRAMMARS (`src/bespoke/grammar.ts`) picked per beat in the device pass from the
+narration's rhetorical role (compare, cause, process, reveal, quantify, define — read from
+the archetype and the narration's own words in en/ko/zh/ja), never the grammar of the
+illustrated beat before it: `tour` (establish, push in on each named subject, reveal),
+`follow` (push in, then track along the subjects at one scale), `rack` (A, whip to B, back to
+A, a two-shot), `zoom-out` (open close on the detail, pull back to the whole), `wipe` (the
+picture wiped on subject by subject, the camera wide), `cutaway` (hard cuts to close inserts
+and back) and `parallax` (a slow lateral truck at a medium scale). The scene names its
+`shots` — on which cue, how far into it, which subject — and the shell compiles them in the
+grammar; shots closer than 1.6s are dropped, and the end frame is always the whole picture.
+No push-in goes past the scale where a picture pixel spans more than 1/`EFF_MIN` output
+pixels (`sharpMax`): the image tool draws ~1.57 megapixels whatever it is asked.
+`shot_variety` reads the grammar back off the camera's samples (a follow must track, a rack
+come back or hold a two-shot, a cutaway cut, a zoom-out only pull back, a wipe wipe, a truck
+travel), and that the backdrop moves less than the subjects; `verify` refuses two
+consecutive illustrated scenes in one grammar (`grammar_repeat`). Every
 camera tween is a `fromTo` with explicit from-values, and no two touch. The scene's own
 script may not move `#sN-cam` (`script_camera`). A scene without a picture still moves the
 wrapper itself (`scale`/`x`/`y`, arithmetic in the prompt). A scene with a moving camera is
 clipped to its box and marked `data-ds-clip`, so `verify` does not count what a push-in
 carries past the canvas edge as off-canvas.
 
-**The labels** of an illustrated scene are the shell's too (`src/bespoke/callouts.ts`). The
+**The labels** (rounds 4-5; gone in round 6). An illustrated scene's names were the shell's (`src/bespoke/callouts.ts`, deleted). The
 scene says what each subject is called (`labels`); the shell gives each subject a zone just
 above it (or across its top when there is no room), as wide as half the gap to each
-neighbour, and sets the name there on a plate — 56px, shrinking to 44, then two lines —
+neighbour, and sets the name there on a plate — 64px, shrinking to 52, then two lines —
 with a leader line to a dot on the subject, entering as the camera first arrives on it (or
-at the reveal). A label a later push-in would frame half in and half out (a neighbour's,
-usually) fades out as that move starts and back in when a shot shows it whole. The zones are in the draft prompt, which tells the scene to keep its own
-drawing out of them; a name that does not fit even on two lines at 44px is refused
-statically (`labels`). Round 4's first run, with the scene placing its own labels on the
-subjects, put them there and then failed four scenes in five on their own plates and
-leader lines crossing their text.
+at the reveal). Since round 5 the top 120px of the box is the CAPTION BAND, where the scene
+draws its own words; a label goes above its subject only under the band, else below it,
+else across its top; and a label is held at 1/sqrt(s) of the camera's zoom, so on screen it
+grows by sqrt(s) in a push-in and is its own size in the whole view. `label_size` holds
+every label to 52px as rendered at every graded frame; `label_band` refuses a label in the
+band or the scene's own words within 24px of one. Round 6 removed them: plates
+and leader lines entering as the camera arrived were exactly the "animated UI elements"
+the founder called old-fashioned, and every name was one the narration already says. A
+round-6 scene's own layer is FIXED to the frame (`#sid-fx`), holds at most two short
+phrases or one number, 40-56px, fading in place, and nothing aimed at a subject.
 
 **Repair** (`src/bespoke/repair.ts`), no model call. On `text_overlap`,
 `graphic_crosses_text` or `svg_text_overprint`, each colliding label's unit (the text, or
@@ -1069,6 +1135,8 @@ every visible stroke sample by 10px and every shape painted over it, inside the 
 every frame the probe measured, camera scale included; it is written as a wrapping
 `<g transform="translate()">`. A label never moves farther than 0.8 of its own height
 (at least 32px): a collision that needs more is left to the critique round. On
+`label_band` the same nudge keeps the scene's own words 26px (camera-free) clear of the
+shell's labels, which never move. On
 `end_dimmed`, the elements dimming parts the scene had lit are tweened back to full
 strength just before the end; on `camera_end`, the camera is tweened home. On `seek_order`,
 two tweens on one target animating one property over overlapping time — which a timeline
@@ -1078,15 +1146,18 @@ property when both start together; `src/bespoke/untangle.ts`). A repaired scene 
 through the static contract and is gated again (at most two repair rounds).
 
 **What the model is shown** (`src/bespoke/prompt.ts`): the beat, its cues, the paper's
-excerpts (fenced, untrusted), the contract, motion-design rules with numbers (one focal
-element per cue, type 40-44px with the focal label 56px at most (`TYPE_SCALE`), the rest dimmed but kept; fill the box; paint it with filled
-shapes; at least three kinds of motion, one of flow, camera, counter or morph; the end
-frame a summary), text widths measured in the pack's own font, and two of four hand-made
+excerpts (fenced, untrusted), the contract, motion-design rules with numbers (quiet type:
+words 40-44px, one key number or word up to 56px, nothing bigger; NO UI MOTION — no word,
+plate, chip, card or bar moved, scaled or grown into place; one focus per cue; fill the
+box; at least three kinds of motion, one of flow, camera, counter or morph; the end frame a
+summary — for a scene on a depth picture, a shorter direction: the shot list is the scene), text widths measured in the pack's own font, and two of four hand-made
 reference scenes (`src/bespoke/references.ts`: a routing mechanism with particle flow and
 a counter, a camera zoom into one block, a traced curve whose gap morphs into the headline
-number, a scatter whose dots travel into a bell, and — first, for a beat with an
-illustration — a scene built on its picture), picked for the beat's archetype and painted
-in the pack's colours. `test/bespoke-references.test.ts` runs each reference
+number, a scatter whose dots travel into a bell — round 6 rewrote every one of them to
+the quiet type scale with nothing sliding, popping or growing into place), picked for the
+beat's archetype and painted in the pack's colours; a scene on a depth picture is shown
+none (round 4's "illustrated" reference, labels and a spotlight over the picture, is
+deleted). `test/bespoke-references.test.ts` runs each reference, and a depth-staged scene,
 through every gate and the rubric probe in a real deck, so a reference that stops passing
 stops being one. Parts a cue introduces are `<g data-cue="N">` groups (semantic grouping,
 after Vector Prism, arXiv 2512.14336). MorphSVG is registered for a deck only when one of
@@ -1095,12 +1166,12 @@ its scenes morphs.
 **The rubric probe** (`rubricProbe`, free: it reads what the probe measured) sends a
 passing draft to the critique round when any of these is off: the drawing paints under 12%
 of its box at the end (round 1's scenes painted 4-16%), more than half its parts are still
-dimmed at the end, no label reaches 44px (not asked of an illustrated scene, whose picture
-is its focus and whose names are the shell's), a label declares over 56px, fewer than three kinds of motion or none of
-flow/camera/counter/morph, an illustrated scene that holds fewer than two push-ins, does not
-open wide, or names fewer than two subjects on them, a cue whose picture changes by under
-0.5% of the frame, or a warning about the scene. The critique round scores the frames against a six-line rubric
-(fills the stage, one focus per cue, motion explains, legible hierarchy, the pack, sync),
+dimmed at the end, no label reaches 44px (not asked of an illustrated scene), a label declares over 56px, a word rendered over the 56px headline, any UI animated into place,
+fewer than three kinds of motion or none of flow/camera/counter/morph (not asked of a scene
+on a picture: the picture's camera, focus and light are its motion), an illustrated scene
+that holds fewer than two push-ins or does not open wide, a cue whose picture changes by
+under 0.5% of the frame, or a warning about the scene. The critique round scores the frames against a six-line rubric
+(fills the stage, one focus per cue, motion explains with no UI motion, quiet type, the pack, sync),
 is told the measures and every finding with the colliding labels' coordinates, and returns
 the fixed scene.
 
@@ -1153,7 +1224,12 @@ counts when it and its 8 neighbours changed, so a picture re-rasterised a hair d
 on its first paint, an outline round every subject, 12,698px raw, counts 309), `stage_fill` (the settled
 drawing's bounding box covers 80% of its box), `type_hierarchy` (one label of 44px or
 more at the end; not asked of an illustrated scene), `type_ceiling` (no label DECLARES more
-than 56px at the end — a push-in may draw it larger; KaTeX is exempt), `stray_marker` (an SVG marker painted where its line is not drawn),
+than 56px at the end; KaTeX is exempt), `type_scale` (round 6: no word the scene
+draws RENDERS above the 56px headline at any graded frame, its camera's zoom included;
+round 2's 64px key-label floor is gone), `ui_motion` (round 6: the scene's own GSAP
+timeline animates no label, plate, chip, card or bar into place — read off the tweens'
+targets and properties, so an opacity fade passes and a particle or a traced path is not
+UI), `stray_marker` (an SVG marker painted where its line is not drawn),
 `early_reveal` (a `data-cue="N"` group showing more than 0.5s before cue N),
 `text_clipped` (a word cut by the frame's edge while held: sampled every 0.5s, three samples
 in a row, under 96% of its width or 75% of its line box inside the clip), `morph_glitch` (a
@@ -1165,11 +1241,12 @@ literal dimming opacity on its targets to 0.6),
 `shot_variety` (an illustrated scene opens on the whole picture — unless its grammar is
 `close-open` — and the camera — sampled
 every 0.5s, no screenshot — HOLDS push-ins at 1.5x or closer on at least two different
-subjects; round 3's 1.1-1.4x pans are not push-ins), `label_anchor` (a label that names a
+subjects; round 3's 1.1-1.4x pans are not push-ins), `label_anchor` (a label of the scene's that names a
 subject sits within 96px of its box and covers no other subject by more than a quarter of
-itself, and at the end at least two subjects are named that way), `data_over_picture`
+itself), `data_over_picture`
 (five or more numbers on the illustration),
-`cue_groups` (no such groups, or one naming a cue the scene does not have), `card_row`
+`cue_groups` (no such groups — not asked of a scene on a picture, which may add nothing —
+or one naming a cue the scene does not have), `card_row`
 (`src/bespoke/cards.ts`, read off the markup: three or more alike rectangles — rects, or
 divs placed in px — in a row or a column, or four in a grid, covering 12% of the box —
 cards, panels or tiles as the main visual; never asked of a data beat, whose bars are alike
@@ -1193,8 +1270,13 @@ skipped by `build` when the pass already ran it on the same bytes at the same sc
 always runs it. Set
 `DECKSMITH_BESPOKE_WORK=<dir>` to keep the prompts, replies and contact sheets.
 
-**Costs** (measured on four HypePaper decks, twice each, see
-[`.planning/2026-10-09-v2-bespoke-round4.md`](.planning/2026-10-09-v2-bespoke-round4.md)):
+**Costs, round 6** (four HypePaper decks, twice each, see
+[`.planning/2026-10-10-v2-bespoke-round6.md`](.planning/2026-10-10-v2-bespoke-round6.md)):
+a picture takes 90-200s (two layers, redraws included) and its depth cut 5-26s; a draft on a
+picture ~25s, and critique calls are rare; a deck's `build` took 431-696s for 5-7 scene calls
+plus 5-6 pictures and 157-237k tokens. A deck carries 1.3-2.9 MB of planes (5.4-7.2 MB in
+all, against round 5's 4.0-5.3). Round 4's numbers, for the record
+([`.planning/2026-10-09-v2-bespoke-round4.md`](.planning/2026-10-09-v2-bespoke-round4.md)):
 an illustration takes 60-120s, a draft 90-220s and a critique 70-120s; a deck's pass took
 380-730s for 5-8 scene calls plus 3-7 pictures (redraws included) and 153-227k tokens, and
 the whole `build` 466-812s on a Mac with 9-23% memory free — three builds of eight under ten

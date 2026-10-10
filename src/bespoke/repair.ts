@@ -141,8 +141,8 @@ export function solveNudges(frames: readonly Geo[]): { moves: Move[]; unresolved
       if (mi === li || (L.u !== null && M.u === L.u)) return;
       const [mx, my] = off(fi, M.u);
       const [ix, iy] = overlapOf(box, shifted(M.b, mx, my));
-      if (strict ? ix > 4 && iy > 4 : ix > -LABEL_GAP && iy > -LABEL_GAP)
-        out.push({ kind: "label", other: mi });
+      const g = strict ? -4 : LABEL_GAP;
+      if (ix > -g && iy > -g) out.push({ kind: "label", other: mi });
     });
     const inset = strict ? 4 : -STROKE_GAP;
     for (const [px, py, pu] of f.points) {

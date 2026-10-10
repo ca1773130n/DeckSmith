@@ -44,8 +44,6 @@ export interface Reference {
   cues: ReadonlyArray<{ t0: number; t1: number; text: string }>;
   duration: number;
   fragment: Fragment;
-  /** An illustrated reference's subjects, box px: what the prompt would list for its picture. */
-  subjects?: ReadonlyArray<{ x: number; y: number; w: number; h: number }>;
 }
 
 /** The box every reference is drawn for. */
@@ -122,11 +120,11 @@ gsap.set("#SCENEID-tokens-label", { opacity: 0 });
 gsap.set(stream, { opacity: 0, x: 0, y: 0 });
 gsap.set(["#SCENEID-disc", "#SCENEID-disc-fill"], { scale: 0, transformOrigin: "50% 50%" });
 gsap.set("#SCENEID-router-label", { opacity: 0 });
-gsap.set(experts, { opacity: 0, x: 60 });
+gsap.set(experts, { opacity: 0 });
 gsap.set(wires, { drawSVG: "0% 0%", opacity: 0 });
-gsap.set(bars, { scaleX: 0, transformOrigin: "0% 50%" });
+gsap.set(bars, { opacity: 0 });
 gsap.set(ps, { opacity: 0, x: 0, y: 0 });
-gsap.set("#SCENEID-saving", { opacity: 0, y: 30 });
+gsap.set("#SCENEID-saving", { opacity: 0 });
 
 // C1 1.0-4.6 "Every token arrives at the router." — the queue pops in, then streams into the router.
 tl.to("#SCENEID-tokens-label", { opacity: 1, duration: 0.4 }, 1.0);
@@ -139,11 +137,11 @@ for (var k = 0; k < 5; k++) {
   tl.to(stream[k], { opacity: 0, duration: 0.1 }, 4.9 + k * 0.15);
 }
 
-// C2 4.6-9.0 "The router scores all four experts," — experts slide in, wires draw, scores grow.
-tl.to(experts, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out", stagger: 0.15 }, 4.7);
+// C2 4.6-9.0 "The router scores all four experts," — experts fade in where they stand, wires draw, scores light.
+tl.to(experts, { opacity: 1, duration: 0.6, ease: "power3.out", stagger: 0.15 }, 4.7);
 tl.to(wires, { opacity: 1, duration: 0.01, stagger: 0.2 }, 5.0);
 tl.to(wires, { drawSVG: "0% 100%", duration: 0.7, ease: "power2.inOut", stagger: 0.2 }, 5.0);
-tl.to(bars, { scaleX: 1, duration: 0.9, ease: "power2.out", stagger: 0.3 }, 6.4);
+tl.to(bars, { opacity: 1, duration: 0.9, ease: "power2.out", stagger: 0.3 }, 6.4);
 tl.to("#SCENEID-disc", { scale: 1.05, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.6);
 
 // C3 9.0-13.4 "and sends each token to its top two." — focus: the two winners light, the rest dim; particles flow.
@@ -160,7 +158,7 @@ for (var n = 0; n < 6; n++) {
 }
 
 // C4 13.4-17.8 "Only those run, so compute drops by half." — the consequence, as a number that moves.
-tl.to("#SCENEID-saving", { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 13.5);
+tl.to("#SCENEID-saving", { opacity: 1, duration: 0.5, ease: "power3.out" }, 13.5);
 tl.to("#SCENEID-count", { textContent: 50, snap: { textContent: 1 }, duration: 1.8, ease: "power2.inOut" }, 13.7);
 tl.to(["#SCENEID-box0", "#SCENEID-box2"], { stroke: "{{accent}}", fillOpacity: 0.32, duration: 0.5 }, 13.7);
 tl.to(["#SCENEID-bar0", "#SCENEID-bar2"], { opacity: 0.55, duration: 0.45, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.6);
@@ -201,7 +199,7 @@ ${SLABS.map(
     <text id="SCENEID-out" x="1574" y="700" font-size="40" fill="{{muted}}" text-anchor="middle" dominant-baseline="middle">output</text>
   </g>
   <g id="SCENEID-inside" data-cue="2" transform="${INSIDE}">
-    <text id="SCENEID-att" x="295" y="40" font-size="44" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">Attention</text>
+    <text id="SCENEID-att" x="295" y="40" font-size="40" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">Attention</text>
 ${[0, 1, 2, 3, 4].map((i) => `    <circle id="SCENEID-q${i}" cx="${55 + i * 120}" cy="150" r="34" fill="{{${"abcda"[i]}}}"/>`).join("\n")}
 ${[0, 1, 2, 3, 4].map((i) => `    <circle id="SCENEID-k${i}" cx="${55 + i * 120}" cy="400" r="34" fill="{{${"abcda"[i]}}}"/>`).join("\n")}
   </g>
@@ -222,8 +220,8 @@ ${SLABS.map((x, i) => `    <rect id="SCENEID-glow${i}" x="${x}" y="150" width="1
     css: "",
     script: `// Layout (box 1700x732): "× 12" centre top · 12 slabs x 70-1626, y 150-590 · input/output
 // under the ends. Block 6 (x 730-834) has an inside drawn in its own units at half scale
-// (x 645-919, y 263-477): only legible with the camera in (viewBox 482 240.8 600 258.4,
-// 2.83x), so it shows only then. overflow:hidden on the svg keeps the zoomed view in its box.
+// (x 645-919, y 263-477): only legible with the camera in (viewBox 467 234.4 630 271.3,
+// 2.7x: its 40px word renders at 54px, under the 56px headline), so it shows only then. overflow:hidden on the svg keeps the zoomed view in its box.
 var slabs = [], glows = [];
 for (var i = 0; i < 12; i++) {
   slabs.push("#SCENEID-slab" + i);
@@ -233,17 +231,17 @@ var links = root.querySelectorAll("#SCENEID-links line");
 var row3 = ["#SCENEID-l20", "#SCENEID-l21", "#SCENEID-l22", "#SCENEID-l23", "#SCENEID-l24"];
 var labels = ["#SCENEID-times", "#SCENEID-in", "#SCENEID-out"];
 var wide = "0 0 1700 732";
-var close = "482 240.8 600 258.4";
+var close = "467 234.4 630 271.3";
 
 gsap.set("#SCENEID-svg", { attr: { viewBox: wide } });
-gsap.set(slabs, { scaleY: 0, transformOrigin: "50% 100%" });
+gsap.set(slabs, { opacity: 0 });
 gsap.set(labels, { opacity: 0 });
 gsap.set("#SCENEID-inside", { opacity: 0 });
 gsap.set(links, { drawSVG: "0% 0%", opacity: 0 });
 gsap.set(glows, { opacity: 0 });
 
 // C1 1.0-4.8 "a stack of twelve identical blocks." — a staggered build, then the count lands.
-tl.to(slabs, { scaleY: 1, duration: 0.6, ease: "expo.out", stagger: 0.12 }, 1.0);
+tl.to(slabs, { opacity: 1, duration: 0.6, ease: "expo.out", stagger: 0.12 }, 1.0);
 tl.to(["#SCENEID-in", "#SCENEID-out"], { opacity: 1, duration: 0.4 }, 2.4);
 tl.to("#SCENEID-times", { opacity: 1, duration: 0.5 }, 2.9);
 tl.to(slabs, { y: -10, duration: 0.3, yoyo: true, repeat: 1, ease: "sine.inOut", stagger: 0.08 }, 3.4);
@@ -253,7 +251,7 @@ tl.to(labels, { opacity: 0, duration: 0.3 }, 4.85);
 tl.to("#SCENEID-svg", { attr: { viewBox: close }, duration: 1.4, ease: "power3.inOut" }, 4.9);
 tl.to(slabs, { opacity: 0.15, duration: 0.5 }, 5.9);
 tl.to("#SCENEID-inside", { opacity: 1, duration: 0.5 }, 6.2);
-tl.to("#SCENEID-att", { scale: 1.08, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.2);
+tl.to("#SCENEID-att", { opacity: 0.55, duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 7.2);
 
 // C3 9.2-13.6 "lets every token read from every other." — every link draws; one token's reads are the focus.
 tl.to(links, { opacity: 0.35, duration: 0.01 }, 9.25);
@@ -357,7 +355,7 @@ gsap.set(["#SCENEID-base-curve", "#SCENEID-ours-curve"], { drawSVG: "0% 0%" });
 gsap.set(["#SCENEID-base-dot", "#SCENEID-ours-dot"], { opacity: 0, x: 0, y: 0 });
 gsap.set("#SCENEID-plateau-line", { drawSVG: "0% 0%" });
 gsap.set("#SCENEID-plateau-label", { opacity: 0 });
-gsap.set("#SCENEID-ceiling", { scaleY: 0, transformOrigin: "50% 100%" });
+gsap.set("#SCENEID-ceiling", { opacity: 0 });
 gsap.set("#SCENEID-gap", { opacity: 0 });
 gsap.set("#SCENEID-ours-area", { opacity: 0 });
 gsap.set("#SCENEID-gain", { opacity: 0 });
@@ -373,7 +371,7 @@ tl.to("#SCENEID-read", { textContent: 71, snap: { textContent: 1 }, duration: 2.
 // C2 4.6-9.0 "but flattens out near seventy-one percent." — the ceiling, named where it is.
 tl.to("#SCENEID-plateau-line", { drawSVG: "0% 100%", duration: 1.0, ease: "power2.inOut" }, 4.7);
 tl.to("#SCENEID-plateau-label", { opacity: 1, duration: 0.4 }, 5.4);
-tl.to("#SCENEID-ceiling", { scaleY: 1, duration: 0.9, ease: "power3.out" }, 5.6);
+tl.to("#SCENEID-ceiling", { opacity: 1, duration: 0.9, ease: "power3.out" }, 5.6);
 tl.to("#SCENEID-base-dot", { scale: 1.5, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 5, ease: "sine.inOut" }, 6.0);
 
 // C3 9.0-13.4 "Our method keeps climbing, to eighty-three." — a second trace overtakes; the readout follows it.
@@ -391,7 +389,7 @@ tl.to("#SCENEID-ours-area", { opacity: 1, duration: 0.8, ease: "power2.out" }, 1
 tl.to("#SCENEID-gap", { opacity: 1, duration: 0.5 }, 13.5);
 tl.to("#SCENEID-gap", { morphSVG: "#SCENEID-badge-shape", fillOpacity: 1, duration: 1.2, ease: "power3.inOut" }, 14.3);
 tl.to("#SCENEID-gain", { opacity: 1, duration: 0.4 }, 15.4);
-tl.to("#SCENEID-gain-n", { scale: 1.06, transformOrigin: "50% 50%", duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);
+tl.to("#SCENEID-gain-n", { opacity: 0.6, duration: 0.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, 16.0);
 // The end frame is the summary: the baseline comes back beside the gain it lost to.
 tl.to(["#SCENEID-base-curve", "#SCENEID-base-dot", "#SCENEID-plateau-line", "#SCENEID-plateau-label"], { opacity: 1, duration: 0.5 }, 16.4);`,
   },
@@ -481,8 +479,8 @@ gsap.set("#SCENEID-axis", { drawSVG: "50% 50%" });
 gsap.set(["#SCENEID-lo", "#SCENEID-mid", "#SCENEID-hi", "#SCENEID-sigma", "#SCENEID-sigma-n"], { opacity: 0 });
 gsap.set(rings, { drawSVG: "0% 0%", opacity: 0 });
 gsap.set("#SCENEID-outlier-label", { opacity: 0 });
-gsap.set("#SCENEID-norm-label", { opacity: 0, x: -40 });
-gsap.set("#SCENEID-band-fill", { scaleX: 0, transformOrigin: "50% 50%" });
+gsap.set("#SCENEID-norm-label", { opacity: 0 });
+gsap.set("#SCENEID-band-fill", { opacity: 0 });
 gsap.set("#SCENEID-band-label", { opacity: 0 });
 
 // C1 1.0-4.8 "activations spread wide," — the scatter lands, the scale opens under it.
@@ -502,140 +500,20 @@ tl.to(rings, { scale: 1.15, transformOrigin: "50% 50%", duration: 0.4, yoyo: tru
 // C3 9.0-13.4 "Normalizing reshapes them onto one standard scale," — every dot travels into the bell.
 tl.to(rings.concat(["#SCENEID-outlier-label"]), { opacity: 0, duration: 0.4 }, 9.05);
 tl.to(rest, { opacity: 1, duration: 0.4 }, 9.1);
-tl.to("#SCENEID-norm-label", { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, 9.2);
+tl.to("#SCENEID-norm-label", { opacity: 1, duration: 0.5, ease: "power3.out" }, 9.2);
 for (var n = 0; n < 24; n++) {
   tl.to(dots[n], { x: to[n][0] - from[n][0], y: to[n][1] - from[n][1], attr: { r: 30 }, fill: "{{accent}}", duration: 1.2, ease: "power3.inOut" }, 9.5 + n * 0.07);
 }
 
 // C4 13.4-17.6 "cutting the spread from three point two to one." — the band opens, the number follows it.
-tl.to("#SCENEID-band-fill", { scaleX: 1, duration: 0.9, ease: "power3.out" }, 13.5);
+tl.to("#SCENEID-band-fill", { opacity: 1, duration: 0.9, ease: "power3.out" }, 13.5);
 tl.to("#SCENEID-band-label", { opacity: 1, duration: 0.4 }, 14.1);
 tl.to("#SCENEID-sigma-n", { textContent: 1, snap: { textContent: 0.1 }, fill: "{{accent}}", duration: 1.4, ease: "power3.inOut" }, 13.6);
 tl.to(dots, { scale: 1.12, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut", stagger: 0.02 }, 15.3);`,
   },
 };
 
-/* ------------------------------------------------ 5. illustrated, staged */
-
-/**
- * Round 4's reference: a scene BUILT AROUND THE BEAT'S ILLUSTRATION and STAGED
- * by the shell. The picture covers the box (the shell holds it there); its
- * subjects are known boxes (`subjects`, box px — what the prompt lists for a
- * real picture); the scene names its SHOTS and the shell's camera establishes,
- * pushes in on S1, moves to S2 and S3 and reveals the whole at the last cue.
- * The subjects' names are its `labels`: the shell sets each ON its subject —
- * plate, text, a leader line to a dot — as the camera arrives there
- * (src/bespoke/callouts.ts); a spotlight (a shade with a soft hole) follows the
- * shots; vector links and particles carry the mechanism between the subjects;
- * a counter lands the point.
- */
-const ILLUSTRATED_SUBJECTS = [
-  { x: 153, y: 200, w: 500, h: 480 },
-  { x: 731, y: 160, w: 400, h: 400 },
-  { x: 1150, y: 240, w: 440, h: 440 },
-];
-
-const illustrated: Reference = {
-  name: "illustrated",
-  shows:
-    "a scene built on the beat's ILLUSTRATION and staged in SHOTS: a masked wipe reveals the picture on the establishing shot, the shell's camera pushes in on the subject each cue names (the scene's \"shots\") while a SPOTLIGHT (a shade with a soft hole) follows and that subject's callout ring draws on — and the shell lands its name (\"labels\") ON it — vector links and particles carry the mechanism from subject to subject, and the reveal at the last cue shows everything lit with a counter that lands the point",
-  fits: [],
-  cues: [
-    { t0: 1.0, t1: 4.6, text: "A robot looks around the room." },
-    { t0: 4.6, t1: 9.0, text: "Everything it sees" },
-    { t0: 9.0, t1: 13.4, text: "becomes a graph of objects and relations," },
-    { t0: 13.4, t1: 17.8, text: "which the language model reads in one pass." },
-  ],
-  duration: 19,
-  subjects: ILLUSTRATED_SUBJECTS,
-  fragment: {
-    shots: [
-      { cue: 2, at: 0, subject: 1 },
-      { cue: 3, at: 0, subject: 2 },
-      { cue: 3, at: 0.5, subject: 3 },
-    ],
-    labels: [
-      { subject: 1, text: "what it sees" },
-      { subject: 2, text: "objects" },
-      { subject: 3, text: "relations" },
-    ],
-    markup: `<svg id="SCENEID-svg" width="1700" height="732" viewBox="0 0 1700 732" style="position:absolute;left:0;top:0;overflow:hidden">
-  <defs>
-    <clipPath id="SCENEID-wipe"><rect id="SCENEID-wipe-bar" x="0" y="0" width="0" height="732"/></clipPath>
-    <radialGradient id="SCENEID-soft"><stop offset="0.7" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/></radialGradient>
-    <mask id="SCENEID-hole"><rect x="0" y="0" width="1700" height="732" fill="#ffffff"/><circle id="SCENEID-hole-c" cx="403" cy="440" r="300" fill="url(#SCENEID-soft)"/></mask>
-  </defs>
-  <g id="SCENEID-art" data-cue="1" clip-path="url(#SCENEID-wipe)">
-    <image id="SCENEID-pic" data-art="1" x="0" y="120" width="1700" height="612" preserveAspectRatio="xMidYMid slice"/>
-    <rect id="SCENEID-shade" x="0" y="0" width="1700" height="732" fill="{{bg}}" mask="url(#SCENEID-hole)"/>
-  </g>
-  <g id="SCENEID-links" data-cue="3">
-    <path id="SCENEID-l12" d="M403 440 L931 360" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-    <path id="SCENEID-l23" d="M931 360 L1370 460" fill="none" stroke="{{accent}}" stroke-width="7" stroke-linecap="round"/>
-    <circle id="SCENEID-p1" cx="403" cy="440" r="14" fill="{{fg}}"/>
-    <circle id="SCENEID-p2" cx="931" cy="360" r="14" fill="{{fg}}"/>
-  </g>
-  <g id="SCENEID-s1" data-cue="2">
-    <circle id="SCENEID-ring1" cx="403" cy="440" r="200" fill="none" stroke="{{accent}}" stroke-width="8" stroke-linecap="round"/>
-  </g>
-  <g id="SCENEID-sum" data-cue="4">
-    <rect id="SCENEID-sum-plate" x="560" y="596" width="560" height="132" rx="30" fill="{{panel}}" stroke="{{accent}}" stroke-width="5"/>
-    <text id="SCENEID-n" x="630" y="662" font-size="56" font-weight="700" fill="{{accent}}" text-anchor="middle" dominant-baseline="middle">0</text>
-    <text id="SCENEID-sum-label" x="690" y="662" font-size="44" fill="{{fg}}" dominant-baseline="middle">objects, one pass</text>
-  </g>
-</svg>`,
-    css: "",
-    script: `// Layout (box 1700x732): a 120px band on top for the labels; the picture covers the rest
-// (y 120-732). Its subjects: S1 x 153-653, y 200-680 · S2 x 731-1131, y 160-560 · S3 x
-// 1150-1590, y 240-680. Their names are "labels": the shell sets each in its zone just above
-// it (S1 y 93-188, S2 y 53-148, S3 y 133-228) as the camera arrives, so nothing here is
-// drawn there. S1's callout ring (r 200) tops out at y 240, under its zone. Links run centre
-// to centre (403,440) → (931,360) → (1370,460) · summary plate x 560-1120, y 596-728.
-// Shots (the shell's camera): C1 establishing · C2 push in on S1 · C3 on S2, then S3 half
-// way · C4 the shell reveals the whole.
-var links = ["#SCENEID-l12", "#SCENEID-l23"];
-
-gsap.set("#SCENEID-wipe-bar", { attr: { width: 0 } });
-gsap.set("#SCENEID-shade", { opacity: 0 });
-gsap.set("#SCENEID-hole-c", { attr: { cx: 403, cy: 440, r: 300 } });
-gsap.set("#SCENEID-ring1", { drawSVG: "0% 0%" });
-gsap.set(["#SCENEID-s1", "#SCENEID-sum"], { opacity: 0 });
-gsap.set(links, { drawSVG: "0% 0%" });
-gsap.set(["#SCENEID-p1", "#SCENEID-p2"], { opacity: 0 });
-
-// C1 1.0-4.6 "A robot looks around the room." — the establishing shot: the picture wipes in.
-tl.to("#SCENEID-wipe-bar", { attr: { width: 1700 }, duration: 1.6, ease: "power2.inOut" }, 1.0);
-
-// C2 4.6-9.0 "Everything it sees" — the camera is on S1: the spotlight, its ring, its label.
-tl.to("#SCENEID-shade", { opacity: 0.6, duration: 0.6 }, 4.8);
-tl.to("#SCENEID-s1", { opacity: 1, duration: 0.3 }, 5.0);
-tl.to("#SCENEID-ring1", { drawSVG: "0% 100%", duration: 1.1, ease: "power2.out" }, 5.0);
-tl.to("#SCENEID-ring1", { scale: 1.04, transformOrigin: "50% 50%", duration: 0.5, yoyo: true, repeat: 3, ease: "sine.inOut" }, 6.6);
-
-// C3 9.0-13.4 "becomes a graph of objects and relations," — the camera on S2, then S3;
-// the spotlight follows; links draw from subject to subject and particles flow along them.
-tl.to("#SCENEID-hole-c", { attr: { cx: 931, cy: 360, r: 280 }, duration: 1.1, ease: "power3.inOut" }, 9.0);
-tl.to(links, { drawSVG: "0% 100%", duration: 0.8, ease: "power2.out", stagger: 0.6 }, 9.8);
-tl.to(["#SCENEID-p1", "#SCENEID-p2"], { opacity: 1, duration: 0.2 }, 10.6);
-tl.to("#SCENEID-p1", { attr: { cx: 931, cy: 360 }, duration: 1.0, repeat: 5, ease: "none" }, 10.6);
-tl.to("#SCENEID-p2", { attr: { cx: 1370, cy: 460 }, duration: 1.0, repeat: 5, ease: "none" }, 10.8);
-tl.to("#SCENEID-hole-c", { attr: { cx: 1370, cy: 460, r: 300 }, duration: 1.1, ease: "power3.inOut" }, 11.2);
-
-// C4 13.4-17.8 "which the language model reads in one pass." — the reveal: the shade lifts,
-// everything is lit, and the count lands on its plate.
-tl.to("#SCENEID-shade", { opacity: 0, duration: 0.6 }, 13.5);
-tl.to("#SCENEID-sum", { opacity: 1, duration: 0.4 }, 14.6);
-tl.to("#SCENEID-n", { textContent: 3, snap: { textContent: 1 }, duration: 1.0, ease: "power2.out" }, 14.7);
-tl.to("#SCENEID-sum-plate", { strokeWidth: 10, duration: 0.35, yoyo: true, repeat: 3, ease: "sine.inOut" }, 15.9);`,
-  },
-};
-
-export const REFERENCES: readonly Reference[] = [route, zoom, growth, gather, illustrated];
-
-/** Whether a reference places the beat's illustration (and so needs a beat that has one). */
-export function placesArt(r: Reference): boolean {
-  return /\sdata-art=/.test(r.fragment.markup);
-}
+export const REFERENCES: readonly Reference[] = [route, zoom, growth, gather];
 
 /** The palette tokens a reference may use. */
 type PaintKey = "bg" | "fg" | "muted" | "dim" | "rule" | "panel" | "accent" | "a" | "b" | "c" | "d";
@@ -659,7 +537,6 @@ export function paint(f: Fragment, theme: Theme): Fragment {
     css: fill(f.css),
     script: fill(f.script),
     ...(f.shots ? { shots: f.shots } : {}),
-    ...(f.labels ? { labels: f.labels } : {}),
   };
 }
 
@@ -671,9 +548,11 @@ function movesCamera(r: Reference): boolean {
 /**
  * The two references a beat is shown: the best fit for its archetype first,
  * then the best fit that teaches a DIFFERENT motion, so every prompt carries
- * at least two verbs beyond fade-and-draw. An illustrated beat leads with the
- * staged reference and is never shown a scene that moves its own camera (the
- * shell's shots do that); a data beat leads with the chart that builds.
+ * at least two verbs beyond fade-and-draw. A beat with a picture is never shown
+ * a scene that moves its own camera (the shell's shots do that); a data beat
+ * leads with the chart that builds. (Round 6: a scene on a depth picture is
+ * shown no reference at all — src/bespoke/prompt.ts — and round 4's
+ * "illustrated" reference, labels and spotlight over the picture, is gone.)
  */
 export function pickReferences(archetype: string, n = 2, art = false, data = false): Reference[] {
   const rank = (r: Reference) => {
@@ -681,11 +560,9 @@ export function pickReferences(archetype: string, n = 2, art = false, data = fal
     const i = r.fits.indexOf(archetype);
     return i < 0 ? 99 : i;
   };
-  const plain = REFERENCES.filter((r) => !placesArt(r) && !(art && movesCamera(r)));
+  const plain = REFERENCES.filter((r) => !(art && movesCamera(r)));
   const sorted = [...plain].sort(
     (a, b) => rank(a) - rank(b) || plain.indexOf(a) - plain.indexOf(b),
   );
-  // A beat with an illustration is shown how to build on one first.
-  const lead = art ? REFERENCES.filter(placesArt) : [];
-  return [...lead, ...sorted].slice(0, n);
+  return sorted.slice(0, n);
 }
