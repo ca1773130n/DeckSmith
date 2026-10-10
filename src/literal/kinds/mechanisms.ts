@@ -16,14 +16,13 @@
  *   of failing `build --literal`.
  *
  * Words are measured in the deck's own face (`widthOf` with the theme the pass
- * hands `layers`); without one (the plan gate), in the Latin face.
+ * hands `layers`, or the plan gate's deck theme). There is no fallback face.
  *
  * An EXAMPLE TAG: when the plan gives the `example` slot, every frame carries
  * it in a band under the scene, and the kind is laid out above the band.
  */
 import { join } from "node:path";
 import type { Theme } from "../../emit/kit.js";
-import { textWidth } from "../../emit/svg.js";
 import type { Literal, LiteralKind } from "../../types.js";
 import { type KindImpl, type KindSpec, lab, stepStarts, widthOf } from "../kind.js";
 import { nativeSize } from "../kinds-shared.js";
@@ -63,8 +62,10 @@ export const isMechanism = (k: string): k is Mechanism =>
   (MECHANISMS as readonly string[]).includes(k);
 
 /** The deck's face when the theme is known, else the Latin one. */
-const measureOf = (theme?: Theme): Measure =>
-  theme ? (t, size) => widthOf(t, size, theme) : (t, size) => textWidth(t, size, 600);
+const measureOf = (theme?: Theme): Measure => {
+  const t = needTheme(theme);
+  return (text, size) => widthOf(text, size, t);
+};
 
 /** The band an example tag takes under the scene. */
 const TAG_H = TYPE.label + 28;
@@ -88,9 +89,11 @@ const number = (kind: LiteralKind, labels: Readonly<Record<string, string>>, slo
 /** One mapping per kind: the plan's literal → the pure kind's result (or undefined at plan time when it needs the picture). */
 const RUNS: { [K in Mechanism]: (c: Ctx<K>) => MechanismResult | undefined } = {
   attention({ lit: d, image, dry, theme, region }) {
-    if (d.picture && (d.heads.length || d.embeddings.length))
+    // With tokens, the scene runs on the tokens (a picture is then unused). Without them, a
+    // picture is cut into patches, and per-token heads or embeddings have nothing to fit.
+    if (d.picture && !d.tokens.length && (d.heads.length || d.embeddings.length))
       throw new Error(
-        "attention: `heads` and `embeddings` are per-token rows, and a `picture` has no tokens; on a picture the scene compares pixels, so give tokens with them, or drop them",
+        "attention: `heads` and `embeddings` are rows per token, and this scene has no `tokens`, only a `picture` (whose patches it compares by pixels); give the `tokens` those rows belong to, or drop `heads` and `embeddings`",
       );
     if (d.picture && !d.tokens.length) {
       if (dry) return undefined;
@@ -168,6 +171,20 @@ const RUNS: { [K in Mechanism]: (c: Ctx<K>) => MechanismResult | undefined } = {
     );
   },
   splatting({ lit: d, image, dry, region }) {
+    if (dry) {
+      // Plan time: the scene's inputs, without rendering it (rendering cannot fail on them).
+      const n = d.gaussians.length || d.points.length;
+      if (!n && !d.picture)
+        throw new Error("splatting: needs `points`, `gaussians` or a `picture`");
+      if (d.points.length && d.points.length < 4)
+        throw new Error("splatting: needs at least four points");
+      if (n > 2000) throw new Error(`splatting: ${n} is over the 2000 the cost bound allows`);
+      const bad = [...d.points, ...d.gaussians].some((p) =>
+        Object.values(p).some((v) => typeof v === "number" && !Number.isFinite(v)),
+      );
+      if (bad) throw new Error("splatting: every coordinate, scale and colour must be a number");
+      return undefined;
+    }
     if (d.gaussians.length)
       return splatting(
         {
@@ -239,15 +256,21 @@ const RUNS: { [K in Mechanism]: (c: Ctx<K>) => MechanismResult | undefined } = {
         })),
         method: vectors ? "cosine" : "bm25",
         k: d.k,
-        theme: theme ?? GATE_THEME,
+        theme: needTheme(theme),
       },
       region,
     );
   },
 };
 
-/** The Latin face's stand-in theme at plan time (retrieval wraps its query; only the font stack is read). */
-const GATE_THEME = { fontStack: "Inter" } as Theme;
+/** Every run is told the deck's theme (the build's, or the plan gate's): words are laid out in its face. */
+function needTheme(theme: Theme | undefined): Theme {
+  if (!theme)
+    throw new Error(
+      "literal: a mechanism kind is laid out in the deck's theme, and none was given",
+    );
+  return theme;
+}
 
 /** Run a kind's mapping, with the example band reserved and drawn when the plan gives the tag. */
 function runKind(
@@ -294,19 +317,16 @@ function runKind(
  * Why a plan's literal cannot be drawn, at plan time: the kind's own checks,
  * run on the plan's data without its picture. Empty when it can be.
  */
-export function mechanismProblems(lit: Literal, region: Region = GATE_REGION): string[] {
+export function mechanismProblems(lit: Literal, region: Region, theme: Theme): string[] {
   if (!isMechanism(lit.kind)) return [];
   const labels = Object.fromEntries(lit.labels.map((l) => [l.slot, l.text]));
   try {
-    runKind(lit.kind, lit, labels, region, { dry: true });
+    runKind(lit.kind, lit, labels, region, { dry: true, theme });
     return [];
   } catch (e) {
     return [(e as Error).message.replace(/^[\w-]+: /, "")];
   }
 }
-
-/** The 16:9 deck's body, for the plan-time run: the pass gives each beat its own. */
-export const GATE_REGION: Region = { width: 1760, height: 820 };
 
 /** The picture at its own aspect, at most `maxSide` on its longer side. */
 async function picture(image: string, maxSide: number): Promise<Rgb> {
@@ -434,7 +454,7 @@ export async function mechanismLayers(
     dir: string;
     region: Region;
     spec: KindSpec;
-    theme?: Theme;
+    theme: Theme;
   },
 ): Promise<Layers> {
   const lit = input.spec.data as Literal | undefined;
@@ -445,7 +465,7 @@ export async function mechanismLayers(
   const r = runKind(kind, lit, input.spec.labels, input.region, {
     dry: false,
     ...(image ? { image } : {}),
-    ...(input.theme ? { theme: input.theme } : {}),
+    theme: input.theme,
   });
   if (!r) throw new Error(`literal: the ${kind} scene needs its picture`);
   return writeLayers(r, input.beatId, input.dir);

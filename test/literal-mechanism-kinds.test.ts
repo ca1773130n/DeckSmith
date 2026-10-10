@@ -12,6 +12,7 @@ import type { Theme } from "../src/emit/kit.js";
 import { textWidth } from "../src/emit/svg.js";
 import { deckLook } from "../src/emit/theme.js";
 import { THEMES } from "../src/emit/themes/index.js";
+import { literalPlanOf } from "../src/literal/index.js";
 import { widthOf } from "../src/literal/kind.js";
 import {
   type Frame,
@@ -46,7 +47,7 @@ import {
   textRgb,
 } from "../src/literal/kinds/svg.js";
 import { KINDS } from "../src/literal/registry.js";
-import { literalFindings, literalTruthProblems } from "../src/plan/coverage.js";
+import { literalFindings, literalTruthProblems, numberSequence } from "../src/plan/coverage.js";
 import {
   ATTENTION_RULES,
   DIFFUSION_RULES,
@@ -1039,6 +1040,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
         region,
         spec,
         earlier: new Map(),
+        theme: pack("signal"),
       });
       for (const f of Object.values(L.files))
         expect((await stat(join(dir, f))).size).toBeGreaterThan(0);
@@ -1071,7 +1073,7 @@ describe("the mechanism kinds in the literal pass (src/literal/kinds/mechanisms.
           new RegExp(`needs the label slot "${required[0]}"`),
         );
       }
-    });
+    }, 30000); // diffusion writes 22 rasters: ~2 s alone, more under a parallel run
   }
 
   it("the truth rules are the kinds' own, and the planner is shown them", () => {
@@ -1170,7 +1172,9 @@ describe("the PR #115 review's findings stay fixed", () => {
       "The trained ViT attends to the dog's head",
     );
     expect(found).toContainEqual(
-      expect.stringMatching(/cannot be drawn: `heads` and `embeddings` are per-token rows/),
+      expect.stringMatching(
+        /cannot be drawn in [^:]+: `heads` and `embeddings` are rows per token, and this scene has no `tokens`/,
+      ),
     );
   });
 
@@ -1190,7 +1194,7 @@ describe("the PR #115 review's findings stay fixed", () => {
     const claim = "The trained GCN predicts each node's class";
     const invented = findings(gcn([[[0.37]]]), text, claim);
     expect(invented).toContainEqual(
-      expect.stringMatching(/gives `weights` with numbers the source never states/),
+      expect.stringMatching(/gives `weights` the source does not print/),
     );
     expect(invented).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
     const own = findings(gcn([[[2]]]), `${text} Its weight is 2.`, claim);
@@ -1211,7 +1215,7 @@ describe("the PR #115 review's findings stay fixed", () => {
     };
     expect(
       findings(series, "SGD lowers the training loss from 2.5 at step 0 to 10."),
-    ).toContainEqual(expect.stringMatching(/gives `series` with numbers the source never states/));
+    ).toContainEqual(expect.stringMatching(/gives `series` the source does not print/));
   });
 
   it("4. message passing applies the source's σ and refuses a short or misshapen weight list", () => {
@@ -1266,6 +1270,7 @@ describe("the PR #115 review's findings stay fixed", () => {
           region: REGION,
           spec: { labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])), data: lit },
           earlier: new Map(),
+          theme: pack("signal"),
         });
         const frames = L.data.frames as Array<{
           id: string;
@@ -1320,6 +1325,7 @@ describe("the PR #115 review's findings stay fixed", () => {
         region: REGION,
         spec: { labels: { example: "example" }, data: lit },
         earlier: new Map(),
+        theme: pack("signal"),
       });
       for (const f of L.data.frames as Array<{ prims: Array<{ slot?: string; y?: number }> }>)
         expect(f.prims.find((p) => p.slot === "example")?.y).toBeGreaterThan(REGION.height - 80);
@@ -1366,7 +1372,7 @@ describe("the PR #115 review's findings stay fixed", () => {
     expect(r.scores[0]).toBe(0);
     expect(r.scores[1] as number).toBeGreaterThan(0);
     expect(r.scores[2] as number).toBeGreaterThan(0);
-    expect(retrieval.tokenize("注意力")).toEqual(["注意", "意力"]);
+    expect(retrieval.tokenize("注意力")).toEqual(["注意", "意力", "注", "意", "力"]);
     expect(retrieval.tokenize("Gaussian 스플래팅")).toEqual(["gaussian", "스플래팅"]);
   });
 
@@ -1495,5 +1501,492 @@ describe("the PR #115 review's findings stay fixed", () => {
       literalTruthProblems(s, {}, ["nothing is learned here", "학습 없이 그린다"], ""),
     ).toEqual([]);
     expect(literalTruthProblems(s, {}, ["the learned Gaussians"], "")).toHaveLength(1);
+  });
+});
+
+/* ------------------------------------------ the PR #115 re-review, one by one */
+
+describe("the PR #115 re-review's findings stay fixed", () => {
+  const sourceOf = (text: string) =>
+    sourceSchema.parse({
+      id: "s",
+      title: "t",
+      sections: [{ id: "sec1", depth: 1, heading: "Method", text }],
+      figures: [],
+      equations: [],
+      tables: [],
+    });
+  const lbl = (o: Record<string, string>) =>
+    Object.entries(o).map(([slot, text]) => ({ slot, text }));
+  const findings = (
+    literal: object,
+    text: string,
+    opts: { takeaway?: string; headline?: string; theme?: string; lang?: string } = {},
+  ) =>
+    literalFindings(
+      {
+        theme: opts.theme ?? "signal",
+        lang: opts.lang ?? "en",
+        beats: [
+          {
+            id: "b02",
+            archetype: "statement",
+            params: { headline: opts.headline ?? "A scene" },
+            intent: "x",
+            takeaway: opts.takeaway ?? "the scene",
+            literal: literalSchema.parse(literal),
+          },
+        ],
+      } as never,
+      sourceOf(text),
+    );
+
+  it("HIGH 1. a row counts as the source's only when printed whole, in order, with its sign", () => {
+    // The reviewer's probe: small integers from "2 heads (Figure 1)" and "Section 3 … 0 failures".
+    const src =
+      "We use 2 heads (Figure 1). Section 3 reports 0 failures. The transformer attends with self-attention over tokens.";
+    const heads = [
+      {
+        q: [
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ],
+        k: [
+          [2, 0],
+          [0, 3],
+          [1, 2],
+        ],
+      },
+    ];
+    const lit = {
+      kind: "attention",
+      tokens: ["the", "cat", "sat"],
+      heads,
+      labels: lbl({ content: "c", position: "p" }),
+    };
+    const found = findings(lit, src, { takeaway: "The trained model attends to cat from sat" });
+    expect(found).toContainEqual(expect.stringMatching(/claims what a trained model attends to/));
+    expect(found).toContainEqual(expect.stringMatching(/gives `heads` the source does not print/));
+    expect(found).toContainEqual(expect.stringMatching(/needs the `example` slot/));
+    // Printed whole: grounded, the ban lifts, no tag needed.
+    const printed = `${src} Q = [[1, 0], [0, 1], [1, 1]] and K = [[2, 0], [0, 3], [1, 2]].`;
+    expect(
+      findings(lit, printed, { takeaway: "The trained model attends to cat from sat" }),
+    ).toEqual([]);
+    // A sign is part of the row.
+    expect(
+      findings(
+        {
+          ...lit,
+          heads: [
+            {
+              q: [
+                [-1, 0],
+                [0, 1],
+                [1, 1],
+              ],
+              k: heads[0]?.k,
+            },
+          ],
+        },
+        printed,
+      ),
+    ).toContainEqual(expect.stringMatching(/gives `heads` the source does not print/));
+    // The message-passing probe: weights [[1]], [[-2]] off "Section 1" and "2 layers", relu never named.
+    const gcn = {
+      kind: "message-passing",
+      nodes: [
+        { id: "a", label: "a", features: [1] },
+        { id: "n", label: "n", features: [0] },
+        { id: "x", label: "", features: [0] },
+      ],
+      edges: [
+        { from: "a", to: "n" },
+        { from: "n", to: "x" },
+      ],
+      layers: 2,
+      weights: [[[1]], [[-2]]],
+      activation: "relu",
+      labels: lbl({ layer: "{l}", field: "{count}" }),
+    };
+    const g = findings(
+      gcn,
+      "Section 1 introduces a graph neural network with 2 layers. We train a GCN on a citation graph.",
+      {
+        takeaway: "The trained GCN predicts each node's class",
+      },
+    );
+    expect(g).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
+    expect(g).toContainEqual(expect.stringMatching(/needs the `example` slot/));
+    expect(g).toContainEqual(
+      expect.stringMatching(/`activation` relu, which the source never names/),
+    );
+  });
+
+  it("MEDIUM 2/8. the gate lays the scene out where and as the build does: the beat's region, the deck's face, every format", () => {
+    const text = "We retrieve and rank papers; attention over tokens; queries and keys.";
+    const items = Array.from({ length: 7 }, (_, i) => ({
+      label: `Paper ${i + 1}`,
+      text: "rank papers",
+    }));
+    const retr = {
+      kind: "retrieval",
+      query: "rank papers",
+      items,
+      labels: lbl({ query: "q", score: "{method}", topk: "{k}", example: "example" }),
+    };
+    const two =
+      "A headline long enough to wrap onto a second line at the deck's headline size, as the review's probe had";
+    expect(findings(retr, text, { headline: two })).toContainEqual(
+      expect.stringMatching(/cannot be drawn in [^:]*deck-16x9[^:]*: 7 items need/),
+    );
+    const ten = "one two three four five six seven eight nine ten".split(" ");
+    const att = {
+      kind: "attention",
+      tokens: ten,
+      labels: lbl({ content: "c", position: "p", example: "example" }),
+    };
+    const a = findings(att, text);
+    expect(a).toContainEqual(
+      expect.stringMatching(/cannot be drawn in [^:]*short-9x16[^:]*: 10 tokens need/),
+    );
+    expect(a.join(" ")).not.toMatch(/deck-16x9/);
+    // The same eight words fit a Latin deck's 1700 px and not the folio pack's Korean face (1788 px).
+    const words = "Transformer attention takes weighted averages across every token".split(" ");
+    const w8 = {
+      kind: "attention",
+      tokens: words,
+      labels: lbl({ content: "c", position: "p", example: "example" }),
+    };
+    expect(findings(w8, text).join(" ")).not.toMatch(/deck-16x9/);
+    expect(findings(w8, text, { theme: "folio", lang: "ko" })).toContainEqual(
+      expect.stringMatching(/cannot be drawn in [^:]*deck-16x9[^:]*: 8 tokens need/),
+    );
+  });
+
+  it("MEDIUM 3. a negator nearby does not negate the claim: it must govern the banned word", () => {
+    const rules = { mustNotClaim: LITERAL_KIND_DOCS["message-passing"].mustNotClaim };
+    expect(
+      literalTruthProblems(
+        rules,
+        { weights: [] },
+        ["Given no labels GCN predicts each node's class"],
+        "",
+      ),
+    ).toHaveLength(1);
+    expect(
+      literalTruthProblems(
+        rules,
+        { weights: [] },
+        ["nothing is learned", "without trained weights"],
+        "",
+      ),
+    ).toEqual([]);
+  });
+
+  it("MEDIUM 4. a bracketed list of numbers is read number by number", () => {
+    expect(
+      numberSequence("e1=[0.5,0.25] and e2=[0.75,0.125]; 1,000 steps; Table 3 shows -0.5"),
+    ).toEqual([0.5, 0.25, 0.75, 0.125, 1000, -0.5]);
+    const src =
+      "The learned embeddings are e1=[0.5,0.25] and e2=[0.75,0.125] and e3=[0.5,0.75]. Attention over tokens.";
+    const lit = {
+      kind: "attention",
+      tokens: ["a", "b", "c"],
+      embeddings: [
+        [0.5, 0.25],
+        [0.75, 0.125],
+        [0.5, 0.75],
+      ],
+      labels: lbl({ head: "{h}" }),
+    };
+    expect(findings(lit, src, { takeaway: "the trained model attends to a" })).toEqual([]);
+  });
+
+  it("MEDIUM 5. a layer that widens (d_out > d_in) still colours every node", () => {
+    const r = messagePassing.messagePassing(
+      {
+        nodes: [
+          { id: "a", features: [1] },
+          { id: "b", features: [0] },
+        ],
+        edges: [["a", "b"]],
+        layers: 2,
+        aggregate: "mean",
+        weights: [
+          [[1], [2], [1]],
+          [
+            [1, 0, 1],
+            [0, 1, 0],
+          ],
+        ],
+      },
+      REGION,
+    );
+    for (const f of r.frames)
+      for (const p of f.prims)
+        for (const v of (p as { mix?: number[] }).mix ?? []) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it("MEDIUM 6. a corpus is the source's only when every title and passage is printed in it", () => {
+    const tags = (items: Array<{ label: string; text: string }>, text: string) =>
+      findings(
+        {
+          kind: "retrieval",
+          query: "rank papers",
+          items,
+          labels: lbl({ query: "q", score: "{method}", topk: "{k}" }),
+        },
+        text,
+      ).filter((f) => /needs the `example` slot/.test(f));
+    // A/B/C over invented passages.
+    const abc = ["A", "B", "C"].map((l) => ({ label: l, text: `rank papers about ${l}` }));
+    expect(
+      tags(abc, "We retrieve and rank papers for a query; Table B and Figure C compare them."),
+    ).toHaveLength(1);
+    // Real titles over invented passages.
+    const titles = [
+      { label: "Attention Is All You Need", text: "rank papers by self-attention alone" },
+      { label: "Deep Residual Learning", text: "rank papers with residual blocks" },
+    ];
+    const both =
+      "We retrieve and rank papers: Attention Is All You Need and Deep Residual Learning.";
+    expect(tags(titles, both)).toHaveLength(1);
+    // Every title and passage printed: no tag needed.
+    const printed = `${both} Abstracts: "rank papers by self-attention alone"; "rank papers with residual blocks".`;
+    expect(tags(titles, printed)).toEqual([]);
+  });
+
+  it("MEDIUM 7. the build gets a diffusion beat's data from the kind, not from a schema default", () => {
+    const source = sourceSchema.parse({
+      id: "s",
+      title: "t",
+      sections: [{ id: "sec1", depth: 1, heading: "h", text: "x" }],
+      figures: [{ id: "fig1", src: "fig1.png", caption: "c", width: 8, height: 8 }],
+      equations: [],
+      tables: [],
+    });
+    // A literal WITHOUT the defaulted `schedule` key (as an older plan file has it).
+    const literal = { kind: "diffusion", picture: "b01", labels: [] };
+    const board = {
+      beats: [
+        {
+          id: "b01",
+          archetype: "statement",
+          intent: "i",
+          params: { headline: "h", figureId: "fig1" },
+          literal,
+        },
+      ],
+    };
+    const plan = literalPlanOf(board as never, source, "/deck/assets");
+    expect(plan.beats.b01?.data).toEqual(literal);
+    expect(plan.beats.b01?.image).toBe("/deck/assets/fig1.png");
+  });
+
+  it("LOW. picture + tokens + heads runs the tokens; picture + heads alone is refused with advice that works", () => {
+    const text = "queries and keys over tokens: 1 0 1";
+    const heads = [{ q: [[1], [0], [1]], k: [[1], [0], [1]] }];
+    const withTokens = {
+      kind: "attention",
+      picture: "b01",
+      tokens: ["the", "cat", "sat"],
+      heads,
+      labels: lbl({ head: "{h}", example: "example" }),
+    };
+    expect(findings(withTokens, text).filter((f) => /cannot be drawn/.test(f))).toEqual([]);
+    const alone = { kind: "attention", picture: "b01", heads, labels: lbl({ example: "example" }) };
+    expect(findings(alone, text)).toContainEqual(
+      expect.stringMatching(/give the `tokens` those rows belong to, or drop `heads`/),
+    );
+  });
+
+  it("LOW. node ids are never drawn, so numeric ids are not checked as numbers", () => {
+    const nodes = Array.from({ length: 12 }, (_, i) => ({
+      id: String(i + 1),
+      label: "ABCDEFGHIJKL"[i] as string,
+      features: [i === 0 ? 1 : 0],
+    }));
+    const edges = nodes.slice(1).map((n, i) => ({ from: String(i + 1), to: n.id }));
+    const lit = {
+      kind: "message-passing",
+      nodes,
+      edges,
+      layers: 2,
+      labels: lbl({ layer: "{l}", field: "{count}", example: "example" }),
+    };
+    expect(
+      findings(lit, "A graph neural network over nodes 1 and 2.").filter((f) => /says/.test(f)),
+    ).toEqual([]);
+  });
+
+  it("LOW. a cosine schedule states only its steps; its betas are not asked for", () => {
+    const d = (labels: Record<string, string>) => ({
+      kind: "diffusion",
+      picture: "b01",
+      schedule: "cosine",
+      labels: lbl({
+        forward: "{t}",
+        reverse: "{t}",
+        signal: "s",
+        noise: "n",
+        oracle: "o",
+        ...labels,
+      }),
+    });
+    const src =
+      "A diffusion model with a cosine noise schedule and T = 4000 steps, offset s = 0.008.";
+    const tag = (f: string[]) => f.filter((x) => /needs the `example` slot/.test(x));
+    expect(tag(findings(d({ steps: "4000" }), src))).toEqual([]);
+    expect(tag(findings(d({}), src))).toHaveLength(1);
+    // Linear still needs all three.
+    const lin = { ...d({ steps: "4000" }), schedule: "linear" };
+    expect(tag(findings(lin, src))).toHaveLength(1);
+  });
+
+  it("LOW. a one-character CJK word matches, and a ranking with nothing to rank is refused", () => {
+    const r = retrieval.bm25("猫", ["犬の写真", "猫の写真", "黒い猫"]);
+    expect(r.scores[0]).toBe(0);
+    expect(r.scores[1] as number).toBeGreaterThan(0);
+    expect(r.scores[2] as number).toBeGreaterThan(0);
+    expect(() =>
+      retrieval.retrieval(
+        {
+          query: { text: "zebra" },
+          items: [
+            { label: "a", text: "cat" },
+            { label: "b", text: "dog" },
+          ],
+          theme: pack("signal"),
+        },
+        REGION,
+      ),
+    ).toThrow(/every score is 0/);
+  });
+
+  it("LOW. σ reaches the kind from the plan: `activation: relu` zeroes what a linear layer keeps", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-relu-"));
+    try {
+      const heat = async (activation: string) => {
+        const lit = literalSchema.parse({
+          kind: "message-passing",
+          nodes: [
+            { id: "a", label: "a", features: [1] },
+            { id: "b", label: "b", features: [1] },
+          ],
+          edges: [{ from: "a", to: "b" }],
+          layers: 1,
+          aggregate: "sum",
+          weights: [[[-1]]],
+          activation,
+          labels: lbl({ layer: "{l}", field: "{count}" }),
+        });
+        const L = await KINDS["message-passing"].layers({
+          beatId: activation,
+          dir,
+          region: REGION,
+          spec: { labels: { layer: "{l}", field: "{count}" }, data: lit },
+          earlier: new Map(),
+          theme: pack("signal"),
+        });
+        const f = (L.data.frames as Frame[])[1] as Frame;
+        return (f.prims.find((p) => p.id === "n0") as { heat?: number }).heat;
+      };
+      expect(await heat("none")).toBe(1);
+      expect(await heat("relu")).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("LOW. the theme reaches the layout through `layers`: a Korean deck on folio does not overprint scores", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-face-"));
+    try {
+      const theme = deckLook({ theme: "folio", lang: "ko" } as never).theme;
+      const titles = [
+        "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
+        "Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields",
+        "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding",
+      ];
+      const lit = literalSchema.parse({
+        kind: "retrieval",
+        query: "radiance fields rendering",
+        items: titles.map((t) => ({ label: t, text: t })),
+        labels: lbl({ query: "q", score: "{method}", topk: "{k}", example: "예시" }),
+      });
+      const L = await KINDS.retrieval.layers({
+        beatId: "face",
+        dir,
+        region: { width: 1700, height: 656 },
+        spec: {
+          labels: { query: "q", score: "{method}", topk: "{k}", example: "예시" },
+          data: lit,
+        },
+        earlier: new Map(),
+        theme,
+      });
+      const last = (L.data.frames as Frame[]).at(-1) as Frame;
+      const w = (t: string, size: number) => widthOf(t, size, theme);
+      for (let i = 0; i < titles.length; i++) {
+        const label = last.prims.find((p) => p.id === `lb${i}`) as {
+          x: number;
+          text: string;
+          size: number;
+        };
+        const score = last.prims.find((p) => p.id === `sc${i}`) as {
+          x: number;
+          text: string;
+          size: number;
+        };
+        expect(label.x + w(label.text, label.size)).toBeLessThan(
+          score.x - w(score.text, score.size),
+        );
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("LOW. curves-mode end labels are as wide as the values they print", () => {
+    const region = { width: 1760, height: 860 };
+    const latin: Measure = (t, size) => textWidth(t, size, 600);
+    const r = optimization.optimization(
+      {
+        mode: "curves",
+        series: [
+          {
+            label: "Ours",
+            points: [
+              [0, 123456.789],
+              [10, 0.30000000000000004],
+            ],
+          },
+          {
+            label: "Baseline",
+            points: [
+              [0, -1.23456789],
+              [10, 1.5e-7],
+            ],
+          },
+        ],
+        measure: latin,
+      },
+      region,
+    );
+    for (const f of r.frames)
+      for (const p of f.prims)
+        if (p.p === "text" && p.text && p.anchor === "start")
+          expect(p.x + latin(p.text, p.size)).toBeLessThanOrEqual(region.width + 0.5);
+  });
+
+  it("LOW. the preview script draws through production code, with no raster path of its own", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const script = await readFile(
+      new URL("../scripts/literal-kinds-preview.ts", import.meta.url),
+      "utf8",
+    );
+    expect(script).toMatch(/runJudgeCase/);
+    expect(script).not.toMatch(/writeRaster|mapRgba|toRgba|nearest|upscale/);
   });
 });

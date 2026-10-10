@@ -45,6 +45,7 @@ import {
   type Source,
   type Storyboard,
 } from "../types.js";
+import { isMechanism } from "./kinds/mechanisms.js";
 import { type Cue, type Layers, round3 } from "./kit.js";
 import { KINDS } from "./registry.js";
 
@@ -117,12 +118,11 @@ export function literalPlanOf(
       takeaway: beat.takeaway?.trim() || beat.intent,
       labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
       ...(image ? { image } : {}),
-      // The literal itself whenever it says more than its picture: a data kind, and a kind
-      // that reads a picture AND fields (attention patches, splatting a picture, diffusion's
-      // schedule). A bare picture kind's plan is as it was.
-      ...(image && Object.keys(lit).every((k) => k === "kind" || k === "picture" || k === "labels")
-        ? {}
-        : { data: lit }),
+      // The literal itself for every kind that reads it: the data kinds and the mechanism
+      // kinds (src/literal/kinds/mechanisms.ts), whose `layers` read their fields with or
+      // without a picture. Decided by the kind, never by which fields a schema happens to
+      // default; the other picture kinds' plans are as they were.
+      ...(image && KINDS[lit.kind].picture && !isMechanism(lit.kind) ? {} : { data: lit }),
     };
   }
   return { beats };

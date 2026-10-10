@@ -33,8 +33,9 @@ import {
 /**
  * Lower-cased runs of letters and digits; a run of Chinese or Japanese script
  * (Han, kana), which has no spaces between words, becomes its overlapping
- * character bigrams (a lone character stays one token): the standard
- * segmenter-free indexing for CJK text. Hangul is spaced, so it stays words.
+ * character bigrams plus its single characters (so a one-character word still
+ * matches): segmenter-free indexing for CJK text. Hangul is spaced, so it stays
+ * words.
  */
 export function tokenize(s: string): string[] {
   const cjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]/u;
@@ -47,9 +48,10 @@ export function tokenize(s: string): string[] {
         out.push(part);
         continue;
       }
+      // Bigrams, and the characters themselves: a one-character word (猫) still matches.
       const ch = [...part];
-      if (ch.length === 1) out.push(part);
       for (let i = 0; i + 1 < ch.length; i++) out.push(`${ch[i]}${ch[i + 1]}`);
+      out.push(...ch);
     }
   return out;
 }
@@ -202,6 +204,11 @@ export function retrieval(input: RetrievalInput, region: Region): MechanismResul
     partNames = keep.map((i) => names[i] as string);
     parts = shares.map((sh) => keep.map((i) => sh[i] as number));
   }
+  // A ranking needs a score to rank by: all zero would draw input order as if computed.
+  if (!scores.some((s) => s > 0))
+    throw new Error(
+      "retrieval: no item shares a word with the query, so every score is 0 and there is no ranking to show",
+    );
   const k = Math.min(input.k ?? 3, items.length);
   const rank = scores
     .map((s, i) => [s, i] as const)

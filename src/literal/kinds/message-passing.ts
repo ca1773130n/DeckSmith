@@ -299,8 +299,13 @@ export function messagePassing(input: GraphInput, region: Region): MechanismResu
   const P = unit.map(([x, y]) => [box.x + x * box.w, box.y + y * box.h] as [number, number]);
 
   // Colour: one scale for every layer, so a colour means the same at every hop.
-  const mx = Array.from({ length: d }, (_, c) =>
-    Math.max(1e-12, ...H.flatMap((hl) => hl.map((v) => Math.abs(v[c] as number)))),
+  // Every layer's width, not the input's: a layer may widen (d_out > d_in).
+  const dims = Math.max(...H.map((hl) => (hl[0] as number[]).length));
+  const mx = Array.from({ length: dims }, (_, c) =>
+    Math.max(
+      1e-12,
+      ...H.flatMap((hl) => hl.filter((v) => c < v.length).map((v) => Math.abs(v[c] as number))),
+    ),
   );
   const paint = (v: readonly number[]): Pick<Extract<Prim, { p: "circle" }>, "heat" | "mix"> =>
     v.length === 1
