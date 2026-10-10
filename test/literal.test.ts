@@ -1,29 +1,30 @@
 /**
- * Literal scenes (src/bespoke/literal.ts): the maths the layers are computed
+ * Literal scenes (src/literal/): the maths the layers are computed
  * with, and the fragments' obedience to the deck's invariants. No ffmpeg and
  * no browser: the layers are synthetic.
  */
 import { describe, expect, it } from "vitest";
+import type { Theme } from "../src/emit/kit.js";
+import {
+  literalFragment,
+  literalPlanOf,
+  literalPlanSchema,
+  sentenceCues,
+} from "../src/literal/index.js";
+import { GRID, spikeOutput } from "../src/literal/kinds/spikes.js";
 import {
   boxBlur,
   type Cue,
-  GRID,
   haze,
   type Layers,
   LEAK,
   lif,
-  literalFragment,
-  literalPlanOf,
-  literalPlanSchema,
   luma,
   type Rgb,
   STEPS,
-  sentenceCues,
   sobel,
-  spikeOutput,
   THETA,
-} from "../src/bespoke/literal.js";
-import type { Theme } from "../src/emit/kit.js";
+} from "../src/literal/kit.js";
 import { sourceSchema, storyboardSchema } from "../src/types.js";
 import { slotsFor } from "./literal-fixtures.js";
 

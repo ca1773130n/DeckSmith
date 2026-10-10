@@ -1,6 +1,6 @@
 /**
- * The shared kit of the literal scenes (src/bespoke/literal.ts and
- * src/bespoke/literal-kinds.ts): decoding and writing rasters through ffmpeg,
+ * The shared kit of the literal scenes (src/literal/index.ts and every kind
+ * under src/literal/kinds/): decoding and writing rasters through ffmpeg,
  * the plain-TypeScript maths every layer is computed with, and the fragment
  * helpers that keep each scene inside the deck's invariants (fromTo only,
  * scoped selectors, 3-decimal times, type never under 40px).

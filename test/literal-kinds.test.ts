@@ -1,5 +1,5 @@
 /**
- * The literal kinds beyond haze/spikes/sobel (src/bespoke/literal-kinds.ts):
+ * The literal kinds beyond haze/spikes/sobel (src/literal/kinds/):
  * the maths each one computes, and every fragment's obedience to the deck's
  * invariants. Synthetic layers; no ffmpeg, no browser.
  */
@@ -8,32 +8,25 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Theme } from "../src/emit/kit.js";
+import { literalFragment } from "../src/literal/index.js";
+import { stepStarts, widthOf, wrap } from "../src/literal/kind.js";
+import { avgPool, fixedBackbone, upsample } from "../src/literal/kinds/backbone.js";
+import { darkChannel, dcp } from "../src/literal/kinds/dark-channel.js";
+import { emaThresholds } from "../src/literal/kinds/ema-threshold.js";
+import { structureMap } from "../src/literal/kinds/fixed-filters.js";
+import { fitColumns, rowSteps } from "../src/literal/kinds/table.js";
+import { cropOrigins, tmQuantize } from "../src/literal/kinds-shared.js";
 import {
-  avgPool,
   type Cue,
-  cropOrigins,
-  darkChannel,
-  dcp,
-  emaThresholds,
-  fitColumns,
-  fixedBackbone,
   haze,
   type Layers,
-  literalFragment,
-  MORE_KINDS,
   type Rgb,
-  rowSteps,
-  stepStarts,
-  structureMap,
   Tl,
-  tmQuantize,
   toRgba,
-  upsample,
-  widthOf,
-  wrap,
   writeRaster,
-} from "../src/bespoke/literal.js";
-import type { Theme } from "../src/emit/kit.js";
+} from "../src/literal/kit.js";
+import { KINDS } from "../src/literal/registry.js";
 import { literalSlotsOf } from "../src/types.js";
 import { slotsFor } from "./literal-fixtures.js";
 
@@ -660,8 +653,8 @@ describe.skipIf(!ffmpeg)(
     afterAll(async () => {
       await rm(dir, { recursive: true, force: true });
     });
-    const run = (kind: keyof typeof MORE_KINDS, image: string, over: Record<string, string> = {}) =>
-      MORE_KINDS[kind].layers({
+    const run = (kind: keyof typeof KINDS, image: string, over: Record<string, string> = {}) =>
+      KINDS[kind].layers({
         beatId: "b",
         image,
         dir,

@@ -751,11 +751,12 @@ export const beatPartSchema = z.enum([
 ]);
 
 /**
- * The mechanisms a literal scene can draw (src/bespoke/literal.ts), by name.
- * One list, read by the schema, the planner's prompt and the build, which
- * draws every one: haze, spikes and sobel in literal.ts, the rest in
- * literal-kinds.ts (picture kinds compute from the deck's picture; table,
- * scale and recap draw what the source states or what earlier scenes computed).
+ * The mechanisms a literal scene can draw (src/literal/), by name. One list,
+ * read by the schema, the planner's prompt and the build, which draws every
+ * one: each kind is a module in src/literal/kinds/, listed in
+ * src/literal/registry.ts (picture kinds compute from the deck's picture;
+ * table, scale and recap draw what the source states or what earlier scenes
+ * computed).
  */
 export const LITERAL_KIND_NAMES = [
   "haze",
@@ -1047,7 +1048,7 @@ const beatCore = {
    * to say. Shown to the planner when the build draws scenes (v2).
    */
   takeaway: z.string().optional(),
-  /** OPTIONAL: draw this beat as its mechanism (src/bespoke/literal.ts). See `literalSchema`. */
+  /** OPTIONAL: draw this beat as its mechanism (src/literal/). See `literalSchema`. */
   literal: literalSchema.optional(),
 };
 
