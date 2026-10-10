@@ -808,27 +808,32 @@ export function literalFragment(
 /* -------------------------------------------------------------------- the pass */
 
 /**
- * A scene's narration as its STOPS — one cue per spoken sentence, from its
+ * A scene's narration as its SENTENCES — one cue per sentence spoken, from its
  * first subtitle line to its last — on the scene's clock. Not the subtitle
  * lines: the voice splits a long sentence into two lines, and a scene timed on
- * lines took one causal step per half-sentence (r1, b17: the second row lit
- * in the middle of the first row's sentence).
+ * lines took one causal step per half-sentence (r1, b17: the second row lit in
+ * the middle of the first row's sentence). Not the stops either: a stage beat
+ * speaks several sentences in one stop, and each is still a step.
  */
-export function stopCues(timing: Pick<Timing, "scenes" | "segments">, sid: string): Cue[] {
+export function sentenceCues(timing: Pick<Timing, "scenes" | "segments">, sid: string): Cue[] {
   const scene = timing.scenes.find((s) => s.id === sid);
   if (!scene) return [];
-  return timing.segments
-    .filter((g) => g.scene === sid && g.cues.length)
-    .map((g) => {
-      const first = g.cues[0] as { start: number };
-      const last = g.cues[g.cues.length - 1] as { end: number };
-      return {
-        t0: round3(g.start + first.start - scene.start),
-        t1: round3(g.start + last.end - scene.start),
-      };
-    })
-    .filter((c) => c.t1 > c.t0)
-    .sort((a, b) => a.t0 - b.t0);
+  const out: Cue[] = [];
+  for (const g of timing.segments) {
+    if (g.scene !== sid) continue;
+    let open: number | undefined;
+    g.cues.forEach((c, i) => {
+      open ??= c.start;
+      const ends = /[.!?。！？]["'”’)\]]*$/.test(c.text.trim()) || i === g.cues.length - 1;
+      if (!ends) return;
+      out.push({
+        t0: round3(g.start + open - scene.start),
+        t1: round3(g.start + c.end - scene.start),
+      });
+      open = undefined;
+    });
+  }
+  return out.filter((c) => c.t1 > c.t0).sort((a, b) => a.t0 - b.t0);
 }
 
 export interface LiteralInput {
@@ -908,7 +913,7 @@ export async function literalPass(
   const cuesOf = new Map<string, Cue[]>();
   for (const sc of timing.scenes) {
     const beat = kept[Number(sc.id.slice(1)) - 1];
-    if (beat) cuesOf.set(beat.id, stopCues(timing, sc.id));
+    if (beat) cuesOf.set(beat.id, sentenceCues(timing, sc.id));
   }
   const dir = join(input.out, LITERAL_DIR);
   await mkdir(dir, { recursive: true });

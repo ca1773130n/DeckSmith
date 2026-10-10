@@ -18,9 +18,9 @@ import {
   luma,
   type Rgb,
   STEPS,
+  sentenceCues,
   sobel,
   spikeOutput,
-  stopCues,
   THETA,
 } from "../src/bespoke/literal.js";
 import type { Theme } from "../src/emit/kit.js";
@@ -140,7 +140,7 @@ describe("what reaches the next layer, and when", () => {
     expect(out[49] as number).toBeGreaterThan(0.5);
   });
 
-  it("a scene's steps follow its spoken sentences, not the subtitle lines a long one is split into", () => {
+  it("a scene's steps follow its spoken sentences, not the subtitle lines a long one is split into, nor the stops", () => {
     const timing = {
       scenes: [{ id: "s17", start: 297.876, duration: 28.228, holds: [], open: 0.9 }],
       segments: [
@@ -157,14 +157,19 @@ describe("what reaches the next layer, and when", () => {
           id: "s17.1",
           scene: "s17",
           start: 309.576,
-          cues: [{ start: 0.05, end: 8.35, text: "T." }],
+          // One stop, two sentences (a stage beat speaks all of its in one): two steps.
+          cues: [
+            { start: 0.05, end: 4, text: "단계 수를 바꾼다." },
+            { start: 4, end: 8.35, text: "상충 관계를 본다." },
+          ],
         },
         { id: "s16.3", scene: "s16", start: 290, cues: [{ start: 0, end: 2, text: "x" }] },
       ],
     };
-    expect(stopCues(timing as never, "s17")).toEqual([
+    expect(sentenceCues(timing as never, "s17")).toEqual([
       { t0: 0.95, t1: 11.687 },
-      { t0: 11.75, t1: 20.05 },
+      { t0: 11.75, t1: 15.7 },
+      { t0: 15.7, t1: 20.05 },
     ]);
   });
 });
