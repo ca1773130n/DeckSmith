@@ -224,6 +224,14 @@ export function literalFindings(
   beats.forEach((beat, i) => {
     const lit: Literal | undefined = beat.literal;
     if (!lit) return;
+    text ??= sourceText(source);
+    const said = lit.labels
+      .flatMap((l) => l.text.match(NUMBER) ?? [])
+      .filter((n) => !(text as string).includes(n));
+    if (said.length)
+      out.push(
+        `${beat.id}'s literal labels say ${said.map((n) => `"${n}"`).join(", ")}, which the source never states. A scene's words carry only the source's numbers.`,
+      );
     if (beat.archetype === "title") {
       out.push(
         `${beat.id} is the title and carries \`literal\`. A title names the deck; it draws no mechanism.`,

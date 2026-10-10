@@ -42,6 +42,7 @@ import {
   label,
   luma,
   mapRgba,
+  ON_PHOTO,
   px,
   quantile,
   type Rgb,
@@ -382,9 +383,9 @@ ${tile("p-hazy", f.hazy as string, 0, LAB_H)}
 ${label("l-dark", lab(spec, "dark", "고전 DCP의 암채널"), x2, 0, LABEL, theme.fg)}
 ${panel("p-dark", x2, LAB_H, pw, ph, `<div id="SCENEID-dark-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("dark-i", href(f.dark as string), 0, 0, pw, ph)}</div>`, "lit-dark")}
 ${label("l-trans", lab(spec, "transmission", "추정 투과율"), 0, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-trans", f.trans as string, 0, y2, scan("scan"))}
+${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}${label("l-miss", lab(spec, "miss", `실제 ${d.tTrue}에서 벗어난 곳`), 20, ph - 64, SMALL, "", ON_PHOTO)}`)}
 ${label("l-rec", lab(spec, "recovered", "고전 DCP 복원"), x2, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-rec", f.rec as string, x2, y2, img("miss", href(f.miss as string), 0, 0, pw, ph))}
+${tile("p-rec", f.rec as string, x2, y2)}
 ${label("l-plot", lab(spec, "profile", "선 위의 투과율"), qx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${py0}" x2="0" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
@@ -424,6 +425,7 @@ ${label("l-est", lab(spec, "estimate", "DCP 추정"), qx + qw / 2, H - LAB_H * 3
     tl.show("l-rec", s3);
     tl.show("p-rec", s3, 0.8);
     tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s3 + 2.2);
+    tl.show("l-miss", s3 + 2.4);
     tl.show("l-premise", s3 + 2.6);
     tl.show("l-premise2", s3 + 3.0);
     return { markup, css: baseCss(theme), script: tl.script };
@@ -1659,12 +1661,19 @@ const recapKind: KindImpl = {
     const d = L.data as { beats: string[] };
     const f = L.files as Record<string, string>;
     const n = d.beats.length;
+    // The summary's last word: what the source reports came of it (its own numbers), after the steps.
+    const result = spec.labels.result;
+    const resultLines = result ? wrap(result, LABEL, W, theme) : [];
+    const resH = resultLines.length ? resultLines.length * 58 + 24 : 0;
     const cols = n <= 3 ? n : Math.ceil(n / 2);
     const rows = Math.ceil(n / cols);
     const gap = 64;
     const capH = 64;
     const tw = even(
-      Math.min((W - (cols - 1) * gap) / cols, ((H - rows * capH - (rows - 1) * 32) / rows) * 1.5),
+      Math.min(
+        (W - (cols - 1) * gap) / cols,
+        ((H - resH - rows * capH - (rows - 1) * 32) / rows) * 1.5,
+      ),
     );
     const th = even(tw / 1.5);
     const gw = cols * tw + (cols - 1) * gap;
@@ -1673,7 +1682,7 @@ const recapKind: KindImpl = {
       .split("→")
       .map((s) => s.trim())
       .filter(Boolean);
-    const at = stepStarts(cues, n);
+    const at = stepStarts(cues, n + (resultLines.length ? 1 : 0));
     const pos = (i: number) =>
       [x0 + (i % cols) * (tw + gap), Math.floor(i / cols) * (th + capH + 32)] as const;
     const tilesMarkup = d.beats
@@ -1684,13 +1693,17 @@ const recapKind: KindImpl = {
 ${label(`w${i}`, text, x, y + th + 10, SMALL, theme.fg)}`;
       })
       .join("\n");
-    const markup = `<div id="SCENEID-lit">\n${tilesMarkup}\n</div>`;
+    const resultMarkup = resultLines
+      .map((t, i) => label(`r${i}`, t, 0, H - resH + 24 + i * 58, LABEL, theme.accent))
+      .join("");
+    const markup = `<div id="SCENEID-lit">\n${tilesMarkup}\n${resultMarkup}\n</div>`;
     const tl = new Tl();
     d.beats.forEach((_, i) => {
       const t0 = Math.max(0.2, (at[i] as number) + 0.1);
       tl.show(`p${i}`, t0, 0.7);
       tl.show(`w${i}`, t0 + 0.3);
     });
+    for (let i = 0; i < resultLines.length; i++) tl.show(`r${i}`, (at[n] as number) + 0.2, 0.6);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };

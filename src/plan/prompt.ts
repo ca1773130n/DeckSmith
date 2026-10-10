@@ -832,7 +832,7 @@ export const LITERAL_KIND_DOCS: Record<LiteralKind, string> = {
                      recovered picture. Prior work, labelled as that classical
                      prior — never as the paper's method or another model's
                      output. Takes \`picture\`. Slots: hazy, dark, transmission,
-                     recovered.`,
+                     recovered, miss, premise.`,
   spikes: `leaky integrate-and-fire neurons, one per feature cell of the hazy
                      picture: a cell passes on only when its membrane crosses
                      the threshold, so weak cells go dark downstream. Threshold
@@ -884,7 +884,8 @@ export const LITERAL_KIND_DOCS: Record<LiteralKind, string> = {
   recap: `the layers the deck's earlier literal scenes computed, small, in
                      order: the summary told with the pictures the viewer has
                      already seen. Takes \`beats\` (earlier literal beats). Slots:
-                     caption.`,
+                     caption (the steps, split on "→"), result (what the source
+                     reports came of it, in its own numbers).`,
 };
 
 /**

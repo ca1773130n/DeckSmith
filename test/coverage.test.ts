@@ -284,6 +284,23 @@ describe("literalFindings", () => {
     expect(found).toContainEqual(expect.stringMatching(/marks \(0, 3\), which is no cell/));
   });
 
+  it("refuses a number in a literal label that the source never states", () => {
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "table",
+        columns: ["PSNR"],
+        rows: [["30.56"]],
+        labels: [{ slot: "caption", text: "30.56 vs 41.7" }],
+      },
+    });
+    const found = literalFindings(plan(beats), analysis);
+    expect(found).toContainEqual(
+      expect.stringMatching(/labels say "41.7", which the source never states/),
+    );
+    expect(found.join("\n")).not.toMatch(/labels say "30.56"/);
+  });
+
   it("refuses a recap of a beat that is not an earlier literal scene", () => {
     const beats = covered();
     beats[8] = beatOf("b08-summary", "summary", ["sec10"], {
