@@ -16,8 +16,14 @@ import {
   partOfHeading,
   sourceParts,
 } from "../src/plan/coverage.js";
-import { LITERAL_KIND_DOCS, sourceBlocks } from "../src/plan/prompt.js";
-import { LITERAL_KIND_NAMES, prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
+import { sourceBlocks } from "../src/plan/prompt.js";
+import {
+  LITERAL_KIND_DOCS,
+  LITERAL_KIND_NAMES,
+  prefsSchema,
+  sourceSchema,
+  storyboardSchema,
+} from "../src/types.js";
 import { slotsFor } from "./literal-fixtures.js";
 
 /** A kind's every slot, as a plan's `labels` array. */

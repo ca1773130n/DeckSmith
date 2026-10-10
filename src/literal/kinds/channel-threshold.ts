@@ -44,7 +44,7 @@ import {
 
 /*
  * NO PAPER'S CONSTANTS LIVE HERE. α, the level count D, the EMA momentum μ and
- * the crop size are the plan's number slots (src/types.ts `LITERAL_SLOTS`),
+ * the crop size are the plan's number slots (src/types.ts `LITERAL_KIND_DOCS`),
  * checked against the source before the build runs: a kind used for another
  * paper computes with that paper's values or refuses to draw.
  */

@@ -1,6 +1,6 @@
 /**
  * Shared by the literal-scene tests: a kind's every declared slot, filled, so a
- * fragment can be drawn — there are no defaults (src/types.ts `LITERAL_SLOTS`).
+ * fragment can be drawn — there are no defaults (src/types.ts `LITERAL_KIND_DOCS`).
  */
 import { type LITERAL_KIND_NAMES, literalSlotsOf } from "../src/types.js";
 

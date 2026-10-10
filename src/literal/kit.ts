@@ -335,7 +335,7 @@ export interface Cue {
 /* --------------------------------------------------------------------- slots */
 
 /**
- * A scene's words by slot (src/types.ts `LITERAL_SLOTS`). Throws on a slot the
+ * A scene's words by slot (src/types.ts `LITERAL_KIND_DOCS`). Throws on a slot the
  * kind does not declare — a fragment reading an undocumented slot is a bug,
  * since the planner was never told to fill it — and on a required one the
  * plan left out: no kind has a default, in any language or for any paper.
@@ -349,7 +349,9 @@ export function slotText(
 ): string {
   const decl = literalSlotsOf(kind)[slot];
   if (!decl)
-    throw new Error(`literal: ${kind} reads slot "${slot}", which LITERAL_SLOTS does not declare`);
+    throw new Error(
+      `literal: ${kind} reads slot "${slot}", which its LITERAL_KIND_DOCS entry does not declare`,
+    );
   if (decl.number)
     throw new Error(`literal: ${kind} slot "${slot}" is a number; read it with slotNumber`);
   const text = labels[slot];

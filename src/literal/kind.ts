@@ -4,7 +4,7 @@
  * wrap). A kind is one module in `src/literal/kinds/` exporting a `KindImpl`,
  * listed once in `src/literal/registry.ts`.
  *
- * EVERY WORD ON SCREEN IS A SLOT (src/types.ts `LITERAL_SLOTS`), with no
+ * EVERY WORD ON SCREEN IS A SLOT (src/types.ts `LITERAL_KIND_DOCS`), with no
  * default: a kind has no paper's facts and no language built in.
  */
 import type { Fragment } from "../bespoke/contract.js";
@@ -48,7 +48,7 @@ export interface KindImpl {
 
 /* ----------------------------------------------------------------- helpers */
 
-/** A slot's text (src/types.ts `LITERAL_SLOTS`): no defaults, so no paper's facts and no language are built in. */
+/** A slot's text (src/types.ts `LITERAL_KIND_DOCS`): no defaults, so no paper's facts and no language are built in. */
 export const lab = (
   kind: LiteralKind,
   spec: KindSpec,

@@ -13,7 +13,14 @@
 import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
 import { repairTex } from "../emit/tex.js";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
-import { type LiteralKind, literalSlotsOf, prefsSchema, type Source } from "../types.js";
+import {
+  LITERAL_KIND_DOCS,
+  type LiteralKind,
+  type LiteralKindDoc,
+  literalSlotsOf,
+  prefsSchema,
+  type Source,
+} from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
 import { PART_NAMES, sourceParts } from "./coverage.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
@@ -816,72 +823,7 @@ a process that runs, an equation whose terms act, a curve that moves, a
 comparison that is a distance: when the call budget cannot pay for every beat,
 those are drawn first. Leave it null otherwise.`;
 
-/**
- * What each literal kind draws and what it takes. A Record over
- * `LiteralKind`, so a kind added to `LITERAL_KIND_NAMES` (src/types.ts) does
- * not compile until the planner is told what it is. Its label slots are NOT
- * written here: they are listed from `LITERAL_SLOTS`, the table the build
- * reads, so the two cannot disagree.
- */
-export const LITERAL_KIND_DOCS: Record<LiteralKind, string> = {
-  haze: `the atmospheric scattering model I = J·t + A·(1−t) computed onto
-                     the picture: haze rises, and the picture's contrast and its
-                     edge (Sobel) map fade before any network sees them. Exact.
-                     Takes \`picture\`.`,
-  "dark-channel": `the classical Dark Channel Prior, computed for real on the
-                     hazy picture: dark channel, then transmission, then the
-                     recovered picture. Prior work, labelled as that classical
-                     prior — never as the paper's method or another model's
-                     output. Takes \`picture\`.`,
-  spikes: `leaky integrate-and-fire neurons, one per feature cell of the hazy
-                     picture: a cell passes on only when its membrane crosses
-                     the threshold, so weak cells go dark downstream. Threshold
-                     and gain are ILLUSTRATIVE, and the narration says so. Takes
-                     \`picture\`.`,
-  "channel-threshold": `one fixed threshold against a threshold per channel set
-                     from that channel's own membrane statistics: channels with a
-                     small scale fall silent under the fixed one and fire under
-                     their own. Values ILLUSTRATIVE, and the narration says so.
-                     Takes \`picture\`.`,
-  "ema-threshold": `a threshold calibrated during training and frozen at
-                     inference: random crops of the picture stream in, each one's
-                     variance moves an exponential moving average, the
-                     threshold (proportional to it) follows; then a test picture arrives and the
-                     line does not move. Values ILLUSTRATIVE. Takes \`picture\`.`,
-  backbone: `an encoder-decoder computed on the picture with FIXED
-                     operations (3×3 filter, 2× downsampling, spike quantization,
-                     upsampling with skip connections, spike levels back to a
-                     continuous map): the maps at their true relative sizes. Not
-                     the trained network; its output is never drawn. Takes
-                     \`picture\`.`,
-  "fixed-filters": `the two fixed Sobel kernels with their numbers and their
-                     responses on the picture, then the structure map their sum
-                     makes: nothing in it is learned. Takes \`picture\`.`,
-  crops: `the training picture (at the size the source says images are
-                     resized to, else its own) with random training crops of
-                     the stated size drawn to scale, then gathered into one
-                     batch of the stated size. Takes \`picture\`.`,
-  sobel: `the real Sobel structure map of the hazy picture, gating and
-                     reweighting the smoothed features so edges and texture come
-                     back. Takes \`picture\`.`,
-  table: `numbers or claims the source reports, as a quiet table; rows lit
-                     in the order they are spoken (\`highlight\`, row indexes
-                     from 0), and \`marks\` ({row, col}) emphasise the cells that
-                     win or are missing. Every number in a cell is one the
-                     source states, written exactly as it does. Prior methods
-                     appear here, by the numbers and claims the source gives.
-                     Takes \`columns\`, \`rows\`, \`highlight\`, \`marks\`.`,
-  scale: `reported quantities as lengths to scale, quiet, never growing: one
-                     group per narration sentence, each scaled to its own
-                     largest, so groups compare ratios; \`tile\` lays the
-                     smallest along the largest. Values exactly as the source
-                     writes them. Takes \`groups\`, \`tile\`.`,
-  recap: `the layers the deck's earlier literal scenes computed, small, in
-                     order: the summary told with the pictures the viewer has
-                     already seen. Takes \`beats\` (earlier literal beats).`,
-};
-
-/** A kind's label slots, from the table the build reads (src/types.ts `LITERAL_SLOTS`). */
+/** A kind's label slots, from the table the build reads (src/types.ts `LITERAL_KIND_DOCS`). */
 function slotDocs(kind: LiteralKind): string {
   return Object.entries(literalSlotsOf(kind))
     .map(([slot, d]) => {
@@ -900,8 +842,8 @@ function slotDocs(kind: LiteralKind): string {
  * literal kind and falls back to a bespoke scene only when none fits.
  */
 function literalScenes(): string {
-  const kinds = (Object.entries(LITERAL_KIND_DOCS) as Array<[LiteralKind, string]>)
-    .map(([k, doc]) => `  ${k.padEnd(18)} ${doc}\n${slotDocs(k)}`)
+  const kinds = (Object.entries(LITERAL_KIND_DOCS) as Array<[LiteralKind, LiteralKindDoc]>)
+    .map(([k, d]) => `  ${k.padEnd(18)} ${d.doc}\n${slotDocs(k)}`)
     .join("\n");
   return `
 

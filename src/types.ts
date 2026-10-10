@@ -796,115 +796,208 @@ export const LITERAL_COMMON_SLOTS: Readonly<Record<string, LiteralSlot>> = {
   },
 };
 
+/** Everything the planner is told, and checked against, for one literal kind. */
+export interface LiteralKindDoc {
+  /**
+   * What the kind draws and what it takes, shown in the prompt after the
+   * kind's name. Continuation lines are indented 21 spaces to sit under it.
+   */
+  doc: string;
+  /**
+   * EVERY SLOT THE KIND READS, and nothing else: the planner is shown them,
+   * `literalFindings` refuses a slot not listed, a required one missing or a
+   * number slot that is not a number, and a fragment reading a slot not listed
+   * here throws. No text has a default: a scene's words are in the deck's
+   * language, and a default would be in one language and, for a fact, one
+   * paper.
+   */
+  slots: Readonly<Record<string, LiteralSlot>>;
+}
+
 /**
- * EVERY SLOT A KIND READS, and nothing else: the planner is shown this table,
- * `literalFindings` refuses a slot not in it, a required one missing or a
- * number slot that is not a number, and a fragment reading a slot not listed
- * here throws. One table, so the docs and the code cannot drift apart.
- *
- * No text has a default: a scene's words are in the deck's language, and a
- * default would be in one language and, for a fact, one paper.
+ * THE PLANNER'S LIST OF KINDS: one entry per name in `LITERAL_KIND_NAMES`, a
+ * `Record` so a name added there does not compile until it has an entry here,
+ * and the build draws it (src/literal/registry.ts). Listed in the order the
+ * prompt shows them. One table, so the docs, the checks and the build cannot
+ * drift apart.
  */
-export const LITERAL_SLOTS: Readonly<
-  Record<(typeof LITERAL_KIND_NAMES)[number], Readonly<Record<string, LiteralSlot>>>
-> = {
+export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = {
   haze: {
-    clear: { what: "on the clear picture" },
-    hazy: { what: "on the picture once the haze has risen" },
-    edges: { what: "title of the edge (Sobel) map" },
-    profile: { what: "title of the brightness along one line" },
-  },
-  spikes: {
-    features: { what: "title of the input feature map" },
-    membrane: { what: "title of the membrane traces" },
-    threshold: { what: "the threshold line's word; say it is illustrative" },
-    output: { what: "title of the map the next layer receives" },
-    noLeak: { what: "the dashed trace: the same input without the leak" },
-  },
-  sobel: {
-    hazy: { what: "on the hazy picture" },
-    structure: { what: "on the Sobel structure map" },
-    feature: { what: "title of the smoothed feature" },
-    reweighted: { what: "title of the feature reweighted by the structure map" },
+    doc: `the atmospheric scattering model I = J·t + A·(1−t) computed onto
+                     the picture: haze rises, and the picture's contrast and its
+                     edge (Sobel) map fade before any network sees them. Exact.
+                     Takes \`picture\`.`,
+    slots: {
+      clear: { what: "on the clear picture" },
+      hazy: { what: "on the picture once the haze has risen" },
+      edges: { what: "title of the edge (Sobel) map" },
+      profile: { what: "title of the brightness along one line" },
+    },
   },
   "dark-channel": {
-    hazy: { what: "title of the hazy input" },
-    dark: { what: "title of the classical prior's dark channel" },
-    transmission: { what: "title of the estimated transmission" },
-    recovered: { what: "title of the classical prior's recovered picture" },
-    miss: { what: "on the regions where the estimate misses the true transmission", vars: ["t"] },
-    profile: { what: "title of the transmission along one line" },
-    truth: { what: "legend of the true transmission line", vars: ["t"] },
-    estimate: { what: "legend of the estimate line" },
-    premise: { what: "the prior's assumption, in words" },
-    premiseValue: { what: "what this picture gives for it", vars: ["v"] },
-    missShare: {
-      what: "how much of the picture the estimate missed, in percent",
-      vars: ["p"],
+    doc: `the classical Dark Channel Prior, computed for real on the
+                     hazy picture: dark channel, then transmission, then the
+                     recovered picture. Prior work, labelled as that classical
+                     prior — never as the paper's method or another model's
+                     output. Takes \`picture\`.`,
+    slots: {
+      hazy: { what: "title of the hazy input" },
+      dark: { what: "title of the classical prior's dark channel" },
+      transmission: { what: "title of the estimated transmission" },
+      recovered: { what: "title of the classical prior's recovered picture" },
+      miss: { what: "on the regions where the estimate misses the true transmission", vars: ["t"] },
+      profile: { what: "title of the transmission along one line" },
+      truth: { what: "legend of the true transmission line", vars: ["t"] },
+      estimate: { what: "legend of the estimate line" },
+      premise: { what: "the prior's assumption, in words" },
+      premiseValue: { what: "what this picture gives for it", vars: ["v"] },
+      missShare: {
+        what: "how much of the picture the estimate missed, in percent",
+        vars: ["p"],
+      },
+    },
+  },
+  spikes: {
+    doc: `leaky integrate-and-fire neurons, one per feature cell of the hazy
+                     picture: a cell passes on only when its membrane crosses
+                     the threshold, so weak cells go dark downstream. Threshold
+                     and gain are ILLUSTRATIVE, and the narration says so. Takes
+                     \`picture\`.`,
+    slots: {
+      features: { what: "title of the input feature map" },
+      membrane: { what: "title of the membrane traces" },
+      threshold: { what: "the threshold line's word; say it is illustrative" },
+      output: { what: "title of the map the next layer receives" },
+      noLeak: { what: "the dashed trace: the same input without the leak" },
     },
   },
   "channel-threshold": {
-    alpha: { what: "the paper's threshold scale α, as the source writes it", number: true },
-    levels: { what: "the paper's number of integer spike levels D", number: true },
-    channels: { what: "title of the row of channels" },
-    channelNames: {
-      what: 'names of the five channels drawn, in order, joined by " · ": luma, horizontal Sobel, R−B colour difference, Laplacian, high-pass',
+    doc: `one fixed threshold against a threshold per channel set
+                     from that channel's own membrane statistics: channels with a
+                     small scale fall silent under the fixed one and fire under
+                     their own. Values ILLUSTRATIVE, and the narration says so.
+                     Takes \`picture\`.`,
+    slots: {
+      alpha: { what: "the paper's threshold scale α, as the source writes it", number: true },
+      levels: { what: "the paper's number of integer spike levels D", number: true },
+      channels: { what: "title of the row of channels" },
+      channelNames: {
+        what: 'names of the five channels drawn, in order, joined by " · ": luma, horizontal Sobel, R−B colour difference, Laplacian, high-pass',
+      },
+      note: { what: "the constants used", vars: ["alpha", "D"] },
+      fixed: { what: "title while ONE threshold serves every channel" },
+      calibrated: { what: "title once each channel has its own; say the values are illustrative" },
+      standIn: { what: "says the channels are fixed filter responses, not the trained network's" },
     },
-    note: { what: "the constants used", vars: ["alpha", "D"] },
-    fixed: { what: "title while ONE threshold serves every channel" },
-    calibrated: { what: "title once each channel has its own; say the values are illustrative" },
-    standIn: { what: "says the channels are fixed filter responses, not the trained network's" },
   },
   "ema-threshold": {
-    alpha: { what: "the paper's threshold scale α", number: true },
-    momentum: { what: "the paper's EMA momentum μ", number: true },
-    crop: { what: "the training crop size in pixels the source states", number: true },
-    train: { what: "title of the training half" },
-    infer: {
-      what: "title of the inference half; the picture shown is the SAME scene under denser haze, so say so",
+    doc: `a threshold calibrated during training and frozen at
+                     inference: random crops of the picture stream in, each one's
+                     variance moves an exponential moving average, the
+                     threshold (proportional to it) follows; then a test picture arrives and the
+                     line does not move. Values ILLUSTRATIVE. Takes \`picture\`.`,
+    slots: {
+      alpha: { what: "the paper's threshold scale α", number: true },
+      momentum: { what: "the paper's EMA momentum μ", number: true },
+      crop: { what: "the training crop size in pixels the source states", number: true },
+      train: { what: "title of the training half" },
+      infer: {
+        what: "title of the inference half; the picture shown is the SAME scene under denser haze, so say so",
+      },
+      formula: { what: "legend of the threshold line, as the source states the rule" },
+      own: { what: "legend of the dots: each crop's own value; say it is illustrative" },
+      frozen: { what: "on the frozen threshold at inference" },
+      test: { what: "on the test picture's own value, which is not recalibrated" },
     },
-    formula: { what: "legend of the threshold line, as the source states the rule" },
-    own: { what: "legend of the dots: each crop's own value; say it is illustrative" },
-    frozen: { what: "on the frozen threshold at inference" },
-    test: { what: "on the test picture's own value, which is not recalibrated" },
   },
   backbone: {
-    input: { what: "title of the input" },
-    shallow: { what: "title of the shallow features" },
-    encoder: { what: "on the first encoder level" },
-    decoder: { what: "on the last decoder level" },
-    skip: { what: "on the skip connections" },
-    prb: { what: "title of the continuous map the spike features become" },
-    output: { what: "title of the output convolution" },
-    untrained: { what: "in the output's box: it needs trained weights, so it is not drawn" },
-    note: { what: "says these are fixed operations, not the trained network" },
-    depth: {
-      what: "says the number of levels and the 2× steps are illustrative when the source does not state them",
+    doc: `an encoder-decoder computed on the picture with FIXED
+                     operations (3×3 filter, 2× downsampling, spike quantization,
+                     upsampling with skip connections, spike levels back to a
+                     continuous map): the maps at their true relative sizes. Not
+                     the trained network; its output is never drawn. Takes
+                     \`picture\`.`,
+    slots: {
+      input: { what: "title of the input" },
+      shallow: { what: "title of the shallow features" },
+      encoder: { what: "on the first encoder level" },
+      decoder: { what: "on the last decoder level" },
+      skip: { what: "on the skip connections" },
+      prb: { what: "title of the continuous map the spike features become" },
+      output: { what: "title of the output convolution" },
+      untrained: { what: "in the output's box: it needs trained weights, so it is not drawn" },
+      note: { what: "says these are fixed operations, not the trained network" },
+      depth: {
+        what: "says the number of levels and the 2× steps are illustrative when the source does not state them",
+      },
     },
   },
   "fixed-filters": {
-    kernels: { what: "title of the fixed kernels and their responses" },
-    structure: { what: "title of the structure map" },
-    formula: { what: "how the structure map is formed, as the source states it" },
-    params: { what: "says the filter numbers are fixed and learn nothing" },
-    learned: { what: "the small learned part, as the source names it", optional: true },
+    doc: `the two fixed Sobel kernels with their numbers and their
+                     responses on the picture, then the structure map their sum
+                     makes: nothing in it is learned. Takes \`picture\`.`,
+    slots: {
+      kernels: { what: "title of the fixed kernels and their responses" },
+      structure: { what: "title of the structure map" },
+      formula: { what: "how the structure map is formed, as the source states it" },
+      params: { what: "says the filter numbers are fixed and learn nothing" },
+      learned: { what: "the small learned part, as the source names it", optional: true },
+    },
   },
   crops: {
-    crop: { what: "the training crop size in pixels", number: true },
-    batch: { what: "the batch size", number: true },
-    size: {
-      what: "the side the source says training images are resized to; absent: the picture's own size",
-      number: true,
-      optional: true,
+    doc: `the training picture (at the size the source says images are
+                     resized to, else its own) with random training crops of
+                     the stated size drawn to scale, then gathered into one
+                     batch of the stated size. Takes \`picture\`.`,
+    slots: {
+      crop: { what: "the training crop size in pixels", number: true },
+      batch: { what: "the batch size", number: true },
+      size: {
+        what: "the side the source says training images are resized to; absent: the picture's own size",
+        number: true,
+        optional: true,
+      },
+      picture: { what: "title of the picture; say the scene is an example when it is" },
+      batchLabel: { what: "title of the batch" },
     },
-    picture: { what: "title of the picture; say the scene is an example when it is" },
-    batchLabel: { what: "title of the batch" },
   },
-  table: { caption: { what: "under the table: what the numbers are", optional: true } },
-  scale: { caption: { what: "under the lengths: what they are", optional: true } },
+  sobel: {
+    doc: `the real Sobel structure map of the hazy picture, gating and
+                     reweighting the smoothed features so edges and texture come
+                     back. Takes \`picture\`.`,
+    slots: {
+      hazy: { what: "on the hazy picture" },
+      structure: { what: "on the Sobel structure map" },
+      feature: { what: "title of the smoothed feature" },
+      reweighted: { what: "title of the feature reweighted by the structure map" },
+    },
+  },
+  table: {
+    doc: `numbers or claims the source reports, as a quiet table; rows lit
+                     in the order they are spoken (\`highlight\`, row indexes
+                     from 0), and \`marks\` ({row, col}) emphasise the cells that
+                     win or are missing. Every number in a cell is one the
+                     source states, written exactly as it does. Prior methods
+                     appear here, by the numbers and claims the source gives.
+                     Takes \`columns\`, \`rows\`, \`highlight\`, \`marks\`.`,
+    slots: { caption: { what: "under the table: what the numbers are", optional: true } },
+  },
+  scale: {
+    doc: `reported quantities as lengths to scale, quiet, never growing: one
+                     group per narration sentence, each scaled to its own
+                     largest, so groups compare ratios; \`tile\` lays the
+                     smallest along the largest. Values exactly as the source
+                     writes them. Takes \`groups\`, \`tile\`.`,
+    slots: { caption: { what: "under the lengths: what they are", optional: true } },
+  },
   recap: {
-    caption: { what: 'one word per tile, joined by "→"', optional: true },
-    result: { what: "what the source reports came of it, in its own numbers", optional: true },
+    doc: `the layers the deck's earlier literal scenes computed, small, in
+                     order: the summary told with the pictures the viewer has
+                     already seen. Takes \`beats\` (earlier literal beats).`,
+    slots: {
+      caption: { what: 'one word per tile, joined by "→"', optional: true },
+      result: { what: "what the source reports came of it, in its own numbers", optional: true },
+    },
   },
 };
 
@@ -912,7 +1005,7 @@ export const LITERAL_SLOTS: Readonly<
 export function literalSlotsOf(
   kind: (typeof LITERAL_KIND_NAMES)[number],
 ): Readonly<Record<string, LiteralSlot>> {
-  return { ...LITERAL_COMMON_SLOTS, ...LITERAL_SLOTS[kind] };
+  return { ...LITERAL_COMMON_SLOTS, ...LITERAL_KIND_DOCS[kind].slots };
 }
 
 /**
