@@ -21,9 +21,10 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import type { z } from "zod";
 import { copyArt } from "./bespoke/art.js";
+import { literalPass, literalPlanSchema } from "./bespoke/literal.js";
 import { type BespokeResult, bespokePass } from "./bespoke/pipeline.js";
 import { browserGate } from "./bespoke/probe.js";
-import { BESPOKE_FILE } from "./bespoke/scene.js";
+import { BESPOKE_FILE, type BespokeMap } from "./bespoke/scene.js";
 import {
   AUDIO_DIR,
   audioNames,
@@ -669,7 +670,11 @@ bespokeFlags(
           "--reserve-captions",
           "keep the bottom of the frame clear for a burned caption — required by `render --subtitles burn`",
         )
-        .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
+        .option("--no-fidelity", "skip the frame check — only for a machine with no browser")
+        .option(
+          "--literal <file>",
+          "prototype: literal.json naming beats drawn as their mechanism on computed layers (no Codex)",
+        ),
     ),
   ),
 ).action(
@@ -787,17 +792,25 @@ bespokeFlags(
     // THE BESPOKE PASS, before anything is emitted: it decides which beats are
     // drawn by a generated scene, and every artifact below must agree on that.
     // It never fails the build — a beat it cannot draw keeps its archetype.
-    const bespoke = await runBespoke(prefs, {
-      design,
-      storyboard,
-      source,
-      format,
-      narration,
-      theme,
-      speed: paced.speed,
-      assetsFrom: dirname(resolve(o.source)),
-    });
-    const generated = bespoke && Object.keys(bespoke.map).length ? { bespoke: bespoke.map } : {};
+    // `--literal` (prototype): the named beats are drawn as their mechanism on
+    // layers computed here, deterministically, and no Codex scene is asked for.
+    const literal = o.literal
+      ? await runLiteral(String(o.literal), { storyboard, source, format, narration, theme, out })
+      : undefined;
+    const bespoke = literal
+      ? undefined
+      : await runBespoke(prefs, {
+          design,
+          storyboard,
+          source,
+          format,
+          narration,
+          theme,
+          speed: paced.speed,
+          assetsFrom: dirname(resolve(o.source)),
+        });
+    const map = literal?.map ?? bespoke?.map;
+    const generated = map && Object.keys(map).length ? { bespoke: map } : {};
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
@@ -1430,6 +1443,31 @@ async function runBespoke(
   } finally {
     if (!keep) await rm(work, { recursive: true, force: true });
   }
+}
+
+/** `build --literal`: read the plan, compute its layers into the deck, write `literal.json` beside it. */
+async function runLiteral(
+  planPath: string,
+  deck: {
+    storyboard: Storyboard;
+    source: Source;
+    format: Format;
+    narration: DeckNarration | undefined;
+    theme: string;
+    out: string;
+  },
+): Promise<{ map: BespokeMap }> {
+  if (!deck.narration) throw new Error("--literal needs narration: its cues time every step");
+  const plan = await readValidated(planPath, literalPlanSchema, "literal plan");
+  const { map, report } = await literalPass({
+    ...deck,
+    narration: deck.narration,
+    plan,
+    planDir: dirname(resolve(planPath)),
+    onStep: step,
+  });
+  await writeFile(join(deck.out, "literal.json"), `${JSON.stringify(report, null, 2)}\n`);
+  return { map };
 }
 
 async function writeTiming(out: string, input: Parameters<typeof planTiming>[0]): Promise<void> {
