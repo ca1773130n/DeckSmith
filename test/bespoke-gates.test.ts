@@ -29,10 +29,11 @@ import {
   gradeErrors,
   gradeLayout,
   gradeMorphs,
+  gradeSeams,
   gradeSeekOrder,
   gradeShots,
   gradeStillCues,
-  KEY_TYPE_PX,
+  HOLD_SPAN_MIN,
   type Layout,
   MIN_CHANGE,
   type MorphSample,
@@ -40,6 +41,7 @@ import {
   paintedShare,
   probeScenes,
   readTimingFile,
+  SEAM_BLANK_MAX,
   STAGE_FILL,
   sceneWindows,
   shotsOf,
@@ -106,6 +108,8 @@ describe("the graders", () => {
       groups: [] as number[],
       cueStarts: [1, 4],
     };
+    // A diagram's one label reaches the 44px body size (`type_hierarchy`); a word
+    // over 56px is refused by `type_scale`.
     expect(gradeLayout([{ ...row, key: "end" }]).map((f) => f.rule)).toEqual([
       "stage_fill",
       "type_hierarchy",
@@ -114,7 +118,7 @@ describe("the graders", () => {
     // The same numbers mid-scene are a build in progress, not a verdict.
     expect(gradeLayout([{ ...row, key: "c1z" }])).toEqual([]);
     expect(
-      gradeLayout([{ ...row, key: "end", fill: STAGE_FILL, maxType: KEY_TYPE_PX, groups: [1, 2] }]),
+      gradeLayout([{ ...row, key: "end", fill: STAGE_FILL, maxType: 44, groups: [1, 2] }]),
     ).toEqual([]);
     // A group naming a cue the scene does not have.
     expect(
@@ -295,7 +299,7 @@ function narrate(): DeckNarration {
 /**
  * Fixtures sized to the beat's own body box (`bespokeRegion`), because the
  * stage-fill gate measures against it. Corner marks span the box, the label is
- * the scene's one 56px focal element, and every part sits in a cue group.
+ * the scene's one 56px word (round 6's headline size), and every part sits in a cue group.
  */
 type Box = { width: number; height: number };
 const SVG = (b: Box, inner: string, style = "") =>
@@ -314,7 +318,7 @@ const CORNERS = (b: Box) =>
 const DOT = (b: Box) =>
   `<g id="SCENEID-m" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="${b.height - 110}" r="30" fill="#f7c948"/></g>`;
 const MOVE = (b: Box) => `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`;
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`;
 
 /** Moves through every cue, fills its box, nothing crosses its label, seekable. */
 const GOOD = (b: Box): Fragment => ({
@@ -327,7 +331,7 @@ const STILL = (b: Box): Fragment => ({
   markup: SVG(b, `${LABEL(b)}${CORNERS(b)}`),
   css: "",
   script: `gsap.set("#SCENEID-lab", { opacity: 0 });
-tl.to("#SCENEID-lab", { opacity: 1, duration: 0.5 }, 1);`,
+tl.fromTo("#SCENEID-lab", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1);`,
 });
 /**
  * A stroke straight through the label — the spike's stray arc, in miniature.
@@ -344,11 +348,16 @@ const CROSSING = (b: Box): Fragment => ({
 });
 /** The equation-walk bug: a second fromTo on a target, from-state written at build time. */
 const ORDERED = (b: Box): Fragment => ({
-  markup: GOOD(b).markup,
+  // A block big enough to clear seek_order's pixel tolerance: round 6's 56px
+  // word alone changes fewer pixels than round 2's 72px one did.
+  markup: SVG(
+    b,
+    `${LABEL(b)}${CORNERS(b)}${DOT(b)}<g id="SCENEID-blk" data-cue="1"><rect id="SCENEID-slab" x="${b.width / 2 - 300}" y="${b.height / 2 + 60}" width="600" height="160" fill="#4cc9f0"/></g>`,
+  ),
   css: "",
   script: `${MOVE(b)}
-tl.fromTo("#SCENEID-lab", { opacity: 1 }, { opacity: 0.2, duration: 0.5 }, 2);
-tl.fromTo("#SCENEID-lab", { opacity: 0.2 }, { opacity: 1, duration: 0.5 }, 6);`,
+tl.fromTo("#SCENEID-slab", { opacity: 1 }, { opacity: 0.2, duration: 0.5 }, 2);
+tl.fromTo("#SCENEID-slab", { opacity: 0.2 }, { opacity: 1, duration: 0.5 }, 6);`,
 });
 /** Round 1's look: a 48px label and a moving dot huddled in the top-left of the box. */
 const SMALL = (b: Box): Fragment => ({
@@ -358,7 +367,7 @@ const SMALL = (b: Box): Fragment => ({
   ),
   css: "",
   script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: 500 }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`,
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: 500 }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`,
 });
 /** An arrow drawn late with a marker: its head shows from the start, where no line is yet. */
 const STRAY = (b: Box): Fragment => ({
@@ -369,7 +378,60 @@ const STRAY = (b: Box): Fragment => ({
   css: "",
   script: `${MOVE(b)}
 gsap.set("#SCENEID-wire", { drawSVG: "0% 0%" });
-tl.to("#SCENEID-wire", { drawSVG: "0% 100%", duration: 1, ease: "none" }, 7);`,
+tl.fromTo("#SCENEID-wire", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 1, ease: "none" }, 7);`,
+});
+/**
+ * ROUND 6, the founder's "old-fashioned" UI motion: a word on a plate that pops
+ * and slides in (a chip), and a bar that grows from zero. `ui_motion` reads
+ * them off the scene's own timeline.
+ */
+const CHIP = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `${CORNERS(b)}${DOT(b)}<g id="SCENEID-chip" data-cue="1"><rect x="${b.width / 2 - 200}" y="${b.height / 2 - 40}" width="400" height="80" rx="40" fill="#1f3a5f"/><text x="${b.width / 2}" y="${b.height / 2}" font-size="44" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder</text></g><g id="SCENEID-bars" data-cue="2"><rect id="SCENEID-bar" x="200" y="${b.height - 260}" width="60" height="160" fill="#f7c948"/></g>`,
+  ),
+  css: "",
+  script: `${MOVE(b)}
+gsap.set("#SCENEID-chip", { opacity: 0, y: 40, scale: 0.6, transformOrigin: "50% 50%" });
+tl.fromTo("#SCENEID-chip", { opacity: 0, y: 40, scale: 0.6 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out" }, 1.2);
+gsap.set("#SCENEID-bar", { scaleY: 0, transformOrigin: "50% 100%" });
+tl.fromTo("#SCENEID-bar", { scaleY: 0 }, { scaleY: 1, duration: 0.8 }, 4.2);`,
+});
+/** The same word, quiet: it fades in where it stays. Not UI motion. */
+const FADE = (b: Box): Fragment => ({
+  markup: SVG(b, `${LABEL(b, 44)}${CORNERS(b)}${DOT(b)}`),
+  css: "",
+  script: `${MOVE(b)}
+gsap.set("#SCENEID-a", { opacity: 0 });
+tl.fromTo("#SCENEID-a", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 1.1);`,
+});
+/** A 48px word inside the scene's own camera, pushed in to 1.3x: without the shell's counter-scale it renders at 62px. */
+const ZOOMED = (b: Box): Fragment => ({
+  markup: SVG(b, `${LABEL(b, 48)}${CORNERS(b)}${DOT(b)}`),
+  css: "",
+  script: `${MOVE(b)}
+gsap.set("#SCENEID-cam", { scale: 1, x: 0, y: 0, transformOrigin: "0 0" });
+tl.fromTo("#SCENEID-cam", { scale: 1, x: 0, y: 0 }, { scale: 1.3, x: ${-(b.width * 0.15).toFixed(0)}, y: ${-(b.height * 0.15).toFixed(0)}, duration: 1, ease: "power3.inOut" }, 2);
+tl.fromTo("#SCENEID-cam", { scale: 1.3, x: ${-(b.width * 0.15).toFixed(0)}, y: ${-(b.height * 0.15).toFixed(0)} }, { scale: 1, x: 0, y: 0, duration: 1, ease: "power3.inOut", immediateRender: false }, 6);`,
+});
+/**
+ * r1's final review, s8 and s15: dots across a band at the top of the box,
+ * the bottom empty while the cues hold, and two of them drawn into each other.
+ */
+const PILED = (b: Box): Fragment => ({
+  markup: SVG(
+    b,
+    `<g id="SCENEID-row" data-cue="1">${[0, 1, 2, 3, 4, 5]
+      .map(
+        (i) =>
+          `<circle id="SCENEID-p${i}" cx="${200 + i * 260 - (i === 3 ? 230 : 0)}" cy="120" r="36" fill="#f5f7fa"/>`,
+      )
+      .join(
+        "",
+      )}<text id="SCENEID-say" x="${b.width / 2}" y="40" font-size="44" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">reported energy</text></g><g id="SCENEID-z" data-cue="2"></g>`,
+  ),
+  css: "",
+  script: `tl.fromTo("#SCENEID-p0", { opacity: 1 }, { opacity: 0.8, duration: 4, repeat: 3, yoyo: true }, 0.5);`,
 });
 /** A group tagged for cue 2 that is on screen from the first frame. */
 const EARLY = (b: Box): Fragment => ({
@@ -402,7 +464,7 @@ const MORPHY = (b: Box): Fragment => ({
   css: "",
   script: `${MOVE(b)}
 gsap.set("#SCENEID-land", { attr: { d: "M1200 100 V300 H1400 Z" } });
-tl.to("#SCENEID-land", { attr: { d: "M1200 100 L1200 300 L1400 300 Z" }, duration: 2, ease: "none" }, 3);`,
+tl.fromTo("#SCENEID-land", { attr: { d: "M1200 100 V300 H1400 Z" } }, { attr: { d: "M1200 100 L1200 300 L1400 300 Z" }, duration: 2, ease: "none" }, 3);`,
 });
 /** The focal label held at 0.25 opacity: light on the ink ground at about 1.6:1. */
 const FAINT = (b: Box): Fragment => ({
@@ -514,8 +576,8 @@ describe.skipIf(chrome === null)("the gates, in the renderer's browser", () => {
   it("fails a frame that depends on seek history", () => {
     expect(rulesFor("ORDERED")).toContain("seek_order");
   });
-  it("fails a small drawing in a corner of its box, with no label that reads first", () => {
-    expect(rulesFor("SMALL")).toEqual(expect.arrayContaining(["stage_fill", "type_hierarchy"]));
+  it("fails a small drawing in a corner of its box", () => {
+    expect(rulesFor("SMALL")).toEqual(expect.arrayContaining(["stage_fill"]));
   });
   it("fails an arrowhead shown before its line is drawn, and only that", () => {
     expect(new Set(rulesFor("STRAY"))).toEqual(new Set(["stray_marker"]));
@@ -564,6 +626,99 @@ describe.skipIf(chrome === null)("the r1 review's gates, in the renderer's brows
   });
   it("fails a word held under 3:1 contrast, and only that", () => {
     expect(new Set(rulesFor("FAINT"))).toEqual(new Set(["dim_text"]));
+  });
+});
+
+/**
+ * Round 6's gates in a deck of their own: a scene that animates UI into place,
+ * one that fades its word where it stays, and one whose camera zooms a word
+ * past the headline. (In the deck above they shifted its other scenes' windows
+ * and masked ORDERED's seek-history defect.)
+ */
+describe.skipIf(chrome === null)("round 6's gates, in the renderer's browser", () => {
+  let dir = "";
+  let probe: Probe;
+  const sidOf = new Map<string, string>();
+  const ids = demo.beats
+    .filter((b) => ["pipeline", "stack", "grid", "line-chart"].includes(b.archetype))
+    .map((b) => b.id);
+  const fixtures = { CHIP, FADE, ZOOMED, PILED };
+  const idOf = Object.fromEntries(Object.keys(fixtures).map((k, i) => [k, ids[i] as string]));
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "decksmith-gates6-"));
+    const bespoke: Record<string, { fragment: Fragment; holds: number[] }> = {};
+    for (const [name, make] of Object.entries(fixtures)) {
+      const id = idOf[name] as string;
+      const i = demo.beats.findIndex((b) => b.id === id);
+      const beat = demo.beats[i] as (typeof demo.beats)[number];
+      const ink = resolveTheme("ink");
+      const holds = emitScene(beat, {
+        source,
+        format: deck16,
+        theme: ink,
+        sid: `s${i + 1}`,
+        start: 0,
+      }).holds;
+      bespoke[id] = { fragment: make(bespokeRegion(beat, { format: deck16, theme: ink })), holds };
+    }
+    const built = await buildDeck(demo, source, dir, {
+      design: "v2",
+      narration: narrate(),
+      theme: "ink",
+      assetsFrom: repo("demo"),
+      bespoke: bespoke as BespokeMap,
+    });
+    for (const [i, b] of built.cut.kept.entries()) sidOf.set(b.id, `s${i + 1}`);
+    const timing = (await readTimingFile(dir)) as Timing;
+    const wanted = new Set(Object.values(idOf).map((id) => sidOf.get(id) as string));
+    const errors: string[] = [];
+    probe = await probeScenes(sceneWindows(timing, wanted), {
+      open: () => openDeck(dir, { watch: errors }),
+      errors,
+      gates: ["layout"],
+    });
+  }, 300_000);
+
+  afterAll(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  const rulesFor = (name: keyof typeof fixtures) =>
+    probe.findings
+      .filter((f) => f.message.startsWith(`#${sidOf.get(idOf[name] as string)}`))
+      .map((f) => f.rule);
+
+  it("fails a word on a plate that pops and slides in, and a bar that grows — and only those (round 6)", () => {
+    expect(new Set(rulesFor("CHIP"))).toEqual(new Set(["ui_motion"]));
+    const end = probe.layout.find(
+      (l) => l.sid === sidOf.get(idOf.CHIP as string) && l.key === "end",
+    );
+    expect(end?.uiMotion?.some((u) => /^plate .*-chip \(/.test(u))).toBe(true);
+    expect(end?.uiMotion?.some((u) => /^bar .*-bar \(scaleY\)/.test(u))).toBe(true);
+  });
+  it("passes a word that only fades in where it stays", () => {
+    expect(rulesFor("FADE")).toEqual([]);
+  });
+  it("keeps a word its declared size under the scene's own camera: the shell counter-scales it (r1 final review)", () => {
+    // A 48px word pushed in to 1.3x rendered at 62px before; now at its 48px.
+    expect(rulesFor("ZOOMED")).not.toContain("type_scale");
+    const rows = probe.layout.filter((l) => l.sid === sidOf.get(idOf.ZOOMED as string));
+    expect(rows.length).toBeGreaterThan(2);
+    for (const r of rows) expect(r.maxType ?? 0).toBeLessThanOrEqual(50);
+    // The counter-scale is the shell's: not UI motion.
+    expect(rulesFor("ZOOMED")).not.toContain("ui_motion");
+  });
+  it("fails a hollow band and dots piled on each other while the cues hold (r1 final review's s8, s15)", () => {
+    const rules = rulesFor("PILED");
+    expect(rules).toContain("hollow_hold");
+    expect(rules).toContain("marks_overlap");
+    expect(rules).not.toContain("seam_blank");
+  });
+  it("reads the stage across every seam into a probed scene", () => {
+    expect(probe.seams.length).toBe(Object.keys(fixtures).length);
+    // CHIP fades its chip in late, but its corners and dot stand from the first frame.
+    for (const s of probe.seams) expect(s.blank).toBeLessThanOrEqual(SEAM_BLANK_MAX);
   });
 });
 
@@ -772,25 +927,6 @@ describe("the staging graders (round 4)", () => {
     expect(f[0]?.message).toMatch(/holds 1 distinct push-in/);
   });
 
-  it("shot_variety: a close-open scene may open pushed in; a tour may not", () => {
-    const opening = (open?: "close"): CamSample[] =>
-      [1, 1.5, 2, 4.5, 5, 8, 8.5].map((t, i) => ({
-        sid: "s7",
-        t,
-        shot: (i < 3
-          ? [1.8, -200, -100, 1700, 700]
-          : i < 5
-            ? [1.8, -1400, -100, 1700, 700]
-            : [1, 0, 0, 1700, 700]) as CamSample["shot"],
-        subjects: 3,
-        ...(open ? { open } : {}),
-      }));
-    expect(gradeShots(opening(), new Map([["s7", 1]])).map((f) => f.message)).toEqual([
-      expect.stringMatching(/opens pushed in/),
-    ]);
-    expect(gradeShots(opening("close"), new Map([["s7", 1]]))).toEqual([]);
-  });
-
   it("shot_variety: a scene without an illustration is not graded on shots", () => {
     expect(gradeShots(cams([[0, 18, on(300, 300)]], { subjects: 0 }), opens)).toEqual([]);
   });
@@ -816,22 +952,6 @@ describe("the staging graders (round 4)", () => {
     expect(over[0]?.message).toMatch(/covers another subject/);
   });
 
-  it("label_anchor: at the end, fewer than two subjects named on the picture fails (a row of plates)", () => {
-    const plates = gradeLayout([
-      row("end", 16, {
-        anchors: [
-          { id: "s4-a", k: 1, d: 30, o: 0 },
-          { id: "s4-b", k: 2, d: 260, o: 0 },
-        ],
-      }),
-    ]);
-    expect(plates.map((f) => f.rule)).toEqual(["label_anchor", "label_anchor"]);
-    expect(plates[1]?.message).toMatch(/1 of 3 subjects named/);
-    expect(gradeLayout([row("end", 16, { anchors: [] })]).map((f) => f.message)).toEqual([
-      expect.stringMatching(/0 of 3 subjects named/),
-    ]);
-  });
-
   it("type_hierarchy: an illustrated scene reads its picture first, so its 40px names pass; a diagram still needs 44px", () => {
     const end = (subjects: number) =>
       gradeLayout([
@@ -851,13 +971,24 @@ describe("the staging graders (round 4)", () => {
     expect(end(0)).toEqual(["type_hierarchy"]);
   });
 
+  it("type_scale: no word in a bespoke scene over the 56px headline, illustrated or not (round 6)", () => {
+    const end = (subjects: number, maxType: number) =>
+      gradeLayout([
+        row("end", 16, { subjects, fill: 0.95, maxType, groups: [1, 2], cueStarts: [1, 5] }),
+      ]).map((f) => f.rule);
+    expect(end(3, 56)).toEqual([]);
+    expect(end(0, 44)).toEqual([]);
+    expect(end(0, 64)).toEqual(["type_scale"]);
+    expect(end(3, 96)).toEqual(["type_scale"]);
+  });
+
   it("type_ceiling: no scene declares type over 56px, picture or not (founder, 2026-10-10)", () => {
     const end = (subjects: number, maxDeclared: number) =>
       gradeLayout([
         row("end", 16, {
           subjects,
           fill: 0.95,
-          maxType: 80,
+          maxType: 44,
           maxDeclared,
           groups: [1, 2],
           cueStarts: [1, 5],
@@ -867,7 +998,7 @@ describe("the staging graders (round 4)", () => {
           ],
         }),
       ]).map((f) => f.rule);
-    // A 44px label a push-in draws at 80px is the camera, not the type.
+    // The declared size: the rendered one is `type_scale`'s (below).
     expect(end(0, 56)).toEqual([]);
     expect(end(0, 88)).toEqual(["type_ceiling"]);
     expect(end(3, 64)).toEqual(["type_ceiling"]);
@@ -878,5 +1009,46 @@ describe("the staging graders (round 4)", () => {
     // Round 3's ja s12 painted nine numbers over its robot.
     const f = gradeLayout([row("c2z", 8, { onPicture: 9, subjects: 0 })]);
     expect(f.map((x) => x.rule)).toEqual(["data_over_picture"]);
+  });
+});
+
+describe("the r1 final review's graders (round 6)", () => {
+  const row = (key: string, over: Partial<Layout> = {}): Layout => ({
+    sid: "s8",
+    key,
+    t: 6,
+    crossings: [],
+    occlusions: [],
+    overlaps: [],
+    small: [],
+    off: [],
+    ...over,
+  });
+
+  it("seam_blank: more than SEAM_BLANK_MAX of empty stage at a seam fails a generated scene, warns on another", () => {
+    const f = gradeSeams([
+      { sid: "s3", blank: 0.6, at: 0.4, bespoke: true },
+      { sid: "s4", blank: 0.6, at: 0.4, bespoke: false },
+      { sid: "s5", blank: SEAM_BLANK_MAX, at: 0.4, bespoke: true },
+    ]);
+    expect(f.map((x) => [x.rule, x.severity])).toEqual([
+      ["seam_blank", "error"],
+      ["seam_blank", "warning"],
+    ]);
+    expect(f[0]?.message).toMatch(/#s3: the stage is empty for 0\.60s/);
+  });
+
+  it("hollow_hold: a band across the top while a later cue holds fails; cue 1 is a build in progress", () => {
+    // r1's final s8: three calipers across 58% of the height for seconds.
+    expect(gradeLayout([row("c2z", { span: 0.58 })]).map((f) => f.rule)).toEqual(["hollow_hold"]);
+    expect(gradeLayout([row("c1z", { span: 0.58 })])).toEqual([]);
+    expect(gradeLayout([row("c3z", { span: HOLD_SPAN_MIN })])).toEqual([]);
+  });
+
+  it("marks_overlap: alike dots drawn into each other fail at a held frame only", () => {
+    const piled = { marksOverlap: ["s15-d3 × s15-d4 (12px apart)"] };
+    expect(gradeLayout([row("end", piled)]).map((f) => f.rule)).toContain("marks_overlap");
+    expect(gradeLayout([row("c2z", piled)]).map((f) => f.rule)).toEqual(["marks_overlap"]);
+    expect(gradeLayout([row("c2a", piled)])).toEqual([]);
   });
 });

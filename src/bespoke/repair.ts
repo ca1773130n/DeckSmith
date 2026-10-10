@@ -141,8 +141,8 @@ export function solveNudges(frames: readonly Geo[]): { moves: Move[]; unresolved
       if (mi === li || (L.u !== null && M.u === L.u)) return;
       const [mx, my] = off(fi, M.u);
       const [ix, iy] = overlapOf(box, shifted(M.b, mx, my));
-      if (strict ? ix > 4 && iy > 4 : ix > -LABEL_GAP && iy > -LABEL_GAP)
-        out.push({ kind: "label", other: mi });
+      const g = strict ? -4 : LABEL_GAP;
+      if (ix > -g && iy > -g) out.push({ kind: "label", other: mi });
     });
     const inset = strict ? 4 : -STROKE_GAP;
     for (const [px, py, pu] of f.points) {
@@ -473,8 +473,10 @@ export function settleAt(duration: number, lastCueStart: number): number {
 
 /**
  * Bring the elements dimming lit parts back to full strength at `at`. Targets
- * are the probe's `tag:index[#id]`, ids in the probe deck's form (`sid-…`);
- * an element without an id gets one (`SCENEID-lit<k>`).
+ * are the probe's `tag:index[#id]@opacity`, ids in the probe deck's form
+ * (`sid-…`); an element without an id gets one (`SCENEID-lit<k>`). The opacity
+ * each holds is its tween's from state (every tween is a fromTo); a target
+ * without one is left alone.
  */
 export function relight(
   f: Fragment,
@@ -483,12 +485,19 @@ export function relight(
   sid: string,
 ): Fragment {
   let markup = f.markup;
-  const selectors: string[] = [];
-  const unnamed: Array<{ address: string; k: number }> = [];
-  targets.forEach((t, k) => {
+  const selectors: Array<{ sel: string; op: number }> = [];
+  const unnamed: Array<{ address: string; k: number; op: number }> = [];
+  targets.forEach((target, k) => {
+    const [t = "", o] = target.split("@");
+    const op = Number(o);
+    if (o === undefined || !Number.isFinite(op)) return;
     const id = t.split("#")[1];
-    if (id) selectors.push(`#${id.startsWith(`${sid}-`) ? SID_TOKEN + id.slice(sid.length) : id}`);
-    else unnamed.push({ address: t, k });
+    if (id)
+      selectors.push({
+        sel: `#${id.startsWith(`${sid}-`) ? SID_TOKEN + id.slice(sid.length) : id}`,
+        op,
+      });
+    else unnamed.push({ address: t, k, op });
   });
   // Ids are injected from the last start tag back, so earlier positions hold.
   const spots = unnamed
@@ -500,37 +509,54 @@ export function relight(
     const head = markup.slice(open.start, open.end);
     const named = head.replace(/^<\s*([A-Za-z][\w:.-]*)/, `$& id="${SID_TOKEN}-lit${s.k}"`);
     markup = markup.slice(0, open.start) + named + markup.slice(open.end);
-    selectors.push(`#${SID_TOKEN}-lit${s.k}`);
+    selectors.push({ sel: `#${SID_TOKEN}-lit${s.k}`, op: s.op });
   }
   if (!selectors.length) return f;
-  const list = [...new Set(selectors)].sort().map((s) => JSON.stringify(s));
+  // One fromTo per opacity they are dimmed to, from that opacity.
+  const byOp = new Map<number, Set<string>>();
+  for (const { sel, op } of selectors) byOp.set(op, (byOp.get(op) ?? new Set()).add(sel));
+  const tweens = [...byOp.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(
+      ([op, sels]) =>
+        `tl.fromTo([${[...sels]
+          .sort()
+          .map((x) => JSON.stringify(x))
+          .join(
+            ", ",
+          )}], { opacity: ${op} }, { opacity: 1, duration: 0.5, ease: "power2.out", immediateRender: false }, ${at});`,
+    );
   return {
     ...f,
     markup,
     script: `${f.script}
 // End-state repair (the shell's, not the model's): the last cue ends with what the scene lit at full strength.
-tl.to([${list.join(", ")}], { opacity: 1, duration: 0.5, ease: "power2.out" }, ${at});`,
+${tweens.join("\n")}`,
   };
 }
 
 /** Send the camera home at `at`: the shell's wrapper, or the svg's viewBox. */
 export function homeCamera(f: Fragment, camOff: string, at: number): Fragment {
-  if (/-cam at /.test(camOff))
+  // The probe says where the camera is ("#sN-cam at scale S, x X, y Y", or
+  // "#sN-svg viewBox X Y W H"), so the move home is a fromTo from there.
+  const m = /-cam at scale (-?[\d.]+), x (-?[\d.]+), y (-?[\d.]+)/.exec(camOff);
+  if (m)
     return {
       ...f,
       script: `${f.script}
 // End-state repair: the camera returns to the whole scene before it ends.
-tl.to("#${SID_TOKEN}-cam", { scale: 1, x: 0, y: 0, duration: 0.8, ease: "power3.inOut" }, ${at});`,
+tl.fromTo("#${SID_TOKEN}-cam", { scale: ${m[1]}, x: ${m[2]}, y: ${m[3]} }, { scale: 1, x: 0, y: 0, duration: 0.8, ease: "power3.inOut", immediateRender: false }, ${at});`,
     };
+  const from = /-svg viewBox (-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+)/.exec(camOff)?.[1];
   const svg = /<svg\b[^>]*\bid\s*=\s*["']SCENEID-svg["'][^>]*>/i.exec(f.markup)?.[0] ?? "";
   const w = /\swidth\s*=\s*["']?([\d.]+)/.exec(svg)?.[1];
   const h = /\sheight\s*=\s*["']?([\d.]+)/.exec(svg)?.[1];
-  if (!w || !h) return f;
+  if (!from || !w || !h) return f;
   return {
     ...f,
     script: `${f.script}
 // End-state repair: the camera returns to the whole scene before it ends.
-tl.to("#${SID_TOKEN}-svg", { attr: { viewBox: "0 0 ${w} ${h}" }, duration: 0.8, ease: "power3.inOut" }, ${at});`,
+tl.fromTo("#${SID_TOKEN}-svg", { attr: { viewBox: "${from}" } }, { attr: { viewBox: "0 0 ${w} ${h}" }, duration: 0.8, ease: "power3.inOut", immediateRender: false }, ${at});`,
   };
 }
 

@@ -5,15 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  calloutLayer,
-  calloutZones,
-  entrances,
-  fitLabel,
-  labelFades,
-  withZone,
-} from "../src/bespoke/callouts.js";
-import {
-  ART_BAND,
+  BLUR_MAX,
+  blurAt,
   CAMERA_MAX_SCALE,
   CLOSE_MIN,
   cameraScript,
@@ -22,10 +15,10 @@ import {
   ESTABLISH,
   frameOn,
   MIN_HOLD,
-  shotSummary,
+  planeFrame,
+  softAt,
   subjectsInBox,
 } from "../src/bespoke/shots.js";
-import { resolveTheme } from "../src/emit/theme.js";
 
 const W = 1700;
 const H = 700;
@@ -41,36 +34,11 @@ const subjects = [
   { x: 1200, y: 160, w: 400, h: 400 },
 ];
 
-describe("the close-open grammar", () => {
-  it("opens close on the first named subject from t=0, moves on, and reveals at the last cue", () => {
-    const shots = [
-      { cue: 1, at: 0, subject: 2 },
-      { cue: 3, at: 0, subject: 3 },
-    ];
-    const moves = compileShots(shots, cues, 19, subjects, W, H, "close-open");
-    expect(moves[0]).toMatchObject({ t: 0, dur: 0, subject: 2 });
-    expect(moves[0]?.s).toBeGreaterThanOrEqual(CLOSE_MIN);
-    expect(moves.map((m) => m.subject)).toEqual([2, 3, 0]);
-    // The opening is where the camera starts, not a tween from home.
-    const js = cameraScript("s5", moves, W, H);
-    const open = moves[0] as (typeof moves)[number];
-    expect(js).toContain(
-      `gsap.set("#s5-cam", { scale: ${open.s}, x: ${open.x}, y: ${open.y}, transformOrigin: "0 0" });`,
-    );
-    expect(js).not.toMatch(/tl\.fromTo\("#s5-cam", \{ scale: 1, x: 0, y: 0 \}/);
-    expect(shotSummary(moves).startsWith("S2@")).toBe(true);
-    // Its label lands just after the start.
-    expect(entrances(moves, 3).get(2)).toBeCloseTo(0.6, 5);
-    // The tour still establishes wide.
-    expect(compileShots(shots, cues, 19, subjects, W, H)[0]?.t).toBeGreaterThan(0);
-  });
-});
-
 describe("the subjects in the box", () => {
-  it("maps shares of a picture that covers the box under the label band (slice), and drops a subject mostly cropped", () => {
-    // 1536x1024 over 1700 x (700 - band): scaled by 1700/1536, centred in the space under the band.
+  it("maps shares of a picture that covers the whole box (slice), and drops a subject mostly cropped", () => {
+    // 1536x1024 over 1700 x 700: scaled by 1700/1536, centred (round 6: no label band).
     const k = 1700 / 1536;
-    const oy = ART_BAND + (700 - ART_BAND - 1024 * k) / 2;
+    const oy = (700 - 1024 * k) / 2;
     const [a, b] = subjectsInBox(
       [
         [0.1, 0.3, 0.2, 0.4],
@@ -85,20 +53,8 @@ describe("the subjects in the box", () => {
       w: Math.round(0.2 * 1536 * k),
       h: Math.round(0.4 * 1024 * k),
     });
-    // The second sits in the band the slice crops away.
+    // The second sits at the top edge the slice crops away.
     expect(b).toBeUndefined();
-  });
-});
-
-describe("the label band", () => {
-  it("leaves room above a subject that touches the top of its picture, so its label goes above it, not across its face", () => {
-    const [s] = subjectsInBox(
-      [[0.1, 0, 0.2, 0.5]],
-      { width: 1536, height: 1024 },
-      { width: W, height: H },
-    );
-    const zones = calloutZones([s as NonNullable<typeof s>], W);
-    expect(zones[0]?.side).toBe("above");
   });
 });
 
@@ -173,6 +129,10 @@ describe("staged shots", () => {
       { cue: 2, at: 0, subject: 1 },
       { cue: 3, at: 0, subject: 2 },
     ]);
+    expect(defaultShots(3, 3)).toEqual([
+      { cue: 2, at: 0, subject: 1 },
+      { cue: 2, at: 0.5, subject: 2 },
+    ]);
     expect(defaultShots(2, 3)).toEqual([
       { cue: 1, at: 0.5, subject: 1 },
       { cue: 2, at: 0, subject: 2 },
@@ -207,45 +167,86 @@ describe("staged shots", () => {
   });
 });
 
-describe("the shell's labels, on their subjects", () => {
-  const ink = resolveTheme("ink");
+/**
+ * ROUND 6: the picture's depth planes. A plane at distance z is moved as a
+ * pinhole camera sees it (`planeFrame`), which keeps it covering the frame
+ * whenever the camera's framing does; and it is blurred by its distance from the
+ * plane in focus (`blurAt`).
+ */
+describe("depth planes", () => {
+  const FW = 1920;
+  const FH = 1080;
 
-  it("gives each subject a zone above it (or across its top when there is no room), never meeting a neighbour's", () => {
-    const zones = calloutZones(subjects, W);
-    expect(zones.map((z) => z.side)).toEqual(["above", "above", "above"]);
-    for (const [i, z] of zones.entries()) {
-      const s = subjects[i] as (typeof subjects)[number];
-      if (z.side === "above") expect(z.y + z.h).toBeLessThanOrEqual(s.y);
-      else expect(z.y).toBeGreaterThanOrEqual(s.y);
-      expect(z.x).toBeGreaterThanOrEqual(0);
-      expect(z.x + z.w).toBeLessThanOrEqual(W);
-      // The dot is on the subject, just inside its top edge: a short leader that
-      // does not run down through what the scene drew on the subject.
-      expect(z.dot.y).toBeGreaterThan(s.y);
-      if (z.side === "above") expect(z.dot.y - s.y).toBeLessThanOrEqual(20);
-      const next = zones[i + 1];
-      if (next) expect(z.x + z.w).toBeLessThanOrEqual(next.x);
+  it("moves the subjects' plane (z 1) exactly with the camera", () => {
+    for (const f of [
+      { s: 1, x: 0, y: 0 },
+      { s: 1.6, x: -400, y: -250 },
+      { s: 1.3, x: -10, y: -300 },
+    ]) {
+      const p = planeFrame(f, 1, FW, FH);
+      expect(p.s).toBeCloseTo(f.s, 3);
+      expect(p.x).toBeCloseTo(f.x, 0);
+      expect(p.y).toBeCloseTo(f.y, 0);
     }
-    const high = calloutZones([{ x: 100, y: 20, w: 400, h: 500 }], W);
-    expect(high[0]?.side).toBe("top");
-    expect(high[0]?.y).toBeGreaterThan(20);
   });
 
-  it("sets a label on one line, shrinks it, breaks it onto two, or refuses it", () => {
-    const [z] = calloutZones([{ x: 600, y: 300, w: 400, h: 300 }], W);
-    const zone = z as NonNullable<typeof z>;
-    expect(fitLabel("cup", { ...zone, w: 400 }, ink)).toEqual({ fs: 44, lines: ["cup"] });
-    const two = fitLabel("image-based reasoning", { ...zone, w: 400 }, ink, H);
-    expect(two?.lines).toEqual(["image-based", "reasoning"]);
-    expect(
-      fitLabel("unbreakablelongwordthatnevershrinks", { ...zone, w: 300 }, ink, H),
-    ).toBeUndefined();
+  it("is a pinhole camera: a far plane zooms and slides less, a near one more, a truck shifts by 1/z", () => {
+    const push = { s: 1.6, x: -500, y: -300 };
+    const far = planeFrame(push, 2.5, FW, FH);
+    const near = planeFrame(push, 0.8, FW, FH);
+    expect(far.s).toBeGreaterThan(1);
+    expect(far.s).toBeLessThan(push.s);
+    expect(near.s).toBeGreaterThan(push.s);
+    // A lateral truck at scale 1: every plane at scale 1, shifted by x / z.
+    const truck = { s: 1, x: -120, y: 0 };
+    for (const z of [0.7, 1, 2, 3.5]) {
+      const p = planeFrame(truck, z, FW, FH);
+      expect(p.s).toBeCloseTo(1, 4);
+      expect(p.x).toBeCloseTo(-120 / z, 0);
+    }
+    // The exact projection: a point of the far plane lands where a pinhole camera puts it.
+    const tz = 1 - 1 / push.s;
+    const ft = ((FW / 2) * (1 - push.s) - push.x) / push.s;
+    const X = 300;
+    const world = ((X - FW / 2) * 2.5) / 1; // the point's lateral offset on the plane, focal 1
+    const seen = FW / 2 + (world - ft) / (2.5 - tz);
+    expect(far.s * X + far.x).toBeCloseTo(seen, 0);
   });
 
-  it("steps a label out of a push-in that would cut it, and back in when a shot shows it whole", () => {
-    const zones = calloutZones(subjects, W);
-    const targets = subjects.map((s, i) => withZone(s, zones[i]));
-    // Subject 1, then subject 2 (whose close framing crops subject 1's label), then the reveal.
+  it("covers the frame with every plane whenever the camera's framing covers it, at any distance", () => {
+    let seed = 7;
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    const covers = (p: { s: number; x: number; y: number }) =>
+      p.x <= 0.5 && p.y <= 0.5 && p.x + FW * p.s >= FW - 0.5 && p.y + FH * p.s >= FH - 0.5;
+    for (let k = 0; k < 500; k++) {
+      const s = 1 + rnd() * 1.2;
+      // Any framing held to the box, the edges included.
+      const edge = rnd();
+      const f = {
+        s,
+        x: edge < 0.2 ? 0 : edge < 0.4 ? FW - FW * s : -rnd() * (FW * s - FW),
+        y: -rnd() * (FH * s - FH),
+      };
+      for (const z of [0.8, 1, 1.4, 2, 3])
+        expect(covers(planeFrame(f, z, FW, FH)), `${z}`).toBe(true);
+    }
+    // And a framing that does not cover the box is not covered by any plane either.
+    expect(covers(planeFrame({ s: 1.2, x: 20, y: 0 }, 2, FW, FH))).toBe(false);
+  });
+
+  it("racks focus: the plane in focus is sharp, the others blur with their distance from it, more in a close shot", () => {
+    expect(softAt(1.2, 1.2, 1.6)).toBe(0);
+    expect(softAt(0.6, 4, 1.6)).toBeLessThanOrEqual(1);
+    expect(blurAt(1.2, 1.2, 1)).toBe(0);
+    expect(blurAt(2.5, 1, 1)).toBeGreaterThan(blurAt(1.5, 1, 1));
+    expect(blurAt(2.5, 1, 1.6)).toBeGreaterThan(blurAt(2.5, 1, 1));
+    expect(blurAt(0.6, 4, 1.6)).toBeLessThanOrEqual(BLUR_MAX);
+  });
+
+  it("moves every plane with every camera move, racks focus to the subject framed, sweeps the light and lets the subjects breathe", () => {
     const moves = compileShots(
       [
         { cue: 2, at: 0, subject: 1 },
@@ -253,91 +254,94 @@ describe("the shell's labels, on their subjects", () => {
       ],
       cues,
       19,
-      targets,
+      subjects,
       W,
       H,
     );
-    expect(moves.map((m) => m.subject)).toEqual([1, 2, 0]);
-    const layer = calloutLayer(
-      "s3",
-      [
-        { subject: 1, text: "camera" },
-        { subject: 2, text: "satellite" },
-      ],
-      zones,
-      moves,
-      ink,
-      W,
-      H,
-    );
-    const fades = layer.script
-      .split("\n")
-      .filter((l) => l.includes('"#s3-callout1"') && l.includes("power1.inOut"));
-    const [toS2, reveal] = [moves[1] as (typeof moves)[number], moves[2] as (typeof moves)[number]];
-    // Is label 1 cut by the framing on subject 2? Then it must step out at that move.
-    const view = { x0: -toS2.x / toS2.s, x1: -toS2.x / toS2.s + W / toS2.s };
-    const z1 = zones[0] as (typeof zones)[number];
-    const cut = z1.x < view.x0 && z1.x + z1.w > view.x0;
-    // The fixture's second shot does cut it (asserted, so the case cannot go vacuous).
-    expect(cut).toBe(true);
-    expect(fades[0]).toContain(
-      `{ opacity: 0, duration: 0.3, ease: "power1.inOut", immediateRender: false }, ${toS2.t});`,
-    );
-    expect(fades[1]).toContain(
-      `{ opacity: 1, duration: 0.3, ease: "power1.inOut", immediateRender: false }, ${Math.round((reveal.t + reveal.dur - 0.3) * 100) / 100});`,
-    );
-    // Built so that it is cut: a plate straddling the left edge of the second shot.
-    // At label 1's own height, so the first shot (on subject 1) shows it whole.
-    const plate = { x: Math.round(view.x0 - 60), y: z1.y, w: 200, h: 70 };
-    const fx = labelFades(
-      {
-        plate,
-        lead: { x1: plate.x + 100, y1: z1.y + 70, x2: plate.x + 100, y2: z1.y + 100 },
-        dot: { x: plate.x + 100, y: z1.y + 110 },
-      },
-      moves,
-      5.66,
-      W,
-      H,
-    );
-    expect(fx).toEqual([
-      { t: toS2.t, to: 0 },
-      { t: Math.round((reveal.t + reveal.dur - 0.3) * 100) / 100, to: 1 },
-    ]);
-    // Wholly outside the shot, or wholly inside: no fade.
-    const far = { x: Math.round(view.x1 + 50), y: 40, w: 100, h: 70 };
-    expect(
-      labelFades(
-        {
-          plate: far,
-          lead: { x1: far.x + 50, y1: 110, x2: far.x + 50, y2: 140 },
-          dot: { x: far.x + 50, y: 150 },
-        },
-        moves,
-        5.66,
-        W,
-        H,
-      ),
-    ).toEqual([]);
+    const depth = {
+      planes: [{ z: 2.2 }, { z: 1.4 }, { z: 0.8 }],
+      subjects: subjects.map((box, i) => ({ subject: i + 1, z: [1, 1.2, 0.9][i] as number, box })),
+      duration: 19,
+    };
+    const js = cameraScript("s5", moves, W, H, { depth });
+    const lines = js.split("\n");
+    const cam = lines.filter((l) => l.startsWith('tl.fromTo("#s5-cam"'));
+    for (const id of [
+      "#s5-plate",
+      "#s5-plane1",
+      "#s5-plane2",
+      "#s5-subj1",
+      "#s5-subj2",
+      "#s5-subj3",
+    ]) {
+      const own = lines.filter((l) => l.startsWith(`tl.fromTo("${id}"`));
+      expect(own, id).toHaveLength(cam.length);
+      expect(own.every((l) => l.includes("immediateRender: false"))).toBe(true);
+      // No CSS blur anywhere: focus is a cross-fade to the plane's soft twin.
+      expect(js).not.toContain("filter:");
+    }
+    // Focus on S1 while the camera holds it: S1's soft twin fades out, S2's (another distance) in.
+    const softTo = (id: string) => {
+      const l = lines.find((x) => x.startsWith(`tl.fromTo("${id}-soft"`) && x.endsWith(", 5);"));
+      return l ? Number(/\}, \{ opacity: ([\d.]+)/.exec(l)?.[1]) : undefined;
+    };
+    expect(softTo("#s5-subj1") ?? 0).toBe(0);
+    expect(softTo("#s5-subj2")).toBeGreaterThan(0);
+    const push1 = cam.findIndex((l) => l.endsWith(", 5);"));
+    // The far plane zooms less than the camera on the push.
+    const far = lines.filter((l) => l.startsWith('tl.fromTo("#s5-plate"'))[push1] as string;
+    const camTo = Number(/\}, \{ scale: ([\d.]+)/.exec(cam[push1] as string)?.[1]);
+    const farTo = Number(/\}, \{ scale: ([\d.]+)/.exec(far)?.[1]);
+    expect(farTo).toBeLessThan(camTo);
+    expect(js).toContain('tl.fromTo("#s5-light"');
+    // Breathing: an even number of legs (repeat odd), so each subject is home before the end.
+    for (const l of lines.filter((x) => x.includes(".ds-life") && x.includes("repeat"))) {
+      const rep = Number(/repeat: (\d+)/.exec(l)?.[1]);
+      expect(rep % 2).toBe(1);
+      const dur = Number(/duration: ([\d.]+)/.exec(l)?.[1]);
+      expect((rep + 1) * dur).toBeLessThanOrEqual(19 - 0.5);
+    }
   });
 
-  it("frames a labelled subject with its label, and lands the label as the camera arrives", () => {
-    const zones = calloutZones(subjects, W);
-    const target = withZone(subjects[0] as (typeof subjects)[number], zones[0]);
-    expect(target.y).toBe(zones[0]?.y);
-    const moves = compileShots([{ cue: 2, at: 0, subject: 1 }], cues, 19, subjects, W, H);
-    const at = entrances(moves, 3);
-    expect(at.get(1)).toBeCloseTo(5 + 0.6 * 1.1, 5);
-    // A subject the camera never visits is named at the reveal.
-    expect(at.get(3)).toBeCloseTo((moves[moves.length - 1]?.t ?? 0) + 0.4, 5);
-    const layer = calloutLayer("s3", [{ subject: 1, text: "cup" }], zones, moves, ink, W, H);
-    expect(layer.markup).toMatch(/<g id="s3-callout1" data-subject="1">/);
-    expect(layer.script).toContain('gsap.set("#s3-callout1", { opacity: 0 });');
-    expect(
-      layer.script
-        .split("\n")
-        .filter((l) => l.startsWith("tl."))
-        .every((l) => l.includes("immediateRender: false")),
-    ).toBe(true);
+  it("lights the subjects in turn for a wipe: they stand dim from the first frame, never an empty frame", () => {
+    const depth = {
+      planes: [{ z: 2 }],
+      subjects: subjects.map((box, i) => ({ subject: i + 1, z: 1, box })),
+      duration: 19,
+    };
+    const js = cameraScript("s6", [], W, H, {
+      depth,
+      wipes: [
+        { t: 2, dur: 0.9, share: 0.3, subject: 1 },
+        { t: 6, dur: 0.9, share: 0.6, subject: 2 },
+        { t: 10, dur: 0.9, share: 1, subject: 0 },
+      ],
+    });
+    for (const k of [1, 2, 3]) {
+      expect(js).toContain(`gsap.set("#s6-subj${k} > .ds-life", { opacity: 0.18 });`);
+      expect(js).toMatch(
+        new RegExp(
+          `tl\\.fromTo\\("#s6-subj${k} > \\.ds-life", \\{ opacity: 0\\.18 \\}, \\{ opacity: 1`,
+        ),
+      );
+    }
+    // A step lights every subject it has reached from the left, and only once.
+    const lights = js
+      .split("\n")
+      .filter((l) => /^tl\.fromTo\("#s6-subj\d > \.ds-life", \{ opacity/.test(l));
+    expect(lights).toHaveLength(3);
+    // The last step (share 1) lights whatever is left, even a subject no step named.
+    const partial = cameraScript("s6", [], W, H, {
+      depth,
+      wipes: [
+        { t: 2, dur: 0.9, share: 0.3, subject: 1 },
+        { t: 6, dur: 0.9, share: 1, subject: 3 },
+      ],
+    });
+    expect(partial).toMatch(
+      /tl\.fromTo\("#s6-subj2 > \.ds-life", \{ opacity: 0\.18 \}, \{ opacity: 1[^)]*\}, 6\);/,
+    );
+    // No clip: the backdrop is never wiped.
+    expect(js).not.toContain("-wipe");
   });
 });

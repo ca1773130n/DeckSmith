@@ -155,12 +155,23 @@ tl.to('#SCENEID-src',{opacity:0,duration:0.3},8.68);`;
 tl.to('#SCENEID-src',{opacity:0,duration:0.3},8.68);`);
   });
 
+  it("strips a shared property from a fromTo's from state and its vars alike, at the same second", () => {
+    const out = untangle(
+      `tl.fromTo("#SCENEID-x", { x: 0, opacity: 1 }, { x: 5, opacity: 1, duration: 1 }, 2);
+tl.fromTo("#SCENEID-x", { opacity: 1 }, { opacity: 0, duration: 1, immediateRender: false }, 2);`,
+    ) as string;
+    expect(out).toContain('tl.fromTo("#SCENEID-x", { x: 0 }, { x: 5, duration: 1 }, 2);');
+    expect(checkScript(out)).toEqual([]);
+  });
+
   it("ends an earlier tween where a later one on the same property starts, through a variable", () => {
     const script = `var dot = "#SCENEID-dot";
-tl.to(dot, { attr: { cy: 100 }, duration: 6 }, 1);
-tl.to("#SCENEID-dot", { attr: { cy: 500, cx: 9 }, duration: 6 }, 2);`;
+tl.fromTo(dot, { attr: { cy: 300 } }, { attr: { cy: 100 }, duration: 6 }, 1);
+tl.fromTo("#SCENEID-dot", { attr: { cy: 100, cx: 0 } }, { attr: { cy: 500, cx: 9 }, duration: 6, immediateRender: false }, 2);`;
     const out = untangle(script) as string;
-    expect(out).toContain("tl.to(dot, { attr: { cy: 100 }, duration: 1 }, 1);");
+    expect(out).toContain(
+      "tl.fromTo(dot, { attr: { cy: 300 } }, { attr: { cy: 100 }, duration: 1 }, 1);",
+    );
     expect(checkScript(out)).toEqual([]);
     // A set inside a default-length tween, and a tween with no duration written.
     expect(
@@ -198,8 +209,8 @@ tl.to("#SCENEID-x", { scale: 1, duration: 0.4 }, 2);`),
 describe("the markup surgery", () => {
   const markup = `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600">
 <!-- <g> in a comment is not an element -->
-<g id="SCENEID-a" data-cue="1"><text id="SCENEID-t0" x="10" y="10" font-size="60">a</text></g>
-<g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="60">b</text></g>
+<g id="SCENEID-a" data-cue="1"><text id="SCENEID-t0" x="10" y="10" font-size="56">a</text></g>
+<g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="56">b</text></g>
 </svg>`;
 
   it("wraps the addressed unit in a translate, and keeps the contract", () => {
@@ -208,10 +219,10 @@ describe("the markup surgery", () => {
       { u: "text:0", dx: 12.5, dy: 0 },
     ]);
     expect(out).toContain(
-      '<g transform="translate(0 -24)"><g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="60">b</text></g></g>',
+      '<g transform="translate(0 -24)"><g id="SCENEID-b" data-cue="1"><g><rect x="0" y="0" width="5" height="5"/></g><text x="20" y="20" font-size="56">b</text></g></g>',
     );
     expect(out).toContain(
-      '<g transform="translate(12.5 0)"><text id="SCENEID-t0" x="10" y="10" font-size="60">a</text></g>',
+      '<g transform="translate(12.5 0)"><text id="SCENEID-t0" x="10" y="10" font-size="56">a</text></g>',
     );
     expect(checkFragment({ markup: out, css: "", script: "" })).toEqual([]);
   });
@@ -220,21 +231,32 @@ describe("the markup surgery", () => {
     const at = settleAt(12, 9.5);
     expect(at).toBeLessThanOrEqual(12 - 1.4);
     expect(at).toBeGreaterThanOrEqual(9.5);
-    const f = relight({ markup, css: "", script: "" }, ["g:0#s4-a", "text:1"], at, "s4");
+    // Each target carries the opacity it holds: the fromTo starts there (invariant 2).
+    const f = relight(
+      { markup, css: "", script: "" },
+      ["g:0#s4-a@0.30", "text:1@0.30", "g:1#s4-b@0.25", "rect:0"],
+      at,
+      "s4",
+    );
     expect(f.markup).toContain('<text id="SCENEID-lit1" x="20"');
     expect(f.script).toContain(
-      `tl.to(["#SCENEID-a", "#SCENEID-lit1"], { opacity: 1, duration: 0.5, ease: "power2.out" }, ${at});`,
+      `tl.fromTo(["#SCENEID-a", "#SCENEID-lit1"], { opacity: 0.3 }, { opacity: 1, duration: 0.5, ease: "power2.out", immediateRender: false }, ${at});`,
     );
+    expect(f.script).toContain(`tl.fromTo(["#SCENEID-b"], { opacity: 0.25 }`);
+    // No opacity read: nothing to start a fromTo from, so it is left alone.
+    expect(f.markup).not.toContain("SCENEID-lit3");
     expect(checkFragment(f)).toEqual([]);
   });
 
   it("sends the camera home — the shell's wrapper, or a viewBox", () => {
     const f = { markup, css: "", script: "" };
     expect(homeCamera(f, "#s4-cam at scale 1.50, x -200, y -80", 9).script).toContain(
-      'tl.to("#SCENEID-cam", { scale: 1, x: 0, y: 0, duration: 0.8, ease: "power3.inOut" }, 9);',
+      'tl.fromTo("#SCENEID-cam", { scale: 1.50, x: -200, y: -80 }, { scale: 1, x: 0, y: 0, duration: 0.8, ease: "power3.inOut", immediateRender: false }, 9);',
     );
     const vb = homeCamera(f, "#s4-svg viewBox 400 100 850 300", 9);
-    expect(vb.script).toContain('attr: { viewBox: "0 0 1700 600" }');
+    expect(vb.script).toContain(
+      '{ attr: { viewBox: "400 100 850 300" } }, { attr: { viewBox: "0 0 1700 600" }',
+    );
     expect(checkFragment(vb)).toEqual([]);
   });
 
@@ -280,7 +302,7 @@ describe("the end-state gates", () => {
     small: [],
     off: [],
     fill: 0.9,
-    maxType: 96,
+    maxType: 44,
     groups: [1],
     cueStarts: [1],
     geo: frame({ parts }),
@@ -355,7 +377,7 @@ type Box = { width: number; height: number };
 const SVG = (b: Box, inner: string) =>
   `<svg id="SCENEID-svg" width="${b.width}" height="${b.height}" viewBox="0 0 ${b.width} ${b.height}" style="position:absolute;left:0;top:0">${inner}</svg>`;
 const BASE = (b: Box) =>
-  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="56" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g><g id="SCENEID-c" data-cue="1">${[
+  `<g id="SCENEID-a" data-cue="1"><text id="SCENEID-lab" x="${b.width / 2}" y="${b.height / 2}" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#e7f1fb">Encoder output</text></g><g id="SCENEID-c" data-cue="1">${[
     [30, 30],
     [b.width - 30, 30],
     [30, b.height - 30],
@@ -366,13 +388,13 @@ const BASE = (b: Box) =>
       "",
     )}</g><g id="SCENEID-m" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="${b.height - 110}" r="30" fill="#f7c948"/></g>`;
 const MOVE = (b: Box) => `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`;
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: ${b.width - 100} }, duration: 3, repeat: 9, yoyo: true, ease: "none" }, 0.9);`;
 
 /** A second label printed over the first, and a wire straight through the first. */
 const COLLIDE = (b: Box): Fragment => ({
   markup: SVG(
     b,
-    `${BASE(b)}<g id="SCENEID-n" data-cue="1"><text id="SCENEID-note" x="${b.width / 2 + 160}" y="${b.height / 2 + 30}" font-size="44" text-anchor="middle" dominant-baseline="middle" fill="#f7c948">decoder</text></g><g id="SCENEID-w" data-cue="1"><line id="SCENEID-wire" x1="140" y1="${b.height / 2}" x2="${b.width / 2 - 360}" y2="${b.height / 2}" stroke="#4cc9f0" stroke-width="6"/><line id="SCENEID-wire2" x1="${b.width / 2 - 200}" y1="${b.height / 2 - 4}" x2="${b.width / 2 + 40}" y2="${b.height / 2 - 4}" stroke="#4cc9f0" stroke-width="6"/></g>`,
+    `${BASE(b)}<g id="SCENEID-n" data-cue="1"><text id="SCENEID-note" x="${b.width / 2 + 160}" y="${b.height / 2 + 44}" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#f7c948">decoder</text></g><g id="SCENEID-w" data-cue="1"><line id="SCENEID-wire" x1="140" y1="${b.height / 2}" x2="${b.width / 2 - 360}" y2="${b.height / 2}" stroke="#4cc9f0" stroke-width="6"/><line id="SCENEID-wire2" x1="${b.width / 2 - 200}" y1="${b.height / 2 - 4}" x2="${b.width / 2 + 40}" y2="${b.height / 2 - 4}" stroke="#4cc9f0" stroke-width="6"/></g>`,
   ),
   css: "",
   script: MOVE(b),
@@ -382,7 +404,7 @@ const DIMMED = (b: Box): Fragment => ({
   markup: SVG(b, BASE(b)),
   css: "",
   script: `${MOVE(b)}
-tl.to(["#SCENEID-lab", "#SCENEID-c"], { opacity: 0.3, duration: 0.5 }, 3.2);`,
+tl.fromTo(["#SCENEID-lab", "#SCENEID-c"], { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 3.2);`,
 });
 /** A push-in on the camera that never comes back. */
 const ZOOMED = (b: Box): Fragment => ({
@@ -390,15 +412,15 @@ const ZOOMED = (b: Box): Fragment => ({
   css: "",
   script: `${MOVE(b)}
 gsap.set("#SCENEID-cam", { scale: 1, x: 0, y: 0, transformOrigin: "0 0" });
-tl.to("#SCENEID-cam", { scale: 1.04, x: ${-(b.width * 0.02).toFixed(1)}, y: ${-(b.height * 0.02).toFixed(1)}, duration: 1, ease: "power3.inOut" }, 3.2);`,
+tl.fromTo("#SCENEID-cam", { scale: 1, x: 0, y: 0 }, { scale: 1.04, x: ${-(b.width * 0.02).toFixed(1)}, y: ${-(b.height * 0.02).toFixed(1)}, duration: 1, ease: "power3.inOut" }, 3.2);`,
 });
 /** Two tweens fighting over one property: the later wins going forward, the earlier going back. */
 const TANGLED = (b: Box): Fragment => ({
   markup: SVG(b, BASE(b)),
   css: "",
   script: `${MOVE(b)}
-tl.to("#SCENEID-dot", { attr: { cy: 120 }, duration: 6 }, 1);
-tl.to("#SCENEID-dot", { attr: { cy: ${b.height - 60} }, duration: 6 }, 2);`,
+tl.fromTo("#SCENEID-dot", { attr: { cy: ${b.height - 110} } }, { attr: { cy: 120 }, duration: 6 }, 1);
+tl.fromTo("#SCENEID-dot", { attr: { cy: 120 } }, { attr: { cy: ${b.height - 60} }, duration: 6, immediateRender: false }, 2);`,
 });
 /** A scene placing the beat's illustration: the shell writes its href, the build copies it. */
 const PICTURE = (b: Box): Fragment => ({
@@ -594,7 +616,7 @@ describe("a plate too small for its text (round 4)", () => {
     parts: [],
   });
   const markup = (rect: string) =>
-    `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-sum">${rect}<text id="SCENEID-t" x="820" y="660" font-size="64">条件分布的乘积</text></g></svg>`;
+    `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-sum">${rect}<text id="SCENEID-t" x="820" y="660" font-size="56">条件分布的乘积</text></g></svg>`;
 
   it("is grown to hold its text with a margin, and nothing else moves", () => {
     const before = markup('<rect id="SCENEID-p" x="640" y="630" width="360" height="60" rx="20"/>');
@@ -655,7 +677,7 @@ describe("a disc too small for its symbol, inside a moving group (round 4)", () 
   it("is grown in its own units, whatever the group's translation", () => {
     // The group is translated by (300, 40): the disc's markup is at (100,100) r 30,
     // measured at (400,140); the symbol inside measures 60x76.
-    const markup = `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-tok"><circle id="SCENEID-disc" cx="100" cy="100" r="30"/><text id="SCENEID-sym" x="100" y="100" font-size="60">∑</text></g></svg>`;
+    const markup = `<svg id="SCENEID-svg" width="1700" height="700"><g id="SCENEID-tok"><circle id="SCENEID-disc" cx="100" cy="100" r="30"/><text id="SCENEID-sym" x="100" y="100" font-size="56">∑</text></g></svg>`;
     const g: Geo = {
       w: 1700,
       h: 700,

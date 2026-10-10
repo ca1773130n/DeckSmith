@@ -21,6 +21,12 @@
  *     not show where its line is not drawn (`stray_marker`); and a group the
  *     scene tags `data-cue="N"` must not show before cue N starts
  *     (`early_reveal`, with `cue_groups` failing a scene that tags nothing).
+ *     Round 6, after the founder's "animated UI elements are old-fashioned, and
+ *     the fonts are too large": no word in a bespoke scene renders above the
+ *     deck's headline size (`type_scale`, TYPE_SCALE in src/emit/type.ts —
+ *     round 2's 64px floor for a key label is gone), and no label, plate,
+ *     chip, card or bar is animated into place (`ui_motion`, read off the
+ *     scene's own GSAP timeline).
  *  3. `seek_order` — the frame at time t must not depend on which times were
  *     seeked before it. Capture shards a render across workers and the deck
  *     player jumps around, so a frame that depends on history is a frame that
@@ -33,6 +39,7 @@
  * The graders are pure and take what the browser measured, so each is tested
  * without one; `probeScenes` is the one place a browser is opened.
  */
+
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TYPE_SCALE } from "../emit/type.js";
@@ -126,8 +133,36 @@ export const KEY_TYPE_PX = TYPE_SCALE.body;
  * (2026-10-10): the picture is the focus, the subtitles carry the words.
  */
 export const MAX_TYPE_PX = TYPE_SCALE.headline;
+/**
+ * The largest a bespoke scene's own words may RENDER, px at 1080p, at any graded
+ * frame, camera zoom included (`type_scale`, round 6): `type_ceiling` reads the
+ * size a word declares, this one what the audience sees.
+ */
+export const TYPE_MAX_PX = TYPE_SCALE.headline + 0.5;
 /** A cue group may appear this long before its cue starts (the prompt's own sync window). */
 export const EARLY_SLACK = 0.5;
+/**
+ * The longest a seam may leave the stage empty (round 6): r1's final review
+ * found 12 of 15 seams showing nothing but the headline for ~0.6s — the
+ * outgoing scene gone, the incoming one's first group not yet in.
+ */
+export const SEAM_BLANK_MAX = 0.15;
+/**
+ * The height share of its box a bespoke scene's drawing spans while a later
+ * cue holds (`hollow_hold`): the fill module's EMPTY band. r1's final s8 held
+ * three calipers across the top 58% for seconds; its settled end frame filled.
+ */
+export const HOLD_SPAN_MIN = 0.7;
+/** Filled dots this size (radius, px) are marks a viewer counts; drawn into each other, they read as a glitch. */
+const MARK_R: readonly [number, number] = [10, 60];
+/**
+ * Below this share of the frame painted (headlines aside), the stage is empty:
+ * about one 64px mark. r1's blank seams read exactly 0.
+ */
+export const SEAM_PAINT_MIN = 0.002;
+/** How finely, and over what span around the seam, the stage is read. */
+const SEAM_STEP = 0.05;
+const SEAM_SPAN: readonly [number, number] = [-0.2, 1.2];
 /**
  * At the settled frame, at most this share of a scene's parts may be ones it
  * showed lit (>= `LIT`) earlier and has left dimmed (< `DIM`). Round 2 kept
@@ -158,12 +193,14 @@ export interface GeoLabel {
 export interface Geo {
   w: number;
   h: number;
+  /** The shell camera's scale at this frame (1 when it has none). */
+  cs?: number;
   labels: GeoLabel[];
   /** Filled shapes and pictures: address, owning label unit, paint order, box. */
   boxes: Array<{ a: string; u: string | null; o: number; b: [number, number, number, number] }>;
   /** Visible stroke samples, body px, with the label unit they belong to. */
   points: Array<[number, number, string | null]>;
-  /** Each visible part's opacity and what dims it (`tag:index`, `#id` appended when it has one). */
+  /** Each visible part's opacity and what dims it (`tag:index`, `#id` appended when it has one, then `@` its own opacity). */
   parts: Array<{ a: string; al: number; dim: string[] }>;
 }
 
@@ -220,6 +257,12 @@ export interface Layout {
   onPicture?: number;
   /** Visible text in the body box under `TEXT_CONTRAST` against its backdrop, as `id [box] ratio`. */
   faint?: string[];
+  /** End row: the scene's own tweens that animate a label, plate, chip, card or bar into place (`ui_motion`). */
+  uiMotion?: string[];
+  /** Height share of the body box the drawing spans (bespoke scenes), for \`hollow_hold\`. */
+  span?: number;
+  /** Pairs of alike filled dots drawn into each other (\`marks_overlap\`). */
+  marksOverlap?: string[];
 }
 
 /**
@@ -248,8 +291,12 @@ export interface CamSample {
   shot: [number, number, number, number, number];
   /** How many subjects the scene's illustration has. */
   subjects: number;
-  /** The scene opens close by design (the `close-open` grammar), not on the whole picture. */
-  open?: "close";
+  /** The camera grammar the shell stamped on the scene (src/bespoke/grammar.ts). */
+  grammar?: string;
+  /** The backdrop's scale, x, y (round 5's second layer), when it has one. */
+  plate?: [number, number, number];
+  /** How much of the box's width a wiped-on picture shows, 0..1, when it is wiped. */
+  wipe?: number;
 }
 
 /** Where a shot points: the point at the centre of the view, as shares of the box. */
@@ -279,10 +326,140 @@ export function shotsOf(samples: readonly CamSample[]): {
     const a = aim(c.shot);
     const b = aim(n.shot);
     if (Math.hypot(a[0] - b[0], a[1] - b[1]) >= SAME_SHOT / 2) continue;
-    if (!close.some(([x, y]) => Math.hypot(x - a[0], y - a[1]) < SAME_SHOT))
-      close.push([Math.round(a[0] * 100) / 100, Math.round(a[1] * 100) / 100]);
+    // Where the hold settles: the later of the pair. The earlier can be the
+    // tail of the push still zooming, whose aim drifts as the scale grows
+    // (a push held to the box's edge read 0.32 for a shot that holds at 0.27).
+    if (!close.some(([x, y]) => Math.hypot(x - b[0], y - b[1]) < SAME_SHOT))
+      close.push([Math.round(b[0] * 100) / 100, Math.round(b[1] * 100) / 100]);
   }
   return { wide, close };
+}
+
+/**
+ * Whether the camera did what its grammar says (src/bespoke/grammar.ts), read
+ * off the samples alone — so a shell that compiled every grammar to round 4's
+ * tour would fail here, not pass on the stamp.
+ */
+export function grammarBroken(grammar: string, list: readonly CamSample[], t0 = 0): string[] {
+  const out: string[] = [];
+  const aimOf = (r: CamSample) => aim(r.shot);
+  const dist = (a: CamSample, b: CamSample) => {
+    const p = aimOf(a);
+    const q = aimOf(b);
+    return Math.hypot(p[0] - q[0], p[1] - q[1]);
+  };
+  const pairs = list.slice(1).map((r, i) => [list[i] as CamSample, r] as const);
+  if (grammar === "follow") {
+    // A TRACK: three or more samples in a row, close, the aim travelling at one scale.
+    let run = 0;
+    let best = 0;
+    for (const [a, b] of pairs) {
+      const moving =
+        a.shot[0] >= CLOSE - 0.1 &&
+        b.shot[0] >= CLOSE - 0.1 &&
+        Math.abs(a.shot[0] - b.shot[0]) < 0.08 &&
+        dist(a, b) >= 0.02;
+      run = moving ? run + 1 : 0;
+      best = Math.max(best, run);
+    }
+    // Four moving pairs in a row is 2s of travel: a push's 1.1s move spans three at most.
+    if (best < 4)
+      out.push("a follow never tracks: no stretch where the camera travels at one close scale");
+  }
+  if (grammar === "rack") {
+    // A RETURN: a close shot held again after the camera held another.
+    const held = shotsHeld(list);
+    const back = held.some((h, i) =>
+      held.slice(0, Math.max(0, i - 1)).some((e) => Math.hypot(e[0] - h[0], e[1] - h[1]) < 0.06),
+    );
+    // Or the two-shot: both subjects held together at a medium scale, after both alone.
+    const lastClose = list.reduce((k, r, i) => (r.shot[0] >= CLOSE ? i : k), -1);
+    // Or the two-shot: both subjects HELD together at a medium scale (three samples,
+    // a second, steady), after both alone — not a reveal passing through it.
+    const two =
+      held.length >= 2 &&
+      list.slice(lastClose + 1).some((r, i, a) => {
+        const run = [r, a[i + 1], a[i + 2]];
+        return run.every(
+          (x) =>
+            x !== undefined &&
+            x.shot[0] >= 1.1 &&
+            x.shot[0] < CLOSE &&
+            Math.abs(x.shot[0] - r.shot[0]) < 0.05,
+        );
+      });
+    if (!back && !two)
+      out.push(
+        "a rack never comes back: no subject is held again after the camera held another, and no two-shot holds both",
+      );
+  }
+  if (grammar === "cutaway") {
+    const cut = pairs.some(([a, b]) => a.shot[0] < WIDE && b.shot[0] >= CLOSE);
+    if (!cut)
+      out.push(
+        "a cutaway never cuts: the camera never jumps from the whole picture to a close shot between two samples",
+      );
+  }
+  if (grammar === "zoom-out") {
+    const rise = pairs.find(([a, b]) => b.shot[0] > a.shot[0] + 0.05);
+    if (rise)
+      out.push(
+        `a zoom-out only pulls back, but the camera pushes in at ${rise[1].t.toFixed(2)}s (${rise[0].shot[0]} → ${rise[1].shot[0]})`,
+      );
+  }
+  if (grammar === "wipe") {
+    const shown = list.filter((r) => r.wipe !== undefined);
+    const start = shown.find((r) => r.t >= t0);
+    const end = shown[shown.length - 1];
+    if (!start || !end || (start.wipe ?? 1) > 0.7 || (end.wipe ?? 0) < 0.99)
+      out.push(
+        `a wipe never wipes: the picture shows ${Math.round(100 * (start?.wipe ?? 1))}% at the start and ${Math.round(100 * (end?.wipe ?? 0))}% at the end`,
+      );
+    const close = list.find((r) => r.shot[0] >= CLOSE);
+    if (close)
+      out.push(
+        `a wipe keeps the camera wide, but it is at ${close.shot[0]} at ${close.t.toFixed(2)}s`,
+      );
+  }
+  if (grammar === "parallax") {
+    // A truck, not a push: never a close shot.
+    const close = list.find((r) => r.shot[0] >= CLOSE);
+    if (close)
+      out.push(
+        `a parallax truck stays at a medium scale, but the camera is at ${close.shot[0]} at ${close.t.toFixed(2)}s`,
+      );
+    const mid = list.filter((r) => r.shot[0] >= WIDE && r.shot[0] < CLOSE);
+    const xs = mid.map((r) => aimOf(r)[0]);
+    const travel = xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
+    if (travel < 0.12)
+      out.push(
+        `a parallax truck travels ${Math.round(100 * travel)}% of the box at a medium scale; at least 12% wanted`,
+      );
+  }
+  // THE DEPTH: wherever there is a backdrop, it moves less than the subjects.
+  const deep = list.filter((r) => r.plate && r.shot[0] > 1.05);
+  const flat = deep.find((r) => (r.plate as [number, number, number])[0] >= r.shot[0] - 0.01);
+  if (flat)
+    out.push(
+      `the backdrop zooms with the subjects (${(flat.plate as [number, number, number])[0]} against ${flat.shot[0]} at ${flat.t.toFixed(2)}s): no parallax`,
+    );
+  return out;
+}
+
+/** The close shots a camera holds, in order (consecutive samples at `CLOSE` aimed alike), repeats kept. */
+function shotsHeld(list: readonly CamSample[]): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i + 1 < list.length; i++) {
+    const c = list[i] as CamSample;
+    const n = list[i + 1] as CamSample;
+    if (c.shot[0] < CLOSE || n.shot[0] < CLOSE) continue;
+    const a = aim(c.shot);
+    const b = aim(n.shot);
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) >= SAME_SHOT / 2) continue;
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(last[0] - b[0], last[1] - b[1]) >= SAME_SHOT) out.push(b);
+  }
+  return out;
 }
 
 /**
@@ -299,25 +476,36 @@ export function gradeShots(
   const out: Finding[] = [];
   const bySid = new Map<string, CamSample[]>();
   for (const r of samples) bySid.set(r.sid, [...(bySid.get(r.sid) ?? []), r]);
-  for (const [sid, list] of bySid) {
+  for (const [sid, all] of bySid) {
+    const list = [...all].sort((a, b) => a.t - b.t);
     const n = Math.max(0, ...list.map((r) => r.subjects));
     if (n === 0) continue;
+    const grammar = list.find((r) => r.grammar)?.grammar ?? "tour";
     const { close } = shotsOf(list);
     const want = Math.min(2, n);
     const t0 = opens.get(sid) ?? 0;
-    // A `close-open` scene opens close on purpose; only a tour must open wide.
-    const early = list.some((r) => r.open === "close")
-      ? undefined
-      : list.find((r) => r.t >= t0 && r.t <= t0 + 1 && r.shot[0] >= WIDE);
+    const first = list.filter((r) => r.t >= t0 && r.t <= t0 + 1);
     const say: string[] = [];
-    if (early)
-      say.push(
-        `it opens pushed in (scale ${early.shot[0]} at ${early.t.toFixed(2)}s), not on the whole picture`,
-      );
-    if (close.length < want)
+    // How it OPENS: on the whole picture, except a zoom-out, which opens close.
+    if (grammar === "zoom-out") {
+      const wide = first.find((r) => r.shot[0] < CLOSE);
+      if (wide)
+        say.push(
+          `a zoom-out opens close on its detail, but the camera is at scale ${wide.shot[0]} at ${wide.t.toFixed(2)}s`,
+        );
+    } else {
+      const early = first.find((r) => r.shot[0] >= WIDE);
+      if (early)
+        say.push(
+          `it opens pushed in (scale ${early.shot[0]} at ${early.t.toFixed(2)}s), not on the whole picture`,
+        );
+    }
+    // What it HOLDS: push-ins on the subjects, for the grammars that push in.
+    if (["tour", "follow", "rack", "cutaway"].includes(grammar) && close.length < want)
       say.push(
         `the camera holds ${close.length} distinct push-in(s) at ${CLOSE}x or closer where ${want} are wanted — it pans or idles instead of staging shots`,
       );
+    say.push(...grammarBroken(grammar, list, t0));
     if (say.length)
       out.push({
         severity: "error",
@@ -483,9 +671,10 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
       );
     add("stray_marker", r, r.strays ?? [], "a marker without its line —");
     const starts = r.cueStarts ?? [];
+    // Cue 1's group may stand from the first frame: the seam cuts to it (`seam_blank`).
     const early = (r.revealed ?? []).filter((g) => {
       const t0 = starts[g.cue - 1];
-      return t0 !== undefined && r.t < t0 - EARLY_SLACK;
+      return g.cue > 1 && t0 !== undefined && r.t < t0 - EARLY_SLACK;
     });
     add(
       "early_reveal",
@@ -511,6 +700,20 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         .map((a) => `${a.id} (subject ${a.k}) is ${Math.round(100 * a.o)}% over another subject`),
       "a label covers another subject —",
     );
+    // Round 6: quiet type. Every graded frame, the camera's zoom included.
+    if (r.maxType !== undefined && r.maxType > TYPE_MAX_PX)
+      add(
+        "type_scale",
+        r,
+        [`the largest renders at ${r.maxType.toFixed(0)}px`],
+        `the scene's own words are bigger than the deck's ${TYPE_SCALE.headline}px headline — the subtitles carry the words:`,
+      );
+    add(
+      "ui_motion",
+      r,
+      r.uiMotion ?? [],
+      "UI elements are animated into place — a label, plate, chip, card or bar that pops, slides or grows; the picture and the camera are the motion:",
+    );
     if ((r.onPicture ?? 0) >= NUMBERS_ON_PICTURE)
       add(
         "data_over_picture",
@@ -518,17 +721,22 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         [`${r.onPicture} numbers`],
         "a table or chart is painted over the illustration — a data beat gets its own chart, not a picture under it:",
       );
-    if (r.key === "end" && (r.subjects ?? 0) > 0) {
-      const near = new Set(anchors.filter((a) => a.d <= ANCHOR_PX).map((a) => a.k));
-      const want = Math.min(2, r.subjects ?? 0);
-      if (near.size < want)
-        add(
-          "label_anchor",
-          r,
-          [`${near.size} of ${r.subjects} subjects named on the picture, ${want} wanted`],
-          'the labels are not tied to the picture\'s subjects (data-subject="K" on a label group within reach of subject K) —',
-        );
-    }
+    // Held frames — a later cue's end, and the end: no hollow band, no dots piled on each other.
+    const held = r.key === "end" || Number(/^c(\d+)z$/.exec(r.key)?.[1] ?? 0) >= 2;
+    if (held && r.span !== undefined && r.span < HOLD_SPAN_MIN)
+      add(
+        "hollow_hold",
+        r,
+        [`${Math.round(100 * r.span)}% of its height`],
+        `the drawing spans under ${100 * HOLD_SPAN_MIN}% of the box's height while the cue holds — a band through empty space:`,
+      );
+    if (held)
+      add(
+        "marks_overlap",
+        r,
+        r.marksOverlap ?? [],
+        "alike dots are drawn into each other — space them, or make the overlap the point and show it:",
+      );
     if (r.key !== "end" || r.fill === undefined) continue;
     // The settled frame is the summary: the whole scene, lit, at full view.
     if (r.camOff)
@@ -566,7 +774,9 @@ export function gradeLayout(rows: readonly Layout[]): Finding[] {
         `type over ${MAX_TYPE_PX}px — the picture is the focus, keep labels ${TYPE_SCALE.floor}-${TYPE_SCALE.body}px —`,
       );
     const groups = r.groups ?? [];
-    if (groups.length === 0)
+    // A scene on a picture (round 6) may add nothing of its own: the picture,
+    // its camera and its light are the scene.
+    if (groups.length === 0 && !(r.subjects ?? 0))
       add(
         "cue_groups",
         r,
@@ -821,6 +1031,52 @@ export interface ProbedFrame {
   png: Buffer;
 }
 
+/** How long the stage stood empty across the seam into one scene (`seam_blank`). */
+export interface SeamSample {
+  sid: string;
+  /** The longest run, seconds, with under `SEAM_PAINT_MIN` of the frame painted. */
+  blank: number;
+  /** Scene seconds (negative: before the seam) where that run starts. */
+  at: number;
+  /** Whether the incoming scene is a generated (bespoke) one. */
+  bespoke: boolean;
+}
+
+export function gradeSeams(rows: readonly SeamSample[]): Finding[] {
+  return rows
+    .filter((r) => r.blank > SEAM_BLANK_MAX + 1e-6)
+    .map((r) => ({
+      severity: r.bespoke ? ("error" as const) : ("warning" as const),
+      gate: "layout",
+      rule: "seam_blank",
+      message: `#${r.sid}: the stage is empty for ${r.blank.toFixed(2)}s at the seam into it (from ${r.at >= 0 ? "+" : ""}${r.at.toFixed(2)}s; at most ${SEAM_BLANK_MAX}s) — cue 1's group stands from the scene's first frame, so the seam cuts straight to it.`,
+    }));
+}
+
+/**
+ * Serialised into the page: the share of the frame painted by everything but
+ * the headline chrome (#sid-e, #sid-h) — shapes, pictures and words, each by
+ * its visible box times its opacity, capped at the whole frame.
+ */
+const STAGE_PAINT = `() => {
+  const W = innerWidth, H = innerHeight;
+  const alpha = (el) => { let o = 1; for (let e = el; e && e.nodeType === 1; e = e.parentElement) { const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return 0; o *= Number(cs.opacity); } return o; };
+  let paint = 0;
+  const words = (el) => !(el instanceof SVGElement) && Array.prototype.some.call(el.childNodes, (n) => n.nodeType === 3 && n.textContent.trim());
+  for (const el of document.querySelectorAll("path,rect,circle,ellipse,line,polyline,polygon,text,image,img,canvas,video,p,span,div,li,h1,h2,h3,b,strong,em,small")) {
+    if (!(el instanceof SVGElement) && !/^(img|canvas|video)$/i.test(el.tagName) && !words(el)) continue;
+    if (el.closest("defs, clipPath, mask, marker, pattern, symbol")) continue;
+    const c = el.closest("[id$='-e'], [id$='-h']");
+    if (c && /^s\\d+-(e|h)$/.test(c.id)) continue;
+    const r = el.getBoundingClientRect();
+    const w = Math.max(0, Math.min(W, r.right) - Math.max(0, r.left)), h = Math.max(0, Math.min(H, r.bottom) - Math.max(0, r.top));
+    if (w * h < 64) continue;
+    const a = alpha(el);
+    if (a >= 0.15) paint += w * h * a;
+  }
+  return Math.min(1, paint / (W * H));
+}`;
+
 export interface Probe {
   findings: Finding[];
   /** Ascending-pass frames, for a contact sheet. */
@@ -834,6 +1090,8 @@ export interface Probe {
   cuts: CutSample[];
   /** Each morphSVG tween's shape through its run (`morph_glitch`). */
   morphs: MorphSample[];
+  /** The stage across each seam into a probed scene (`seam_blank`). */
+  seams: SeamSample[];
 }
 
 export interface ProbeOptions {
@@ -871,6 +1129,7 @@ export async function probeScenes(
   const cams: CamSample[] = [];
   const cuts: CutSample[] = [];
   const morphs: MorphSample[] = [];
+  const seams: SeamSample[] = [];
   const warm = new Map<string, Map<string, Buffer>>();
   const deck = await opts.open();
   try {
@@ -905,6 +1164,14 @@ export async function probeScenes(
         }
       }
       if (opts.geometry) endState(layout.filter((l) => l.sid === w.sid));
+      // Round 6: the scene's own UI motion, read once off its timeline, on its end row.
+      if (gates.has("layout")) {
+        const ui = (await deck.page.evaluate(`(${UI})(${JSON.stringify(w.sid)})`)) as
+          | string[]
+          | null;
+        const end = layout.find((l) => l.sid === w.sid && l.key === "end");
+        if (ui?.length && end) end.uiMotion = ui;
+      }
       // The camera and the words it crops, densely: a shot is what it HOLDS,
       // which cue-boundary frames can miss (two shots inside one cue). A seek
       // and a read, no screenshot. Bespoke scenes only (they have a body box).
@@ -914,25 +1181,27 @@ export async function probeScenes(
           ...layout.filter((l) => l.sid === w.sid).map((l) => l.subjects ?? 0),
         );
         const sid = JSON.stringify(w.sid);
-        const opensClose =
-          subjects > 0 &&
-          (await deck.page.evaluate(
-            `document.getElementById(${JSON.stringify(`${w.sid}-cam`)})?.getAttribute("data-ds-open") === "close"`,
-          )) === true;
         // Not past the settled end frame: later instants overlap the next
         // scene's transition, and seeking there would be that scene's first
         // render — the history its own probe must be the first to make.
         for (let t = CAM_STEP / 2; t <= w.duration - 0.5; t += CAM_STEP) {
           await deck.seek(w.start + t);
           if (subjects > 0) {
-            const shot = (await deck.page.evaluate(`(${CAM})(${sid})`)) as CamSample["shot"] | null;
-            if (shot)
+            const got = (await deck.page.evaluate(`(${CAM})(${sid})`)) as {
+              shot: CamSample["shot"];
+              grammar: string | null;
+              plate: [number, number, number] | null;
+              wipe: number | null;
+            } | null;
+            if (got)
               cams.push({
                 sid: w.sid,
                 t: round(t),
-                shot,
+                shot: got.shot,
                 subjects,
-                ...(opensClose ? { open: "close" as const } : {}),
+                ...(got.grammar ? { grammar: got.grammar } : {}),
+                ...(got.plate ? { plate: got.plate } : {}),
+                ...(got.wipe !== null ? { wipe: got.wipe } : {}),
               });
           }
           const cut = (await deck.page.evaluate(`(${CUT})(${sid})`)) as CutSample["cut"];
@@ -1005,6 +1274,26 @@ export async function probeScenes(
           [...times].sort((a, b) => ((a.t * 7919) % 1) - ((b.t * 7919) % 1)),
         );
       }
+      // The seam into this scene, after its own probe made its first history.
+      if (gates.has("layout") && w.start > 0) {
+        let run = 0;
+        let best = { blank: 0, at: 0 };
+        for (let t = SEAM_SPAN[0]; t <= SEAM_SPAN[1] + 1e-9; t += SEAM_STEP) {
+          await deck.seek(w.start + t);
+          const p = (await deck.page.evaluate(`(${STAGE_PAINT})()`)) as number;
+          run = p < SEAM_PAINT_MIN ? run + SEAM_STEP : 0;
+          if (run > best.blank + 1e-9) best = { blank: run, at: t - run + SEAM_STEP };
+        }
+        const bespoke = (await deck.page.evaluate(
+          `!!document.querySelector(${JSON.stringify(`#${w.sid}-g.ds-bespoke`)})`,
+        )) as boolean;
+        seams.push({
+          sid: w.sid,
+          blank: Math.round(best.blank * 100) / 100,
+          at: Math.round(best.at * 100) / 100,
+          bespoke,
+        });
+      }
     }
   } finally {
     await deck.close();
@@ -1046,8 +1335,9 @@ export async function probeScenes(
     ...(gates.has("layout") ? gradeCuts(cuts) : []),
     ...(gates.has("motion") ? gradeMorphs(morphs) : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
+    ...(gates.has("layout") ? gradeSeams(seams) : []),
   ];
-  return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs };
+  return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs, seams };
 }
 
 /**
@@ -1120,13 +1410,99 @@ function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
-/** Serialised into the page: the shell's camera of one scene (scale, x, y, box w, h), or null. */
+/**
+ * Serialised into the page: the shell's camera of one scene (scale, x, y, box
+ * w, h), the grammar stamped on it, its backdrop's scale, x, y, and how much
+ * of the box a wiped-on picture shows — or null.
+ */
 const CAM = `(sid) => {
   const cam = document.getElementById(sid + "-cam");
   if (!cam) return null;
-  const t = getComputedStyle(cam).transform;
-  const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
-  return [Math.round((v.length === 6 ? v[0] : 1) * 1000) / 1000, Math.round(v[4] || 0), Math.round(v[5] || 0), cam.offsetWidth, cam.offsetHeight];
+  const tf = (el) => {
+    const t = getComputedStyle(el).transform;
+    const v = t && t !== "none" ? t.slice(t.indexOf("(") + 1, t.lastIndexOf(")")).split(",").map(Number) : [1, 0, 0, 1, 0, 0];
+    return [Math.round((v.length === 6 ? v[0] : 1) * 1000) / 1000, Math.round(v[4] || 0), Math.round(v[5] || 0)];
+  };
+  const box = document.getElementById(sid + "-g");
+  const plate = document.getElementById(sid + "-plate");
+  const wipe = document.getElementById(sid + "-wipe");
+  const ww = wipe ? Number(wipe.getAttribute("width")) : NaN;
+  const pt = plate ? tf(plate) : null;
+  // And a "wipe" in depth lights its subjects in turn: the share lit.
+  const lives = box ? [...box.querySelectorAll("[data-ds-life]")] : [];
+  const lit = lives.length ? lives.filter((e) => Number(getComputedStyle(e).opacity) >= 0.95).length / lives.length : null;
+  return {
+    shot: [...tf(cam), cam.offsetWidth, cam.offsetHeight],
+    grammar: box ? box.getAttribute("data-ds-grammar") : null,
+    plate: pt,
+    wipe: wipe && cam.offsetWidth ? Math.round((1000 * (Number.isFinite(ww) ? ww : 0)) / cam.offsetWidth) / 1000 : lit === null ? null : Math.round(lit * 1000) / 1000,
+  };
+}`;
+
+/**
+ * Serialised into the page: the scene's own tweens that animate UI into place
+ * (`ui_motion`, round 6), read off its GSAP timeline — what is tweened, not
+ * what a frame happens to show. A tween counts when it MOVES or RESIZES (x, y,
+ * scale, width, height, their attr forms…) an element of the scene that is
+ * a label (carries text), a plate, chip or card (a rect, a foreignObject or a
+ * boxed HTML element), or a bar (a rect whose size changes, or a path or
+ * polygon GROWN into place from under 70% of its size — r1's final review
+ * found charts and strands grown on paths the rect rule missed). A word that only
+ * fades, a dot or a path that travels (flow, particles), and everything the
+ * shell owns (its camera, depth planes, light and breathing) do not count.
+ */
+const UI = `(sid) => {
+  const tl = window.__timelines && window.__timelines[sid];
+  const box = document.getElementById(sid + "-g");
+  if (!tl || !box || typeof tl.getChildren !== "function") return null;
+  const shell = new RegExp("^" + sid + "-(cam|plate|plane\\\\d+|subj\\\\d+|light|fx|g|e|h)(-soft)?$");
+  const MOVE = /^(x|y|xPercent|yPercent|scale|scaleX|scaleY|width|height|top|left|right|bottom|rotation|rotate|skewX|skewY)$/;
+  const ATTR = /^(x|y|width|height|cx|cy|r|rx|ry|transform)$/;
+  const SIZE = /^(scale|scaleX|scaleY|width|height|attr\\.width|attr\\.height)$/;
+  const num = (v) => (typeof v === "number" ? v : typeof v === "string" && /^-?[0-9.]+(px)?$/.test(v.trim()) ? parseFloat(v) : NaN);
+  const out = new Set();
+  for (const tw of tl.getChildren(true, true, false)) {
+    const vars = tw.vars || {};
+    // The shell's own tweens (its counter-scale of words under a camera) are not the scene's.
+    if (vars.data === "shell") continue;
+    const from = vars.startAt || {};
+    const moved = (k, a) => {
+      const to = num(a ? (vars.attr || {})[k] : vars[k]);
+      const fr = num(a ? (from.attr || {})[k] : from[k]);
+      if (!Number.isFinite(to) || !Number.isFinite(fr)) return true;
+      return /scale/.test(k) ? Math.abs(to - fr) > 0.02 : Math.abs(to - fr) > 2;
+    };
+    // A size tween that GROWS the element into place (from under 70% of where it ends): a bar, a chart.
+    const grows = (k, a) => {
+      const to = num(a ? (vars.attr || {})[k] : vars[k]);
+      const fr = num(a ? (from.attr || {})[k] : from[k]);
+      return !Number.isFinite(to) || !Number.isFinite(fr) || fr < 0.7 * to;
+    };
+    const grown = Object.keys(vars).some((k) => SIZE.test(k) && grows(k, false)) ||
+      Object.keys(vars.attr || {}).some((k) => /^(width|height)$/.test(k) && grows(k, true));
+    const props = Object.keys(vars).filter((k) => MOVE.test(k) && moved(k, false))
+      .concat(Object.keys(vars.attr || {}).filter((k) => ATTR.test(k) && moved(k, true)).map((k) => "attr." + k));
+    if (!props.length) continue;
+    for (const el of tw.targets()) {
+      if (!(el instanceof Element) || !box.contains(el)) continue;
+      if ((el.id && shell.test(el.id)) || el.closest(".ds-plane, .ds-air, .ds-subjects")) continue;
+      // A clip or a mask's shape is a reveal, not a thing on screen.
+      if (el.closest("defs, clipPath, mask")) continue;
+      const tag = el.tagName.toLowerCase();
+      const text = (el.textContent || "").trim().length > 0;
+      const boxed = tag === "rect" || tag === "foreignobject" || !!el.querySelector("rect, foreignObject") ||
+        (!(el instanceof SVGElement) && (() => { const cs = getComputedStyle(el); return (cs.backgroundColor && !/rgba\\(0, 0, 0, 0\\)|transparent/.test(cs.backgroundColor)) || parseFloat(cs.borderTopWidth) > 0; })());
+      let kind = null;
+      if (text && boxed) kind = "plate";
+      else if (text) kind = "label";
+      else if (tag === "rect" && props.some((k) => SIZE.test(k))) kind = "bar";
+      // A filled path or polygon grown into place is a bar or a chart drawn the template way.
+      else if ((tag === "path" || tag === "polygon") && grown && (() => { const cs = getComputedStyle(el); return cs.fill !== "none" || el.getBBox().width * el.getBBox().height > 400; })()) kind = "bar";
+      else if (boxed && tag !== "rect") kind = "card";
+      if (kind) out.add(kind + " " + (el.id || tag) + " (" + props.join("/") + ")");
+    }
+  }
+  return [...out];
 }`;
 
 /**
@@ -1314,7 +1690,7 @@ const MEASURE = `(sid, wantGeo) => {
   // The body box a bespoke scene draws in. Absent on an archetype's scene, and
   // then there is no stage to fill and no cue group to reveal.
   const box = document.getElementById(sid + "-g");
-  let fill, maxType, maxDeclared, cells, groups, revealed, dimmed, faint;
+  let fill, span, maxType, maxDeclared, cells, groups, revealed, dimmed, faint, marksOverlap;
   if (box) {
     const b = box.getBoundingClientRect();
     const mine = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, x: t.x, y: t.y, w: t.w, h: t.h }))
@@ -1331,6 +1707,7 @@ const MEASURE = `(sid, wantGeo) => {
     if (parts.length && b.width > 0 && b.height > 0) {
       const u = parts.reduce((a, p) => ({ x0: Math.min(a.x0, p.x0), y0: Math.min(a.y0, p.y0), x1: Math.max(a.x1, p.x1), y1: Math.max(a.y1, p.y1) }));
       fill = ((u.x1 - u.x0) * (u.y1 - u.y0)) / (b.width * b.height);
+      span = (u.y1 - u.y0) / b.height;
       // How many of a 6x4 grid's cells something is drawn in: a bbox can be
       // stretched by one stray dot, a grid cannot.
       let n = 0;
@@ -1378,6 +1755,28 @@ const MEASURE = `(sid, wantGeo) => {
       }
       return false;
     };
+    // Alike filled dots drawn into each other: deeper than half the smaller's radius.
+    const dots = [];
+    for (const el of box.querySelectorAll("circle, ellipse")) {
+      if (el.closest("defs, clipPath, mask, marker, pattern, symbol, .ds-plane, .ds-subjects")) continue;
+      const cs = getComputedStyle(el);
+      if (!cs.fill || cs.fill === "none" || Number(cs.fillOpacity) < 0.3) continue;
+      let a = 1;
+      for (let e = el; e && e !== document.body; e = e.parentElement) { const c = getComputedStyle(e); if (c.display === "none" || c.visibility === "hidden") { a = 0; break; } a *= Number(c.opacity); }
+      if (a < 0.5) continue;
+      const r = el.getBoundingClientRect();
+      const rr = Math.min(r.width, r.height) / 2;
+      if (rr < ${MARK_R[0]} || rr > ${MARK_R[1]} || Math.abs(r.width - r.height) > 0.2 * r.width) continue;
+      dots.push({ id: el.id || "circle", x: r.x + r.width / 2, y: r.y + r.height / 2, r: rr });
+    }
+    marksOverlap = [];
+    for (let i = 0; i < dots.length && marksOverlap.length < 6; i++)
+      for (let j = i + 1; j < dots.length; j++) {
+        const p = dots[i], q = dots[j];
+        if (Math.max(p.r, q.r) > 1.5 * Math.min(p.r, q.r)) continue;
+        const d = Math.hypot(p.x - q.x, p.y - q.y);
+        if (d < p.r + q.r - 0.5 * Math.min(p.r, q.r)) marksOverlap.push(p.id + " × " + q.id + " (" + Math.round(d) + "px apart)");
+      }
     faint = [];
     for (const t of texts) {
       if (!box.contains(t.el) || t.o <= 0.15) continue;
@@ -1405,6 +1804,14 @@ const MEASURE = `(sid, wantGeo) => {
       const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
       if (ratio < ${TEXT_CONTRAST}) faint.push(at(t) + " " + ratio.toFixed(1) + ":1");
     }
+    // As RENDERED. An SVG word's fs already carries every transform above it,
+    // the camera's CSS scale included (getScreenCTM; MEASURED 2026-10-10: a 48px
+    // word under a 1.3x camera read 62.4); an HTML word's (KaTeX) does not, so
+    // it is multiplied by the camera's zoom.
+    const camEl = document.getElementById(sid + "-cam");
+    const camT = camEl ? getComputedStyle(camEl).transform : "none";
+    const camS = camT && camT !== "none" ? Math.abs(Number(camT.slice(camT.indexOf("(") + 1).split(",")[0])) || 1 : 1;
+    maxType = texts.filter((t) => box.contains(t.el)).reduce((a, t) => Math.max(a, t.fs * (camEl && camEl.contains(t.el) && !(t.el instanceof SVGElement) ? camS : 1)), 0);
     // How much of what is drawn is drawn dimmed (focus): at the end, a summary
     // that is mostly ghosts is not one.
     const shown = texts.filter((t) => box.contains(t.el)).concat(leaves.filter((l) => box.contains(l.el)));
@@ -1518,7 +1925,7 @@ const MEASURE = `(sid, wantGeo) => {
     const units = [];
     const labels = texts.filter((t) => box.contains(t.el)).map((t) => {
       // The shell's own labels (round 4) are not the scene's to move: obstacles.
-      const movable = t.el.tagName.toLowerCase() === "text" && !t.el.closest(".ds-callouts");
+      const movable = t.el.tagName.toLowerCase() === "text";
       const u = movable ? unitOf(t.el) : null;
       if (u) units.push(u);
       return { a: index.get(t.el) || "", u: u ? index.get(u) : null, o: order.get(t.el) ?? -1, b: rel(t.x, t.y, t.w, t.h), s: u ? Math.round(scaleOf(u) * 1000) / 1000 : 1, fs: Math.round(t.fs) };
@@ -1530,17 +1937,21 @@ const MEASURE = `(sid, wantGeo) => {
     // that dim it: what a relight would have to bring back.
     const own = (e) => Number(getComputedStyle(e).opacity);
     const parts = texts.filter((t) => box.contains(t.el)).map((t) => ({ el: t.el, o: t.o }))
-      .concat(leaves.filter((l) => box.contains(l.el)).map((l) => ({ el: l.el, o: l.o })))
+      // Not the picture's depth planes: their opacities are the shell's focus and light, not dimming.
+      .concat(leaves.filter((l) => box.contains(l.el) && !l.el.closest(".ds-plane")).map((l) => ({ el: l.el, o: l.o })))
       .map((p) => {
         const dim = [];
         if (p.o < 0.95)
           for (let e = p.el; e && e !== box; e = e.parentElement)
-            if (index.has(e) && own(e) < 0.95) dim.push(index.get(e) + (e.id ? "#" + e.id : ""));
+            if (index.has(e) && own(e) < 0.95) dim.push(index.get(e) + (e.id ? "#" + e.id : "") + "@" + own(e).toFixed(2));
         return { a: index.get(p.el) || "", al: Math.round(p.o * 100) / 100, dim };
       });
-    geo = { w: Math.round(ob.width), h: Math.round(ob.height), labels, boxes, points, parts };
+    const camEl = document.getElementById(sid + "-cam");
+    const ct = camEl ? getComputedStyle(camEl).transform : "none";
+    const cs = ct && ct !== "none" ? Number(ct.slice(ct.indexOf("(") + 1).split(",")[0]) || 1 : 1;
+    geo = { w: Math.round(ob.width), h: Math.round(ob.height), cs: Math.round(cs * 1000) / 1000, labels, boxes, points, parts };
   }
-  return { crossings, occlusions, overlaps, small, off, strays, fill, cells, maxType, maxDeclared, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint };
+  return { crossings, occlusions, overlaps, small, off, strays, fill, span, cells, maxType, maxDeclared, groups, revealed, dimmed, camOff, geo, shot, subjects, anchors, onPicture, faint, marksOverlap };
 }`;
 
 /**

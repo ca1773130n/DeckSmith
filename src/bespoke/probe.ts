@@ -20,8 +20,8 @@ import { openDeck } from "../render/capture.js";
 import type { Finding, Format, Source, Storyboard } from "../types.js";
 import { verify } from "../verify/index.js";
 import {
-  ANCHOR_PX,
   type CamSample,
+  CLOSE,
   type Layout,
   probeScenes,
   readTimingFile,
@@ -96,8 +96,8 @@ export function pinPageErrors(
 
 /**
  * What an illustrated scene's frames say about its staging: the distinct
- * push-ins held at cue ends, whether it opens wide, and how many subjects are
- * named by a label within reach at the end. Empty for a scene with no subjects.
+ * push-ins held at cue ends and whether it opens wide. Empty for a scene with
+ * no subjects.
  */
 export function stagingMeasures(
   rows: readonly Layout[],
@@ -107,19 +107,20 @@ export function stagingMeasures(
   const subjects = Math.max(0, ...rows.map((r) => r.subjects ?? 0));
   if (subjects === 0) return {};
   const early = cams.filter((c) => c.t >= open && c.t <= open + 1);
-  const end = rows.find((r) => r.key === "end");
-  const anchors = end?.anchors ?? [];
-  const best = new Map<number, number>();
-  for (const a of anchors) best.set(a.k, Math.min(best.get(a.k) ?? 1e9, a.d));
+  const grammar = cams.find((c) => c.grammar)?.grammar;
   return {
     subjects,
+    ...(grammar ? { grammar } : {}),
     shots: shotsOf(cams).close.length,
-    // A `close-open` scene does not establish, by design: not measured.
-    ...(early.length && !cams.some((c) => c.open === "close")
-      ? { establishing: early.every((c) => c.shot[0] < WIDE) }
+    // Opens as its grammar says: on the whole picture, or close for a zoom-out.
+    ...(early.length
+      ? {
+          establishing:
+            grammar === "zoom-out"
+              ? early.every((c) => c.shot[0] >= CLOSE)
+              : early.every((c) => c.shot[0] < WIDE),
+        }
       : {}),
-    anchored: [...best.values()].filter((d) => d <= ANCHOR_PX).length,
-    ...(best.size ? { anchorMax: Math.max(...best.values()) } : {}),
   };
 }
 
@@ -214,6 +215,7 @@ export function browserGate(deck: ProbeDeck): GateFn {
           ...(end?.maxDeclared !== undefined ? { maxDeclared: end.maxDeclared } : {}),
           ...(end?.mass !== undefined ? { mass: end.mass } : {}),
           ...(end?.dimmed !== undefined ? { dimmed: end.dimmed } : {}),
+          ...(end?.uiMotion?.length ? { uiMotion: end.uiMotion } : {}),
           cueChange,
           ...staged,
         },

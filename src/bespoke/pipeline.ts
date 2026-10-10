@@ -56,6 +56,7 @@ import {
   type SceneWindow,
   STAGE_FILL,
   sceneWindows,
+  TYPE_MAX_PX,
 } from "../verify/scenes.js";
 import {
   ART_EFFORT,
@@ -66,13 +67,26 @@ import {
   type ArtCopies,
   type ArtRef,
   artKey,
+  type DepthCopies,
   drawArt,
+  STOCK_MOTIFS,
+  stockAllowed,
 } from "./art.js";
 import { cacheKey, canonical, defaultCacheDir, type KeyInput, SceneCache } from "./cache.js";
-import { calloutZones, fitLabel, type Label, longestFit } from "./callouts.js";
 import { CARDS_VERSION, cardRow } from "./cards.js";
 import { checkFragment, type Fragment, motionKinds } from "./contract.js";
-import { FLAT_MIN, flatEnough, type Inspection, inspectPicture } from "./inspect.js";
+import { checkBuild, chooseBuild, type DataBuild } from "./databuild.js";
+import { type CutInput, cutPicture, type DepthInfo } from "./depth.js";
+import { chooseGrammar, type Grammar, type Role, roleOf } from "./grammar.js";
+import {
+  FLAT_MIN,
+  featurePrints,
+  flatEnough,
+  hexRgb,
+  type Inspection,
+  inspectPicture,
+  printDistance,
+} from "./inspect.js";
 import {
   type Brief,
   CONTRACT_VERSION,
@@ -86,10 +100,18 @@ import {
   REPLY_SCHEMA,
 } from "./prompt.js";
 import { type RepairNote, repairable, repairScene } from "./repair.js";
-import { type BespokeEntry, type BespokeMap, bespokeRegion } from "./scene.js";
+import {
+  subjectsOf as artSubjects,
+  type BespokeEntry,
+  type BespokeMap,
+  bespokeRegion,
+  chromeBand,
+  cineRegion,
+  staging,
+} from "./scene.js";
 import { type Skip, selectBespoke } from "./select.js";
 import { pictureCopies } from "./sheet.js";
-import { artPlacement, type Grammar, type Shot, subjectsInBox } from "./shots.js";
+import { artPlacement, closest, effectiveAt, type Shot, shotSummary } from "./shots.js";
 
 export type BespokePrefs = NonNullable<Prefs["bespoke"]>;
 export type { DeviceBeat };
@@ -139,13 +161,18 @@ export interface BespokeInput {
   /** Where the image tool saves pictures. Default `$CODEX_HOME` or `~/.codex` (tests point it elsewhere). */
   codexHome?: string;
   /** Inspects a drawn picture (src/bespoke/inspect.ts); swappable so tests need no Swift or Vision. */
-  inspect?: (bytes: Buffer, file: string) => Promise<Inspection>;
+  inspect?: (bytes: Buffer, file: string, ground?: [number, number, number]) => Promise<Inspection>;
   /** Draws the deck's WebP and the boxed copy (src/bespoke/sheet.ts); swappable so tests need no Chrome. */
   copies?: (
     png: Buffer,
     boxes: Inspection["subjects"],
     box: { width: number; height: number },
+    opts: { plate?: Buffer; ground?: string; cutout?: boolean },
   ) => Promise<ArtCopies>;
+  /** Vision feature prints of pictures (src/bespoke/inspect.ts); swappable so tests need no Swift. */
+  prints?: (pngs: readonly string[]) => Promise<number[][]>;
+  /** Cuts a picture into depth planes (src/bespoke/depth.ts); swappable so tests need no Chrome or Core ML. */
+  cut?: (i: CutInput) => Promise<DepthCopies>;
 }
 
 export interface SceneReport {
@@ -169,7 +196,29 @@ export interface SceneReport {
   /** Whether a critique call was made, skipped because the rubric probe was clean, or never reached. */
   critique?: "ran" | "skipped" | "none";
   /** The illustration the scene was built around, and what its inspection said. */
-  art?: { key: string; depicts: string; subjects?: number; check?: ArtCheck };
+  art?: {
+    key: string;
+    depicts: string;
+    subjects?: number;
+    check?: ArtCheck;
+    /** Drawn with a backdrop (two layers), and the setting it shows. */
+    plate?: boolean;
+    setting?: string;
+    motifs?: string[];
+    /** Round 6: its depth planes' distances (far to near), the subjects', and how they were made. */
+    depth?: { planes: number[]; subjects: number[]; scale: number; info: DepthInfo };
+  };
+  /** Given a picture by the device pass's floor, not by the model's choice (`pictureFloor`). */
+  pictureForced?: boolean;
+  /** The camera grammar the scene was staged in (src/bespoke/grammar.ts), and its rhetorical role. */
+  grammar?: string;
+  role?: string;
+  /** What the camera did, one word per move (`shotSummary`). */
+  shots?: string;
+  /** Picture pixels per output pixel at the scene's closest shot (`effectiveAt`; gate `EFF_MIN`). */
+  effective?: number;
+  /** A data scene's build (src/bespoke/databuild.ts). */
+  build?: string;
   /** A data beat: drawn as a chart, never on a picture. */
   data?: boolean;
   /** The scene's visual device (`assignDevices`). */
@@ -213,7 +262,17 @@ export interface BespokeReport {
     rejectedText: number;
     rejectedStyle: number;
     rejectedSubjects: number;
+    /** Pictures refused for repeating another picture of the deck (a motif, a stock subject, or a near-identical print). */
+    rejectedRepeat: number;
+    /** Pictures drawn with a backdrop (two layers). */
+    plates: number;
   };
+  /**
+   * How much the deck's pictures repeat each other: the closest pair's
+   * Vision feature-print distance (`SIMILAR_MAX` is the gate) and the mean,
+   * and every subject noun two pictures share.
+   */
+  repetition?: { minPrint?: number; meanPrint?: number; shared: string[] };
   /** Wall seconds of the pass's stages, for profiling (`build` adds its own). */
   stages?: Record<string, number>;
   /** The deck-order device pass: where its names came from, and why any were replaced. */
@@ -264,6 +323,7 @@ export class Budget {
   rejectedText = 0;
   rejectedStyle = 0;
   rejectedSubjects = 0;
+  rejectedRepeat = 0;
   /** Device-pass calls (one a deck at most). */
   devices = 0;
   tokens = 0;
@@ -377,6 +437,9 @@ async function pool<T>(
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, lane));
 }
 
+/** Grammars that need two subjects or more: a one-subject picture is staged as a zoom-out instead. */
+export const ONE_SUBJECT_UNSTAGEABLE: readonly string[] = ["follow", "rack", "cutaway", "parallax"];
+
 /** Below this share of the frame, a cue "barely moves" by the rubric's measure (static_hold's floor is 0.015%). */
 export const RUBRIC_CUE_CHANGE = 0.005;
 /**
@@ -417,26 +480,41 @@ export function rubricProbe(
     out.push(`the end frame is mostly dimmed (${Math.round(100 * m.dimmed)}% of its parts)`);
   if (m.cells !== undefined && m.cells < 0.6)
     out.push(`something is drawn in only ${Math.round(100 * m.cells)}% of the 6x4 grid`);
-  // The type is quiet (`TYPE_SCALE`): one label reaches the body size, none passes
-  // the headline's. The 88px focal word this asked for until 2026-10-10 is what
-  // the founder called "too large".
+  // The type is quiet (`TYPE_SCALE`): a diagram's one label reaches the body
+  // size; nothing declares more than the headline, and (round 6) nothing RENDERS
+  // more, camera zoom included. The 88px focal word this asked for until
+  // 2026-10-10 is what the founder called "too large".
   if (!art && (m.maxType ?? 0) < KEY_TYPE_PX) out.push(`no label reaches ${KEY_TYPE_PX}px`);
   if ((m.maxDeclared ?? 0) > MAX_TYPE_PX + 0.5)
     out.push(`a label is ${Math.round(m.maxDeclared ?? 0)}px — nothing over ${MAX_TYPE_PX}px`);
-  const kinds = m.kinds ?? [];
-  if (kinds.length < 3) out.push(`only ${kinds.length} kind(s) of motion`);
-  // An illustrated scene's camera is the shell's (its shots), so it is not in the script's kinds.
-  const explaining = art && (m.shots ?? 0) > 0 ? [...kinds, "camera"] : kinds;
-  if (!explaining.some((k) => EXPLAINING.includes(k)))
-    out.push("no flow, camera, counter or morph — the motion is fades and draws");
+  if ((m.maxType ?? 0) > TYPE_MAX_PX)
+    out.push(
+      `a word renders at ${Math.round(m.maxType ?? 0)}px, over the ${TYPE_MAX_PX - 0.5}px headline`,
+    );
+  // Round 6: no UI animated into place (the gate holds it; the rubric says it too).
+  if (m.uiMotion?.length) out.push(`UI animated into place: ${m.uiMotion.slice(0, 3).join("; ")}`);
+  // A scene on a picture moves by the picture — the shell's camera through its
+  // depth, focus and light — so its own script is not held to kinds of motion.
+  if (!art) {
+    const kinds = m.kinds ?? [];
+    if (kinds.length < 3) out.push(`only ${kinds.length} kind(s) of motion`);
+    if (!kinds.some((k) => EXPLAINING.includes(k)))
+      out.push("no flow, camera, counter or morph — the motion is fades and draws");
+  }
   // A scene built on an illustration explains it by staging shots on its subjects,
   // and names them where they are.
   const want = Math.min(2, m.subjects ?? 2);
-  if (art && m.shots !== undefined && m.shots < want)
+  // Push-ins are what tour, follow, rack and cutaway are made of; a wipe, a
+  // zoom-out and a parallax truck stage the picture otherwise.
+  const pushes = ["tour", "follow", "rack", "cutaway"].includes(m.grammar ?? "tour");
+  if (art && pushes && m.shots !== undefined && m.shots < want)
     out.push(`only ${m.shots} push-in(s) on the picture's subjects`);
-  if (art && m.establishing === false) out.push("it does not open on the whole picture");
-  if (art && m.anchored !== undefined && m.anchored < want)
-    out.push(`only ${m.anchored} subject(s) named by a label on them`);
+  if (art && m.establishing === false)
+    out.push(
+      m.grammar === "zoom-out"
+        ? "a zoom-out does not open close on its detail"
+        : "it does not open on the whole picture",
+    );
   (m.cueChange ?? []).forEach((c, i) => {
     if (c < RUBRIC_CUE_CHANGE) out.push(`cue ${i + 1} barely moves (${(100 * c).toFixed(2)}%)`);
   });
@@ -452,21 +530,6 @@ export const DATA_ARCHETYPES: readonly string[] = ["line-chart", "bar-compare", 
 
 export function isDataBeat(beat: Pick<Beat, "archetype">): boolean {
   return DATA_ARCHETYPES.includes(beat.archetype);
-}
-
-/** A reply's labels, kept only where they are the shape the schema promised. */
-export function readLabels(raw: unknown): Label[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter(
-      (l): l is Label =>
-        typeof l === "object" &&
-        l !== null &&
-        typeof (l as Label).subject === "number" &&
-        typeof (l as Label).text === "string",
-    )
-    .slice(0, 8)
-    .map((l) => ({ subject: l.subject, text: l.text.trim().slice(0, 80) }));
 }
 
 /** A reply's shot list, kept only where it is the shape the schema promised. */
@@ -513,8 +576,19 @@ export interface BeatDevice {
   illustrate: boolean;
   /** What the scene shows, how it is composed and how it moves, when the model gave it. */
   idea?: string;
+  /** An illustrated beat's planned setting and subjects (round 5): the deck's pictures planned together. */
+  setting?: string;
+  subjects?: string[];
   /** Where the name came from: the model, or the rule catalogue (no call, a bad or repeated name). */
   from: "codex" | "rule";
+  /** Illustrated only because of the picture floor (`pictureFloor`), not by the model's choice. */
+  forced?: true;
+  /** What the beat's narration does (src/bespoke/grammar.ts `roleOf`). */
+  role: Role;
+  /** An illustrated beat's camera grammar (`chooseGrammar`), never the previous illustrated beat's. */
+  grammar?: Grammar;
+  /** A data beat's build (src/bespoke/databuild.ts `chooseBuild`), never one an earlier data beat used. */
+  build?: DataBuild;
 }
 
 /** What `assignDevices` returns: one entry per beat, in deck order. */
@@ -605,6 +679,13 @@ const POOL = [
   "beam-scan",
 ];
 
+/**
+ * The fewest pictures a deck's device pass leaves it (round 6): every eligible
+ * beat, at most the art cap — the motion is the picture's own.
+ */
+export function pictureFloor(eligible: number, artCap: number): number {
+  return Math.min(artCap, eligible);
+}
 /** A model's name made a kebab-case device name, or "" when nothing is left of it. */
 export function deviceName(raw: unknown): string {
   if (typeof raw !== "string") return "";
@@ -620,7 +701,14 @@ export function deviceName(raw: unknown): string {
 }
 
 /** A cached or replied answer, kept only when it is the shape the schema promised. */
-type Answer = { id: string; device: string; illustrate: boolean; idea: string };
+type Answer = {
+  id: string;
+  device: string;
+  illustrate: boolean;
+  idea: string;
+  setting?: string;
+  subjects?: unknown;
+};
 function answersOf(raw: unknown): Answer[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   return raw
@@ -633,9 +721,10 @@ function answersOf(raw: unknown): Answer[] | undefined {
       device: typeof a.device === "string" ? a.device : "",
       illustrate: a.illustrate === true,
       idea: typeof a.idea === "string" ? a.idea : "",
+      ...(typeof a.setting === "string" ? { setting: a.setting } : {}),
+      ...(Array.isArray(a.subjects) ? { subjects: a.subjects } : {}),
     }));
 }
-
 /**
  * THE DECK-ORDER DEVICE PASS. Runs once, before any picture or scene is asked
  * for — scenes generate two at a time, so their devices cannot come from
@@ -643,9 +732,8 @@ function answersOf(raw: unknown): Answer[] | undefined {
  * alike, with one line on how its scene is composed. One Codex call names them
  * from the beats' content; whatever it does not name well (or at all, or
  * twice), and every beat when there is no call, takes the next unused name from
- * the rule catalogue. Illustration is decided here too, so the deck mixes
- * pictures with pure motion graphics: never a data beat, never a beat with
- * under two cues, at most `artCap`.
+ * the rule catalogue. Illustration is decided here too: every beat with two
+ * cues, data beats included (round 6), at most `artCap`.
  *
  * STICKY PER BEAT. A decided device is also cached under its beat's own content,
  * and a later run whose deck changed (one beat edited, a different call cap)
@@ -653,8 +741,9 @@ function answersOf(raw: unknown): Answer[] | undefined {
  * decided — so the scenes cached under them still hit; only the changed beats
  * are named anew. Every beat decided already: no call at all.
  *
- * It never throws: no answer, a broken cache file or a cache it cannot write
- * all end in names.
+ * Round 5 adds a camera grammar and a data build to this same pass, in deck
+ * order: keep it one function, one typed result. It never throws: no answer, a
+ * broken cache file or a cache it cannot write all end in names.
  */
 export async function assignDevices(
   beats: readonly DeviceBeat[],
@@ -748,9 +837,56 @@ export async function assignDevices(
     const d = deviceName(decided.get(id)?.device);
     if (d) used.add(d);
   }
-  let pictures = 0;
   const out: BeatDevice[] = [];
-  for (const b of beats) {
+  // Round 5: the camera grammar and the data build ride in this same pass, in
+  // deck order, each a pure choice given the ones before it.
+  const grammars: Grammar[] = [];
+  const builds: DataBuild[] = [];
+  // Which beats ask for a picture: the model's choice where it gave one, else
+  // every other eligible beat — and never fewer than `pictureFloor` of the
+  // eligible ones. Round 6: every beat with two cues is pictured, data beats
+  // included (their subjects ARE the quantities): the motion is the picture's own.
+  const eligibleOf = (b: DeviceBeat) => b.cues >= 2;
+  const wants = beats.map((b, i) => {
+    const a = byId.get(b.id);
+    return a ? a.illustrate === true : i % 2 === 0;
+  });
+  const eligibleIdx = beats.flatMap((b, i) => (eligibleOf(b) ? [i] : []));
+  const floor = pictureFloor(eligibleIdx.length, opts.artCap);
+  const chosen = eligibleIdx.filter((i) => wants[i]).length;
+  let marked = chosen;
+  const forced = new Set<number>();
+  for (const step of [2, 1])
+    for (let k = 0; k < eligibleIdx.length && marked < floor; k += step) {
+      const i = eligibleIdx[k] as number;
+      if (!wants[i]) {
+        wants[i] = true;
+        forced.add(i);
+        marked++;
+      }
+    }
+  const floorNote = forced.size
+    ? `picture floor: ${[...forced].map((i) => beats[i]?.id).join(", ")} given a picture (${answers ? "the model" : "the rule"} marked ${chosen} of ${eligibleIdx.length} eligible beats; the floor is ${floor})`
+    : undefined;
+  // DATA BEATS FIRST under the cap (round 6, measured): a drawn chart is where
+  // the gates refuse most — all five fallbacks of the rebased branch's two smoke
+  // builds were drawn data beats, and their archetype grows its bars — while
+  // every pictured scene passed on its first draft. So an eligible data beat
+  // always asks for a picture, and the cap is spent on data beats before the rest.
+  const dataFirst = new Set<number>();
+  for (const i of eligibleIdx)
+    if (beats[i]?.data && !wants[i]) {
+      wants[i] = true;
+      dataFirst.add(i);
+    }
+  const pictured = new Set(
+    eligibleIdx
+      .filter((i) => wants[i])
+      .sort((x, y) => Number(!beats[x]?.data) - Number(!beats[y]?.data) || x - y)
+      .slice(0, opts.artCap),
+  );
+  for (const i of dataFirst) if (pictured.has(i)) forced.add(i);
+  for (const [bi, b] of beats.entries()) {
     const a = byId.get(b.id);
     let device = deviceName(a?.device);
     let origin: BeatDevice["from"] = "codex";
@@ -763,21 +899,44 @@ export async function assignDevices(
       origin = "rule";
     }
     used.add(device);
-    // The model's choice where it gave one; else every other eligible beat.
-    const eligible = !b.data && b.cues >= 2;
-    const wants = a ? a.illustrate === true : out.length % 2 === 0;
-    const illustrate = eligible && wants && pictures < opts.artCap;
-    if (illustrate) pictures++;
+    const illustrate = pictured.has(bi);
+    const role = roleOf(b);
+    const grammar = illustrate ? chooseGrammar(role, grammars) : undefined;
+    if (grammar) grammars.push(grammar);
+    const build = b.data ? chooseBuild(b.archetype, builds) : undefined;
+    if (build) builds.push(build);
     out.push({
       beatId: b.id,
       device,
       illustrate,
+      ...(illustrate && forced.has(bi) ? { forced: true } : {}),
+      role,
+      ...(grammar ? { grammar } : {}),
+      ...(build ? { build } : {}),
       ...(origin === "codex" && a?.idea ? { idea: a.idea.slice(0, 400) } : {}),
+      // Round 5: the picture's plan, for an illustrated beat only.
+      ...(illustrate && typeof a?.setting === "string" && a.setting.trim()
+        ? { setting: a.setting.trim().slice(0, 120) }
+        : {}),
+      ...(illustrate && Array.isArray(a?.subjects)
+        ? {
+            subjects: (a.subjects as unknown[])
+              .filter((x): x is string => typeof x === "string" && x.trim() !== "")
+              .map((x) => x.trim().slice(0, 60))
+              .slice(0, 4),
+          }
+        : {}),
       from: a ? origin : "rule",
     });
   }
   if (ruled.length)
     note = [note, `rule catalogue for ${ruled.join(", ")}`].filter(Boolean).join("; ");
+  if (floorNote) note = [note, floorNote].filter(Boolean).join("; ");
+  const firsts = [...dataFirst].filter((i) => pictured.has(i));
+  if (firsts.length)
+    note = [note, `data beats first: ${firsts.map((i) => beats[i]?.id).join(", ")} given a picture`]
+      .filter(Boolean)
+      .join("; ");
   if (dir && from === "codex" && answers) {
     try {
       await mkdir(join(dir, "beats"), { recursive: true });
@@ -793,7 +952,14 @@ export async function assignDevices(
         const a = byId.get(b.id) as Answer;
         await writeFile(
           file,
-          JSON.stringify({ id: b.id, device: d.device, illustrate: a.illustrate, idea: a.idea }),
+          JSON.stringify({
+            id: b.id,
+            device: d.device,
+            illustrate: a.illustrate,
+            idea: a.idea,
+            ...(a.setting ? { setting: a.setting } : {}),
+            ...(a.subjects ? { subjects: a.subjects } : {}),
+          }),
         );
       }
     } catch (err) {
@@ -814,6 +980,106 @@ function withKinds(m: Measured | undefined, f: Fragment | undefined): Measured |
   return f ? { ...m, kinds: motionKinds(f.script) } : m;
 }
 
+/**
+ * Two pictures of a deck closer than this by Vision's feature print are the
+ * same picture drawn twice. CALIBRATED 2026-10-10 on round 4's 38 pictures:
+ * pairs within a deck — all of them friendly robots, in other poses — sat at
+ * 0.49-0.89 (cross-deck 0.53-0.90), so a print alone does not see a repeated
+ * MOTIF; that is `sharedMotifs`' job. This bar catches the near-duplicate.
+ */
+export const SIMILAR_MAX = 0.45;
+
+/** A subject's head noun: its last word, singular. */
+function head(m: string): string {
+  const w =
+    m
+      .toLowerCase()
+      .replace(/[^a-z\s-]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .pop() ?? "";
+  return w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w;
+}
+
+/** Generic nouns two different pictures may share without repeating each other. */
+const GENERIC = new Set([
+  "",
+  "figure",
+  "person",
+  "object",
+  "shape",
+  "item",
+  "thing",
+  "group",
+  "set",
+  "pile",
+  "stack",
+  "row",
+  "part",
+  "piece",
+  "block",
+  "box",
+  "card",
+  "dot",
+  "icon",
+  "room",
+  "table",
+  "desk",
+  "shelf",
+  "floor",
+  "wall",
+  "background",
+  "scene",
+]);
+
+/** The subject nouns `motifs` shares with any of `others`. */
+export function sharedMotifs(
+  motifs: readonly string[],
+  others: ReadonlyArray<readonly string[]>,
+): string[] {
+  const mine = new Set(motifs.map(head).filter((h) => !GENERIC.has(h)));
+  const out = new Set<string>();
+  for (const o of others) for (const m of o) if (mine.has(head(m))) out.add(head(m));
+  return [...out];
+}
+
+/** The stock subjects (`STOCK_MOTIFS`) a picture draws that its beat does not name. */
+export function stockDrawn(
+  drawn: { motifs: readonly string[]; depicts: string },
+  allowed: readonly string[],
+): string[] {
+  const text = [...drawn.motifs, drawn.depicts].join(" ").toLowerCase();
+  return STOCK_MOTIFS.filter((m) => !allowed.includes(m) && new RegExp(`\\b${m}`).test(text));
+}
+
+/** How much a deck's kept pictures repeat each other (`BespokeReport.repetition`). */
+export function repetitionOf(arts: readonly ArtRef[]): BespokeReport["repetition"] {
+  const ds: number[] = [];
+  for (let i = 0; i < arts.length; i++)
+    for (let j = i + 1; j < arts.length; j++) {
+      const a = arts[i]?.print;
+      const b = arts[j]?.print;
+      if (a && b) ds.push(printDistance(a, b));
+    }
+  const shared = new Set<string>();
+  arts.forEach((a, i) => {
+    for (const m of sharedMotifs(
+      a.motifs ?? [],
+      arts.slice(i + 1).map((o) => o.motifs ?? []),
+    ))
+      shared.add(m);
+  });
+  return {
+    ...(ds.length
+      ? {
+          minPrint: Math.min(...ds),
+          meanPrint: Math.round((1000 * ds.reduce((x, y) => x + y, 0)) / ds.length) / 1000,
+        }
+      : {}),
+    shared: [...shared],
+  };
+}
+
 export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   const { storyboard, source, format, narration, prefs } = input;
   const step = input.onStep ?? (() => {});
@@ -827,6 +1093,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   );
   const model = prefs.model ?? "default";
   const scenes: SceneReport[] = [];
+  /** Each beat's kept illustration, by beat id: what the deck's repetition is measured on. */
+  const artOf = new Map<string, ArtRef>();
   const report = (): BespokeReport => ({
     version: 1,
     model,
@@ -846,7 +1114,14 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       rejectedText: budget.rejectedText,
       rejectedStyle: budget.rejectedStyle,
       rejectedSubjects: budget.rejectedSubjects,
+      rejectedRepeat: budget.rejectedRepeat,
+      plates: scenes.filter((sc) => sc.status === "bespoke" && sc.art?.plate).length,
     },
+    repetition: repetitionOf(
+      [...artOf]
+        .filter(([id]) => scenes.some((sc) => sc.beat === id && sc.status === "bespoke"))
+        .map(([, a]) => a),
+    ),
     stages,
     ...(deviceReport
       ? {
@@ -994,13 +1269,6 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   mark("devices");
   deviceReport = devices;
   const deviceOf = new Map(devices.beats.map((d) => [d.beatId, d]));
-  // The shot grammars, alternated over the illustrated beats in deck order, so
-  // no two illustrated scenes in a row are staged alike (src/bespoke/shots.ts).
-  const grammarOf = new Map<string, Grammar>(
-    devices.beats
-      .filter((d) => d.illustrate)
-      .map((d, i) => [d.beatId, i % 2 === 1 ? "close-open" : "tour"]),
-  );
   step(
     `bespoke: devices (${devices.from}) — ${devices.beats.map((d) => `${d.beatId} ${d.device}${d.illustrate ? "+art" : ""}`).join(", ")}${devices.note ? ` — ${devices.note}` : ""}`,
   );
@@ -1056,8 +1324,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       continue;
     }
     const params = beat.params as { eyebrow?: string; headline: string };
-    const region = bespokeRegion(beat, { format, theme });
     const device = deviceOf.get(beat.id) as BeatDevice;
+    // Round 6: an illustrated beat is a full-frame shot (src/bespoke/scene.ts).
+    const region = device.illustrate ? cineRegion(format) : bespokeRegion(beat, { format, theme });
     const brief: Brief = {
       lang: storyboard.lang,
       ...(params.eyebrow ? { eyebrow: params.eyebrow } : {}),
@@ -1076,7 +1345,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       ...(isDataBeat(beat) ? { data: true } : {}),
       device: device.device,
       ...(device.idea ? { idea: device.idea } : {}),
-      ...(grammarOf.has(beat.id) ? { grammar: grammarOf.get(beat.id) } : {}),
+      ...(device.grammar ? { grammar: device.grammar } : {}),
+      ...(device.build ? { build: device.build } : {}),
     };
     const keyInput: KeyInput = {
       promptVersion: PROMPT_VERSION,
@@ -1099,7 +1369,8 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       pack: { name: input.theme, ...theme },
       device: device.device,
       ...(device.idea ? { idea: device.idea } : {}),
-      ...(grammarOf.has(beat.id) ? { grammar: grammarOf.get(beat.id) } : {}),
+      ...(device.grammar ? { grammar: device.grammar } : {}),
+      ...(device.build ? { build: device.build } : {}),
     };
     work1.push({
       beat,
@@ -1120,6 +1391,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         theme,
         pack: input.theme,
         device: device.device,
+        ...(isDataBeat(beat) ? { data: true } : {}),
+        ...(device.setting ? { setting: device.setting } : {}),
+        ...(device.subjects?.length ? { subjects: device.subjects } : {}),
       },
       draftFindings: [],
       fixedFindings: [],
@@ -1128,11 +1402,13 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     });
   }
 
-  const subjectsOf = (b: Beat1) =>
-    b.art?.subjects ? subjectsInBox(b.art.subjects, b.art, b.brief.region) : [];
+  const subjectsOf = (b: Beat1) => (b.art?.subjects ? artSubjects(b.art, b.brief.region) : []);
   const entry = (b: Beat1, fragment: Fragment) => ({
     fragment,
     holds: b.holds,
+    ...(b.device.grammar && b.art?.subjects?.length ? { grammar: b.device.grammar } : {}),
+    // A data beat with a picture (round 6) is staged on it, not built as a chart.
+    ...(b.device.build && !b.art ? { build: b.device.build } : {}),
     ...(b.art ? { art: b.art } : {}),
     ...(b.art?.subjects?.length
       ? {
@@ -1144,18 +1420,14 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         }
       : {}),
   });
-  const zonesOf = (b: Beat1) => calloutZones(subjectsOf(b), b.brief.region.width);
   const statics = (b: Beat1, f: Fragment) => {
-    const zones = zonesOf(b);
     return checkFragment(f, {
       art: b.art !== undefined,
       subjects: subjectsOf(b).length,
       cues: b.window.cues.length,
-      labelFits: (text, k) => {
-        const z = zones.find((x) => x.subject === k);
-        return z !== undefined && fitLabel(text, z, theme, b.brief.region.height) !== undefined;
-      },
-    }).map((x) => `${x.rule}: ${x.message}`);
+    })
+      .concat(b.device.build && !b.art ? checkBuild(f, b.device.build) : [])
+      .map((x) => `${x.rule}: ${x.message}`);
   };
   const quota = (msg: string) => {
     if (QUOTA.test(msg)) budget.quota = true;
@@ -1163,11 +1435,84 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   // The compiled text reader lives beside the cache root, not in one deck's cache:
   // it is compiled once per machine (~25s), not once per cache directory.
   const toolDir = join(defaultCacheDir(), "..", "tools");
+  const ground = hexRgb(theme.bg);
   const inspect =
-    input.inspect ?? ((bytes: Buffer, file: string) => inspectPicture(bytes, file, toolDir));
-  const copiesOf = input.copies ?? pictureCopies;
+    input.inspect ??
+    ((bytes: Buffer, file: string, g?: [number, number, number]) =>
+      inspectPicture(bytes, file, toolDir, g));
+  const copiesOf =
+    input.copies ??
+    ((
+      png: Buffer,
+      boxes: Inspection["subjects"],
+      box: { width: number; height: number },
+      o: { plate?: Buffer; ground?: string; cutout?: boolean },
+    ) => pictureCopies(png, boxes, box, 0.84, o));
+  const printsOf = input.prints ?? ((pngs: readonly string[]) => featurePrints(pngs, toolDir));
+  const cutOf = input.cut ?? cutPicture;
+  const frame = cineRegion(format);
+  /**
+   * ROUND 6: the kept picture cut into depth planes for the shell's camera
+   * (src/bespoke/depth.ts) and stored beside it. A picture that cannot be cut
+   * (no Chrome to draw the planes) is not used: round 6 shows pictures only
+   * through their planes, and the beat is drawn without one.
+   */
+  const withDepth = async (b: Beat1, key: string, art: ArtRef): Promise<ArtRef | undefined> => {
+    const same = art.depth?.frame.width === frame.width && art.depth?.frame.height === frame.height;
+    if (art.depth && same) return art;
+    const t0 = now();
+    try {
+      const png = await readFile(art.png ?? art.file);
+      const plate = art.plate ? await readFile(art.plate.png) : undefined;
+      const cut = await cutOf({
+        subjects: png,
+        ...(plate ? { plate } : {}),
+        boxes: art.subjects ?? [],
+        frame,
+        work,
+        tag: `${b.beat.id}.depth`,
+        toolDir,
+      });
+      const ref = await artCache.putDepth(key, cut);
+      const i = cut.info;
+      step(
+        `bespoke: ${b.beat.id} depth in ${Math.round((now() - t0) / 1000)}s — ${cut.planes.length} plane(s) at z ${cut.planes.map((p) => p.z).join("/")}, ${cut.subjects.length} subject plane(s), ${i.model}${i.reason ? ` (${i.reason})` : ""}, upscale ${i.upscale}x${i.upscaleReason ? ` (${i.upscaleReason})` : ""}`,
+      );
+      return ref;
+    } catch (err) {
+      b.artNote = `no illustration: its depth planes could not be cut (${err instanceof Error ? err.message.split("\n")[0]?.slice(0, 160) : err})`;
+      step(`bespoke: ${b.beat.id} — ${b.artNote}`);
+      return undefined;
+    }
+  };
 
-  /** One draw, inspected: the picture, what it depicts, and what the inspection says. */
+  /**
+   * What each beat's picture shows, claimed the moment a picture is accepted —
+   * synchronously, before any await, so two pictures arriving together cannot
+   * both pass as the first of their kind. The repetition check reads these.
+   */
+  const claims = new Map<
+    string,
+    { motifs?: string[]; depicts: string; setting?: string; print?: number[] }
+  >();
+  const claim = (b: Beat1, x: Drawing) =>
+    claims.set(b.beat.id, {
+      motifs: x.drawn.motifs,
+      depicts: x.drawn.depicts,
+      ...(x.drawn.setting ? { setting: x.drawn.setting } : {}),
+      ...(x.print ? { print: x.print } : {}),
+    });
+  /** What the deck's other pictures show, for the illustrator to steer clear of. */
+  const avoidFor = (b: Beat1) =>
+    [...claims]
+      .filter(([id]) => id !== b.beat.id)
+      .map(([, a]) =>
+        [a.motifs?.length ? a.motifs.join(", ") : a.depicts.slice(0, 90), a.setting]
+          .filter(Boolean)
+          .join(" in "),
+      );
+
+  /** One draw, inspected: the pictures, what they depict, and what the inspection says. */
   const drawInspected = async (b: Beat1, tag: string, retry?: string) => {
     const drawn = await drawArt(b.artBrief, {
       run,
@@ -1179,52 +1524,94 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       ...(prefs.cli ? { bin: prefs.cli } : {}),
       ...(input.codexHome ? { home: input.codexHome } : {}),
       ...(retry ? { retry } : {}),
+      avoid: avoidFor(b),
       onUsage: (n) => {
         budget.tokens += n;
       },
     });
     const file = join(work, `${tag}.png`);
     await writeFile(file, drawn.bytes);
-    const seen = await inspect(drawn.bytes, file).catch(
-      (err): Inspection => ({
-        subjects: [],
-        flat: { soft: 1, palette: 0, score: 0, coverage: 0 },
-        text: null,
-        unread: `the picture could not be inspected: ${err instanceof Error ? err.message : err}`,
-      }),
-    );
-    return { drawn, seen };
+    const unread = (err: unknown): Inspection => ({
+      subjects: [],
+      flat: { soft: 1, palette: 0, score: 0, coverage: 0 },
+      text: null,
+      unread: `the picture could not be inspected: ${err instanceof Error ? err.message : err}`,
+    });
+    const seen = await inspect(drawn.bytes, file, ground).catch(unread);
+    // The backdrop is read for writing too: it is on screen as much as the subjects.
+    let plateText: string[] | null = [];
+    if (drawn.plate) {
+      const pf = join(work, `${tag}.plate.png`);
+      await writeFile(pf, drawn.plate.bytes);
+      plateText = (await inspect(drawn.plate.bytes, pf, ground).catch(unread)).text;
+    }
+    const print = await printsOf([seen.flatFile ?? file])
+      .then((v) => v[0])
+      .catch(() => undefined);
+    return { drawn, seen, plateText, print };
   };
+  type Drawing = Awaited<ReturnType<typeof drawInspected>>;
+
   /** Why a picture is refused, or undefined when it is kept. */
-  const refusal = (seen: Inspection): string | undefined => {
-    if (seen.text?.length)
-      return `it has writing in it (${seen.text
+  const refusal = (b: Beat1, x: Drawing): string | undefined => {
+    const { seen } = x;
+    const text = [...(seen.text ?? []), ...(x.plateText ?? [])];
+    if (text.length)
+      return `it has writing in it (${text
         .slice(0, 3)
         .map((s) => `"${s.slice(0, 24)}"`)
-        .join(", ")}) — draw NO text, letters or numbers anywhere`;
+        .join(", ")}) — draw NO text, letters or numbers anywhere, in either picture`;
     if (!flatEnough(seen.flat))
       return `it is shaded like a 3D render (flatness ${seen.flat.score} under ${FLAT_MIN}) — use only flat, uniform fills with hard edges, no gradients, no shading, no shadows`;
     // One blob cannot be staged: the camera and the labels need subjects to point at.
     if (seen.subjects.length < 2)
-      return `its subjects touch or overlap (${seen.subjects.length} separate subject found) — draw three or four subjects with clear empty background between them, nothing linking them`;
+      return `its subjects touch or overlap (${seen.subjects.length} separate subject found) — draw three or four subjects with clear empty space between them, nothing linking them`;
+    // REPETITION across the deck (round 5): a stock stand-in, a subject another
+    // picture already shows, or a near-identical picture.
+    const stock = stockDrawn(x.drawn, stockAllowed(b.artBrief));
+    if (stock.length)
+      return `it repeats the deck's stock stand-in (${stock.join(", ")}) — draw the paper's own subjects, no ${stock.join(" or ")}`;
+    const others = [...claims].filter(([id]) => id !== b.beat.id).map(([, a]) => a);
+    const shared = sharedMotifs(
+      x.drawn.motifs,
+      others.map((a) => a.motifs ?? []),
+    );
+    if (shared.length)
+      return `it repeats a subject another scene of this deck already shows (${shared.join(", ")}) — draw different subjects`;
+    const print = x.print;
+    const twin = print
+      ? others.find((a) => a.print && printDistance(a.print, print) < SIMILAR_MAX)
+      : undefined;
+    if (twin)
+      return `it looks like another scene of this deck (${twin.depicts.slice(0, 80)}) — a different setting and different subjects`;
     return undefined;
   };
-  /** Which of two refused pictures to keep: never one with writing; then flat; then more subjects. */
-  const rank = (seen: Inspection) =>
-    (flatEnough(seen.flat) ? 10 : 0) + Math.min(4, seen.subjects.length) + seen.flat.score;
+  const count = (why: string) => {
+    if (why.startsWith("it has writing")) budget.rejectedText++;
+    else if (why.startsWith("it is shaded")) budget.rejectedStyle++;
+    else if (why.startsWith("its subjects")) budget.rejectedSubjects++;
+    else budget.rejectedRepeat++;
+  };
+  /** Which of two refused pictures to keep: never one with writing; then flat; then not a repeat; then more subjects. */
+  const rank = (b: Beat1, x: Drawing) =>
+    (flatEnough(x.seen.flat) ? 10 : 0) +
+    (/repeats|looks like/.test(refusal(b, x) ?? "") ? 0 : 5) +
+    Math.min(4, x.seen.subjects.length) +
+    x.seen.flat.score;
 
   /**
    * The beat's illustration: from the art cache, or a call to the account's
-   * image tool, inspected (src/bespoke/inspect.ts) — writing in it or a shaded
-   * render is redrawn ONCE with the reason; of two refused pictures the one
-   * without writing and the flatter is kept, and one with writing never is.
+   * image tool, inspected (src/bespoke/inspect.ts) — writing in it, a shaded
+   * render, one subject, or a picture repeating another of the deck is
+   * redrawn ONCE with the reason; of two refused pictures the one without
+   * writing, flat and not a repeat is kept, and one with writing never is.
    * A picture that cannot be had is not a failure — the beat is drawn without
    * one, and the report says why. A data beat is never illustrated.
    */
   const illustrate = async (b: Beat1) => {
     if (artCap <= 0) return;
-    if (b.brief.data) {
-      b.artNote = "a data beat: its chart is the picture";
+    if (!b.device.illustrate) {
+      b.artNote = "pure motion graphics (the device pass gave it no picture)";
       return;
     }
     if (!b.device.illustrate) {
@@ -1232,9 +1619,18 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       return;
     }
     const key = artKey(b.artBrief, model);
-    const hit = await artCache.get(key);
+    const cachedArt = await artCache.get(key);
+    const hit = cachedArt ? await withDepth(b, key, cachedArt) : undefined;
+    if (cachedArt && !hit) return;
     if (hit) {
       b.art = hit;
+      artOf.set(b.beat.id, hit);
+      claims.set(b.beat.id, {
+        ...(hit.motifs ? { motifs: hit.motifs } : {}),
+        depicts: hit.depicts,
+        ...(hit.setting ? { setting: hit.setting } : {}),
+        ...(hit.print ? { print: hit.print } : {}),
+      });
       step(`bespoke: ${b.beat.id} illustration from cache`);
       return;
     }
@@ -1248,38 +1644,35 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     try {
       const tries = [await drawInspected(b, tag)];
       const rejected: string[] = [];
-      let why = refusal((tries[0] as (typeof tries)[number]).seen);
+      let why = refusal(b, tries[0] as Drawing);
       if (why) {
         rejected.push(why);
-        if (why.startsWith("it has writing")) budget.rejectedText++;
-        else if (why.startsWith("it is shaded")) budget.rejectedStyle++;
-        else budget.rejectedSubjects++;
+        count(why);
         step(`bespoke: ${tag} refused — ${why.split(" — ")[0]}; drawing it again`);
         const again = budget.takeRedraw();
         if (again) step(`bespoke: ${tag} not redrawn — ${again}`);
         else {
           const second = await drawInspected(b, `${tag}2`, why);
           tries.push(second);
-          why = refusal(second.seen);
+          why = refusal(b, second);
           if (why) {
             rejected.push(why);
-            if (why.startsWith("it has writing")) budget.rejectedText++;
-            else if (why.startsWith("it is shaded")) budget.rejectedStyle++;
-            else budget.rejectedSubjects++;
+            count(why);
           }
         }
       }
       // The kept picture: one that passed, else the best without writing (`rank`).
-      const ok = tries.filter((t) => !t.seen.text?.length);
+      const ok = tries.filter((t) => !t.seen.text?.length && !t.plateText?.length);
       const pick =
-        tries.find((t) => refusal(t.seen) === undefined) ??
-        [...ok].sort((x, y) => rank(y.seen) - rank(x.seen))[0];
+        tries.find((t) => refusal(b, t) === undefined) ??
+        [...ok].sort((x, y) => rank(b, y) - rank(b, x))[0];
       if (!pick) {
         b.artNote = `no illustration: every draw had writing in it (${rejected.length} refused)`;
         step(`bespoke: ${tag} — ${b.artNote}`);
         return;
       }
       const { drawn, seen } = pick;
+      claim(b, pick);
       const check: ArtCheck = {
         flat: seen.flat.score,
         flatOk: flatEnough(seen.flat),
@@ -1287,16 +1680,27 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         attempts: tries.length,
         rejected,
       };
-      // The deck's WebP and the draft call's boxed copy; a Chrome that cannot draw
-      // them costs bytes (the PNG ships) and the numbered boxes, never the picture.
+      // The deck's WebPs and the draft call's composite and boxed copies; a
+      // Chrome that cannot draw them costs bytes (the PNGs ship) and the
+      // numbered boxes, never the picture.
       const at = artPlacement(b.brief.region);
-      const copies = await copiesOf(drawn.bytes, seen.subjects, {
-        width: at.w,
-        height: at.h,
-      }).catch((err): ArtCopies => {
+      const copies = await copiesOf(
+        drawn.bytes,
+        seen.subjects,
+        { width: at.w, height: at.h },
+        {
+          ...(drawn.plate ? { plate: drawn.plate.bytes } : {}),
+          ground: theme.bg,
+          cutout: seen.cutout === true,
+        },
+      ).catch((err): ArtCopies => {
         step(`bespoke: ${tag} copies not drawn — ${err instanceof Error ? err.message : err}`);
         return {};
       });
+      // A backdrop is used only where the subjects in front of it let it show:
+      // drawn on a transparent ground, or keyed onto one in the deck's copy.
+      const layered =
+        drawn.plate !== undefined && (seen.cutout === true || copies.webp !== undefined);
       b.art = await artCache.put(
         key,
         drawn.bytes,
@@ -1308,11 +1712,26 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
           artVersion: ART_VERSION,
           subjects: seen.subjects,
           check,
+          ...(seen.cutout || layered ? { cutout: true } : {}),
+          ...(layered && drawn.plate
+            ? { plate: { width: drawn.plate.width, height: drawn.plate.height } }
+            : {}),
+          ...(drawn.motifs.length ? { motifs: drawn.motifs } : {}),
+          ...(drawn.setting ? { setting: drawn.setting } : {}),
+          ...(pick.print ? { print: pick.print } : {}),
         },
         copies,
+        layered ? drawn.plate?.bytes : undefined,
       );
+      const deep = await withDepth(b, key, b.art);
+      if (!deep) {
+        b.art = undefined;
+        return;
+      }
+      b.art = deep;
+      artOf.set(b.beat.id, b.art);
       step(
-        `bespoke: ${tag} in ${Math.round((now() - t0) / 1000)}s (${drawn.width}x${drawn.height}, ${seen.subjects.length} subjects, flat ${seen.flat.score}, text ${seen.text === null ? `unchecked: ${seen.unread}` : seen.text.length}, ${tries.length} draw(s))`,
+        `bespoke: ${tag} in ${Math.round((now() - t0) / 1000)}s (${drawn.width}x${drawn.height}${layered ? ` over a ${drawn.plate?.width}x${drawn.plate?.height} backdrop` : ", no backdrop"}, ${seen.subjects.length} subjects [${drawn.motifs.join(", ")}], flat ${seen.flat.score}, text ${seen.text === null ? `unchecked: ${seen.unread}` : seen.text.length}, ${tries.length} draw(s))`,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1327,21 +1746,28 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     await illustrate(b);
     if (b.art) {
       const subjects = subjectsOf(b);
-      const zones = zonesOf(b).map((z) => ({
-        subject: z.subject,
-        x: z.x,
-        y: z.y,
-        w: z.w,
-        h: z.h,
-        chars: longestFit(z, theme),
-      }));
+      // A picture whose subjects merged into one cannot be followed, racked, cut
+      // between or trucked across (MEASURED 2026-10-10: ko s3 fell back on "a follow
+      // never tracks", zh r6b s8 on "a parallax truck travels 0%"): it is staged as
+      // a zoom-out instead.
+      const g = b.device.grammar;
+      if (subjects.length < 2 && g && ONE_SUBJECT_UNSTAGEABLE.includes(g)) {
+        b.device = { ...b.device, grammar: "zoom-out" };
+        b.brief = { ...b.brief, grammar: "zoom-out" };
+        b.keyInput = { ...b.keyInput, grammar: "zoom-out" };
+        step(`bespoke: ${b.beat.id} has one subject; staged as a zoom-out, not a ${g}`);
+      }
       b.brief = {
         ...b.brief,
         art: {
           depicts: b.art.depicts,
           width: b.art.width,
           height: b.art.height,
-          ...(subjects.length ? { subjects, zones } : {}),
+          ...(b.art.plate
+            ? { plate: true, ...(b.art.setting ? { setting: b.art.setting } : {}) }
+            : {}),
+          ...(subjects.length ? { subjects } : {}),
+          ...(b.art.depth ? { band: chromeBand(b.beat, { format, theme }) } : {}),
         },
       };
     }
@@ -1397,9 +1823,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         markup: reply.markup ?? "",
         css: reply.css ?? "",
         script: reply.script ?? "",
-        ...(b.art?.subjects?.length
-          ? { shots: readShots(reply.shots), labels: readLabels(reply.labels) }
-          : {}),
+        ...(b.art?.subjects?.length ? { shots: readShots(reply.shots) } : {}),
       } as Fragment;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1419,7 +1843,9 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   await pool(work1, prefs.concurrency, async (b) => {
     await ready.get(b);
     if (b.cached || b.stop) return;
-    const images = b.art ? [b.art.png ?? b.art.file, ...(b.art.boxed ? [b.art.boxed] : [])] : [];
+    const images = b.art
+      ? [b.art.composite ?? b.art.png ?? b.art.file, ...(b.art.boxed ? [b.art.boxed] : [])]
+      : [];
     const f = await call(b, "draft", generatePrompt(b.brief), images);
     if (!f) return;
     b.draft = f;
@@ -1668,6 +2094,16 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
   mark("second critiques");
   const map: Record<string, BespokeEntry> = {};
   for (const b of work1) {
+    /** What the shell's camera does with this fragment: its moves, and the picture's sharpness at the closest one. */
+    const shot = (f: Fragment): Partial<SceneReport> => {
+      if (!b.art?.subjects?.length) return {};
+      const e = entry(b, f);
+      const st = staging(e, b.brief.region).staged;
+      return {
+        shots: shotSummary(st.moves, st.grammar, st.open),
+        effective: effectiveAt(b.art, b.brief.region, closest(st)),
+      };
+    };
     const report1 = (status: "bespoke" | "fallback", extra: Partial<SceneReport>): SceneReport => ({
       beat: b.beat.id,
       archetype: b.beat.archetype,
@@ -1683,12 +2119,29 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
               depicts: b.art.depicts,
               subjects: subjectsOf(b).length,
               ...(b.art.check ? { check: b.art.check } : {}),
+              ...(b.art.plate ? { plate: true } : {}),
+              ...(b.art.setting ? { setting: b.art.setting } : {}),
+              ...(b.art.motifs ? { motifs: b.art.motifs } : {}),
+              ...(b.art.depth
+                ? {
+                    depth: {
+                      planes: b.art.depth.planes.map((p) => p.z),
+                      subjects: b.art.depth.subjects.map((p) => p.z),
+                      scale: b.art.depth.scale,
+                      info: b.art.depth.info,
+                    },
+                  }
+                : {}),
             },
           }
         : {}),
       ...(b.brief.data ? { data: true } : {}),
       device: b.device.device,
       ...(b.second ? { second: true } : {}),
+      ...(b.device.forced ? { pictureForced: true } : {}),
+      role: b.device.role,
+      ...(b.device.grammar && b.art?.subjects?.length ? { grammar: b.device.grammar } : {}),
+      ...(b.device.build ? { build: b.device.build } : {}),
       ...(b.artNote ? { artNote: b.artNote } : {}),
       ...(b.repair ? { repair: b.repair } : {}),
       ...extra,
@@ -1701,6 +2154,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
         scenes.push(
           report1("bespoke", {
             from: "cache",
+            ...shot(b.cached),
             ...(gb.sid ? { gatedAt: gb.sid } : {}),
             kinds: motionKinds(b.cached.script),
             ...(metrics ? { metrics } : {}),
@@ -1760,6 +2214,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
       scenes.push(
         report1("bespoke", {
           from: from as "draft" | "critique",
+          ...shot(fragment),
           ...(note ? { reason: note } : {}),
           kinds: motionKinds(fragment.script),
           ...(metrics ? { metrics } : {}),

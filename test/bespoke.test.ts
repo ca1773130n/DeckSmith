@@ -6,11 +6,13 @@
  * The runner and the gate are injected (`BespokeInput.run`, `.gate`), so every
  * branch of the pipeline is driven here with canned replies and canned verdicts.
  */
+
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { artPrompt } from "../src/bespoke/art.js";
 import { cacheKey, canonical, type KeyInput, SceneCache } from "../src/bespoke/cache.js";
 import { CARDS_VERSION } from "../src/bespoke/cards.js";
 import type { Fragment } from "../src/bespoke/contract.js";
@@ -25,6 +27,7 @@ import {
   type GateResult,
   isUiDevice,
   lanes,
+  pictureFloor,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
 import {
@@ -54,6 +57,7 @@ import {
   sourceSchema,
   storyboardSchema,
 } from "../src/types.js";
+import { asBuilt } from "./fixtures/build.js";
 
 const repo = (p: string) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 const demo = storyboardSchema.parse(
@@ -95,7 +99,7 @@ const SCENE: Fragment = {
   markup: `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600"><g id="SCENEID-a" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="300" r="30" fill="#f7c948"/></g><g id="SCENEID-b" data-cue="2"></g></svg>`,
   css: "#SCENEID-svg { overflow: visible; }",
   script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
 };
 
 /* ----------------------------------------------------------------- selection */
@@ -388,7 +392,10 @@ describe("the bespoke pass", () => {
       calls.push(args);
       const r = reply(args, calls.length);
       if (r instanceof Error) throw r;
-      await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...r }));
+      await writeFile(
+        args.outPath,
+        JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, r) }),
+      );
       args.onUsage?.(1000);
     };
     return { calls, run };
@@ -485,7 +492,10 @@ describe("the bespoke pass", () => {
           return;
         }
         calls.push(args);
-        await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...SCENE }));
+        await writeFile(
+          args.outPath,
+          JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, SCENE) }),
+        );
       };
       return { calls, run };
     };
@@ -772,7 +782,7 @@ describe("the bespoke pass", () => {
     const draft = SCENE;
     const broken: Fragment = {
       ...SCENE,
-      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { x: 1 }, 2);`,
+      script: `${SCENE.script}\ntl.fromTo("#SCENEID-dot", { x: 0 }, { x: 1 }, 2);`,
     };
     const { run } = fake((args) =>
       args.prompt.includes("strict motion-design reviewer") ? broken : draft,
@@ -855,10 +865,10 @@ describe("the bespoke pass", () => {
   const RICH: Fragment = {
     ...SCENE,
     script: `${SCENE.script}
-tl.to("#SCENEID-n", { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
-tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
+tl.fromTo("#SCENEID-n", { textContent: 0 }, { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
+tl.fromTo("#SCENEID-dot", { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 3);`,
   };
-  const clean = { fill: 0.9, cells: 0.8, maxType: 96, cueChange: [0.02, 0.03] };
+  const clean = { fill: 0.9, cells: 0.8, maxType: 44, cueChange: [0.02, 0.03] };
 
   it("skips the critique call when every gate passed and the rubric probe is clean", async () => {
     const { calls, run } = fake(() => RICH);
@@ -1003,17 +1013,120 @@ describe("the deck-order device pass", () => {
     expect(unwritable.note).toMatch(/device cache was not written/);
   });
 
-  it("never illustrates a data beat or a one-cue beat, holds to the cap, and leaves some beats as motion graphics", async () => {
+  it("pictures every eligible beat, data beats too, up to the cap, whatever the model marks (round 6), and says which were forced", async () => {
+    const none = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: false, idea: "x" }));
+    // b1 (one cue) is not eligible: five eligible beats, the data beat b4 among them.
+    const eligible = deck.filter((b) => b.cues >= 2).length;
+    expect(eligible).toBe(5);
+    for (const cap of [1, 2, 6]) {
+      const r = await assignDevices(deck, {
+        artCap: cap,
+        work,
+        timeoutMs: 1000,
+        run: answer(none),
+      });
+      const pictured = r.beats.filter((b) => b.illustrate);
+      expect(pictured).toHaveLength(Math.min(cap, eligible));
+      expect(pictured.every((b) => b.forced === true)).toBe(true);
+      expect(r.note).toMatch(
+        /picture floor: .* given a picture \(the model marked 0 of 5 eligible beats; the floor is \d\)/,
+      );
+    }
+    expect(pictureFloor(4, 6)).toBe(4);
+    expect(pictureFloor(7, 6)).toBe(6);
+    expect(pictureFloor(5, 1)).toBe(1);
+    // The model marking every eligible beat: nothing forced, nothing said.
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run: answer(all) });
+    expect(r.beats.filter((b) => b.illustrate).map((b) => b.beatId)).toEqual([
+      "b2",
+      "b3",
+      "b4",
+      "b5",
+      "b6",
+    ]);
+    expect(r.beats.some((b) => b.forced)).toBe(false);
+    expect(r.note ?? "").not.toMatch(/picture floor/);
+  });
+
+  it("spends the picture cap on data beats first, whatever the model marks (round 6)", async () => {
+    // The model wants pictures on b2 and b3 only; b4 is the data beat.
+    const some = deck.map((b) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: b.id === "b2" || b.id === "b3",
+      idea: "x",
+    }));
+    const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(some) });
+    expect(r.beats.filter((b) => b.illustrate).map((b) => b.beatId)).toEqual(["b2", "b4"]);
+    expect(r.beats.find((b) => b.beatId === "b4")?.forced).toBe(true);
+    expect(r.note).toMatch(/data beats first: b4 given a picture/);
+  });
+
+  it("plans the deck's pictures together: a setting and subjects per illustrated beat, none for the rest (round 5)", async () => {
+    const all = deck.map((b, i) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: true,
+      idea: "x",
+      setting: `place ${i}`,
+      subjects: [`thing ${i}a`, `thing ${i}b`, 7],
+    }));
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run: answer(all) });
+    for (const b of r.beats) {
+      if (b.illustrate) {
+        expect(b.setting).toMatch(/^place \d$/);
+        expect(b.subjects).toHaveLength(2);
+      } else {
+        expect(b.setting).toBeUndefined();
+        expect(b.subjects).toBeUndefined();
+      }
+    }
+    const brief = {
+      lang: "en",
+      headline: "h",
+      intent: "i",
+      context: "c",
+      theme: resolveTheme("ink"),
+      pack: "ink",
+      setting: "a tide pool",
+      subjects: ["crab", "anemone"],
+    };
+    expect(artPrompt(brief)).toContain(
+      "the setting is a tide pool; the subjects are crab, anemone",
+    );
+  });
+
+  it("gives every illustrated beat a camera grammar, never the one before it, and every data beat its own build (round 5)", async () => {
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(
+      [...deck, beat("b7"), beat("b8"), beat("b9", { archetype: "line-chart", data: true })],
+      { artCap: 6, work, timeoutMs: 1000, run: answer(all) },
+    );
+    const pictured = r.beats.filter((b) => b.illustrate);
+    expect(pictured.length).toBeGreaterThan(3);
+    for (const b of r.beats) expect(b.grammar !== undefined).toBe(b.illustrate);
+    const gs = pictured.map((b) => b.grammar);
+    gs.slice(1).forEach((g, i) => {
+      expect(g).not.toBe(gs[i]);
+    });
+    // Up to seven illustrated beats, every grammar differs.
+    expect(new Set(gs).size).toBe(gs.length);
+    const builds = r.beats.filter((b) => b.build).map((b) => b.build);
+    expect(builds).toHaveLength(2);
+    expect(new Set(builds).size).toBe(2);
+  });
+
+  it("never illustrates a one-cue beat, holds to the cap, and pictures a data beat (round 6)", async () => {
     const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
     const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(all) });
     const pictured = r.beats.filter((b) => b.illustrate).map((b) => b.beatId);
-    expect(pictured).toEqual(["b2", "b3"]);
+    // Data beats first under the cap: b4 before b3.
+    expect(pictured).toEqual(["b2", "b4"]);
     const ruled = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
     const ruledPictures = ruled.beats.filter((b) => b.illustrate).map((b) => b.beatId);
     expect(ruledPictures).not.toContain("b1");
-    expect(ruledPictures).not.toContain("b4");
-    expect(ruledPictures.length).toBeGreaterThan(0);
-    expect(ruledPictures.length).toBeLessThan(deck.length - 2);
+    expect(ruledPictures).toContain("b4");
   });
 
   it("takes the model's names, kebab-cased, and replaces a repeat or a blank from the catalogue", async () => {
@@ -1189,7 +1302,7 @@ describe("the rubric probe", () => {
   const ok = {
     fill: 0.9,
     cells: 0.8,
-    maxType: 56,
+    maxType: 44,
     maxDeclared: 56,
     kinds,
     cueChange: [0.02, 0.03],
@@ -1202,10 +1315,15 @@ describe("the rubric probe", () => {
     expect(rubricProbe({ ...ok, mass: 0.08 })).toHaveLength(1);
     expect(rubricProbe({ ...ok, dimmed: 0.3 })).toEqual([]);
     expect(rubricProbe({ ...ok, dimmed: 0.7 })).toHaveLength(1);
-    // Quiet type (founder, 2026-10-10): one label reaches 44px, none passes 56.
+    // Quiet type (founder, 2026-10-10): a diagram's label reaches 44px; nothing declares
+    // more than 56, and (round 6) nothing RENDERS more, camera zoom included.
     expect(rubricProbe({ ...ok, maxType: 40 })).toHaveLength(1);
-    expect(rubricProbe({ ...ok, maxType: 70, maxDeclared: 44 })).toEqual([]);
     expect(rubricProbe({ ...ok, maxDeclared: 88 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, maxType: 56 })).toEqual([]);
+    expect(rubricProbe({ ...ok, maxType: 70, maxDeclared: 44 })).toHaveLength(1);
+    // Round 6: UI animated into place; a scene on a picture is not held to kinds of motion.
+    expect(rubricProbe({ ...ok, uiMotion: ["plate s3-chip (y)"] })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, kinds: [] }, [], true)).toEqual([]);
     expect(rubricProbe({ ...ok, kinds: ["draw", "focus", "stagger"] })).toHaveLength(1);
     expect(rubricProbe({ ...ok, kinds: ["flow"] })).toHaveLength(1);
     expect(rubricProbe({ ...ok, cueChange: [0.02, 0.001] })).toHaveLength(1);
@@ -1248,7 +1366,7 @@ describe("a scene that morphs", () => {
     const ctx = { source, format: deck16, theme: resolveTheme("ink"), sid: "s3", start: 0 };
     const morph = {
       ...SCENE,
-      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
+      script: `${SCENE.script}\ntl.fromTo("#SCENEID-dot", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
     };
     expect(usesMorph(morph.script)).toBe(true);
     expect(bespokeScene(beat, ctx, { fragment: morph, holds: [1] }).plugins).toEqual(["morphSVG"]);
