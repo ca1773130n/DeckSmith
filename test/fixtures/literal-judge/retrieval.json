@@ -1,0 +1,49 @@
+{
+  "kind": "retrieval",
+  "literal": {
+    "query": "real-time rendering with Gaussian splatting",
+    "items": [
+      {
+        "label": "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis",
+        "text": "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis"
+      },
+      {
+        "label": "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
+        "text": "3D Gaussian Splatting for Real-Time Radiance Field Rendering"
+      },
+      {
+        "label": "Attention Is All You Need",
+        "text": "Attention Is All You Need"
+      },
+      {
+        "label": "Mip-Splatting: Alias-free 3D Gaussian Splatting",
+        "text": "Mip-Splatting: Alias-free 3D Gaussian Splatting"
+      },
+      {
+        "label": "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding",
+        "text": "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding"
+      },
+      {
+        "label": "EWA Splatting",
+        "text": "EWA Splatting"
+      },
+      {
+        "label": "Denoising Diffusion Probabilistic Models",
+        "text": "Denoising Diffusion Probabilistic Models"
+      },
+      {
+        "label": "Plenoxels: Radiance Fields without Neural Networks",
+        "text": "Plenoxels: Radiance Fields without Neural Networks"
+      }
+    ],
+    "k": 3
+  },
+  "labels": {
+    "query": "query",
+    "score": "{method}",
+    "topk": "top {k}",
+    "example": "example"
+  },
+  "frames": [0, 1, 2],
+  "takeaway": "Every item is scored against the query (BM25); ranked by score, “3D Gaussian Splatting for Real-Time Radiance Field Rendering” comes first (6.567) and the top 3 are kept."
+}

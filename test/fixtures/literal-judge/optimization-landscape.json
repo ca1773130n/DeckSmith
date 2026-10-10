@@ -1,0 +1,36 @@
+{
+  "kind": "optimization",
+  "literal": {
+    "landscape": "rosenbrock",
+    "start": {
+      "x": -1.6,
+      "y": 2.4
+    },
+    "steps": 400,
+    "optimizers": [
+      {
+        "label": "SGD",
+        "rule": "sgd",
+        "lr": 0.0012
+      },
+      {
+        "label": "Momentum",
+        "rule": "momentum",
+        "lr": 0.0012
+      },
+      {
+        "label": "Adam",
+        "rule": "adam",
+        "lr": 0.05
+      }
+    ]
+  },
+  "labels": {
+    "xAxis": "step",
+    "yAxis": "loss",
+    "landscape": "Rosenbrock (illustrative)",
+    "example": "example"
+  },
+  "frames": [0, 2, 5],
+  "takeaway": "After 400 steps, Momentum reaches 0.00668 while SGD is at 4.12."
+}

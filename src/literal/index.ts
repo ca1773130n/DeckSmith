@@ -45,6 +45,7 @@ import {
   type Source,
   type Storyboard,
 } from "../types.js";
+import { isMechanism } from "./kinds/mechanisms.js";
 import { type Cue, type Layers, round3 } from "./kit.js";
 import { KINDS } from "./registry.js";
 
@@ -102,7 +103,8 @@ export function literalPlanOf(
     const lit = beat.literal;
     if (!lit) continue;
     let image: string | undefined;
-    if ("picture" in lit) {
+    // A picture kind always names one; attention and splatting may (patches, a plane of pixels).
+    if ("picture" in lit && lit.picture) {
       const owner = byId.get(lit.picture);
       const fig = owner && figures.get(figureOf(owner) ?? "");
       if (!fig)
@@ -115,7 +117,12 @@ export function literalPlanOf(
       kind: lit.kind,
       takeaway: beat.takeaway?.trim() || beat.intent,
       labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
-      ...(image ? { image } : { data: lit }),
+      ...(image ? { image } : {}),
+      // The literal itself for every kind that reads it: the data kinds and the mechanism
+      // kinds (src/literal/kinds/mechanisms.ts), whose `layers` read their fields with or
+      // without a picture. Decided by the kind, never by which fields a schema happens to
+      // default; the other picture kinds' plans are as they were.
+      ...(image && KINDS[lit.kind].picture && !isMechanism(lit.kind) ? {} : { data: lit }),
     };
   }
   return { beats };
@@ -278,6 +285,7 @@ export async function literalPass(
       dir,
       region,
       spec,
+      theme,
       earlier,
     });
     earlier.set(beat.id, { kind: spec.kind, layers, labels: spec.labels });
