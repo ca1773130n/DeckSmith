@@ -1,0 +1,19 @@
+{
+  "kind": "splatting",
+  "run": "splatting",
+  "seed": null,
+  "input": {
+    "points": {
+      "scene": "sphere-box-floor"
+    },
+    "opacity": 0.85
+  },
+  "labels": {
+    "points": "{n} points",
+    "splats": "{n} anisotropic Gaussians (2σ)",
+    "render": "rendered, camera {pose} of {poses}",
+    "path": "camera path, from above"
+  },
+  "frames": [0, 1, 5],
+  "takeaway": "Each of the 672 points becomes an oriented Gaussian; projected, sorted by depth and alpha-blended, they render the scene from any camera on the path."
+}

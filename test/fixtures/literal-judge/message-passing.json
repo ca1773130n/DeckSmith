@@ -1,0 +1,83 @@
+{
+  "kind": "message-passing",
+  "run": "messagePassing",
+  "seed": 3,
+  "input": {
+    "nodes": [
+      {
+        "id": "A",
+        "features": [1, 0]
+      },
+      {
+        "id": "B",
+        "features": [0, 0]
+      },
+      {
+        "id": "C",
+        "features": [0, 0]
+      },
+      {
+        "id": "D",
+        "features": [0, 0]
+      },
+      {
+        "id": "E",
+        "features": [0, 0]
+      },
+      {
+        "id": "F",
+        "features": [0, 0]
+      },
+      {
+        "id": "G",
+        "features": [0, 0]
+      },
+      {
+        "id": "H",
+        "features": [0, 0]
+      },
+      {
+        "id": "I",
+        "features": [0, 0]
+      },
+      {
+        "id": "J",
+        "features": [0, 0]
+      },
+      {
+        "id": "K",
+        "features": [0, 0]
+      },
+      {
+        "id": "L",
+        "features": [0, 1]
+      }
+    ],
+    "edges": [
+      ["A", "B"],
+      ["A", "C"],
+      ["B", "C"],
+      ["B", "D"],
+      ["C", "E"],
+      ["D", "F"],
+      ["E", "F"],
+      ["F", "G"],
+      ["G", "H"],
+      ["G", "I"],
+      ["H", "J"],
+      ["I", "J"],
+      ["J", "K"],
+      ["K", "L"],
+      ["I", "L"]
+    ],
+    "layers": 4,
+    "aggregate": "mean",
+    "focus": "F"
+  },
+  "labels": {
+    "layer": "layer {l} of {L}",
+    "field": "focus hears {count} nodes"
+  },
+  "frames": [0, 2, 4],
+  "takeaway": "Each layer, every node aggregates its neighbours' features (mean); after 4 layers F's colour carries 12 nodes, everything within 4 hops."
+}
