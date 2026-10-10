@@ -838,12 +838,32 @@ function slotDocs(kind: LiteralKind): string {
 }
 
 /**
+ * A kind's truth rules (src/types.ts `LiteralKindDoc`), under its slots:
+ * `literalFindings` checks the same entries, so the planner is told exactly
+ * what will be refused. Empty for a kind with none.
+ */
+export function ruleDocs(d: Pick<LiteralKindDoc, "requires" | "mustNotClaim">): string {
+  const pad = " ".repeat(21);
+  const unless = (fields: readonly string[] | undefined) =>
+    fields?.length ? ` (unless the plan gives ${fields.map((f) => `\`${f}\``).join(" or ")})` : "";
+  return [
+    ...(d.requires ?? []).map((r) => `${pad}! only when the source gives ${r.what}`),
+    ...(d.mustNotClaim ?? []).map(
+      (b) =>
+        `${pad}! takeaway and labels never claim ${b.what}${unless(b.unlessGiven)}: ${b.because}`,
+    ),
+  ]
+    .map((l) => `\n${l}`)
+    .join("");
+}
+
+/**
  * Shown when the build draws scenes (`bespokeFor`). The planner prefers a
  * literal kind and falls back to a bespoke scene only when none fits.
  */
 function literalScenes(): string {
   const kinds = (Object.entries(LITERAL_KIND_DOCS) as Array<[LiteralKind, LiteralKindDoc]>)
-    .map(([k, d]) => `  ${k.padEnd(18)} ${d.doc}\n${slotDocs(k)}`)
+    .map(([k, d]) => `  ${k.padEnd(18)} ${d.doc}\n${slotDocs(k)}${ruleDocs(d)}`)
     .join("\n");
   return `
 

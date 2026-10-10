@@ -812,7 +812,98 @@ export interface LiteralKindDoc {
    * paper.
    */
   slots: Readonly<Record<string, LiteralSlot>>;
+  /**
+   * What the source must give before the planner may use the kind at all, each
+   * shown in the prompt and checked against the source's text. A kind that
+   * computes from material the source does not have shows nothing true.
+   */
+  requires?: readonly LiteralRequirement[];
+  /**
+   * What the scene's takeaway and labels must not claim, each shown in the
+   * prompt and checked against them: what the scene computes cannot back it.
+   */
+  mustNotClaim?: readonly LiteralClaimBan[];
 }
+
+/**
+ * One thing the source must give. LEXICAL: it is met when any of `anyOf` is
+ * found in the source's text (headings, sections, tables, captions), so it
+ * tells a source that never mentions the material from one that does; it
+ * cannot tell whether what is mentioned is concrete enough to show.
+ */
+export interface LiteralRequirement {
+  /** What the source must give, in the planner's words. */
+  what: string;
+  anyOf: readonly RegExp[];
+}
+
+/** One claim a kind's takeaway and labels must not make. */
+export interface LiteralClaimBan {
+  /** The claim, in the planner's words. */
+  what: string;
+  /** Why the scene cannot back it: what it computes instead. */
+  because: string;
+  /** Words that make the claim, in the deck's languages (en, ko, ja, zh). */
+  pattern: RegExp;
+  /**
+   * Fields of the beat's `literal` that lift the ban when present and
+   * non-empty: the plan carries the source's own material, so the scene
+   * computes the real thing.
+   */
+  unlessGiven?: readonly string[];
+}
+
+/**
+ * Truth rules for `attention` (src/literal/kinds/attention.ts, not yet
+ * registered), spread into its `LITERAL_KIND_DOCS` entry when it is. Without
+ * the source's Q/K or embeddings each head's Q = K is a surface feature of the
+ * input (character trigrams, pixels, position), so it shows how attention
+ * weighs, never what a trained model attends to.
+ */
+export const ATTENTION_RULES = {
+  requires: [
+    {
+      what: "real queries and keys, embeddings, or a concrete token sequence or image patches to run attention over",
+      anyOf: [
+        /\b(?:quer(?:y|ies)|keys?|embeddings?|tokens?|patch(?:es)?)\b/i,
+        /\bQ\s*K\b|QK\^?[⊤ᵀT]/,
+        /쿼리|임베딩|토큰|패치/,
+        /クエリ|埋め込み|トークン|パッチ/,
+        /查询|嵌入|词元|令牌|图块/,
+      ],
+    },
+  ],
+  mustNotClaim: [
+    {
+      what: "what a trained model attends to or has learned",
+      because:
+        "without the source's own Q/K or embeddings, each head compares surface features of the input, not a trained model's projections",
+      pattern:
+        /\b(?:learn(?:s|ed|t|ing)?|trained|training|models?|model's|networks?|network's|semantic(?:s|ally)?)\b|학습|모델|네트워크|의미|学習|モデル|ネットワーク|意味|学习|训练|模型|网络|语义/i,
+      unlessGiven: ["heads", "embeddings"],
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
+
+/**
+ * Truth rules for `diffusion` (src/literal/kinds/diffusion.ts, not yet
+ * registered), spread into its `LITERAL_KIND_DOCS` entry when it is. The
+ * reverse path is an ORACLE that knows x₀, so the scene is exact about the
+ * noise schedule and the process and says nothing about a trained denoiser.
+ * "Denoising" alone names the process and is allowed; "model" is not banned,
+ * since "a diffusion model adds noise" describes the process too.
+ */
+export const DIFFUSION_RULES = {
+  mustNotClaim: [
+    {
+      what: "what a trained denoiser does: predicting the noise, learning, generating",
+      because:
+        "the reverse steps use an oracle that knows the clean picture x₀; they show the noise schedule and the process, not a network's behaviour",
+      pattern:
+        /\b(?:denoisers?|denoising (?:networks?|models?)|networks?|U-?Net|learn(?:s|ed|t|ing)?|trained|predict(?:s|ed|ing|ion)?|generat(?:es?|ed|ing|ion))\b|ε_?θ|epsilon_theta|디노이저|네트워크|학습|예측|생성|ネットワーク|学習|予測|生成|网络|学习|训练|预测/i,
+    },
+  ],
+} as const satisfies Pick<LiteralKindDoc, "mustNotClaim">;
 
 /**
  * THE PLANNER'S LIST OF KINDS: one entry per name in `LITERAL_KIND_NAMES`, a

@@ -24,10 +24,11 @@
  *
  * Also here, because they share the repair round: the literal-scene checks a
  * schema cannot express (a picture that names a beat with no picture, a table
- * cell holding a number the source never states).
+ * cell holding a number the source never states, a claim a kind's truth rules
+ * forbid).
  */
-import type { Beat, BeatPart, Literal, Source, Storyboard } from "../types.js";
-import { beatPartSchema, literalSlotProblems } from "../types.js";
+import type { Beat, BeatPart, Literal, LiteralKindDoc, Source, Storyboard } from "../types.js";
+import { beatPartSchema, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
 
 /** The order a deck covers its parts in. */
 export const PART_ORDER: readonly BeatPart[] = beatPartSchema.options;
@@ -208,15 +209,57 @@ const NUMBER = /(?<![\p{L}\d.,/])\d+(?:[.,]\d+)*(?:\/\d+)?/gu;
  * LaTeX commands are spaces first, so `1\times10^{-3}` states 1 and 10.
  */
 function sourceNumbers(source: Source): ReadonlySet<string> {
-  const text = [
+  const text = sourceText(source).replace(/\\[A-Za-z]+/g, " ");
+  return new Set(text.match(NUMBER) ?? []);
+}
+
+/** Everything the source states, as one text: title, sections, tables, figure captions. */
+function sourceText(source: Source): string {
+  return [
     source.title,
     ...source.sections.flatMap((s) => [s.heading, s.text]),
     ...source.tables.flatMap((t) => [t.caption ?? "", ...t.columns, ...t.rows.flat()]),
     ...source.figures.map((f) => f.caption),
-  ]
-    .join("\n")
-    .replace(/\\[A-Za-z]+/g, " ");
-  return new Set(text.match(NUMBER) ?? []);
+  ].join("\n");
+}
+
+/**
+ * What breaks a kind's truth rules (src/types.ts `LiteralKindDoc`): a
+ * requirement the source's text never meets, and a banned claim in `said`
+ * (the beat's takeaway and the scene's labels) that no `unlessGiven` field of
+ * `lit` lifts. Generic over the rules, so a kind gets its checks by carrying
+ * them in its entry. Empty when it keeps them.
+ */
+export function literalTruthProblems(
+  rules: Pick<LiteralKindDoc, "requires" | "mustNotClaim">,
+  lit: object,
+  said: readonly string[],
+  source: string,
+): string[] {
+  const out: string[] = [];
+  for (const r of rules.requires ?? [])
+    if (!r.anyOf.some((re) => re.test(source)))
+      out.push(`needs the source to give ${r.what}, and the source never does`);
+  const given = (field: string) => {
+    const v = (lit as Record<string, unknown>)[field];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null;
+  };
+  for (const b of rules.mustNotClaim ?? []) {
+    if (b.unlessGiven?.some(given)) continue;
+    const hits = [
+      ...new Set(
+        said.flatMap(
+          (t) =>
+            t.match(new RegExp(b.pattern.source, `${b.pattern.flags.replace("g", "")}g`)) ?? [],
+        ),
+      ),
+    ];
+    if (hits.length)
+      out.push(
+        `claims ${b.what} (${hits.map((h) => `"${h}"`).join(", ")}) in its takeaway or labels, which it cannot show: ${b.because}`,
+      );
+  }
+  return out;
 }
 
 /** The numbers in `texts` the source never states, once each. `{name}` (a computed value) is not a number. */
@@ -264,6 +307,7 @@ export function literalFindings(
       );
   }
   let stated: ReadonlySet<string> | undefined;
+  let text: string | undefined;
   beats.forEach((beat, i) => {
     const lit: Literal | undefined = beat.literal;
     if (!lit) return;
@@ -276,6 +320,13 @@ export function literalFindings(
       );
     for (const p of literalSlotProblems(lit.kind, lit.labels))
       out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
+    const rules = LITERAL_KIND_DOCS[lit.kind];
+    if (rules.requires?.length || rules.mustNotClaim?.length) {
+      text ??= sourceText(source);
+      const said = [beat.takeaway ?? "", ...lit.labels.map((l) => l.text)];
+      for (const p of literalTruthProblems(rules, lit, said, text))
+        out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
+    }
     if (beat.archetype === "title") {
       out.push(
         `${beat.id} is the title and carries \`literal\`. A title names the deck; it draws no mechanism.`,

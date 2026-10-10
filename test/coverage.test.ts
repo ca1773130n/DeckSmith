@@ -13,13 +13,17 @@ import { codexPlanner, schemaFor } from "../src/plan/codex.js";
 import {
   coverageFindings,
   literalFindings,
+  literalTruthProblems,
   partOfHeading,
   sourceParts,
 } from "../src/plan/coverage.js";
-import { sourceBlocks } from "../src/plan/prompt.js";
+import { ruleDocs, sourceBlocks } from "../src/plan/prompt.js";
 import {
+  ATTENTION_RULES,
+  DIFFUSION_RULES,
   LITERAL_KIND_DOCS,
   LITERAL_KIND_NAMES,
+  type LiteralKindDoc,
   prefsSchema,
   sourceSchema,
   storyboardSchema,
@@ -380,6 +384,91 @@ describe("literalFindings", () => {
     expect(literalFindings(plan(beats), analysis, { takeaways: true })).toEqual([
       expect.stringMatching(/Beats b02-prior carry no `takeaway`/),
     ]);
+  });
+});
+
+describe("literal truth rules (src/types.ts `LiteralKindDoc`)", () => {
+  /** A source that gives attention something real to run over. */
+  const tokens = {
+    ...analysis,
+    sections: [
+      { id: "s", depth: 1, heading: "Method", text: "The input tokens attend to each other." },
+    ],
+  };
+  const text = (s: typeof analysis) => s.sections.map((x) => `${x.heading}\n${x.text}`).join("\n");
+
+  it("attention needs Q/K, embeddings, tokens or patches in the source", () => {
+    expect(literalTruthProblems(ATTENTION_RULES, {}, [], text(analysis))).toEqual([
+      expect.stringMatching(/^needs the source to give real queries and keys/),
+    ]);
+    expect(literalTruthProblems(ATTENTION_RULES, {}, [], text(tokens))).toEqual([]);
+    for (const said of ["임베딩 벡터", "QKᵀ / √d", "画像パッチ", "query and key matrices"])
+      expect(literalTruthProblems(ATTENTION_RULES, {}, [], said)).toEqual([]);
+  });
+
+  it("attention on derived heads never claims a trained model's attention, unless the plan gives the real Q/K", () => {
+    const src = text(tokens);
+    // The other branch's own takeaway template, filled: it describes the weighting, and passes.
+    const own =
+      "Each query's weights are a softmax over its scores with every key, so they sum to 1; the query “cat” weights “sat” most (0.41).";
+    expect(literalTruthProblems(ATTENTION_RULES, {}, [own], src)).toEqual([]);
+    for (const said of [
+      "The trained model attends to the subject",
+      "the network has learned which words matter",
+      "모델이 주어에 주목한다",
+    ]) {
+      const found = literalTruthProblems(ATTENTION_RULES, {}, [said], src);
+      expect(found).toEqual([expect.stringMatching(/^claims what a trained model attends to/)]);
+    }
+    const claim = ["The trained model attends to the subject"];
+    expect(literalTruthProblems(ATTENTION_RULES, { embeddings: [[1, 0]] }, claim, src)).toEqual([]);
+    expect(literalTruthProblems(ATTENTION_RULES, { heads: [] }, claim, src)).toHaveLength(1);
+  });
+
+  it("diffusion describes the schedule and the process, never a trained denoiser", () => {
+    const own =
+      "Noise is added on a fixed schedule until, at step 1000, nothing of the picture is left; the reverse steps remove it on the same schedule and the picture returns.";
+    expect(literalTruthProblems(DIFFUSION_RULES, {}, [own, "denoising, step by step"], "")).toEqual(
+      [],
+    );
+    for (const said of [
+      "The denoiser predicts the noise at each step",
+      "a U-Net learns to reverse the process",
+      "네트워크가 노이즈를 예측한다",
+      "ε_θ removes the noise",
+    ])
+      expect(literalTruthProblems(DIFFUSION_RULES, {}, [said], "")).toEqual([
+        expect.stringMatching(/^claims what a trained denoiser does/),
+      ]);
+  });
+
+  it("is checked from the kind's entry in the repair round, and shown in the prompt", () => {
+    // Give a registered kind attention's rules for the length of this test: the
+    // wiring is generic, so this is exactly what registering attention does.
+    const docs = LITERAL_KIND_DOCS as Record<string, LiteralKindDoc>;
+    const haze = docs.haze as LiteralKindDoc;
+    docs.haze = { ...haze, ...ATTENTION_RULES };
+    try {
+      const beats = covered();
+      beats[1] = { ...(beats[1] as object), takeaway: "the model learns where haze is" } as never;
+      const found = literalFindings(plan(beats), analysis);
+      expect(found).toContainEqual(
+        expect.stringMatching(/^b01-problem's haze scene needs the source to give real queries/),
+      );
+      expect(found).toContainEqual(
+        expect.stringMatching(/^b01-problem's haze scene claims .*"model", "learns"/),
+      );
+      const block = sourceBlocks(analysis, prefsSchema.parse({ design: "v2" }));
+      expect(block).toContain("! only when the source gives real queries and keys");
+      expect(block).toContain(
+        "! takeaway and labels never claim what a trained model attends to or has learned (unless the plan gives `heads` or `embeddings`)",
+      );
+    } finally {
+      docs.haze = haze;
+    }
+    // No registered kind carries rules yet, so nothing changes for today's plans.
+    expect(literalFindings(plan(covered()), analysis)).toEqual([]);
+    expect(ruleDocs(LITERAL_KIND_DOCS.haze)).toBe("");
   });
 });
 
