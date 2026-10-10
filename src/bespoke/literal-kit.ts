@@ -12,6 +12,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Theme } from "../emit/kit.js";
 import { TYPE_SCALE } from "../emit/type.js";
+import { type LITERAL_KIND_NAMES, literalSlotsOf } from "../types.js";
+
+type LiteralKindName = (typeof LITERAL_KIND_NAMES)[number];
 
 const run = promisify(execFile);
 
@@ -295,8 +298,11 @@ export class Tl {
   fromTo(id: string, from: Record<string, unknown>, to: Record<string, unknown>, at: number): void {
     const first = !this.seen.has(id);
     this.seen.add(id);
+    // Invariant 10 holds for a duration as for a position: a computed span
+    // (10.324000000000002) would move a byte with float drift.
+    const timed = typeof to.duration === "number" ? { ...to, duration: r3(to.duration) } : to;
     this.lines.push(
-      `tl.fromTo("#SCENEID-${id}", ${JSON.stringify(from)}, ${JSON.stringify(first ? to : { ...to, immediateRender: false })}, ${r3(at)});`,
+      `tl.fromTo("#SCENEID-${id}", ${JSON.stringify(from)}, ${JSON.stringify(first ? timed : { ...timed, immediateRender: false })}, ${r3(at)});`,
     );
   }
   /** Fade in (opacity 0→1) at `at`. */
@@ -324,6 +330,68 @@ export class Tl {
 export interface Cue {
   t0: number;
   t1: number;
+}
+
+/* --------------------------------------------------------------------- slots */
+
+/**
+ * A scene's words by slot (src/types.ts `LITERAL_SLOTS`). Throws on a slot the
+ * kind does not declare — a fragment reading an undocumented slot is a bug,
+ * since the planner was never told to fill it — and on a required one the
+ * plan left out: no kind has a default, in any language or for any paper.
+ * `{name}` in the text is replaced by the computed `vars[name]`.
+ */
+export function slotText(
+  kind: LiteralKindName,
+  labels: Readonly<Record<string, string>>,
+  slot: string,
+  vars: Readonly<Record<string, string | number>> = {},
+): string {
+  const decl = literalSlotsOf(kind)[slot];
+  if (!decl)
+    throw new Error(`literal: ${kind} reads slot "${slot}", which LITERAL_SLOTS does not declare`);
+  if (decl.number)
+    throw new Error(`literal: ${kind} slot "${slot}" is a number; read it with slotNumber`);
+  const text = labels[slot];
+  if (text === undefined || !text.trim()) {
+    if (decl.optional) return "";
+    throw new Error(`literal: ${kind} needs the label slot "${slot}" (${decl.what})`);
+  }
+  return text.replace(/\{(\w+)\}/g, (m, name: string) => {
+    if (!decl.vars?.includes(name) || vars[name] === undefined)
+      throw new Error(
+        `literal: ${kind} slot "${slot}" names ${m}, which the scene does not compute`,
+      );
+    return String(vars[name]);
+  });
+}
+
+/** A number slot's value: a fact of the paper the scene computes with. Undefined only when optional and absent. */
+export function slotNumber(
+  kind: LiteralKindName,
+  labels: Readonly<Record<string, string>>,
+  slot: string,
+): number | undefined {
+  const decl = literalSlotsOf(kind)[slot];
+  if (!decl?.number) throw new Error(`literal: ${kind} has no number slot "${slot}"`);
+  const text = labels[slot];
+  if (text === undefined || !text.trim()) {
+    if (decl.optional) return undefined;
+    throw new Error(`literal: ${kind} needs the number slot "${slot}" (${decl.what})`);
+  }
+  const v = Number(text.trim());
+  if (!Number.isFinite(v))
+    throw new Error(`literal: ${kind} slot "${slot}" must be a number, got "${text}"`);
+  return v;
+}
+
+/** `slotNumber` for a required slot. */
+export function needNumber(
+  kind: LiteralKindName,
+  labels: Readonly<Record<string, string>>,
+  slot: string,
+): number {
+  return slotNumber(kind, labels, slot) as number;
 }
 
 export const LABEL = TYPE_SCALE.body; // 44

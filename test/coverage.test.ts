@@ -18,6 +18,11 @@ import {
 } from "../src/plan/coverage.js";
 import { LITERAL_KIND_DOCS, sourceBlocks } from "../src/plan/prompt.js";
 import { LITERAL_KIND_NAMES, prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
+import { slotsFor } from "./literal-fixtures.js";
+
+/** A kind's every slot, as a plan's `labels` array. */
+const labelsFor = (kind: Parameters<typeof slotsFor>[0], over: Record<string, string> = {}) =>
+  Object.entries(slotsFor(kind, over)).map(([slot, text]) => ({ slot, text }));
 
 const analysis = sourceSchema.parse({
   id: "emsnn",
@@ -104,14 +109,14 @@ const covered = () => [
       placement: "bottom-left",
       figureId: "gen-b02",
     },
-    literal: { kind: "haze", picture: "b01-problem" },
+    literal: { kind: "haze", picture: "b01-problem", labels: labelsFor("haze") },
   },
   beatOf("b02-prior", "prior-work", ["sec3"]),
   beatOf("b03-method", "method", ["sec4"], {
     literal: {
       kind: "spikes",
       picture: "b01-problem",
-      labels: [{ slot: "threshold", text: "임계값" }],
+      labels: labelsFor("spikes", { threshold: "임계값 (예시)" }),
     },
   }),
   beatOf("b04-setup", "experiments", ["sec6"]),
@@ -174,6 +179,18 @@ describe("detecting a source's parts from its headings", () => {
     expect(sourceParts(plain)).toEqual([]);
     expect(coverageFindings(plan([title]), plain)).toEqual([]);
   });
+
+  it("is off for an article whose headings name three parts but no paper's prior work or experiments", () => {
+    const article = sourceSchema.parse({
+      ...analysis,
+      sections: [
+        { id: "a", depth: 2, heading: "Overview", text: "x" },
+        { id: "b", depth: 2, heading: "How it works", text: "y" },
+        { id: "c", depth: 2, heading: "Summary", text: "z" },
+      ],
+    });
+    expect(sourceParts(article)).toEqual([]);
+  });
 });
 
 describe("coverageFindings", () => {
@@ -231,10 +248,10 @@ describe("literalFindings", () => {
     const beats = covered();
     beats[1] = {
       ...(beats[1] as object),
-      literal: { kind: "haze", picture: "b03-method" },
+      literal: { kind: "haze", picture: "b03-method", labels: labelsFor("haze") },
     } as never;
     beats[3] = beatOf("b03-method", "method", ["sec4"], {
-      literal: { kind: "sobel", picture: "b02-prior" },
+      literal: { kind: "sobel", picture: "b02-prior", labels: labelsFor("sobel") },
     });
     const found = literalFindings(plan(beats), analysis);
     expect(found).toContainEqual(expect.stringMatching(/b01-problem's haze .*a later beat/));
@@ -250,7 +267,7 @@ describe("literalFindings", () => {
     });
     const found = literalFindings(plan(beats), analysis);
     expect(found).toContainEqual(
-      expect.stringMatching(/shows "31.20", which the source never states/),
+      expect.stringMatching(/table scene says "31.20", which the source never states/),
     );
     expect(found).toContainEqual(expect.stringMatching(/highlights row 2/));
   });
@@ -296,9 +313,48 @@ describe("literalFindings", () => {
     });
     const found = literalFindings(plan(beats), analysis);
     expect(found).toContainEqual(
-      expect.stringMatching(/labels say "41.7", which the source never states/),
+      expect.stringMatching(/says "41.7", which the source never states/),
     );
-    expect(found.join("\n")).not.toMatch(/labels say "30.56"/);
+    expect(found.join("\n")).not.toMatch(/"30.56"/);
+  });
+
+  it("matches whole numbers, not substrings, in every word a scene shows", () => {
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "scale",
+        // "0.91" and "30.5" are inside "0.9106" and "30.56"; "1/8" is no "1" and "8".
+        groups: [
+          { label: "1/8 크기", unit: "dB", items: [{ label: "EM-SNN 0.91", value: "30.56" }] },
+        ],
+        labels: [{ slot: "caption", text: "30.5 · LHID에서" }],
+      },
+    });
+    const found = literalFindings(plan(beats), analysis).join("\n");
+    for (const n of ["0.91", "30.5", "1/8"]) expect(found).toContain(`"${n}"`);
+    // Digits in a name are no number: neither are they on the source's side.
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: { kind: "table", columns: ["RICE1"], rows: [["30.56"]], labels: [] },
+    });
+    expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/says/);
+  });
+
+  it("refuses a slot the kind does not have, a required one missing, and a number slot that is not one", () => {
+    const beats = covered();
+    beats[3] = beatOf("b03-method", "method", ["sec4"], {
+      literal: {
+        kind: "channel-threshold",
+        picture: "b01-problem",
+        labels: [
+          ...labelsFor("channel-threshold", { alpha: "알파" }).filter((l) => l.slot !== "fixed"),
+          { slot: "gain", text: "x" },
+        ],
+      },
+    });
+    const found = literalFindings(plan(beats), analysis).join("\n");
+    expect(found).toMatch(/channel-threshold scene has no slot "gain"/);
+    expect(found).toMatch(/needs slot "fixed"/);
+    expect(found).toMatch(/slot "alpha" is a number.*got "알파"/);
   });
 
   it("refuses a recap of a beat that is not an earlier literal scene", () => {
@@ -343,6 +399,10 @@ describe("what the planner is shown", () => {
     expect(at("  intro")).toBeLessThan(at("  prior-work"));
     expect(Object.keys(LITERAL_KIND_DOCS).sort()).toEqual([...LITERAL_KIND_NAMES].sort());
     for (const k of LITERAL_KIND_NAMES) expect(block).toContain(`  ${k} `);
+    // The slots are listed from the table the build reads, numbers marked as the source's.
+    expect(block).toContain("· alpha (required, a number the source states)");
+    expect(block).toContain("· channelNames (required)");
+    expect(block).not.toMatch(/Slots: .*crop, batch/);
     expect(sourceBlocks(analysis, classic)).not.toContain("LITERAL SCENES");
   });
 });

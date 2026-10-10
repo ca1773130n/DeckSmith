@@ -19,10 +19,13 @@ import {
   type Rgb,
   STEPS,
   sobel,
+  spikeOutput,
+  stopCues,
   THETA,
 } from "../src/bespoke/literal.js";
 import type { Theme } from "../src/emit/kit.js";
 import { sourceSchema, storyboardSchema } from "../src/types.js";
+import { slotsFor } from "./literal-fixtures.js";
 
 const theme: Theme = {
   bg: "#f6f3ec",
@@ -75,7 +78,11 @@ const cues: Cue[] = [
   { t0: 15.9, t1: 22.1 },
 ];
 const region = { width: 1700, height: 746 };
-const spec = (kind: "haze" | "spikes" | "sobel") => ({ kind, takeaway: "t", labels: {} });
+const spec = (kind: "haze" | "spikes" | "sobel") => ({
+  kind,
+  takeaway: "t",
+  labels: slotsFor(kind),
+});
 
 function layersFor(kind: "haze" | "spikes" | "sobel"): Layers {
   if (kind === "haze")
@@ -99,6 +106,10 @@ function layersFor(kind: "haze" | "spikes" | "sobel"): Layers {
         rows: GRID.rows,
         x,
         counts: x.map((v) => run(v * 1.4).spikes.length),
+        out: spikeOutput(
+          x.map((v) => run(v * 1.4).spikes.length),
+          1.4,
+        ),
         steps: STEPS,
         theta: THETA,
         witnesses: [9, 5, 1].map((cell) => ({
@@ -114,6 +125,49 @@ function layersFor(kind: "haze" | "spikes" | "sobel"): Layers {
     data: {},
   };
 }
+
+describe("what reaches the next layer, and when", () => {
+  it("a cell passes on no more than it was given: the output map is on the input's scale", () => {
+    const gain = 1.4;
+    const x = Array.from({ length: 50 }, (_, i) => i / 49);
+    const out = spikeOutput(
+      x.map((v) => lif(v * gain, STEPS, LEAK, THETA).spikes.length),
+      gain,
+    );
+    for (const [i, v] of x.entries()) expect(out[i] as number).toBeLessThanOrEqual(v + 1e-9);
+    // The weak cells pass nothing; the strong ones keep most of what they were given.
+    expect(out[5]).toBe(0);
+    expect(out[49] as number).toBeGreaterThan(0.5);
+  });
+
+  it("a scene's steps follow its spoken sentences, not the subtitle lines a long one is split into", () => {
+    const timing = {
+      scenes: [{ id: "s17", start: 297.876, duration: 28.228, holds: [], open: 0.9 }],
+      segments: [
+        {
+          id: "s17.0",
+          scene: "s17",
+          start: 298.776,
+          cues: [
+            { start: 0.05, end: 5.5636, text: "TM-LIF와 SSM을 각각 제거하고," },
+            { start: 5.5636, end: 10.787, text: "구분할 수 있다." },
+          ],
+        },
+        {
+          id: "s17.1",
+          scene: "s17",
+          start: 309.576,
+          cues: [{ start: 0.05, end: 8.35, text: "T." }],
+        },
+        { id: "s16.3", scene: "s16", start: 290, cues: [{ start: 0, end: 2, text: "x" }] },
+      ],
+    };
+    expect(stopCues(timing as never, "s17")).toEqual([
+      { t0: 0.95, t1: 11.687 },
+      { t0: 11.75, t1: 20.05 },
+    ]);
+  });
+});
 
 describe("literal fragments obey the deck's invariants", () => {
   for (const kind of ["haze", "spikes", "sobel"] as const) {
@@ -141,11 +195,32 @@ describe("literal fragments obey the deck's invariants", () => {
         expect(m[1]).toMatch(/^assets\/literal\//);
     });
 
-    it(`${kind}: times rounded to 3 decimals (invariant 10)`, () => {
+    it(`${kind}: times and durations rounded to 3 decimals (invariant 10)`, () => {
       for (const m of f.script.matchAll(/, (\d+\.\d+)\);$/gm))
         expect((m[1] as string).split(".")[1]?.length).toBeLessThanOrEqual(3);
+      for (const m of f.script.matchAll(/"duration":(\d+\.\d+)/g))
+        expect((m[1] as string).split(".")[1]?.length).toBeLessThanOrEqual(3);
+    });
+
+    it(`${kind}: every word is the plan's; a required slot left out is refused`, () => {
+      const labels = slotsFor(kind);
+      const first = Object.keys(labels).find((k) => k !== "eyebrow") as string;
+      delete labels[first];
+      expect(() =>
+        literalFragment(kind, layersFor(kind), region, cues, { ...spec(kind), labels }, theme),
+      ).toThrow(new RegExp(`needs the label slot "${first}"`));
     });
   }
+
+  it("the Sobel kernel slides inside the picture, never past its left edge", () => {
+    const f = literalFragment("sobel", layersFor("sobel"), region, cues, spec("sobel"), theme);
+    const left = Number(
+      /id="SCENEID-kernel" style="position:absolute;left:(-?\d+)px/.exec(f.markup)?.[1],
+    );
+    expect(left).toBeGreaterThanOrEqual(0);
+    // The darkening is the swept part's own background, not a sheet over the unswept picture.
+    expect(f.markup).not.toContain("SCENEID-dim");
+  });
 
   it("a plan names a kind and a takeaway per beat", () => {
     expect(() =>

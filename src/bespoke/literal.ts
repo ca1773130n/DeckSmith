@@ -43,17 +43,17 @@ import {
 } from "../emit/composition.js";
 import type { EmitContext, Theme } from "../emit/kit.js";
 import { deckLook } from "../emit/theme.js";
-import { planTiming } from "../render/timing.js";
+import { planTiming, type Timing } from "../render/timing.js";
 import {
   type Beat,
   type Format,
   LITERAL_KIND_NAMES,
+  literalSlotProblems,
   type Source,
   type Storyboard,
 } from "../types.js";
-import { sceneWindows } from "../verify/scenes.js";
 import type { Fragment } from "./contract.js";
-import { MORE_KINDS } from "./literal-kinds.js";
+import { MORE_KINDS, widthOf } from "./literal-kinds.js";
 import {
   AIRLIGHT,
   baseCss,
@@ -79,6 +79,7 @@ import {
   SMALL,
   STEPS,
   scale,
+  slotText,
   sobel,
   T_HAZE,
   THETA,
@@ -253,16 +254,17 @@ async function spikeLayers(image: string, dir: string, beatId: string, box: Box)
   const gain = (THETA * (1 - LEAK)) / Math.max(1e-6, quantile(x, 0.4));
   const runs = x.map((xi) => lif(xi * gain * 0.999, STEPS, LEAK, THETA));
   const counts = runs.map((r) => r.spikes.length);
-  // The recap's thumbnail: the map the next layer receives, one cell per neuron, by spike count.
-  const out = new Float32Array(w * h);
+  const out = spikeOutput(counts, gain);
+  // The recap's thumbnail: the map the next layer receives, one cell per neuron.
+  const outMap = new Float32Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x2 = 0; x2 < w; x2++) {
       const c = Math.min(cols - 1, Math.floor((x2 * cols) / w));
       const r = Math.min(rows - 1, Math.floor((y * rows) / h));
-      out[y * w + x2] = (counts[r * cols + c] as number) / STEPS;
+      outMap[y * w + x2] = out[r * cols + c] as number;
     }
   const thumb = `${beatId}-spikes-out.png`;
-  await writeRaster(join(dir, thumb), w, h, mapRgba(out));
+  await writeRaster(join(dir, thumb), w, h, mapRgba(outMap));
   files.thumb = thumb;
   // Three witnesses: a strong, a middling and a weak cell, each its own trace.
   // Interior cells only: a witness on the map's border is half hidden by the panel's edge.
@@ -294,12 +296,24 @@ async function spikeLayers(image: string, dir: string, beatId: string, box: Box)
       rows,
       x: x.map(round3),
       counts,
+      out,
       witnesses,
       steps: STEPS,
       leak: LEAK,
       theta: THETA,
     },
   };
+}
+
+/**
+ * What each cell passes on, ON THE INPUT'S SCALE: its spikes carried n·θ over
+ * the run, and it was given x·gain per step, so n·θ / (STEPS·gain) is directly
+ * comparable with x — never larger, since the leak and the residual keep the
+ * rest. Drawn at that brightness, the output map can only lose what the input
+ * had, which is the point of the scene.
+ */
+export function spikeOutput(counts: readonly number[], gain: number): number[] {
+  return counts.map((n) => round3(Math.min(1, (n * THETA) / (STEPS * gain))));
 }
 
 /** The Sobel scene: the hazy picture, its Sobel structure map, a smoothed feature and its reweighting. */
@@ -403,7 +417,7 @@ function hazeFragment(
   const ew = box.edge.w;
   const eh = box.edge.h;
   const d = L.data as { row: number; profile: number[]; air: number; t: number };
-  const lab = (k: string, dflt: string) => spec.labels[k] ?? dflt;
+  const lab = (k: string) => slotText("haze", spec.labels, k);
   // Profile plot: luma 0..1, 1 at the top.
   const py0 = 64 + eh + 110;
   const ph = H - py0 - 6;
@@ -421,15 +435,15 @@ function hazeFragment(
 <img id="SCENEID-clear" src="${href(L.files.clear as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
 <div id="SCENEID-front" style="position:absolute;left:0;bottom:0;width:${px(iw)};height:0;overflow:hidden"><img src="${href(L.files.hazy as string)}" style="left:0;top:auto;bottom:0;width:${px(iw)};height:${px(ih)}" alt=""></div>
 <div id="SCENEID-scan" style="position:absolute;left:0;top:${px(d.row - 2)};width:${px(iw)};height:4px;background:${theme.accent};transform-origin:0 50%"></div>
-${label("tag-clear", lab("clear", "맑은 날"), 28, 22, LABEL, "", ON_PHOTO)}
-${label("tag-hazy", lab("hazy", "안개"), 28, ih - 76, LABEL, "", ON_PHOTO)}
+${label("tag-clear", lab("clear"), 28, 22, LABEL, "", ON_PHOTO)}
+${label("tag-hazy", lab("hazy"), 28, ih - 76, LABEL, "", ON_PHOTO)}
 </div>
-${label("edge-label", lab("edges", "에지 지도 (Sobel)"), cx, 0, LABEL, theme.fg)}
+${label("edge-label", lab("edges"), cx, 0, LABEL, theme.fg)}
 <div id="SCENEID-edge" class="lit-panel lit-dark" style="left:${px(cx)};top:64px;width:${px(ew)};height:${px(eh)}">
 <img src="${href(L.files.edgeClear as string)}" style="left:0;top:0;width:${px(ew)};height:${px(eh)}" alt="">
 <div id="SCENEID-edge-front" style="position:absolute;left:0;bottom:0;width:${px(ew)};height:0;overflow:hidden;background:#0d1014"><img src="${href(L.files.edgeHazy as string)}" style="left:0;top:auto;bottom:0;width:${px(ew)};height:${px(eh)}" alt=""></div>
 </div>
-${label("prof-label", lab("profile", "선 위의 밝기"), cx, 64 + eh + 36, LABEL, theme.fg)}
+${label("prof-label", lab("profile"), cx, 64 + eh + 36, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${cw}" height="${H}" viewBox="0 0 ${cw} ${H}" style="left:${px(cx)};top:0">
 <line x1="0" y1="${airY}" x2="${pw}" y2="${airY}" stroke="${theme.muted}" stroke-width="2" stroke-dasharray="6 8" opacity="0.7"/>
 <g id="SCENEID-prof">
@@ -481,12 +495,13 @@ function spikeFragment(
   href: (f: string) => string,
 ): Fragment {
   const { W, H } = box;
-  const lab = (k: string, dflt: string) => spec.labels[k] ?? dflt;
+  const lab = (k: string) => slotText("spikes", spec.labels, k);
   const d = L.data as {
     cols: number;
     rows: number;
     x: number[];
     counts: number[];
+    out: number[];
     steps: number;
     theta: number;
     witnesses: Array<{
@@ -524,7 +539,8 @@ function spikeFragment(
   };
   // Traces: one row per witness.
   const rowH = (H - top) / 3;
-  const plotW = bw - 190; // room for the threshold's word at the right
+  // Room for the threshold's word at the right, as wide as the plan's word is.
+  const plotW = bw - Math.max(190, widthOf(lab("threshold"), SMALL, theme) + 40);
   const vmax = 1.6 * d.theta;
   const stepW = plotW / d.steps;
   const rowY = (k: number) => top + k * rowH;
@@ -590,21 +606,21 @@ ${dots}
     .join("");
   const thetaY = vy(0, d.theta);
   const markup = `<div id="SCENEID-lit">
-${label("a-label", lab("features", "특징 맵 (안개 영상)"), ax, 0, LABEL, theme.fg)}
+${label("a-label", lab("features"), ax, 0, LABEL, theme.fg)}
 <div class="lit-panel" style="left:${px(ax)};top:${px(top)};width:${px(pw)};height:${px(ph)}">
 <img id="SCENEID-photo" src="${href(L.files.hazy as string)}" style="left:0;top:0;width:${px(pw)};height:${px(ph)}" alt="">
 <svg width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}" style="left:0;top:0"><rect id="SCENEID-shade" width="${pw}" height="${ph}" fill="#0d1014"/><g id="SCENEID-heat">${cellRects("h", (i) => d.x[i] as number)}</g>${d.witnesses.map((wt, k) => outline(wt.cell, k, "oa")).join("")}</svg>
 </div>
-${label("b-label", lab("membrane", "막전위 → 스파이크"), bx, 0, LABEL, theme.fg)}
+${label("b-label", lab("membrane"), bx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-traces" width="${bw}" height="${H}" viewBox="0 0 ${bw} ${H}" style="left:${px(bx)};top:0">
 <defs>${clips}<clipPath id="SCENEID-clipg"><rect id="SCENEID-crg" x="-4" y="${r3(rowY(2))}" width="${r3(plotW + 8)}" height="${r3(rowH)}"/></clipPath></defs>
 ${traces}
 ${ghost}
 <line id="SCENEID-head" x1="0" y1="${top}" x2="0" y2="${H - 10}" stroke="${theme.fg}" stroke-width="3" opacity="0.6"/>
 </svg>
-${label("theta", lab("threshold", "임계값"), bx + plotW + 18, thetaY - 26, SMALL, theme.fg)}
-${label("ghost-label", lab("noLeak", "누설이 없다면"), bx + 16, rowY(2) + 38, SMALL, tones[2] as string)}
-${label("c-label", lab("output", "스파이크로 전달된 맵"), ax, cyp - 56, LABEL, theme.fg)}
+${label("theta", lab("threshold"), bx + plotW + 18, thetaY - 26, SMALL, theme.fg)}
+${label("ghost-label", lab("noLeak"), bx + plotW - widthOf(lab("noLeak"), SMALL, theme), vy(2, d.theta) - 62, SMALL, tones[2] as string)}
+${label("c-label", lab("output"), ax, cyp - 56, LABEL, theme.fg)}
 <div id="SCENEID-cpanel" class="lit-panel lit-dark" style="left:${px(ax)};top:${px(cyp)};width:${px(pw)};height:${px(ph)}">
 <svg width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}" style="left:0;top:0">${cellRects("c", () => 0)}${d.witnesses.map((wt, k) => outline(wt.cell, k, "oc")).join("")}</svg>
 </div>
@@ -659,13 +675,14 @@ ${label("c-label", lab("output", "스파이크로 전달된 맵"), ax, cyp - 56,
       );
     }
   });
-  // The next layer receives only spikes: each output cell lights by its count, step by step.
+  // The next layer receives only spikes: each output cell lights, step by step, to what its
+  // spikes carried — on the INPUT's scale, so a cell is never brighter than what it was given.
   d.counts.forEach((n, i) => {
     if (n === 0) return;
     tl.fromTo(
       `c${i}`,
       { opacity: 0 },
-      { opacity: r3(n / d.steps), duration: span, ease: `steps(${n})` },
+      { opacity: d.out[i] as number, duration: span, ease: `steps(${n})` },
       s0,
     );
   });
@@ -694,7 +711,7 @@ function sobelFragment(
   theme: Theme,
   href: (f: string) => string,
 ): Fragment {
-  const lab = (k: string, dflt: string) => spec.labels[k] ?? dflt;
+  const lab = (k: string) => slotText("sobel", spec.labels, k);
   const iw = box.img.w;
   const ih = box.img.h;
   const cx = iw + 56;
@@ -704,8 +721,9 @@ function sobelFragment(
   const y2 = y1 + fh + 40 + 64;
   const k = 62; // kernel cell
   const kernel = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
-  const kx = -k * 1.5;
-  const ky = ih - 3 * k - 120;
+  // The kernel rides INSIDE the picture, from its left edge to its right.
+  const kx = 24;
+  const ky = ih - 3 * k - 40;
   const kcells = kernel
     .map((v, i) => {
       const c = i % 3;
@@ -716,20 +734,20 @@ function sobelFragment(
   const markup = `<div id="SCENEID-lit">
 <div class="lit-panel" style="left:0;top:0;width:${px(iw)};height:${px(ih)}">
 <img id="SCENEID-photo" src="${href(L.files.hazy as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
-<div id="SCENEID-dim" style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)};background:#0d1014"></div>
 <div id="SCENEID-reveal" style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)};overflow:hidden">
+<div style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)};background:rgba(13,16,20,.72)"></div>
 <img src="${href(L.files.edges as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
 </div>
 <div id="SCENEID-sweep" style="position:absolute;left:0;top:0;width:4px;height:${px(ih)};background:#fff;box-shadow:0 0 18px rgba(255,255,255,.9)"></div>
-${label("tag-hazy", lab("hazy", "안개 영상"), 28, 22, LABEL, "", ON_PHOTO)}
-${label("tag-sobel", lab("structure", "Sobel 구조 맵"), 28, 22, LABEL, "", ON_PHOTO)}
+${label("tag-hazy", lab("hazy"), 28, 22, LABEL, "", ON_PHOTO)}
+${label("tag-sobel", lab("structure"), 28, 22, LABEL, "", ON_PHOTO)}
 </div>
 <div id="SCENEID-kernel" style="position:absolute;left:${px(kx)};top:${px(ky)};width:${px(3 * k)};height:${px(3 * k)}">${label("k-label", "Sobel 3×3", 0, -58, SMALL, "", ON_PHOTO)}${kcells}</div>
-${label("f-label", lab("feature", "평활화된 특징"), cx, 0, LABEL, theme.fg)}
+${label("f-label", lab("feature"), cx, 0, LABEL, theme.fg)}
 <div id="SCENEID-fpanel" class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y1)};width:${px(fw)};height:${px(fh)}">
 <img id="SCENEID-feat" src="${href(L.files.feat as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
 </div>
-${label("w-label", lab("reweighted", "구조 맵으로 재가중"), cx, y2 - 64, LABEL, theme.fg)}
+${label("w-label", lab("reweighted"), cx, y2 - 64, LABEL, theme.fg)}
 <div id="SCENEID-wpanel" class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y2)};width:${px(fw)};height:${px(fh)}">
 <img id="SCENEID-feat2" src="${href(L.files.feat as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
 <img id="SCENEID-featw" src="${href(L.files.featW as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
@@ -740,7 +758,6 @@ ${label("w-label", lab("reweighted", "구조 맵으로 재가중"), cx, y2 - 64,
   const tl = new Tl();
   tl.show("photo", 0.05, 0.5);
   tl.show("tag-hazy", 0.3);
-  tl.fromTo("dim", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
   tl.fromTo("tag-sobel", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
   // The kernel slides across the picture; behind it, the edges it measured light up.
   const s0 = Math.max(1.2, c0.t0 + 0.4);
@@ -749,8 +766,7 @@ ${label("w-label", lab("reweighted", "구조 맵으로 재가중"), cx, y2 - 64,
   tl.show("sweep", s0 - 0.3, 0.3);
   tl.fromTo("reveal", { width: 0 }, { width: iw, duration: span, ease: "none" }, s0);
   tl.fromTo("sweep", { x: 0 }, { x: iw - 4, duration: span, ease: "none" }, s0);
-  tl.fromTo("kernel", { x: 0 }, { x: iw, duration: span, ease: "none" }, s0);
-  tl.fromTo("dim", { opacity: 0 }, { opacity: 0.6, duration: span, ease: "none" }, s0);
+  tl.fromTo("kernel", { x: 0 }, { x: iw - 3 * k - 48, duration: span, ease: "none" }, s0);
   tl.hide("sweep", s0 + span, 0.3);
   tl.hide("kernel", s0 + span, 0.3);
   tl.hide("tag-hazy", s0 + span - 0.2, 0.4);
@@ -790,6 +806,30 @@ export function literalFragment(
 }
 
 /* -------------------------------------------------------------------- the pass */
+
+/**
+ * A scene's narration as its STOPS — one cue per spoken sentence, from its
+ * first subtitle line to its last — on the scene's clock. Not the subtitle
+ * lines: the voice splits a long sentence into two lines, and a scene timed on
+ * lines took one causal step per half-sentence (r1, b17: the second row lit
+ * in the middle of the first row's sentence).
+ */
+export function stopCues(timing: Pick<Timing, "scenes" | "segments">, sid: string): Cue[] {
+  const scene = timing.scenes.find((s) => s.id === sid);
+  if (!scene) return [];
+  return timing.segments
+    .filter((g) => g.scene === sid && g.cues.length)
+    .map((g) => {
+      const first = g.cues[0] as { start: number };
+      const last = g.cues[g.cues.length - 1] as { end: number };
+      return {
+        t0: round3(g.start + first.start - scene.start),
+        t1: round3(g.start + last.end - scene.start),
+      };
+    })
+    .filter((c) => c.t1 > c.t0)
+    .sort((a, b) => a.t0 - b.t0);
+}
 
 export interface LiteralInput {
   storyboard: Storyboard;
@@ -866,13 +906,9 @@ export async function literalPass(
     bespoke: placeholder,
   });
   const cuesOf = new Map<string, Cue[]>();
-  for (const w of sceneWindows(timing)) {
-    const beat = kept[Number(w.sid.slice(1)) - 1];
-    if (beat)
-      cuesOf.set(
-        beat.id,
-        w.cues.map((c) => ({ t0: c.t0, t1: c.t1 })),
-      );
+  for (const sc of timing.scenes) {
+    const beat = kept[Number(sc.id.slice(1)) - 1];
+    if (beat) cuesOf.set(beat.id, stopCues(timing, sc.id));
   }
   const dir = join(input.out, LITERAL_DIR);
   await mkdir(dir, { recursive: true });
@@ -884,7 +920,15 @@ export async function literalPass(
   >();
   for (const beat of picked as Beat[]) {
     const spec = plan.beats[beat.id] as LiteralSpec;
-    const region = bespokeRegion(beat, ctxFor("s0"));
+    // A slot the kind does not read would be dropped silently; a missing one has no default.
+    const problems = literalSlotProblems(
+      spec.kind,
+      Object.entries(spec.labels).map(([slot, text]) => ({ slot, text })),
+    );
+    if (problems.length)
+      throw new Error(`literal: ${beat.id} (${spec.kind}) ${problems.join("; ")}`);
+    const eyebrow = spec.labels.eyebrow?.trim() || undefined;
+    const region = bespokeRegion(beat, ctxFor("s0"), eyebrow);
     const cues = cuesOf.get(beat.id) ?? [];
     const impl = isFirst(spec.kind) ? undefined : MORE_KINDS[spec.kind];
     const needsPicture = impl ? impl.picture : true;
@@ -914,7 +958,11 @@ export async function literalPass(
     }
     earlier.set(beat.id, { kind: spec.kind, layers, labels: spec.labels });
     const fragment = literalFragment(spec.kind, layers, region, cues, spec, theme);
-    map[beat.id] = { fragment, holds: placeholder[beat.id]?.holds ?? [] };
+    map[beat.id] = {
+      fragment,
+      holds: placeholder[beat.id]?.holds ?? [],
+      ...(eyebrow ? { eyebrow } : {}),
+    };
     report.scenes.push({
       beat: beat.id,
       kind: spec.kind,

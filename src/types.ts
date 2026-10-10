@@ -772,6 +772,180 @@ export const LITERAL_KIND_NAMES = [
   "recap",
 ] as const;
 
+/**
+ * One label slot of a literal scene. Required unless `optional`. A `number`
+ * slot is a value the scene COMPUTES with (α, a crop size), so it is a fact of
+ * the paper and comes from the plan, checked against the source; no kind has a
+ * paper's numbers built in. A text may name the scene's computed values as
+ * `{name}` (the kind says which), filled in at build time.
+ */
+export interface LiteralSlot {
+  what: string;
+  optional?: true;
+  number?: true;
+  /** The computed values the text may name as `{name}`. */
+  vars?: readonly string[];
+}
+
+/** The slot every kind has: the section name the shell draws above the headline. */
+export const LITERAL_COMMON_SLOTS: Readonly<Record<string, LiteralSlot>> = {
+  eyebrow: {
+    what: "the section this beat belongs to, drawn above the headline",
+    optional: true,
+  },
+};
+
+/**
+ * EVERY SLOT A KIND READS, and nothing else: the planner is shown this table,
+ * `literalFindings` refuses a slot not in it, a required one missing or a
+ * number slot that is not a number, and a fragment reading a slot not listed
+ * here throws. One table, so the docs and the code cannot drift apart.
+ *
+ * No text has a default: a scene's words are in the deck's language, and a
+ * default would be in one language and, for a fact, one paper.
+ */
+export const LITERAL_SLOTS: Readonly<
+  Record<(typeof LITERAL_KIND_NAMES)[number], Readonly<Record<string, LiteralSlot>>>
+> = {
+  haze: {
+    clear: { what: "on the clear picture" },
+    hazy: { what: "on the picture once the haze has risen" },
+    edges: { what: "title of the edge (Sobel) map" },
+    profile: { what: "title of the brightness along one line" },
+  },
+  spikes: {
+    features: { what: "title of the input feature map" },
+    membrane: { what: "title of the membrane traces" },
+    threshold: { what: "the threshold line's word; say it is illustrative" },
+    output: { what: "title of the map the next layer receives" },
+    noLeak: { what: "the dashed trace: the same input without the leak" },
+  },
+  sobel: {
+    hazy: { what: "on the hazy picture" },
+    structure: { what: "on the Sobel structure map" },
+    feature: { what: "title of the smoothed feature" },
+    reweighted: { what: "title of the feature reweighted by the structure map" },
+  },
+  "dark-channel": {
+    hazy: { what: "title of the hazy input" },
+    dark: { what: "title of the classical prior's dark channel" },
+    transmission: { what: "title of the estimated transmission" },
+    recovered: { what: "title of the classical prior's recovered picture" },
+    miss: { what: "on the regions where the estimate misses the true transmission", vars: ["t"] },
+    profile: { what: "title of the transmission along one line" },
+    truth: { what: "legend of the true transmission line", vars: ["t"] },
+    estimate: { what: "legend of the estimate line" },
+    premise: { what: "the prior's assumption, in words" },
+    premiseValue: { what: "what this picture gives for it", vars: ["v"] },
+    error: {
+      what: "how many times larger the recovery error is where the estimate missed than elsewhere",
+      vars: ["k"],
+    },
+  },
+  "channel-threshold": {
+    alpha: { what: "the paper's threshold scale α, as the source writes it", number: true },
+    levels: { what: "the paper's number of integer spike levels D", number: true },
+    channels: { what: "title of the row of channels" },
+    channelNames: {
+      what: 'names of the five channels drawn, in order, joined by " · ": luma, horizontal Sobel, R−B colour difference, Laplacian, high-pass',
+    },
+    note: { what: "the constants used", vars: ["alpha", "D"] },
+    fixed: { what: "title while ONE threshold serves every channel" },
+    calibrated: { what: "title once each channel has its own; say the values are illustrative" },
+    standIn: { what: "says the channels are fixed filter responses, not the trained network's" },
+  },
+  "ema-threshold": {
+    alpha: { what: "the paper's threshold scale α", number: true },
+    momentum: { what: "the paper's EMA momentum μ", number: true },
+    crop: { what: "the training crop size in pixels the source states", number: true },
+    train: { what: "title of the training half" },
+    infer: {
+      what: "title of the inference half; the picture shown is the SAME scene under denser haze, so say so",
+    },
+    formula: { what: "legend of the threshold line, as the source states the rule" },
+    own: { what: "legend of the dots: each crop's own value; say it is illustrative" },
+    frozen: { what: "on the frozen threshold at inference" },
+    test: { what: "on the test picture's own value, which is not recalibrated" },
+  },
+  backbone: {
+    input: { what: "title of the input" },
+    shallow: { what: "title of the shallow features" },
+    encoder: { what: "on the first encoder level" },
+    decoder: { what: "on the last decoder level" },
+    skip: { what: "on the skip connections" },
+    prb: { what: "title of the continuous map the spike features become" },
+    output: { what: "title of the output convolution" },
+    untrained: { what: "in the output's box: it needs trained weights, so it is not drawn" },
+    note: { what: "says these are fixed operations, not the trained network" },
+    depth: {
+      what: "says the number of levels and the 2× steps are illustrative when the source does not state them",
+    },
+  },
+  "fixed-filters": {
+    kernels: { what: "title of the fixed kernels and their responses" },
+    structure: { what: "title of the structure map" },
+    formula: { what: "how the structure map is formed, as the source states it" },
+    params: { what: "says the filter numbers are fixed and learn nothing" },
+    learned: { what: "the small learned part, as the source names it", optional: true },
+  },
+  crops: {
+    crop: { what: "the training crop size in pixels", number: true },
+    batch: { what: "the batch size", number: true },
+    size: {
+      what: "the side the source says training images are resized to; absent: the picture's own size",
+      number: true,
+      optional: true,
+    },
+    picture: { what: "title of the picture; say the scene is an example when it is" },
+    batchLabel: { what: "title of the batch" },
+  },
+  table: { caption: { what: "under the table: what the numbers are", optional: true } },
+  scale: { caption: { what: "under the lengths: what they are", optional: true } },
+  recap: {
+    caption: { what: 'one word per tile, joined by "→"', optional: true },
+    result: { what: "what the source reports came of it, in its own numbers", optional: true },
+  },
+};
+
+/** The slots a kind has: its own and the common ones. */
+export function literalSlotsOf(
+  kind: (typeof LITERAL_KIND_NAMES)[number],
+): Readonly<Record<string, LiteralSlot>> {
+  return { ...LITERAL_COMMON_SLOTS, ...LITERAL_SLOTS[kind] };
+}
+
+/**
+ * What is wrong with a scene's labels against its kind's slots: a slot the
+ * kind does not have (the planner invented it, and it would be dropped
+ * silently), a required one missing, a number slot that is not a number, a
+ * `{name}` the slot does not compute. Empty when they are right.
+ */
+export function literalSlotProblems(
+  kind: (typeof LITERAL_KIND_NAMES)[number],
+  labels: ReadonlyArray<{ slot: string; text: string }>,
+): string[] {
+  const slots = literalSlotsOf(kind);
+  const out: string[] = [];
+  const given = new Map(labels.map((l) => [l.slot, l.text]));
+  for (const [slot, text] of given) {
+    const decl = slots[slot];
+    if (!decl) {
+      out.push(`has no slot "${slot}" (its slots: ${Object.keys(slots).join(", ")})`);
+      continue;
+    }
+    if (decl.number && text.trim() && !Number.isFinite(Number(text.trim())))
+      out.push(`slot "${slot}" is a number, written as the source writes it; got "${text}"`);
+    for (const m of text.matchAll(/\{(\w+)\}/g))
+      if (!decl.vars?.includes(m[1] as string))
+        out.push(
+          `slot "${slot}" names {${m[1]}}, which it does not compute${decl.vars?.length ? ` (it computes ${decl.vars.map((v) => `{${v}}`).join(", ")})` : ""}`,
+        );
+  }
+  for (const [slot, decl] of Object.entries(slots))
+    if (!decl.optional && !given.get(slot)?.trim()) out.push(`needs slot "${slot}": ${decl.what}`);
+  return out;
+}
+
 /** One of a literal scene's few on-screen words, by the slot the scene puts it in. */
 const literalLabelSchema = z.object({ slot: z.string(), text: z.string() });
 const literalLabels = { labels: z.array(literalLabelSchema).default([]) };

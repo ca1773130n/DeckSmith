@@ -27,7 +27,7 @@
  * cell holding a number the source never states).
  */
 import type { Beat, BeatPart, Literal, Source, Storyboard } from "../types.js";
-import { beatPartSchema } from "../types.js";
+import { beatPartSchema, literalSlotProblems } from "../types.js";
 
 /** The order a deck covers its parts in. */
 export const PART_ORDER: readonly BeatPart[] = beatPartSchema.options;
@@ -72,6 +72,15 @@ const LEXICON: ReadonlyArray<readonly [BeatPart, RegExp]> = [
 /** Fewer distinct parts than this and the source is not treated as an analysis. */
 export const MIN_PARTS = 3;
 
+/**
+ * And one of these must be among them. "Overview", "How it works" and
+ * "Summary" are three parts of any article; an analysis of a paper also
+ * reports what was done before it or what it measured. Without this, a plain
+ * article switched the check on and was held to a paper's order (review,
+ * 2026-10-10).
+ */
+const PAPER_PARTS: readonly BeatPart[] = ["prior-work", "experiments"];
+
 /** The part a heading names, or undefined. */
 export function partOfHeading(heading: string): BeatPart | undefined {
   for (const [part, re] of LEXICON) if (re.test(heading)) return part;
@@ -108,7 +117,7 @@ export function sourceParts(source: Source): SourcePart[] {
     seen.add(part);
     if (s.text.trim()) by.set(part, [...(by.get(part) ?? []), { id: s.id, heading: s.heading }]);
   }
-  if (seen.size < MIN_PARTS) return [];
+  if (seen.size < MIN_PARTS || !PAPER_PARTS.some((p) => seen.has(p))) return [];
   return PART_ORDER.filter((p) => by.has(p)).map((p) => ({ part: p, sections: by.get(p) ?? [] }));
 }
 
@@ -186,17 +195,51 @@ function hasPicture(beat: Beat): boolean {
   return slot(p) || slot(p.left) || slot(p.right) || slot(p.backdrop);
 }
 
-/** Number tokens in a cell: "30.56", "0.9106", "175.21", "75.1%" → 75.1. */
-const NUMBER = /\d+(?:[.,]\d+)*/g;
+/**
+ * Number tokens: "30.56", "0.9106", "75.1%" → 75.1, "1/8" (a fraction is one
+ * number). Digits glued to a letter are part of a name (RICE1, Q8, 4K), not a
+ * number, on both sides of the comparison.
+ */
+const NUMBER = /(?<![\p{L}\d.,/])\d+(?:[.,]\d+)*(?:\/\d+)?/gu;
 
-/** Every text the source states, for checking a table cell's numbers against. */
-function sourceText(source: Source): string {
-  return [
+/**
+ * Every number the source states, as WHOLE tokens. A substring test let an
+ * invented "31" through because "131.59" contains it (review, 2026-10-10).
+ * LaTeX commands are spaces first, so `1\times10^{-3}` states 1 and 10.
+ */
+function sourceNumbers(source: Source): ReadonlySet<string> {
+  const text = [
     source.title,
     ...source.sections.flatMap((s) => [s.heading, s.text]),
     ...source.tables.flatMap((t) => [t.caption ?? "", ...t.columns, ...t.rows.flat()]),
     ...source.figures.map((f) => f.caption),
-  ].join("\n");
+  ]
+    .join("\n")
+    .replace(/\\[A-Za-z]+/g, " ");
+  return new Set(text.match(NUMBER) ?? []);
+}
+
+/** The numbers in `texts` the source never states, once each. `{name}` (a computed value) is not a number. */
+function unstated(texts: readonly string[], stated: ReadonlySet<string>): string[] {
+  return [...new Set(texts.flatMap((t) => t.replace(/\{\w+\}/g, " ").match(NUMBER) ?? []))].filter(
+    (n) => !stated.has(n),
+  );
+}
+
+/** Every word a literal scene puts on screen, whatever its kind. */
+function literalTexts(lit: Literal): string[] {
+  const own = lit.labels.map((l) => l.text);
+  if (lit.kind === "table") return [...own, ...lit.columns, ...lit.rows.flat()];
+  if (lit.kind === "scale")
+    return [
+      ...own,
+      ...lit.groups.flatMap((g) => [
+        g.label,
+        g.unit,
+        ...g.items.flatMap((it) => [it.label, it.value]),
+      ]),
+    ];
+  return own;
 }
 
 /**
@@ -220,18 +263,19 @@ export function literalFindings(
         `Beats ${bare.map((b) => b.id).join(", ")} carry no \`takeaway\`. Every beat but the title states the one thing the viewer can explain after it.`,
       );
   }
-  let text: string | undefined;
+  let stated: ReadonlySet<string> | undefined;
   beats.forEach((beat, i) => {
     const lit: Literal | undefined = beat.literal;
     if (!lit) return;
-    text ??= sourceText(source);
-    const said = lit.labels
-      .flatMap((l) => l.text.match(NUMBER) ?? [])
-      .filter((n) => !(text as string).includes(n));
+    stated ??= sourceNumbers(source);
+    // Every word on screen — labels, cells, scale names and values — carries only the source's numbers.
+    const said = unstated(literalTexts(lit), stated);
     if (said.length)
       out.push(
-        `${beat.id}'s literal labels say ${said.map((n) => `"${n}"`).join(", ")}, which the source never states. A scene's words carry only the source's numbers.`,
+        `${beat.id}'s ${lit.kind} scene says ${said.map((n) => `"${n}"`).join(", ")}, which the source never states. A scene's words carry only the source's numbers.`,
       );
+    for (const p of literalSlotProblems(lit.kind, lit.labels))
+      out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
     if (beat.archetype === "title") {
       out.push(
         `${beat.id} is the title and carries \`literal\`. A title names the deck; it draws no mechanism.`,
@@ -259,16 +303,6 @@ export function literalFindings(
         out.push(
           `${beat.id}'s table highlights row ${bad.join(", ")}, which it does not have (rows count from 0).`,
         );
-      text ??= sourceText(source);
-      const made = [
-        ...new Set(
-          [...lit.columns, ...lit.rows.flat()].flatMap((cell) => cell.match(NUMBER) ?? []),
-        ),
-      ].filter((n) => !(text as string).includes(n));
-      if (made.length)
-        out.push(
-          `${beat.id}'s table shows ${made.map((n) => `"${n}"`).join(", ")}, which the source never states. A literal table shows only the numbers the source reports.`,
-        );
       const off = lit.marks.filter(
         (m) => !(lit.rows[m.row] && m.col >= 0 && m.col < (lit.rows[m.row] as string[]).length),
       );
@@ -279,9 +313,8 @@ export function literalFindings(
     } else if (lit.kind === "scale") {
       const items = lit.groups.flatMap((g) => g.items);
       if (!items.length) out.push(`${beat.id}'s scale has no values.`);
-      text ??= sourceText(source);
       const bad = items.filter(
-        (it) => !/^\d+(\.\d+)?$/.test(it.value) || !(text as string).includes(it.value),
+        (it) => !/^\d+(\.\d+)?$/.test(it.value) || !(stated as ReadonlySet<string>).has(it.value),
       );
       if (bad.length)
         out.push(

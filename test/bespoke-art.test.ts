@@ -212,6 +212,19 @@ describe("a bespoke scene's shell", () => {
     expect(still.html).not.toContain("data-ds-clip");
   });
 
+  it("draws a scene's own section name when the archetype has none, and the archetype's wins", () => {
+    const bare = { ...beat, params: { ...beat.params, eyebrow: undefined } } as typeof beat;
+    const entry = { fragment: { markup, css: "", script: "" }, holds: [1], eyebrow: "관련 연구" };
+    expect(bespokeScene(bare, ctx, entry).html).toContain("관련 연구");
+    expect(bespokeScene(bare, ctx, { ...entry, eyebrow: undefined }).html).not.toContain(
+      "관련 연구",
+    );
+    const own = { ...beat, params: { ...beat.params, eyebrow: "자기 것" } } as typeof beat;
+    const html = bespokeScene(own, ctx, entry).html;
+    expect(html).toContain("자기 것");
+    expect(html).not.toContain("관련 연구");
+  });
+
   it("feathers the illustration's edges, unless the scene masks it itself", () => {
     const art = { key: "k", name: "k.png", file: "/x", width: 10, height: 10, depicts: "" };
     const plain = bespokeScene(beat, ctx, {

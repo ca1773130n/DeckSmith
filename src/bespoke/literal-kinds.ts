@@ -17,13 +17,17 @@
  * WHAT IS EXACT AND WHAT IS ILLUSTRATIVE. The Dark Channel Prior is He et al.'s
  * (min filter, top-0.1% airlight, ω = 0.95, t₀ = 0.1, guided-filter refinement),
  * and the haze it runs on was added with a KNOWN uniform t, so the estimate is
- * checked against the truth on screen. TM-LIF's quantizer (clip(⌊u/θ⌋, 0, D)/D,
- * D = 4), α = 0.6 and μ = 0.9 are the paper's stated defaults; the CHANNELS
- * are fixed filter responses, not the trained network's, and θ = α·σ̂ reads the
- * paper's "proportional to the variance estimate" through its spread — every
- * scene says "예시" (illustrative) where that matters. The backbone's operations
- * are fixed, not learned, and its output — which needs trained weights — is
- * never drawn.
+ * checked against the truth on screen. TM-LIF's quantizer is clip(⌊u/θ⌋, 0, D)/D
+ * and its running threshold is α × the EMA of the variance, as the source
+ * states it; α, D, μ and the crop size are the PLAN'S number slots, never
+ * constants here. The CHANNELS are fixed filter responses, not the trained
+ * network's, and the quantizer scene reads "proportional to the variance"
+ * through the spread (θ = α·σ) so a threshold has u's units — the slots say
+ * "illustrative" where that matters. The backbone's operations are fixed, not
+ * learned, and its output — which needs trained weights — is never drawn.
+ *
+ * EVERY WORD ON SCREEN IS A SLOT (src/types.ts `LITERAL_SLOTS`), with no
+ * default: a kind has no paper's facts and no language built in.
  */
 import { join } from "node:path";
 import type { Theme } from "../emit/kit.js";
@@ -42,6 +46,7 @@ import {
   label,
   luma,
   mapRgba,
+  needNumber,
   ON_PHOTO,
   px,
   quantile,
@@ -49,6 +54,8 @@ import {
   r3,
   readRgb,
   SMALL,
+  slotNumber,
+  slotText,
   sobel,
   T_HAZE,
   Tl,
@@ -93,7 +100,14 @@ export interface KindImpl {
 
 /* ----------------------------------------------------------------- helpers */
 
-const lab = (spec: KindSpec, k: string, dflt: string) => spec.labels[k] ?? dflt;
+/** A slot's text (src/types.ts `LITERAL_SLOTS`): no defaults, so no paper's facts and no language are built in. */
+const lab = (
+  kind: MoreKind,
+  spec: KindSpec,
+  slot: string,
+  vars?: Readonly<Record<string, string | number>>,
+) => slotText(kind, spec.labels, slot, vars);
+const num = (kind: MoreKind, spec: KindSpec, slot: string) => needNumber(kind, spec.labels, slot);
 const LAB_H = 60;
 const even = (n: number) => 2 * Math.round(n / 2);
 
@@ -119,7 +133,7 @@ function panel(id: string, x: number, y: number, w: number, h: number, inner: st
 }
 
 /** Rendered width of a label, px, in the deck's face. */
-function widthOf(text: string, size: number, theme: Theme, weight = 600): number {
+export function widthOf(text: string, size: number, theme: Theme, weight = 600): number {
   return textWidth(text, size, weight, 0, false, faceOf(theme.fontStack));
 }
 
@@ -131,7 +145,15 @@ export function wrap(
   theme: Theme,
   weight = 600,
 ): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
+  // A separator never starts a line: "SFSNiD · SFRDP-Net" breaks after the "·".
+  const words = text
+    .split(/\s+/)
+    .filter(Boolean)
+    .reduce<string[]>((acc, w) => {
+      if (/^[·•|/]$/.test(w) && acc.length) acc[acc.length - 1] = `${acc[acc.length - 1]} ${w}`;
+      else acc.push(w);
+      return acc;
+    }, []);
   const lines: string[] = [];
   let cur = "";
   for (const w of words) {
@@ -294,7 +316,8 @@ export const DCP_MISS = 0.08;
 const darkChannelKind: KindImpl = {
   picture: true,
   async layers({ image, dir, beatId }) {
-    const hazy = haze(await readRgb(image as string, DCP_W, DCP_H), T_HAZE, AIRLIGHT);
+    const clear = await readRgb(image as string, DCP_W, DCP_H);
+    const hazy = haze(clear, T_HAZE, AIRLIGHT);
     const r = 7; // a 15×15 patch, He et al.'s, at this width
     const { dark, t, J, A } = dcp(hazy, r);
     const files = {
@@ -337,11 +360,18 @@ const darkChannelKind: KindImpl = {
     }
     const missFrac = r3(mean(miss.map((v) => (v > 0 ? 1 : 0))));
     // The prior's own premise, tested on the CLEAR picture: its dark channel should be about 0.
-    const clearDark = darkChannel(await readRgb(image as string, DCP_W, DCP_H), r);
-    const premise = quantile(clearDark, 0.5).toFixed(2);
+    const premise = quantile(darkChannel(clear, r), 0.5).toFixed(2);
     return {
       files,
-      data: { row: row / DCP_H, profile, tTrue: T_HAZE, A: A.map(r3), missFrac, premise },
+      data: {
+        row: row / DCP_H,
+        profile,
+        tTrue: T_HAZE,
+        A: A.map(r3),
+        missFrac,
+        premise,
+        errRatio: missErrorRatio(J, clear, miss),
+      },
     };
   },
   fragment(L, { width: W, height: H }, cues, spec, theme, href) {
@@ -351,7 +381,9 @@ const darkChannelKind: KindImpl = {
       tTrue: number;
       missFrac: number;
       premise: string;
+      errRatio: number;
     };
+    const K = "dark-channel";
     const f = L.files as Record<string, string>;
     const gap = 28;
     const ph = even((H - 2 * LAB_H - gap) / 2);
@@ -365,7 +397,7 @@ const darkChannelKind: KindImpl = {
       panel(id, x, y, pw, ph, `${img(`${id}-i`, href(src), 0, 0, pw, ph)}${over}`, "lit-dark");
     // Transmission plot: 0..1 up the axis, the truth as a dashed line.
     const py0 = LAB_H + 20;
-    const plotH = H - py0 - LAB_H * 3 - 30;
+    const plotH = H - py0 - LAB_H * 4 - 30;
     const plotW = qw - 10;
     // A window around the truth, so a miss of a few hundredths is visible.
     const lo = Math.max(0, Math.min(d.tTrue - 0.2, ...d.profile) - 0.02);
@@ -377,40 +409,43 @@ const darkChannelKind: KindImpl = {
     const truthY = yOf(d.tTrue);
     const scan = (id: string) =>
       `<div id="SCENEID-${id}" style="position:absolute;left:0;top:${px(rowY - 2)};width:${px(pw)};height:4px;background:${theme.accent}"></div>`;
+    const t = { t: d.tTrue };
+    const legendY = py0 + plotH + 24;
     const markup = `<div id="SCENEID-lit">
-${label("l-hazy", lab(spec, "hazy", "안개 입력"), 0, 0, LABEL, theme.fg)}
+${label("l-hazy", lab(K, spec, "hazy"), 0, 0, LABEL, theme.fg)}
 ${tile("p-hazy", f.hazy as string, 0, LAB_H)}
-${label("l-dark", lab(spec, "dark", "고전 DCP의 암채널"), x2, 0, LABEL, theme.fg)}
-${panel("p-dark", x2, LAB_H, pw, ph, `<div id="SCENEID-dark-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("dark-i", href(f.dark as string), 0, 0, pw, ph)}</div>`, "lit-dark")}
-${label("l-trans", lab(spec, "transmission", "추정 투과율"), 0, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}${label("l-miss", lab(spec, "miss", `실제 ${d.tTrue}에서 벗어난 곳`), 20, ph - 64, SMALL, "", ON_PHOTO)}`)}
-${label("l-rec", lab(spec, "recovered", "고전 DCP 복원"), x2, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-rec", f.rec as string, x2, y2)}
-${label("l-plot", lab(spec, "profile", "선 위의 투과율"), qx, 0, LABEL, theme.fg)}
+${label("l-dark", lab(K, spec, "dark"), x2, 0, LABEL, theme.fg)}
+${panel("p-dark", x2, LAB_H, pw, ph, `${img("dark-u", href(f.hazy as string), 0, 0, pw, ph)}<div id="SCENEID-dark-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("dark-i", href(f.dark as string), 0, 0, pw, ph)}</div>`, "lit-dark")}
+${label("l-trans", lab(K, spec, "transmission"), 0, y2 - LAB_H, LABEL, theme.fg)}
+${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}${label("l-miss", lab(K, spec, "miss", t), 20, ph - 64, SMALL, "", ON_PHOTO)}`)}
+${label("l-rec", lab(K, spec, "recovered"), x2, y2 - LAB_H, LABEL, theme.fg)}
+${tile("p-rec", f.rec as string, x2, y2, img("miss2", href(f.miss as string), 0, 0, pw, ph))}
+${label("l-plot", lab(K, spec, "profile"), qx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${py0}" x2="0" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
 <line x1="0" y1="${r3(py0 + plotH)}" x2="${plotW}" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
 <line id="SCENEID-truth" x1="0" y1="${truthY}" x2="${plotW}" y2="${truthY}" stroke="${theme.fg}" stroke-width="3" stroke-dasharray="12 10"/>
 <polyline id="SCENEID-est" points="${pts}" fill="none" stroke="${theme.accent}" stroke-width="4" stroke-linejoin="round"/>
 </svg>
-${label("l-truth", lab(spec, "truth", `실제 투과율 ${d.tTrue}`), qx, H - LAB_H * 3 - 4, SMALL, theme.fg)}
-${label("l-premise", lab(spec, "premise", "가정: 맑은 영상의 암채널 ≈ 0"), qx, H - LAB_H * 2 + 4, SMALL, theme.fg)}
-${label("l-premise2", lab(spec, "premise2", `이 장면에서는 ${d.premise}`), qx, H - LAB_H + 4, SMALL, theme.accent)}
-${label("l-est", lab(spec, "estimate", "DCP 추정"), qx + qw / 2, H - LAB_H * 3 - 4, SMALL, theme.accent)}
+${label("l-truth", lab(K, spec, "truth", t), qx, legendY, SMALL, theme.fg)}
+${label("l-est", lab(K, spec, "estimate"), qx + qw / 2, legendY, SMALL, theme.accent)}
+${label("l-premise", lab(K, spec, "premise"), qx, H - LAB_H * 3 + 4, SMALL, theme.fg)}
+${label("l-premise2", lab(K, spec, "premiseValue", { v: d.premise }), qx, H - LAB_H * 2 + 4, SMALL, theme.accent)}
+${label("l-err", lab(K, spec, "error", { k: d.errRatio.toFixed(1) }), qx, H - LAB_H + 4, SMALL, theme.accent)}
 </div>`;
-    const [, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
+    const [s0, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
     const tl = new Tl();
     // Step 1: the classical prior is applied to the hazy input.
     tl.show("p-hazy", 0.05, 0.5);
     tl.show("l-hazy", 0.2);
-    // Step 2: the dark channel, computed patch by patch, sweeps in.
-    tl.show("l-dark", Math.max(0.6, s1 - 0.2));
-    tl.show("p-dark", Math.max(0.6, s1 - 0.2), 0.4);
+    tl.show("l-dark", Math.max(0.6, s0 + 0.6));
+    tl.show("p-dark", Math.max(0.6, s0 + 0.6), 0.4);
+    // Step 2: the dark channel, computed patch by patch, sweeps across the input it is computed from.
     tl.fromTo(
       "dark-w",
       { width: 0 },
       { width: pw, duration: 2.4, ease: "none" },
-      Math.max(0.8, s1 + 0.2),
+      Math.max(1.2, s1 + 0.2),
     );
     // Step 3: transmission from the dark channel; along one line it is checked against the truth.
     tl.show("l-trans", s2);
@@ -421,38 +456,74 @@ ${label("l-est", lab(spec, "estimate", "DCP 추정"), qx + qw / 2, H - LAB_H * 3
     tl.show("l-truth", s2 + 1.2);
     tl.show("l-est", s2 + 1.6);
     tl.fromTo("est", { opacity: 0 }, { opacity: 1, duration: 0.8 }, s2 + 1.6);
-    // Step 4: the recovered picture, then where the prior's estimate missed.
+    tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s2 + 2.6);
+    tl.show("l-miss", s2 + 2.8);
+    // Step 4: the recovered picture, the same places marked on it, and what the prior assumed there.
     tl.show("l-rec", s3);
     tl.show("p-rec", s3, 0.8);
-    tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s3 + 2.2);
-    tl.show("l-miss", s3 + 2.4);
-    tl.show("l-premise", s3 + 2.6);
-    tl.show("l-premise2", s3 + 3.0);
+    tl.fromTo("miss2", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s3 + 1.4);
+    tl.show("l-err", s3 + 1.6);
+    tl.show("l-premise", s3 + 2.4);
+    tl.show("l-premise2", s3 + 2.8);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };
 
+/**
+ * How many times larger the recovery error is where the prior's transmission
+ * missed (`miss` > 0) than where it held: mean |J − clear| over colour, each
+ * region. The scene states it; it is what "the prior failed here" costs.
+ */
+export function missErrorRatio(J: Rgb, clear: Rgb, miss: ArrayLike<number>): number {
+  let eIn = 0;
+  let nIn = 0;
+  let eOut = 0;
+  let nOut = 0;
+  for (let i = 0; i < miss.length; i++) {
+    let e = 0;
+    for (let c = 0; c < 3; c++)
+      e += Math.abs((J.d[i * 3 + c] as number) - (clear.d[i * 3 + c] as number));
+    if ((miss[i] as number) > 0) {
+      eIn += e;
+      nIn++;
+    } else {
+      eOut += e;
+      nOut++;
+    }
+  }
+  if (!nIn || !nOut || eOut === 0)
+    throw new Error(
+      `literal: the dark channel prior missed ${nIn} of ${miss.length} pixels; the scene needs a picture where it both holds and fails`,
+    );
+  return r3(eIn / nIn / (eOut / nOut));
+}
+
 /* ---------------------------------------------------------------- TM-LIF */
 
-/** The paper's stated defaults (analysis Q3): α, D, EMA momentum μ, T. */
-export const ALPHA = 0.6;
-export const LEVELS_D = 4;
-export const MOMENTUM = 0.9;
-export const T_STEPS = 1;
+/*
+ * NO PAPER'S CONSTANTS LIVE HERE. α, the level count D, the EMA momentum μ and
+ * the crop size are the plan's number slots (src/types.ts `LITERAL_SLOTS`),
+ * checked against the source before the build runs: a kind used for another
+ * paper computes with that paper's values or refuses to draw.
+ */
 
 /** TM-LIF's quantizer at one step from rest: clip(⌊u/θ⌋, 0, D) / D. */
-export function tmQuantize(u: ArrayLike<number>, theta: number, D = LEVELS_D): Float32Array {
+export function tmQuantize(u: ArrayLike<number>, theta: number, D: number): Float32Array {
   const o = new Float32Array(u.length);
   for (let i = 0; i < u.length; i++)
     o[i] = Math.max(0, Math.min(D, Math.floor((u[i] as number) / Math.max(1e-12, theta)))) / D;
   return o;
 }
 
-/** A threshold per channel from its spread: θ = α·σ (illustrative reading of "proportional to the variance estimate"). */
-export const thetaOf = (sigma: number, alpha = ALPHA) => alpha * sigma;
+/**
+ * A threshold per channel from its spread, θ = α·σ. ILLUSTRATIVE: the source
+ * says "proportional to the variance estimate"; a threshold compared with u
+ * has u's units, so the quantizer scene reads it through the spread, and the
+ * scene's slots say the values are illustrative.
+ */
+export const thetaOf = (sigma: number, alpha: number) => alpha * sigma;
 
 interface Channel {
-  name: string;
   u: Float32Array;
 }
 
@@ -488,13 +559,21 @@ export function channelsOf(img: Rgb): Channel[] {
     const m = mean(v);
     return v.map((x) => Math.abs(x - m));
   };
-  return [
-    { name: "밝기", u: centred(l) },
-    { name: "Sobel x", u: centred(gx) },
-    { name: "색차 R−B", u: centred(rb) },
-    { name: "라플라시안", u: centred(lap) },
-    { name: "고주파", u: centred(hp) },
-  ];
+  // In the order `channelNames` documents: luma, horizontal Sobel, R−B, Laplacian, high-pass.
+  return [l, gx, rb, lap, hp].map((v) => ({ u: centred(v) }));
+}
+
+/** The channel names a plan gives, one per channel `channelsOf` draws, or a loud refusal. */
+function channelNames(spec: KindSpec, n: number): string[] {
+  const names = lab("channel-threshold", spec, "channelNames")
+    .split("·")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (names.length !== n)
+    throw new Error(
+      `literal: channel-threshold draws ${n} channels; channelNames names ${names.length} ("${names.join('", "')}")`,
+    );
+  return names;
 }
 
 const CH_W = 360;
@@ -508,9 +587,12 @@ const logPos = (v: number) => (Math.log10(Math.max(10 ** LOG_LO, v)) - LOG_LO) /
 
 const channelThresholdKind: KindImpl = {
   picture: true,
-  async layers({ image, dir, beatId }) {
+  async layers({ image, dir, beatId, spec }) {
+    const alpha = num("channel-threshold", spec, "alpha");
+    const D = num("channel-threshold", spec, "levels");
     const hazy = haze(await readRgb(image as string, CH_W, CH_H), T_HAZE, AIRLIGHT);
     const chans = channelsOf(hazy);
+    channelNames(spec, chans.length);
     // ONE fixed threshold for all: α × the spread of every channel pooled.
     const pooled = new Float32Array(chans.reduce((n, c) => n + c.u.length, 0));
     let o = 0;
@@ -518,14 +600,13 @@ const channelThresholdKind: KindImpl = {
       pooled.set(c.u, o);
       o += c.u.length;
     }
-    const thetaFixed = thetaOf(std(pooled));
+    const thetaFixed = thetaOf(std(pooled), alpha);
     const files: Record<string, string> = {};
     const out: Array<Record<string, unknown>> = [];
     for (const [k, c] of chans.entries()) {
-      const sigma = std(c.u);
-      const theta = thetaOf(sigma);
-      const fix = tmQuantize(c.u, thetaFixed);
-      const cal = tmQuantize(c.u, theta);
+      const theta = thetaOf(std(c.u), alpha);
+      const fix = tmQuantize(c.u, thetaFixed, D);
+      const cal = tmQuantize(c.u, theta, D);
       files[`map${k}`] = `${beatId}-ch${k}.png`;
       files[`fix${k}`] = `${beatId}-ch${k}-fix.png`;
       files[`cal${k}`] = `${beatId}-ch${k}-cal.png`;
@@ -544,7 +625,6 @@ const channelThresholdKind: KindImpl = {
       }
       const top = Math.max(...hist);
       out.push({
-        name: c.name,
         hist: hist.map((n) => r3(n / top)),
         theta: r3(logPos(theta)),
         fired: {
@@ -559,13 +639,13 @@ const channelThresholdKind: KindImpl = {
     files.thumb = files[`cal${quiet}`] as string;
     return {
       files,
-      data: { channels: out, thetaFixed: r3(logPos(thetaFixed)), alpha: ALPHA, D: LEVELS_D },
+      data: { channels: out, thetaFixed: r3(logPos(thetaFixed)), alpha, D },
     };
   },
-  fragment(L, { width: W }, cues, spec, theme, href) {
+  fragment(L, { width: W, height: H }, cues, spec, theme, href) {
+    const K = "channel-threshold";
     const d = L.data as {
       channels: Array<{
-        name: string;
         hist: number[];
         theta: number;
         fired: { fix: number; cal: number };
@@ -576,6 +656,7 @@ const channelThresholdKind: KindImpl = {
     };
     const f = L.files as Record<string, string>;
     const n = d.channels.length;
+    const names = channelNames(spec, n);
     const gap = 24;
     const cw = Math.floor((W - (n - 1) * gap) / n);
     const ch = even(cw / 1.5);
@@ -594,19 +675,22 @@ const channelThresholdKind: KindImpl = {
               `<rect x="${r3(i * bw)}" y="${r3(histH - v * (histH - 8))}" width="${r3(bw - 1)}" height="${r3(v * (histH - 8))}" fill="${theme.muted}"/>`,
           )
           .join("");
-        return `${label(`n${k}`, c.name, x, LAB_H, SMALL, theme.fg)}
+        return `${label(`n${k}`, names[k] as string, x, LAB_H, SMALL, theme.fg)}
 ${panel(`m${k}`, x, yMap, cw, ch, img(`mi${k}`, href(f[`map${k}`] as string), 0, 0, cw, ch), "lit-dark")}
 <svg id="SCENEID-h${k}" width="${cw}" height="${histH}" viewBox="0 0 ${cw} ${histH}" style="left:${px(x)};top:${px(yHist)}">${bars}<line x1="0" y1="${histH}" x2="${cw}" y2="${histH}" stroke="${theme.rule}" stroke-width="2"/></svg>
 <div id="SCENEID-th${k}" style="position:absolute;left:${px(x + d.thetaFixed * cw - 2)};top:${px(yHist - 6)};width:5px;height:${px(histH + 12)};background:${theme.accent}"></div>
 ${panel(`s${k}`, x, ySp, cw, ch, `${img(`sf${k}`, href(f[`fix${k}`] as string), 0, 0, cw, ch)}${img(`sc${k}`, href(f[`cal${k}`] as string), 0, 0, cw, ch)}`, "lit-dark")}`;
       })
       .join("\n");
+    const note = lab(K, spec, "note", { alpha: d.alpha, D: d.D });
+    const standIn = lab(K, spec, "standIn");
     const markup = `<div id="SCENEID-lit">
-${label("l-ch", lab(spec, "channels", "규모가 다른 채널"), 0, 0, LABEL, theme.fg)}
-${label("l-note", `α = ${d.alpha} · D = ${d.D}`, W - widthOf(`α = ${d.alpha} · D = ${d.D}`, SMALL, theme) - 8, 0, SMALL, theme.muted)}
+${label("l-ch", lab(K, spec, "channels"), 0, 0, LABEL, theme.fg)}
+${label("l-note", note, W - widthOf(note, SMALL, theme) - 8, 0, SMALL, theme.muted)}
 ${cols}
-${label("l-fix", lab(spec, "fixed", "하나의 고정 임계값"), 0, yRow, LABEL, theme.fg)}
-${label("l-cal", lab(spec, "calibrated", "채널별 보정 · 예시 값"), 0, yRow, LABEL, theme.accent)}
+${label("l-fix", lab(K, spec, "fixed"), 0, yRow, LABEL, theme.fg)}
+${label("l-cal", lab(K, spec, "calibrated"), 0, yRow, LABEL, theme.accent)}
+${label("l-stand", standIn, 0, Math.min(H - LAB_H, ySp + ch + 20), SMALL, theme.muted)}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
     // With one cue, the calibration is the cue's second half.
@@ -615,6 +699,7 @@ ${label("l-cal", lab(spec, "calibrated", "채널별 보정 · 예시 값"), 0, y
     const tl = new Tl();
     tl.show("l-ch", 0.1);
     tl.show("l-note", 0.4);
+    tl.show("l-stand", 0.8);
     for (let k = 0; k < n; k++) {
       tl.show(`m${k}`, 0.2 + k * 0.12, 0.5);
       tl.show(`n${k}`, 0.2 + k * 0.12, 0.5);
@@ -653,24 +738,32 @@ ${label("l-cal", lab(spec, "calibrated", "채널별 보정 · 예시 값"), 0, y
 /* --------------------------------------------- calibrated, then frozen (EMA) */
 
 export interface EmaRun {
-  /** Each training crop's own α·σ. */
+  /** Each training crop's own value, α·σ²: the threshold that crop alone would set. */
   own: number[];
-  /** The threshold after each crop: α·√(EMA of σ²). */
+  /** The threshold after each crop: α·v̂, v̂ the EMA of the variance. */
   theta: number[];
 }
 
-/** TM-LIF's running estimate: v̂ ← μ·v̂ + (1−μ)·σ², θ = α·√v̂; v̂ starts at the first crop's. */
-export function emaThresholds(sigmas: readonly number[], mu = MOMENTUM, alpha = ALPHA): EmaRun {
-  let v = (sigmas[0] ?? 0) ** 2;
+/**
+ * TM-LIF's running estimate as the source states it: v̂ ← μ·v̂ + (1−μ)·σ², and
+ * the threshold PROPORTIONAL TO v̂ with scale α — θ = α·v̂, no square root.
+ * v̂ starts at the first crop's variance.
+ */
+export function emaThresholds(variances: readonly number[], mu: number, alpha: number): EmaRun {
+  let v = variances[0] ?? 0;
   const theta: number[] = [];
-  sigmas.forEach((s, i) => {
-    if (i > 0) v = mu * v + (1 - mu) * s * s;
-    theta.push(alpha * Math.sqrt(v));
+  variances.forEach((s, i) => {
+    if (i > 0) v = mu * v + (1 - mu) * s;
+    theta.push(alpha * v);
   });
-  return { own: sigmas.map((s) => alpha * s), theta };
+  return { own: variances.map((s) => alpha * s), theta };
 }
 
-/** `n` non-identical crop origins of size `c` inside w×h, from a seeded LCG. */
+/**
+ * `n` crop origins of size `c` inside w×h, from a seeded LCG. Refuses a
+ * picture smaller than one crop: a crop cannot be cut from it, and a negative
+ * origin would read outside the picture.
+ */
 export function cropOrigins(
   w: number,
   h: number,
@@ -678,6 +771,8 @@ export function cropOrigins(
   n: number,
   seed: number,
 ): Array<[number, number]> {
+  if (!(c > 0) || w < c || h < c)
+    throw new Error(`literal: a ${c}×${c} crop does not fit a ${w}×${h} picture`);
   const rnd = lcg(seed);
   const out: Array<[number, number]> = [];
   while (out.length < n) {
@@ -688,13 +783,12 @@ export function cropOrigins(
   return out;
 }
 
-const CROP = 256;
 const N_CROPS = 16;
 /** The test picture's haze: denser than training's, so its statistics differ (illustrative). */
 const T_TEST = 0.2;
 
-function sobelChannelStd(img: Rgb): number {
-  return std(sobel(luma(img), img.w, img.h));
+function sobelVariance(img: Rgb): number {
+  return std(sobel(luma(img), img.w, img.h)) ** 2;
 }
 
 function cropOf(img: Rgb, x0: number, y0: number, c: number): Rgb {
@@ -728,14 +822,18 @@ async function nativeSize(image: string): Promise<{ w: number; h: number }> {
 
 const emaKind: KindImpl = {
   picture: true,
-  async layers({ image, dir, beatId }) {
+  async layers({ image, dir, beatId, spec }) {
+    const K = "ema-threshold";
+    const alpha = num(K, spec, "alpha");
+    const mu = num(K, spec, "momentum");
+    const crop = num(K, spec, "crop");
     const { w, h } = await nativeSize(image as string);
+    const origins = cropOrigins(w, h, crop, N_CROPS, 20261010);
     const full = haze(await readRgb(image as string, w, h), T_HAZE, AIRLIGHT);
-    const origins = cropOrigins(w, h, CROP, N_CROPS, 20261010);
-    const sig = origins.map(([x, y]) => sobelChannelStd(cropOf(full, x, y, CROP)));
-    const run = emaThresholds(sig);
+    const vars = origins.map(([x, y]) => sobelVariance(cropOf(full, x, y, crop)));
+    const run = emaThresholds(vars, mu, alpha);
     const testImg = haze(await readRgb(image as string, w, h), T_TEST, AIRLIGHT);
-    const testOwn = ALPHA * sobelChannelStd(testImg);
+    const testOwn = alpha * sobelVariance(testImg);
     const DW = 720;
     const DH = Math.round((DW * h) / w);
     const files = { hazy: `${beatId}-train.jpg`, test: `${beatId}-test.jpg` };
@@ -751,22 +849,23 @@ const emaKind: KindImpl = {
       DH,
       toRgba(haze(await readRgb(image as string, DW, DH), T_TEST, AIRLIGHT)),
     );
+    // Six significant figures: the values are relative, and a variance is small.
+    const sig = (v: number) => Number(v.toPrecision(6));
     return {
       files,
       data: {
         w,
         h,
-        crop: CROP,
+        crop,
         origins,
-        own: run.own.map((v) => r3(v * 1000) / 1000),
-        theta: run.theta.map((v) => r3(v * 1000) / 1000),
-        testOwn: r3(testOwn * 1000) / 1000,
-        mu: MOMENTUM,
-        alpha: ALPHA,
+        own: run.own.map(sig),
+        theta: run.theta.map(sig),
+        testOwn: sig(testOwn),
       },
     };
   },
   fragment(L, { width: W, height: H }, cues, spec, theme, href) {
+    const K = "ema-threshold";
     const d = L.data as {
       w: number;
       h: number;
@@ -775,8 +874,6 @@ const emaKind: KindImpl = {
       own: number[];
       theta: number[];
       testOwn: number;
-      mu: number;
-      alpha: number;
     };
     const f = L.files as Record<string, string>;
     const pw = Math.min(760, even(((H - LAB_H) * 1.5) | 0));
@@ -785,12 +882,12 @@ const emaKind: KindImpl = {
     const cs = r3(d.crop * k);
     const qx = pw + 72;
     const qw = W - qx;
-    // Plot: crops 1..N on the left 72%, then the inference column.
+    // Plot: crops 1..N on the left 68%, then the inference column.
     const n = d.own.length;
     const trainW = qw * 0.68;
     const infX = trainW + 60;
-    const py0 = LAB_H + 30;
-    const plotH = H - py0 - LAB_H * 2;
+    const py0 = LAB_H * 2 + 20;
+    const plotH = H - py0 - LAB_H * 2 - 10;
     const vals = [...d.own, ...d.theta, d.testOwn];
     const vmax = Math.max(...vals) * 1.15;
     const vmin = Math.min(...vals) * 0.8;
@@ -811,10 +908,11 @@ const emaKind: KindImpl = {
       .join("");
     const last = d.theta[n - 1] as number;
     const markup = `<div id="SCENEID-lit">
-${label("l-train", lab(spec, "train", "학습: 무작위 256×256 크롭"), 0, 0, LABEL, theme.fg)}
-${label("l-infer", lab(spec, "infer", "추론: 새 영상"), 0, 0, LABEL, theme.fg)}
+${label("l-train", lab(K, spec, "train"), 0, 0, LABEL, theme.fg)}
+${label("l-infer", lab(K, spec, "infer"), 0, 0, LABEL, theme.fg)}
 ${panel("pic", 0, LAB_H, pw, ph, `${img("train", href(f.hazy as string), 0, 0, pw, ph)}${img("test", href(f.test as string), 0, 0, pw, ph)}<div id="SCENEID-crop" style="position:absolute;left:0;top:0;width:${px(cs)};height:${px(cs)};border:4px solid ${theme.accent};box-sizing:border-box"></div>`, "lit-dark")}
-${label("l-ema", lab(spec, "ema", `임계값 = α·√EMA(분산) · μ = ${d.mu}`), qx, 0, LABEL, theme.fg)}
+${label("l-ema", lab(K, spec, "formula"), qx, 0, LABEL, theme.accent)}
+${label("l-own", lab(K, spec, "own"), qx, LAB_H + 4, SMALL, theme.muted)}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${r3(py0 + plotH)}" x2="${qw}" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
 <rect id="SCENEID-zone" x="${r3(infX - 24)}" y="${py0}" width="${r3(qw - infX + 24)}" height="${r3(plotH)}" fill="${theme.rule}" opacity="0.35"/>
@@ -823,9 +921,8 @@ ${dots}${segs}
 <circle id="SCENEID-tdot" cx="${r3(infX + (qw - infX) / 2)}" cy="${yOf(d.testOwn)}" r="12" fill="none" stroke="${theme.fg}" stroke-width="4"/>
 <line id="SCENEID-gap" x1="${r3(infX + (qw - infX) / 2)}" y1="${yOf(d.testOwn)}" x2="${r3(infX + (qw - infX) / 2)}" y2="${yOf(last)}" stroke="${theme.fg}" stroke-width="3" stroke-dasharray="4 6"/>
 </svg>
-${label("l-own", lab(spec, "own", "크롭마다의 값 (예시)"), qx, H - LAB_H * 2 + 6, SMALL, theme.muted)}
-${label("l-frozen", lab(spec, "frozen", "추론: 임계값 고정"), qx + infX - 24, py0 + plotH + 6, SMALL, theme.accent)}
-${label("l-test", lab(spec, "test", "새 영상의 값 — 다시 맞추지 않음"), qx, H - LAB_H + 6, SMALL, theme.fg)}
+${label("l-frozen", lab(K, spec, "frozen"), qx + infX - 24, py0 + plotH + 6, SMALL, theme.accent)}
+${label("l-test", lab(K, spec, "test"), qx, H - LAB_H + 6, SMALL, theme.fg)}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
     const tl = new Tl();
@@ -836,7 +933,7 @@ ${label("l-test", lab(spec, "test", "새 영상의 값 — 다시 맞추지 않�
     tl.fromTo("test", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     tl.fromTo("l-infer", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     tl.fromTo("zone", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-    // Step 1, training: the crop visits N places; each one's spread moves the running average.
+    // Step 1, training: the crop visits N places; each one's variance moves the running average.
     const c0 = s0 + 0.8;
     const span = Math.max(4, Math.min(n * 0.55, s1 - c0 - 0.6));
     const dt = span / n;
@@ -854,7 +951,7 @@ ${label("l-test", lab(spec, "test", "새 영상의 값 — 다시 맞추지 않�
       tl.show(`o${i}`, at + dt * 0.4, 0.25);
       tl.show(`e${i}`, at + dt * 0.5, 0.25);
     });
-    // Step 2, inference: the threshold stops; a new picture arrives and is not recalibrated.
+    // Step 2, inference: the threshold stops; a differently hazed picture arrives and is not recalibrated.
     const i0 = Math.max(c0 + span + 0.4, s1);
     tl.hide("crop", i0, 0.3);
     tl.hide("l-train", i0, 0.4);
@@ -899,10 +996,17 @@ export function upsample(v: Float32Array, w: number, h: number): Float32Array {
   return o;
 }
 
-/** Spike-quantize a map at its own calibrated threshold, returning levels in [0, 1] and θ. */
+/**
+ * The backbone's display quantizer: θ = σ of the map, four levels. A choice of
+ * this illustration (the scene says its operations are fixed, not the trained
+ * network), not any paper's α or D.
+ */
+const BB_LEVELS = 4;
+
+/** Spike-quantize a map at its own spread, returning levels in [0, 1] and θ. */
 function spikeMap(u: Float32Array): { s: Float32Array; theta: number } {
-  const theta = thetaOf(std(u));
-  return { s: tmQuantize(u, theta), theta };
+  const theta = std(u);
+  return { s: tmQuantize(u, theta, BB_LEVELS), theta };
 }
 
 export interface Backbone {
@@ -947,8 +1051,9 @@ export function fixedBackbone(l: Float32Array, w: number, h: number): Backbone {
     cur = spikeMap(sum).s;
     dec.unshift(cur);
   }
-  // PRB (fixed stand-in): spike levels back to a continuous map, smoothed by a 3×3 mean.
-  const prb = boxBlur(dec[0] as Float32Array, w, h, 1);
+  // PRB (fixed stand-in): spike levels back to a continuous map, smoothed by a 7×7 mean —
+  // wide enough that four levels read as a continuous grey, which a 3×3 did not.
+  const prb = boxBlur(dec[0] as Float32Array, w, h, 3);
   return { shallow, enc, dec, prb };
 }
 
@@ -993,10 +1098,11 @@ const backboneKind: KindImpl = {
     return { files, data: { w: BB_W, h: BB_H } };
   },
   fragment(L, { width: W, height: H }, cues, spec, theme, href) {
+    const K = "backbone";
     const f = L.files as Record<string, string>;
-    // A U: full size at the top corners, then 1/2, 1/4, 1/8 down the middle and back up.
+    // A U: full size at the top corners, then halving down the middle and back up.
     // Every map at its TRUE relative size; seven columns = 3.625 full widths + six gaps.
-    const gap = 36;
+    const gap = 40;
     const full = even(Math.min(420, (W - 6 * gap) / 3.625, ((H - 2 * LAB_H) / 2) * 1.5));
     const sz = [full, full / 2, full / 4, full / 8].map((v) => even(v));
     const hz = sz.map((v) => even(v / 1.5));
@@ -1013,78 +1119,98 @@ const backboneKind: KindImpl = {
     const yIn = H - fullH;
     // Levels step down between the top row and the bottom of the region.
     const bottom = H - (hz[3] as number) - 4;
-    const top1 = LAB_H + fullH * 0.55;
+    const top1 = LAB_H + fullH * 0.62;
     const Y = lv.map((l) => (l === 0 ? LAB_H : top1 + ((bottom - top1) * (l - 1)) / 2));
-    const centre = (i: number) => {
+    const box = (i: number) => {
       const l = lv[i] as number;
-      return [
-        (X[i] as number) + (sz[l] as number) / 2,
-        (Y[i] as number) + (hz[l] as number) / 2,
-      ] as const;
+      return {
+        x: X[i] as number,
+        y: Y[i] as number,
+        w: sz[l] as number,
+        h: hz[l] as number,
+      };
+    };
+    const centre = (i: number) => {
+      const b = box(i);
+      return [b.x + b.w / 2, b.y + b.h / 2] as const;
     };
     const map = (id: string, file: string, i: number, pix = true) => {
-      const l = lv[i] as number;
+      const b = box(i);
       return panel(
         id,
-        X[i] as number,
-        Y[i] as number,
-        sz[l] as number,
-        hz[l] as number,
-        img(
-          `${id}-i`,
-          href(file),
-          0,
-          0,
-          sz[l] as number,
-          hz[l] as number,
-          pix ? "image-rendering:pixelated" : "",
-        ),
+        b.x,
+        b.y,
+        b.w,
+        b.h,
+        img(`${id}-i`, href(file), 0, 0, b.w, b.h, pix ? "image-rendering:pixelated" : ""),
         "lit-dark",
       );
     };
     const mapLabel = (id: string, text: string, i: number) =>
       label(id, text, X[i] as number, (Y[i] as number) - LAB_H, SMALL, theme.fg);
+    // The data flow, as arrows: input → 3×3 → down the encoder → up the decoder → PRB → output.
+    const arrow = (id: string, x1: number, y1: number, x2: number, y2: number) =>
+      `<line id="SCENEID-${id}" x1="${r3(x1)}" y1="${r3(y1)}" x2="${r3(x2)}" y2="${r3(y2)}" stroke="${theme.fg}" stroke-width="4" marker-end="url(#SCENEID-ah)"/>`;
+    const flow: string[] = [];
+    const inB = { x: X[0] as number, y: yIn, w: full, h: fullH };
+    flow.push(arrow("a0", inB.x + full / 2, inB.y - 8, inB.x + full / 2, LAB_H + fullH + 14));
+    for (let i = 0; i < 6; i++) {
+      const a = box(i);
+      const b = box(i + 1);
+      flow.push(arrow(`a${i + 1}`, a.x + a.w + 6, a.y + a.h / 2, b.x - 10, b.y + b.h / 2));
+    }
+    const m6 = box(6);
+    flow.push(arrow("a7", m6.x + full / 2, m6.y + m6.h + 8, m6.x + full / 2, yIn - LAB_H - 6));
+    // Skips run along the maps' top edges, clear of the level labels.
     const skip = (i: number, j: number) => {
-      const [, y] = centre(i);
-      const l = lv[i] as number;
-      return `<line id="SCENEID-k${i}" x1="${r3((X[i] as number) + (sz[l] as number) + 6)}" y1="${r3(y)}" x2="${r3((X[j] as number) - 6)}" y2="${r3(y)}" stroke="${theme.muted}" stroke-width="4" stroke-dasharray="10 9"/>`;
+      const y = (Y[i] as number) + 12;
+      const a = box(i);
+      return `<line id="SCENEID-k${i}" x1="${r3(a.x + a.w + 6)}" y1="${r3(y)}" x2="${r3((X[j] as number) - 6)}" y2="${r3(y)}" stroke="${theme.muted}" stroke-width="4" stroke-dasharray="10 9"/>`;
     };
-    const outLines = wrap(
-      lab(spec, "untrained", "학습된 가중치가 필요해 그리지 않음"),
-      SMALL,
-      full - 48,
-      theme,
-    );
+    const outLines = wrap(lab(K, spec, "untrained"), SMALL, full - 48, theme);
     const outText = outLines
       .map((t, i) =>
         label(`ot${i}`, t, (X[6] as number) + 24, yIn + 24 + i * 52, SMALL, theme.muted),
       )
       .join("");
-    const note = lab(spec, "note", "고정 연산 예시 · 학습된 EM-SNN이 아님");
+    const note = lab(K, spec, "note");
+    // The depth note sits in the free band left of the bottom map, wrapped to it.
+    const dx = (X[1] as number) - 10;
+    const dw = (X[3] as number) - dx - 24;
+    const depthLines = wrap(lab(K, spec, "depth"), SMALL, dw, theme);
+    const depth = depthLines
+      .map((t, i) => label(`dn${i}`, t, dx, H - (depthLines.length - i) * 52, SMALL, theme.muted))
+      .join("");
     const markup = `<div id="SCENEID-lit">
-${label("l-in", lab(spec, "input", "입력"), X[0] as number, yIn - LAB_H, SMALL, theme.fg)}
+${label("l-in", lab(K, spec, "input"), X[0] as number, yIn - LAB_H, SMALL, theme.fg)}
 ${panel("in", X[0] as number, yIn, full, fullH, img("in-i", href(f.input as string), 0, 0, full, fullH), "lit-dark")}
-${mapLabel("l0", lab(spec, "shallow", "3×3 특징"), 0)}
+${mapLabel("l0", lab(K, spec, "shallow"), 0)}
 ${map("m0", f.shallow as string, 0, false)}
-${mapLabel("l1", lab(spec, "encoder", "인코더 1/2"), 1)}${map("m1", f.e1 as string, 1)}
-${mapLabel("l2", "1/4", 2)}${map("m2", f.e2 as string, 2)}
-${mapLabel("l3", "1/8", 3)}${map("m3", f.e3 as string, 3)}
-${mapLabel("l4", "1/4", 4)}${map("m4", f.d2 as string, 4)}
-${mapLabel("l5", lab(spec, "decoder", "디코더 1/2"), 5)}${map("m5", f.d1 as string, 5)}
-${mapLabel("l6", lab(spec, "prb", "PRB: 연속 표현"), 6)}
+${mapLabel("l1", lab(K, spec, "encoder"), 1)}${map("m1", f.e1 as string, 1)}
+${map("m2", f.e2 as string, 2)}
+${map("m3", f.e3 as string, 3)}
+${map("m4", f.d2 as string, 4)}
+${mapLabel("l5", lab(K, spec, "decoder"), 5)}${map("m5", f.d1 as string, 5)}
+${mapLabel("l6", lab(K, spec, "prb"), 6)}
 ${panel("m6", X[6] as number, Y[6] as number, full, fullH, `${img("m6-s", href(f.d0 as string), 0, 0, full, fullH, "image-rendering:pixelated")}${img("m6-c", href(f.prb as string), 0, 0, full, fullH)}`, "lit-dark")}
-<svg id="SCENEID-skips" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="left:0;top:0">${skip(0, 6)}${skip(1, 5)}${skip(2, 4)}</svg>
-${label("l-skip", lab(spec, "skip", "스킵 연결"), (X[1] as number) + (sz[1] as number) + 16, centre(1)[1] - 58, SMALL, theme.muted)}
-${label("l-out", lab(spec, "output", "출력 3×3 합성곱"), X[6] as number, yIn - LAB_H, SMALL, theme.fg)}
+<svg id="SCENEID-flow" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="left:0;top:0"><defs><marker id="SCENEID-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${theme.fg}"/></marker></defs>${flow.join("")}${skip(0, 6)}${skip(1, 5)}${skip(2, 4)}</svg>
+${label("l-skip", lab(K, spec, "skip"), (X[2] as number) - 10, (Y[1] as number) + 12 - 54, SMALL, theme.muted)}
+${label("l-out", lab(K, spec, "output"), X[6] as number, yIn - LAB_H, SMALL, theme.fg)}
 <div id="SCENEID-out" style="position:absolute;left:${px(X[6] as number)};top:${px(yIn)};width:${px(full)};height:${px(fullH)};border:3px dashed ${theme.muted};box-sizing:border-box;border-radius:6px"></div>
 ${outText}
 ${label("l-fixed", note, Math.max(X[1] as number, (W - widthOf(note, SMALL, theme)) / 2), 0, SMALL, theme.muted)}
+${depth}
 </div>`;
     const [s0, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
     const tl = new Tl();
     tl.show("in", 0.05, 0.5);
     tl.show("l-in", 0.2);
     tl.show("l-fixed", 0.6);
+    tl.show("flow", 0.05, 0.01);
+    for (let i = 0; i <= 7; i++)
+      tl.fromTo(`a${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+    for (const i of [0, 1, 2])
+      tl.fromTo(`k${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     const appear = (
       id: string,
       i: number,
@@ -1101,32 +1227,40 @@ ${label("l-fixed", note, Math.max(X[1] as number, (W - widthOf(note, SMALL, them
       );
     };
     // Step 1: a 3×3 filter turns the input into shallow features.
+    tl.show("a0", s0 + 0.4, 0.4);
     appear("m0", 0, [(X[0] as number) + full / 2, yIn + fullH / 2], 1, s0 + 0.6);
     tl.show("l0", s0 + 1.3);
     // Step 2: down, scale by scale — each map is the one before, pooled to half and spiked.
     for (let i = 1; i <= 3; i++) {
       const at = s1 + 0.3 + (i - 1) * 1.1;
+      tl.show(`a${i}`, at - 0.2, 0.3);
       appear(`m${i}`, i, centre(i - 1), 2, at);
-      tl.show(`l${i}`, at + 0.6);
+      if (i === 1) tl.show("l1", at + 0.6);
     }
+    for (let i = 0; i < depthLines.length; i++) tl.show(`dn${i}`, s1 + 3.8);
     // Step 3: up, scale by scale, each joined by the encoder's map across its skip.
-    tl.show("skips", s2 + 0.1, 0.6);
-    tl.show("l-skip", s2 + 0.1);
     for (const [i, from] of [
       [4, 3],
       [5, 4],
     ] as const) {
       const at = s2 + 0.5 + (i - 4) * 1.4;
+      tl.show(`k${6 - i}`, at - 0.4, 0.5);
+      tl.show(`a${i}`, at - 0.2, 0.3);
       appear(`m${i}`, i, centre(from), 0.5, at);
-      tl.show(`l${i}`, at + 0.6);
+      if (i === 5) tl.show("l5", at + 0.6);
     }
-    // Step 4: full size as spike levels, then the PRB's continuous map; the output is not drawn.
-    appear("m6", 6, centre(5), 0.5, s3 + 0.2);
-    tl.show("l6", s3 + 0.8);
-    tl.fromTo("m6-c", { opacity: 0 }, { opacity: 1, duration: 1.2, ease: "sine.inOut" }, s3 + 1.6);
-    tl.show("l-out", s3 + 2.6);
-    tl.show("out", s3 + 2.6, 0.5);
-    for (let i = 0; i < outLines.length; i++) tl.show(`ot${i}`, s3 + 2.9);
+    tl.show("l-skip", s2 + 0.2);
+    // Step 4: the output is not drawn (it needs trained weights); full size as spike levels,
+    // then the PRB's continuous map — the scene ends on what the fixed operations computed.
+    tl.show("l-out", s3);
+    tl.show("out", s3, 0.5);
+    for (let i = 0; i < outLines.length; i++) tl.show(`ot${i}`, s3 + 0.3);
+    tl.show("k0", s3 + 0.6, 0.5);
+    tl.show("a6", s3 + 0.8, 0.3);
+    appear("m6", 6, centre(5), 0.5, s3 + 1.0);
+    tl.show("l6", s3 + 1.6);
+    tl.fromTo("m6-c", { opacity: 0 }, { opacity: 1, duration: 1.2, ease: "sine.inOut" }, s3 + 2.4);
+    tl.show("a7", s3 + 3.4, 0.4);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };
@@ -1179,11 +1313,11 @@ const fixedFiltersKind: KindImpl = {
     await writeRaster(join(dir, files.gx), FF_W, FF_H, mapRgba(normBy(gx, top), EDGE));
     await writeRaster(join(dir, files.gy), FF_W, FF_H, mapRgba(normBy(gy, top), EDGE));
     await writeRaster(join(dir, files.s), FF_W, FF_H, mapRgba(normBy(s, quantile(s, 0.99))));
-    return { files: { ...files, thumb: files.s }, data: { T: T_STEPS } };
+    return { files: { ...files, thumb: files.s }, data: {} };
   },
   fragment(L, { width: W, height: H }, cues, spec, theme, href) {
+    const K = "fixed-filters";
     const f = L.files as Record<string, string>;
-    const d = L.data as { T: number };
     const cell = 64;
     const kw = cell * 3;
     const g = 28;
@@ -1200,119 +1334,125 @@ const fixedFiltersKind: KindImpl = {
     const xs = [0, kw + g, kw + 2 * g + mw, 2 * kw + 3 * g + mw];
     const xS = W - mw;
     const yCap = y0 + mh + 10;
-    const yP = yCap + 56;
-    const yT = yP + 2 * LAB_H + 24;
-    const boxH = Math.max(150, H - yT - 4);
-    const bw = Math.min(820, W * 0.5);
-    const gw = (W - bw - 40) / 2 - 24;
-    const ghosts = [1, 2].map((i) => {
-      const gx = bw + 40 + (i - 1) * (gw + 24);
-      return `<div id="SCENEID-g${i}" style="position:absolute;left:${px(gx)};top:${px(yT)};width:${px(gw)};height:${px(boxH)};border:3px dashed ${theme.muted};border-radius:8px;box-sizing:border-box"></div>${label(`gt${i}`, `t = ${i + 1}`, gx + 24, yT + 20, SMALL, theme.muted)}${label(`gs${i}`, lab(spec, "same", "같은 가중치"), gx + 24, yT + 76, SMALL, theme.muted)}`;
-    });
-    const lines = [
-      lab(spec, "mlp", "채널 조절: 소형 MLP"),
-      lab(spec, "gate", "공간 게이트: 경량 스파이킹 합성곱"),
-    ];
+    const yP = Math.min(H - 2 * LAB_H, yCap + 90);
+    // The small learned part, named as the source names it — words, not a box of cards.
+    const learned = lab(K, spec, "learned");
     const markup = `<div id="SCENEID-lit">
-${label("l-k", lab(spec, "kernels", "고정 Sobel 필터 → 기울기"), 0, 0, LABEL, theme.fg)}
+${label("l-k", lab(K, spec, "kernels"), 0, 0, LABEL, theme.fg)}
 ${kernel("kx", SOBEL_X, xs[0] as number)}
 ${panel("gx", xs[1] as number, y0, mw, mh, img("gx-i", href(f.gx as string), 0, 0, mw, mh), "lit-dark")}
 ${kernel("ky", SOBEL_Y, xs[2] as number)}
 ${panel("gy", xs[3] as number, y0, mw, mh, img("gy-i", href(f.gy as string), 0, 0, mw, mh), "lit-dark")}
-${label("l-s", lab(spec, "structure", "구조 맵"), xS, 0, LABEL, theme.fg)}
+${label("l-s", lab(K, spec, "structure"), xS, 0, LABEL, theme.fg)}
 ${panel("s", xS, y0, mw, mh, img("s-i", href(f.s as string), 0, 0, mw, mh), "lit-dark")}
 ${label("l-gx", "|Gx|", xs[1] as number, yCap, SMALL, theme.muted)}
 ${label("l-gy", "|Gy|", xs[3] as number, yCap, SMALL, theme.muted)}
-${label("l-sf", "(|Gx|+|Gy|) / 평균", xS, yCap, SMALL, theme.muted)}
-${label("l-p", lab(spec, "params", "필터 숫자는 고정 · 학습 파라미터 0개"), 0, yP, LABEL, theme.accent)}
-${label("l-steps", lab(spec, "steps", `학습되는 작은 분기 · 기본 T = ${d.T}`), 0, yT - LAB_H - 6, LABEL, theme.fg)}
-<div id="SCENEID-t1" style="position:absolute;left:0;top:${px(yT)};width:${px(bw)};height:${px(boxH)};border:3px solid ${theme.fg};border-radius:8px;box-sizing:border-box"></div>
-${label("t1-l", "t = 1", 24, yT + 20, SMALL, theme.fg)}
-${lines.map((t, i) => label(`t1-${i}`, t, 24, yT + 80 + i * 56, SMALL, theme.fg)).join("")}
-${label("l-ghost", lab(spec, "shared", "T > 1이라면"), bw + 40, yT - LAB_H - 6, LABEL, theme.muted)}
-${ghosts.join("")}
+${label("l-sf", lab(K, spec, "formula"), xS, yCap, SMALL, theme.muted)}
+${label("l-p", lab(K, spec, "params"), 0, yP, LABEL, theme.accent)}
+${learned ? label("l-learned", learned, 0, yP + LAB_H + 8, LABEL, theme.fg) : ""}
 </div>`;
-    const [s0, s1, s2] = stepStarts(cues, 3) as [number, number, number];
+    const [s0, s1] = stepStarts(cues, 2) as [number, number];
     const tl = new Tl();
     tl.show("l-k", 0.1);
-    // Step 1: two fixed kernels, their responses on the picture, and their sum: nothing here is learned.
+    // Step 1: two fixed kernels and their responses on the picture.
     tl.show("kx", s0 + 0.2, 0.5);
     tl.show("gx", s0 + 0.8, 0.6);
     tl.show("l-gx", s0 + 0.8);
     tl.show("ky", s0 + 1.4, 0.5);
     tl.show("gy", s0 + 2.0, 0.6);
     tl.show("l-gy", s0 + 2.0);
-    tl.show("l-s", s0 + 2.8);
-    tl.show("s", s0 + 2.8, 0.8);
-    tl.show("l-sf", s0 + 2.8);
-    tl.show("l-p", s0 + 3.6);
-    // Step 2: the learned part is small: one MLP and one light spiking conv, in one time step.
-    tl.show("l-steps", s1);
-    tl.show("t1", s1 + 0.2, 0.5);
-    tl.show("t1-l", s1 + 0.2);
-    tl.show("t1-0", s1 + 0.6);
-    tl.show("t1-1", s1 + 1.2);
-    // Step 3: more steps would reuse the same weights; the default runs one.
-    tl.show("l-ghost", s2);
-    for (const i of [1, 2]) {
-      tl.show(`g${i}`, s2 + 0.3 * i, 0.5);
-      tl.show(`gt${i}`, s2 + 0.3 * i);
-      tl.show(`gs${i}`, s2 + 0.3 * i + 0.4);
-    }
+    // Step 2: their sum, normalised, is the structure map; nothing in it is learned.
+    tl.show("l-s", s1);
+    tl.show("s", s1, 0.8);
+    tl.show("l-sf", s1 + 0.4);
+    tl.show("l-p", s1 + 1.2);
+    if (learned) tl.show("l-learned", s1 + 2.0);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };
 
 /* ------------------------------------------------------------------ crops */
 
-const BATCH = 4;
+/** The picture a crops scene cuts from: the training size the source states (a centred square), or its own. */
+async function trainingPicture(image: string, size: number | undefined): Promise<Rgb> {
+  if (size === undefined) {
+    const { w, h } = await nativeSize(image);
+    return readRgb(image, w, h);
+  }
+  // Resized to size×size as the source says; the middle square, so nothing is stretched.
+  const { w, h } = await nativeSize(image);
+  const side = Math.min(w, h);
+  const full = await readRgb(image, w, h);
+  const sq = cropOf(full, Math.floor((w - side) / 2), Math.floor((h - side) / 2), side);
+  return resample(sq, size);
+}
+
+/** Area-average resample of a square picture to n×n. */
+function resample(img: Rgb, n: number): Rgb {
+  const d = new Float32Array(n * n * 3);
+  const k = img.w / n;
+  for (let y = 0; y < n; y++)
+    for (let x = 0; x < n; x++) {
+      const x0 = Math.floor(x * k);
+      const x1 = Math.max(x0 + 1, Math.floor((x + 1) * k));
+      const y0 = Math.floor(y * k);
+      const y1 = Math.max(y0 + 1, Math.floor((y + 1) * k));
+      for (let c = 0; c < 3; c++) {
+        let s = 0;
+        for (let yy = y0; yy < y1; yy++)
+          for (let xx = x0; xx < x1; xx++) s += img.d[(yy * img.w + xx) * 3 + c] as number;
+        d[(y * n + x) * 3 + c] = s / ((x1 - x0) * (y1 - y0));
+      }
+    }
+  return { w: n, h: n, d };
+}
 
 const cropsKind: KindImpl = {
   picture: true,
-  async layers({ image, dir, beatId }) {
-    const { w, h } = await nativeSize(image as string);
-    const full = haze(await readRgb(image as string, w, h), T_HAZE, AIRLIGHT);
-    // Four crops that do not overlap much: draw until each is a crop away from the others.
-    const rnd = lcg(4);
-    const origins: Array<[number, number]> = [];
-    for (let tries = 0; origins.length < BATCH && tries < 400; tries++) {
-      const x = Math.floor(rnd() * (w - CROP + 1));
-      const y = Math.floor(rnd() * (h - CROP + 1));
-      if (origins.every(([a, b]) => Math.abs(a - x) > CROP || Math.abs(b - y) > CROP))
-        origins.push([x, y]);
-    }
-    const DW = 1080;
-    const DH = Math.round((DW * h) / w);
+  async layers({ image, dir, beatId, spec }) {
+    const K = "crops";
+    const crop = num(K, spec, "crop");
+    const batch = num(K, spec, "batch");
+    if (!Number.isInteger(batch) || batch < 1 || batch > 8)
+      throw new Error(`literal: crops draws a batch of 1 to 8 crops, got ${batch}`);
+    const size = slotNumber(K, spec.labels, "size");
+    const pic = haze(await trainingPicture(image as string, size), T_HAZE, AIRLIGHT);
+    const { w, h } = pic;
+    // Exactly `batch` random crops, as training draws them: they may overlap.
+    const origins = cropOrigins(w, h, crop, batch, 4);
     const files: Record<string, string> = { pic: `${beatId}-pic.jpg` };
-    await writeRaster(
-      join(dir, files.pic as string),
-      DW,
-      DH,
-      toRgba(haze(await readRgb(image as string, DW, DH), T_HAZE, AIRLIGHT)),
-    );
+    await writeRaster(join(dir, files.pic as string), w, h, toRgba(pic));
     for (const [i, [x, y]] of origins.entries()) {
       files[`c${i}`] = `${beatId}-crop${i}.jpg`;
       await writeRaster(
         join(dir, files[`c${i}`] as string),
-        CROP,
-        CROP,
-        toRgba(cropOf(full, x, y, CROP)),
+        crop,
+        crop,
+        toRgba(cropOf(pic, x, y, crop)),
       );
     }
-    return { files, data: { w, h, crop: CROP, origins } };
+    return { files, data: { w, h, crop, origins } };
   },
   fragment(L, { width: W, height: H }, cues, spec, theme, href) {
+    const K = "crops";
     const d = L.data as { w: number; h: number; crop: number; origins: Array<[number, number]> };
     const f = L.files as Record<string, string>;
-    const right = 560;
-    const pw = Math.min(W - right - 60, even((H - LAB_H) * (d.w / d.h)));
+    const n = d.origins.length;
+    const right = 600;
+    const pw = even(Math.min(W - right - 60, (H - LAB_H) * (d.w / d.h)));
     const ph = even((pw * d.h) / d.w);
     const k = pw / d.w;
     const cs = r3(d.crop * k);
     const bx = pw + 60;
-    const tile = Math.min(250, (W - bx - 24) / 2, (H - LAB_H - 3 * LAB_H - 40) / 2);
+    const cols = n <= 1 ? 1 : 2;
+    const rows = Math.ceil(n / cols);
+    const tile = Math.min(
+      260,
+      (W - bx - 24 * (cols - 1)) / cols,
+      (H - LAB_H - 24 * (rows - 1)) / rows,
+    );
     const slot = (i: number) =>
-      [bx + (i % 2) * (tile + 24), LAB_H + Math.floor(i / 2) * (tile + 24)] as const;
+      [bx + (i % cols) * (tile + 24), LAB_H + Math.floor(i / cols) * (tile + 24)] as const;
     const crops = d.origins
       .map(([x, y], i) => {
         const [sx, sy] = slot(i);
@@ -1320,29 +1460,26 @@ const cropsKind: KindImpl = {
 <div id="SCENEID-t${i}" class="lit-panel" style="left:${px(sx)};top:${px(sy)};width:${px(tile)};height:${px(tile)}">${img(`t${i}-i`, href(f[`c${i}`] as string), 0, 0, tile, tile)}</div>`;
       })
       .join("\n");
-    const yText = LAB_H + 2 * tile + 24 + 40;
-    const facts = [lab(spec, "optimizer", "AdamW"), lab(spec, "metrics", "평가: PSNR · SSIM")];
     const markup = `<div id="SCENEID-lit">
-${label("l-pic", lab(spec, "picture", `예시 영상 ${d.w}×${d.h} · 크롭은 실제 비율`), 0, 0, LABEL, theme.fg)}
+${label("l-pic", lab(K, spec, "picture"), 0, 0, LABEL, theme.fg)}
 ${panel("pic", 0, LAB_H, pw, ph, img("pic-i", href(f.pic as string), 0, 0, pw, ph), "lit-dark")}
-${label("l-batch", lab(spec, "batch", `${d.crop}×${d.crop} 크롭 · 배치 ${d.origins.length}`), bx, 0, LABEL, theme.fg)}
+${label("l-batch", lab(K, spec, "batchLabel"), bx, 0, LABEL, theme.fg)}
 ${crops}
-${facts.map((t, i) => label(`f${i}`, t, bx, yText + i * 56, SMALL, theme.fg)).join("\n")}
-${label("f-ep", lab(spec, "epochs", "1000 에폭"), bx, yText + 2 * 56, SMALL, theme.fg)}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
     const tl = new Tl();
     tl.show("pic", 0.05, 0.5);
     tl.show("l-pic", 0.2);
-    // Step 1: how it is trained and measured.
-    tl.show("f0", s0 + 0.4);
-    tl.show("f1", s0 + 1.2);
-    // Step 2: random crops cut out of the picture, at true size, and stacked into a batch.
-    tl.show("l-batch", s1);
+    // Step 1: random crops, at true scale on the picture, one after another.
+    const c0 = Math.max(0.8, s0 + 0.4);
+    const dt = Math.max(0.6, Math.min(1.4, (s1 - c0 - 0.4) / n));
+    for (let i = 0; i < n; i++) tl.show(`r${i}`, c0 + i * dt, 0.4);
+    // Step 2: the crops leave the picture and stack into one batch.
+    const b0 = Math.max(s1, c0 + n * dt + 0.2);
+    tl.show("l-batch", b0);
     d.origins.forEach(([x, y], i) => {
-      const at = s1 + 0.4 + i * 0.9;
+      const at = b0 + 0.3 + i * 0.6;
       const [sx, sy] = slot(i);
-      tl.show(`r${i}`, at, 0.4);
       tl.fromTo(
         `t${i}`,
         {
@@ -1352,10 +1489,9 @@ ${label("f-ep", lab(spec, "epochs", "1000 에폭"), bx, yText + 2 * 56, SMALL, t
           scale: r3(cs / tile),
         },
         { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.8, ease: "power2.inOut" },
-        at + 0.3,
+        at,
       );
     });
-    tl.show("f-ep", s1 + 0.4 + d.origins.length * 0.9 + 0.4);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };
@@ -1425,7 +1561,7 @@ const tableKind: KindImpl = {
     const xs = widths.map((_, j) => widths.slice(0, j).reduce((a, b) => a + b, 0));
     const linesOf = (text: string, j: number, sz: number) =>
       wrap(text, sz, (widths[j] as number) - 2 * padX, theme);
-    const caption = spec.labels.caption;
+    const caption = lab("table", spec, "caption");
     const capH = caption ? 90 : 0;
     const headLines = Math.max(...t.columns.map((c, j) => linesOf(c, j, head).length));
     const bodyLines = t.rows.map((r) => Math.max(...r.map((c, j) => linesOf(c, j, size).length)));
@@ -1434,6 +1570,9 @@ const tableKind: KindImpl = {
     const pad = Math.max(14, Math.min(44, (H * 0.86 - content - capH) / (2 * (t.rows.length + 1))));
     const headH = headLines * lineH + 2 * pad;
     const bodyH = bodyLines.map((n) => n * lineH + 2 * pad);
+    const lit = new Set(t.highlight);
+    const isMarked = (i: number, j: number) => t.marks.some((m) => m.row === i && m.col === j);
+    // One cell's lines in a box of its own, so a mark can change the cell's colour as a whole.
     const cell = (
       id: string,
       text: string,
@@ -1446,12 +1585,12 @@ const tableKind: KindImpl = {
     ) => {
       const lines = linesOf(text, j, sz);
       const top = y + (h - lines.length * lineH) / 2;
-      return lines
+      return `<div id="SCENEID-${id}" style="position:absolute;left:0;top:0;width:100%;height:100%">${lines
         .map(
           (ln, i) =>
-            `<div id="SCENEID-${id}-${i}" class="lit-label" style="left:${px((xs[j] as number) + padX)};top:${px(top + i * lineH + (lineH - sz * 1.15) / 2)};font-size:${sz}px;color:${color};font-weight:${weight}">${esc(ln)}</div>`,
+            `<div class="lit-label" style="left:${px((xs[j] as number) + padX)};top:${px(top + i * lineH + (lineH - sz * 1.15) / 2)};font-size:${sz}px;color:${color};font-weight:${weight}">${esc(ln)}</div>`,
         )
-        .join("");
+        .join("")}</div>`;
     };
     const y0 = 0;
     const headRow = t.columns
@@ -1461,31 +1600,17 @@ const tableKind: KindImpl = {
     const bodies: string[] = [];
     t.rows.forEach((r, i) => {
       const h = bodyH[i] as number;
-      const marks = t.marks
-        .filter((m) => m.row === i)
-        .map(
-          (m) =>
-            `<div id="SCENEID-k${i}-${m.col}" style="position:absolute;left:${px((xs[m.col] as number) + 6)};top:${px(y + 6)};width:${px((widths[m.col] as number) - 12)};height:${px(h - 12)};border:3px solid ${theme.accent};box-sizing:border-box;border-radius:8px"></div>`,
-        )
+      const cells = r
+        .map((c, j) => {
+          // A mark on a row that is never spoken is emphasised from the start; on a spoken
+          // row, the cell turns to the accent when the row is spoken — a colour, not a box.
+          if (!isMarked(i, j)) return cell(`c${i}-${j}`, c, j, y, h, theme.fg, size);
+          if (!lit.has(i)) return cell(`c${i}-${j}`, c, j, y, h, theme.accent, size, 700);
+          return `${cell(`c${i}-${j}`, c, j, y, h, theme.fg, size)}${cell(`k${i}-${j}`, c, j, y, h, theme.accent, size, 700)}`;
+        })
         .join("");
       bodies.push(
-        `<div id="SCENEID-band${i}" style="position:absolute;left:0;top:${px(y)};width:${px(W)};height:${px(h)};background:${theme.rule}"></div>${marks}<div id="SCENEID-row${i}" style="position:absolute;left:0;top:0;width:100%;height:100%">${r
-          .map((c, j) => {
-            const marked = t.marks.some((m) => m.row === i && m.col === j);
-            return cell(
-              `c${i}-${j}`,
-              c,
-              j,
-              y,
-              h,
-              marked ? theme.accent : theme.fg,
-              size,
-              marked ? 700 : 600,
-            );
-          })
-          .join(
-            "",
-          )}</div><div style="position:absolute;left:0;top:${px(y + h)};width:${px(W)};height:2px;background:${theme.rule}"></div>`,
+        `<div id="SCENEID-band${i}" style="position:absolute;left:0;top:${px(y)};width:${px(W)};height:${px(h)};background:${theme.rule}"></div><div id="SCENEID-row${i}" style="position:absolute;left:0;top:0;width:100%;height:100%">${cells}</div><div style="position:absolute;left:0;top:${px(y + h)};width:${px(W)};height:2px;background:${theme.rule}"></div>`,
       );
       y += h;
     });
@@ -1496,7 +1621,6 @@ ${caption ? label("cap", caption, 0, Math.min(H - LAB_H, y + 30), SMALL, theme.m
 </div>`;
     const steps = rowSteps(t.highlight, cues.length);
     const at = stepStarts(cues, steps.length);
-    const lit = new Set(t.highlight);
     const tl = new Tl();
     tl.show("head", 0.1, 0.5);
     // The whole table is there from the start, quiet; a row comes forward when it is spoken.
@@ -1508,8 +1632,9 @@ ${caption ? label("cap", caption, 0, Math.min(H - LAB_H, y + 30), SMALL, theme.m
         0.3 + i * 0.08,
       );
       tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-      for (const m of t.marks.filter((mm) => mm.row === i))
-        tl.fromTo(`k${i}-${m.col}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+      if (lit.has(i))
+        for (const m of t.marks.filter((mm) => mm.row === i))
+          tl.fromTo(`k${i}-${m.col}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     });
     if (caption) tl.show("cap", 0.6);
     steps.forEach((rows, s) => {
@@ -1522,13 +1647,10 @@ ${caption ? label("cap", caption, 0, Math.min(H - LAB_H, y + 30), SMALL, theme.m
           t0,
         );
         tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0.45, duration: 0.6 }, t0);
-        for (const m of t.marks.filter((mm) => mm.row === i))
-          tl.fromTo(
-            `k${i}-${m.col}`,
-            { opacity: 0 },
-            { opacity: 1, duration: 0.8, ease: "sine.inOut" },
-            t0 + 0.5,
-          );
+        for (const m of t.marks.filter((mm) => mm.row === i)) {
+          tl.fromTo(`k${i}-${m.col}`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t0 + 0.3);
+          tl.fromTo(`c${i}-${m.col}`, { opacity: 1 }, { opacity: 0, duration: 0.6 }, t0 + 0.3);
+        }
       }
       // The rows lit on the step before step back, so the spoken one leads.
       for (const i of steps[s - 1] ?? [])
@@ -1578,7 +1700,7 @@ const scaleKind: KindImpl = {
     const barH = 60;
     const rowH = 104;
     const tileH = 120;
-    const caption = spec.labels.caption;
+    const caption = lab("scale", spec, "caption");
     const groupH = (g: ScaleData["groups"][number]) =>
       LAB_H +
       10 +
@@ -1662,7 +1784,7 @@ const recapKind: KindImpl = {
     const f = L.files as Record<string, string>;
     const n = d.beats.length;
     // The summary's last word: what the source reports came of it (its own numbers), after the steps.
-    const result = spec.labels.result;
+    const result = lab("recap", spec, "result");
     const resultLines = result ? wrap(result, LABEL, W, theme) : [];
     const resH = resultLines.length ? resultLines.length * 58 + 24 : 0;
     const cols = n <= 3 ? n : Math.ceil(n / 2);
@@ -1676,9 +1798,9 @@ const recapKind: KindImpl = {
       ),
     );
     const th = even(tw / 1.5);
-    const gw = cols * tw + (cols - 1) * gap;
-    const x0 = (W - gw) / 2;
-    const words = (spec.labels.caption ?? "")
+    // Left-aligned, like the headline above it.
+    const x0 = 0;
+    const words = lab("recap", spec, "caption")
       .split("→")
       .map((s) => s.trim())
       .filter(Boolean);
