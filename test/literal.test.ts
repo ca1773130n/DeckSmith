@@ -13,6 +13,7 @@ import {
   LEAK,
   lif,
   literalFragment,
+  literalPlanOf,
   literalPlanSchema,
   luma,
   type Rgb,
@@ -21,6 +22,7 @@ import {
   THETA,
 } from "../src/bespoke/literal.js";
 import type { Theme } from "../src/emit/kit.js";
+import { sourceSchema, storyboardSchema } from "../src/types.js";
 
 const theme: Theme = {
   bg: "#f6f3ec",
@@ -156,5 +158,66 @@ describe("literal fragments obey the deck's invariants", () => {
       literalPlanSchema.parse({ image: "a.png", beats: { b1: { kind: "haze", takeaway: "x" } } })
         .beats.b1?.labels,
     ).toEqual({});
+  });
+});
+
+describe("the plan a storyboard carries", () => {
+  const source = sourceSchema.parse({
+    id: "s",
+    title: "t",
+    sections: [{ id: "sec1", depth: 1, heading: "h", text: "x" }],
+    figures: [{ id: "gen-b01", src: "gen-b01-abc.png", caption: "c", width: 8, height: 8 }],
+    equations: [],
+    tables: [],
+  });
+  const board = (literal: unknown, figureId?: string) =>
+    storyboardSchema.parse({
+      sourceId: "s",
+      title: "t",
+      beats: [
+        {
+          id: "b01",
+          intent: "haze fades the edges",
+          takeaway: "Haze scales every edge by t.",
+          archetype: "stage",
+          params: {
+            headline: "h",
+            placement: "center",
+            ...(figureId ? { figureId } : { illustration: { prompt: "p", caption: "c" } }),
+          },
+          literal,
+        },
+        {
+          id: "b02",
+          intent: "spikes",
+          archetype: "kinetic",
+          params: { headline: "k", phrases: [{ text: "a" }, { text: "b" }] },
+          literal: { kind: "spikes", picture: "b01" },
+        },
+      ],
+    });
+
+  it("takes each literal beat's kind, takeaway, labels and picture file from the storyboard", () => {
+    const plan = literalPlanOf(
+      board({ kind: "haze", picture: "b01", labels: [{ slot: "clear", text: "맑음" }] }, "gen-b01"),
+      source,
+      "/deck/assets",
+    );
+    expect(plan.beats.b01).toEqual({
+      kind: "haze",
+      takeaway: "Haze scales every edge by t.",
+      labels: { clear: "맑음" },
+      image: "/deck/assets/gen-b01-abc.png",
+    });
+    // No takeaway: the intent stands in, so the report still says what was meant.
+    expect(plan.beats.b02?.takeaway).toBe("spikes");
+    expect(plan.beats.b02?.image).toBe("/deck/assets/gen-b01-abc.png");
+    expect(literalPlanSchema.parse(plan)).toEqual(plan);
+  });
+
+  it("fails loudly when the picture beat has no figure yet", () => {
+    expect(() =>
+      literalPlanOf(board({ kind: "haze", picture: "b01" }), source, "/deck/assets"),
+    ).toThrow(/b01 runs on the picture of "b01", which has no figure.*illustrate/);
   });
 });

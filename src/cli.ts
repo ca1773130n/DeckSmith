@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import type { z } from "zod";
 import { copyArt } from "./bespoke/art.js";
-import { literalPass, literalPlanSchema } from "./bespoke/literal.js";
+import { literalPass, literalPlanOf, literalPlanSchema } from "./bespoke/literal.js";
 import { type BespokeResult, bespokePass } from "./bespoke/pipeline.js";
 import { browserGate } from "./bespoke/probe.js";
 import { BESPOKE_FILE, type BespokeMap } from "./bespoke/scene.js";
@@ -467,7 +467,7 @@ imageFlags(
   const planned = await codexPlanner(source, {
     prefs,
     onRepair: (broken) => {
-      step("plan: the first plan broke the variety rule, asking Codex to repair it —");
+      step("plan: the first plan broke the variety or coverage rules, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
   });
@@ -672,8 +672,8 @@ bespokeFlags(
         )
         .option("--no-fidelity", "skip the frame check — only for a machine with no browser")
         .option(
-          "--literal <file>",
-          "prototype: literal.json naming beats drawn as their mechanism on computed layers (no Codex)",
+          "--literal [file]",
+          "prototype: draw the storyboard's `literal` beats as their mechanism on computed layers (no Codex); a file names them instead",
         ),
     ),
   ),
@@ -795,7 +795,15 @@ bespokeFlags(
     // `--literal` (prototype): the named beats are drawn as their mechanism on
     // layers computed here, deterministically, and no Codex scene is asked for.
     const literal = o.literal
-      ? await runLiteral(String(o.literal), { storyboard, source, format, narration, theme, out })
+      ? await runLiteral(o.literal === true ? undefined : String(o.literal), {
+          storyboard,
+          source,
+          format,
+          narration,
+          theme,
+          out,
+          assetsDir: join(dirname(resolve(o.source)), "assets"),
+        })
       : undefined;
     const bespoke = literal
       ? undefined
@@ -1445,9 +1453,13 @@ async function runBespoke(
   }
 }
 
-/** `build --literal`: read the plan, compute its layers into the deck, write `literal.json` beside it. */
+/**
+ * `build --literal [file]`: take the plan (the storyboard's `literal` beats, or
+ * a prototype side file), compute its layers into the deck, write
+ * `literal.json` beside it.
+ */
 async function runLiteral(
-  planPath: string,
+  planPath: string | undefined,
   deck: {
     storyboard: Storyboard;
     source: Source;
@@ -1455,15 +1467,21 @@ async function runLiteral(
     narration: DeckNarration | undefined;
     theme: string;
     out: string;
+    /** The source's `assets/`, where a `picture` beat's figure lives. */
+    assetsDir: string;
   },
 ): Promise<{ map: BespokeMap }> {
   if (!deck.narration) throw new Error("--literal needs narration: its cues time every step");
-  const plan = await readValidated(planPath, literalPlanSchema, "literal plan");
+  // No file: the storyboard's own `literal` beats, pictures resolved from the source.
+  const plan = planPath
+    ? await readValidated(planPath, literalPlanSchema, "literal plan")
+    : literalPlanOf(deck.storyboard, deck.source, deck.assetsDir);
   const { map, report } = await literalPass({
     ...deck,
     narration: deck.narration,
     plan,
-    planDir: dirname(resolve(planPath)),
+    // A storyboard plan's pictures are absolute already.
+    planDir: planPath ? dirname(resolve(planPath)) : deck.assetsDir,
     onStep: step,
   });
   await writeFile(join(deck.out, "literal.json"), `${JSON.stringify(report, null, 2)}\n`);

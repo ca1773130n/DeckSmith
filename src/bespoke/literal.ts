@@ -35,7 +35,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import {
@@ -48,7 +48,13 @@ import type { EmitContext, Theme } from "../emit/kit.js";
 import { deckLook } from "../emit/theme.js";
 import { TYPE_SCALE } from "../emit/type.js";
 import { planTiming } from "../render/timing.js";
-import type { Beat, Format, Source, Storyboard } from "../types.js";
+import {
+  type Beat,
+  type Format,
+  LITERAL_KIND_NAMES,
+  type Source,
+  type Storyboard,
+} from "../types.js";
 import { sceneWindows } from "../verify/scenes.js";
 import type { Fragment } from "./contract.js";
 import { type BespokeEntry, type BespokeMap, bespokeRegion } from "./scene.js";
@@ -57,24 +63,83 @@ const run = promisify(execFile);
 
 /* ------------------------------------------------------------------ the plan */
 
+/**
+ * The kinds this module DRAWS today. The storyboard may name any kind in
+ * `LITERAL_KIND_NAMES` (src/types.ts, the planner's list); a beat naming one
+ * not drawn yet keeps its archetype, and the pass says so.
+ */
 export const LITERAL_KINDS = ["haze", "spikes", "sobel"] as const;
 export type LiteralKind = (typeof LITERAL_KINDS)[number];
+const drawn = (k: string): k is LiteralKind => (LITERAL_KINDS as readonly string[]).includes(k);
 
 const specSchema = z.object({
-  kind: z.enum(LITERAL_KINDS),
+  kind: z.enum(LITERAL_KIND_NAMES),
   /** The one thing the viewer can explain after this scene. Judged against. */
   takeaway: z.string().min(1),
   /** The scene's few words, in the deck's language, by slot. */
   labels: z.record(z.string(), z.string()).default({}),
+  /** This scene's picture, relative to the plan file; absent means the plan's `image`. */
+  image: z.string().min(1).optional(),
 });
-export type LiteralSpec = z.infer<typeof specSchema>;
+export type LiteralSpec = z.infer<typeof specSchema> & { kind: LiteralKind };
 
+/**
+ * What the pass draws, by beat. Built from the storyboard's own `literal` beats
+ * (`literalPlanOf`), or read from a prototype side file of this shape.
+ */
 export const literalPlanSchema = z.object({
   /** The domain picture every layer is computed from, relative to the plan file. */
-  image: z.string().min(1),
+  image: z.string().min(1).optional(),
   beats: z.record(z.string(), specSchema),
 });
 export type LiteralPlan = z.infer<typeof literalPlanSchema>;
+
+/** The figure a beat shows: its own, a split-compare side's, or its backdrop's. */
+function figureOf(beat: Beat): string | undefined {
+  const p = beat.params as Record<string, unknown>;
+  for (const slot of [p, p.left, p.right, p.backdrop]) {
+    const id = (slot as { figureId?: unknown } | undefined)?.figureId;
+    if (typeof id === "string") return id;
+  }
+  return undefined;
+}
+
+/**
+ * The plan the storyboard carries: every beat with a `literal`, its takeaway,
+ * its labels, and the file its `picture` beat's figure lives in (under
+ * `assetsDir`, the source's `assets/`). Fails loudly on a picture that does
+ * not resolve: a scene computed from no picture is no scene.
+ */
+export function literalPlanOf(
+  storyboard: Storyboard,
+  source: Source,
+  assetsDir: string,
+): LiteralPlan {
+  const byId = new Map(storyboard.beats.map((b) => [b.id, b]));
+  const figures = new Map(source.figures.map((f) => [f.id, f]));
+  const beats: LiteralPlan["beats"] = {};
+  for (const beat of storyboard.beats) {
+    const lit = beat.literal;
+    if (!lit) continue;
+    let image: string | undefined;
+    if ("picture" in lit) {
+      const owner = byId.get(lit.picture);
+      const fig = owner && figures.get(figureOf(owner) ?? "");
+      if (!fig)
+        throw new Error(
+          `literal: ${beat.id} runs on the picture of "${lit.picture}", which has no figure in the source. Run \`decksmith illustrate\` first, or fix \`picture\`.`,
+        );
+      image = resolve(assetsDir, fig.src);
+    }
+    beats[beat.id] = {
+      kind: lit.kind,
+      takeaway: beat.takeaway?.trim() || beat.intent,
+      labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
+      ...(image ? { image } : {}),
+    };
+  }
+  return { beats };
+}
 
 /** Where the computed layers live in a deck. */
 export const LITERAL_DIR = "assets/literal";
@@ -1071,7 +1136,13 @@ export async function literalPass(
     start: 0,
     design: "v2",
   });
-  const picked = kept.filter((b) => plan.beats[b.id] !== undefined);
+  const picked = kept.filter((b) => {
+    const spec = plan.beats[b.id];
+    if (!spec) return false;
+    if (drawn(spec.kind)) return true;
+    step(`literal: ${b.id} asks for ${spec.kind}, which is not drawn yet — it keeps its archetype`);
+    return false;
+  });
   const placeholder: Record<string, { fragment: Fragment; holds: number[] }> = {};
   for (const beat of picked) {
     const { holds } = bespokeStaging(beat, ctxFor("s0"), narration.beats[beat.id] ?? [], 1);
@@ -1104,11 +1175,13 @@ export async function literalPass(
   }
   const dir = join(input.out, LITERAL_DIR);
   await mkdir(dir, { recursive: true });
-  const image = join(input.planDir, plan.image);
   const map: Record<string, BespokeEntry> = {};
   const report: LiteralReport = { version: 1, scenes: [] };
   for (const beat of picked as Beat[]) {
     const spec = plan.beats[beat.id] as LiteralSpec;
+    const rel = spec.image ?? plan.image;
+    if (!rel) throw new Error(`literal: ${beat.id} (${spec.kind}) has no picture to compute from`);
+    const image = resolve(input.planDir, rel);
     const region = bespokeRegion(beat, ctxFor("s0"));
     const box = layout(spec.kind, region.width, region.height);
     const cues = cuesOf.get(beat.id) ?? [];

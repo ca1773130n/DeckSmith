@@ -730,6 +730,82 @@ export const insideSchema = z.object({
  */
 export const beatRoleSchema = z.enum(["intro", "background", "limitations", "conclusion"]);
 
+/**
+ * The part of the source a beat belongs to, in the order a deck covers them:
+ * the problem, what was done before, the method, the experiments (setup and
+ * results), the limits and what is left to explore, the summary.
+ *
+ * NOT `role`. A role is one beat's structural job and belongs to one slide; a
+ * part is a stretch of the deck and has as many beats as the source gives it.
+ * Read by the coverage check (src/plan/coverage.ts), which detects the parts a
+ * source HAS from its headings and holds the plan to covering each, in order.
+ * Optional, and hidden from the planner unless the source has such parts.
+ */
+export const beatPartSchema = z.enum([
+  "intro",
+  "prior-work",
+  "method",
+  "experiments",
+  "limits",
+  "summary",
+]);
+
+/**
+ * The mechanisms a literal scene can draw (src/bespoke/literal.ts), by name.
+ * One list, read by the schema, the planner's prompt and the build. The
+ * prototype implements the first three; the rest are named here so a plan can
+ * ask for them, and the build keeps a beat's archetype for a kind it does not
+ * draw yet (saying so).
+ */
+export const LITERAL_KIND_NAMES = [
+  "haze",
+  "spikes",
+  "sobel",
+  "dark-channel",
+  "channel-threshold",
+  "table",
+  "recap",
+] as const;
+
+/** One of a literal scene's few on-screen words, by the slot the scene puts it in. */
+const literalLabelSchema = z.object({ slot: z.string(), text: z.string() });
+const literalLabels = { labels: z.array(literalLabelSchema).default([]) };
+/** A kind computed from a picture: `picture` names the beat whose picture it runs on. */
+const pictureKind = <K extends (typeof LITERAL_KIND_NAMES)[number]>(kind: K) =>
+  z.object({ kind: z.literal(kind), picture: z.string(), ...literalLabels });
+
+/**
+ * A beat drawn as the paper's own mechanism acting on real material, instead of
+ * a metaphor. ARRAYS, NOT RECORDS, for `labels`: strict structured output sets
+ * `additionalProperties: false` on every object, which would forbid every key of
+ * a record. NO BOUNDS either (no `min`, no `.int().min(0)`): the backend strips
+ * them, so the model cannot see them, and crossing one would fail the parse and
+ * discard the whole plan. `literalFindings` (src/plan/coverage.ts) checks them
+ * instead, where a miss is sent back for repair.
+ */
+export const literalSchema = z.discriminatedUnion("kind", [
+  pictureKind("haze"),
+  pictureKind("spikes"),
+  pictureKind("sobel"),
+  pictureKind("dark-channel"),
+  pictureKind("channel-threshold"),
+  z.object({
+    kind: z.literal("table"),
+    /** Every cell holding a number holds one the source states (src/plan/coverage.ts). */
+    columns: z.array(z.string()),
+    rows: z.array(z.array(z.string())),
+    /** Rows lit one per narration cue, by index into `rows`. */
+    highlight: z.array(z.int()).default([]),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("recap"),
+    /** Earlier literal beats whose computed layers come back, in order. */
+    beats: z.array(z.string()),
+    ...literalLabels,
+  }),
+]);
+
 const beatCore = {
   id: z.string(),
   /** What the viewer should understand after this beat. */
@@ -756,6 +832,17 @@ const beatCore = {
    * asked for with `--bespoke`, so every other plan is byte-for-byte unchanged.
    */
   bespoke: z.boolean().optional(),
+  /** OPTIONAL: the part of the source this beat covers. See `beatPartSchema`. */
+  part: beatPartSchema.optional(),
+  /**
+   * OPTIONAL: the ONE thing the viewer can explain after this beat, as a
+   * sentence a judge watching only the frames can check. Narrower than
+   * `intent`: not what the beat is about, but what it leaves the viewer able
+   * to say. Shown to the planner when the build draws scenes (v2).
+   */
+  takeaway: z.string().optional(),
+  /** OPTIONAL: draw this beat as its mechanism (src/bespoke/literal.ts). See `literalSchema`. */
+  literal: literalSchema.optional(),
 };
 
 /**
@@ -1806,6 +1893,9 @@ export type Backdrop = z.infer<typeof backdropSchema>;
 export type ImagesPrefs = z.infer<typeof prefsSchema>["images"];
 export type Beat = z.infer<typeof beatSchema>;
 export type BeatRole = z.infer<typeof beatRoleSchema>;
+export type BeatPart = z.infer<typeof beatPartSchema>;
+export type Literal = z.infer<typeof literalSchema>;
+export type LiteralKind = Literal["kind"];
 export type Inside = z.infer<typeof insideSchema>;
 export type Archetype = Beat["archetype"];
 export type Storyboard = z.infer<typeof storyboardSchema>;

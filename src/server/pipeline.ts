@@ -207,7 +207,7 @@ export async function runPipeline(job: JobHandle, input: PipelineInput): Promise
     ...(input.run ? { run: input.run } : {}),
     onRepair: (broken) => {
       job.log(
-        `plan: the first plan broke the variety rule, asking once more — ${broken.join(" ")}`,
+        `plan: the first plan broke the variety or coverage rules, asking once more — ${broken.join(" ")}`,
       );
     },
   });

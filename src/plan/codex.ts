@@ -22,7 +22,8 @@ import { z } from "zod";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
 import { paperArcRequested } from "./arc.js";
-import { renderSource, systemPrompt } from "./prompt.js";
+import { coverageFindings, literalFindings, sourceParts } from "./coverage.js";
+import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
 import { varietyFindings } from "./variety.js";
 
@@ -139,13 +140,24 @@ const PLANNER_INVISIBLE = new Set(["tilt"]);
  * back carrying one, so no post-hoc check is needed to reject what the model was
  * never offered, and the schema bytes are identical to what they were.
  */
-function plannerInvisible(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): ReadonlySet<string> {
+function plannerInvisible(
+  prefs: Pick<Prefs, "genre" | "bespoke" | "design">,
+  source?: Source,
+): ReadonlySet<string> {
   const hidden = new Set(PLANNER_INVISIBLE);
   if (!paperArcRequested(prefs)) hidden.add("role");
   // `bespoke` for the same reason as `role`: shown only to a plan whose build
   // will draw bespoke scenes (v2, unless `--no-bespoke`), so a classic plan's
-  // schema bytes are what they were.
-  if (!bespokeFor(prefs, designFor(prefs))) hidden.add("bespoke");
+  // schema bytes are what they were. `takeaway` and `literal` ride with it:
+  // a literal scene is a scene the build draws instead of a bespoke one.
+  if (!bespokeFor(prefs, designFor(prefs))) {
+    hidden.add("bespoke");
+    hidden.add("takeaway");
+    hidden.add("literal");
+  }
+  // `part` only when the source HAS parts (src/plan/coverage.ts): a source that
+  // is not an analysis is planned exactly as it was.
+  if (!source || !sourceParts(source).length) hidden.add("part");
   return hidden;
 }
 
@@ -172,11 +184,17 @@ function hideFromPlanner(node: unknown, hidden: ReadonlySet<string>): unknown {
   return out;
 }
 
-/** The schema for one run. `role` is present only when the paper arc was asked for. */
-export function schemaFor(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): unknown {
+/**
+ * The schema for one run. `role` is present only when the paper arc was asked
+ * for; `part` only when `source` has parts to cover.
+ */
+export function schemaFor(
+  prefs: Pick<Prefs, "genre" | "bespoke" | "design">,
+  source?: Source,
+): unknown {
   return hideFromPlanner(
     forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
-    plannerInvisible(prefs),
+    plannerInvisible(prefs, source),
   );
 }
 
@@ -236,7 +254,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     const outPath = join(dir, "storyboard.json");
     // Per run, not the module constant: `role` exists in the schema only when
     // the paper arc was asked for.
-    await writeFile(schemaPath, JSON.stringify(schemaFor(prefs)));
+    await writeFile(schemaPath, JSON.stringify(schemaFor(prefs, source)));
 
     const ask = async (prompt: string): Promise<Storyboard> => {
       await rm(outPath, { force: true });
@@ -250,32 +268,48 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       return readPlan(outPath, source, prefs);
     };
 
-    // VARIETY IS CHECKED, NOT HOPED FOR (src/plan/variety.ts). A plan that breaks
-    // it goes back ONCE with the reasons and its own JSON, so the repair keeps
-    // the planner's content and changes only the shapes; a second miss is
-    // refused, loudly, rather than written to a storyboard that builds green and
-    // looks like every other deck.
+    // VARIETY AND COVERAGE ARE CHECKED, NOT HOPED FOR (src/plan/variety.ts,
+    // src/plan/coverage.ts). A plan that breaks either goes back ONCE with the
+    // reasons and its own JSON, so the repair keeps the planner's content and
+    // changes only what is named; a second miss is refused, loudly, rather than
+    // written to a storyboard that builds green and looks like every other deck
+    // or skips half the source.
     const prompt = buildPrompt(source, prefs);
     const first = await ask(prompt);
-    const broken = varietyFindings(first, prefs.images, prefs.design);
-    if (broken.length === 0) return first;
-    opts.onRepair?.(broken);
+    const takeaways = !!bespokeFor(prefs, designFor(prefs));
+    const findings = (plan: Storyboard): Findings => ({
+      variety: varietyFindings(plan, prefs.images, prefs.design),
+      coverage: [
+        ...coverageFindings(plan, source),
+        ...literalFindings(plan, source, { takeaways }),
+      ],
+    });
+    const broken = findings(first);
+    const all = [...broken.variety, ...broken.coverage];
+    if (all.length === 0) return first;
+    opts.onRepair?.(all);
     const second = await ask(repairPrompt(prompt, first, broken));
     // A REPAIR MAY NOT SHRINK THE DECK. Dropping beats is not a shape change,
     // and under STAGE_MIN_BEATS it also escapes the stage minimum outright: a
     // 12-beat plan with no stage came back as 4 beats and passed (review,
     // 2026-10-09). The prompt asks for every beat; this holds it to that.
+    const after = findings(second);
     const still = [
       ...(second.beats.length < first.beats.length
         ? [
             `the repair returned ${second.beats.length} beats for a plan of ${first.beats.length}; a repair changes shapes and may not drop beats.`,
           ]
         : []),
-      ...varietyFindings(second, prefs.images, prefs.design),
+      ...after.variety,
     ];
     if (still.length > 0) {
       throw new Error(
         `Codex's plan breaks the variety rule (src/plan/variety.ts) even after one repair:\n${still.map((m) => `  ${m}`).join("\n")}`,
+      );
+    }
+    if (after.coverage.length > 0) {
+      throw new Error(
+        `Codex's plan does not cover the source (src/plan/coverage.ts) even after one repair:\n${after.coverage.map((m) => `  ${m}`).join("\n")}`,
       );
     }
     return second;
@@ -289,18 +323,40 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
  * and exactly what is wrong with it. Asking again from scratch would re-roll
  * every beat to fix the shapes of a few.
  */
-function repairPrompt(prompt: string, plan: Storyboard, broken: readonly string[]): string {
-  return `${prompt}
+/** What a plan broke, by the rule it broke: each group gets its own repair advice. */
+interface Findings {
+  variety: string[];
+  coverage: string[];
+}
 
+function repairPrompt(prompt: string, plan: Storyboard, broken: Findings): string {
+  const list = (ms: readonly string[]) => ms.map((m) => `  - ${m}`).join("\n");
+  const variety = broken.variety.length
+    ? `
 YOUR PREVIOUS STORYBOARD, BELOW, BREAKS THE VARIETY RULES:
-${broken.map((m) => `  - ${m}`).join("\n")}
+${list(broken.variety)}
 
-Return the whole storyboard again with these fixed. Keep every beat whose shape
-is not named above as it is; change archetypes, add stage beats with
-illustration briefs, give diagram beats a backdrop brief, redraw a panel as a
-hero-number or a kinetic claim where its point is a number or a claim, or
-reorder neighbours only as far as the fix needs. Never
-drop or merge beats: a repair with fewer beats than the plan below is refused.
+Fix these by changing shapes. Keep every beat whose shape is not named above as
+it is; change archetypes, add stage beats with illustration briefs, give
+diagram beats a backdrop brief, redraw a panel as a hero-number or a kinetic
+claim where its point is a number or a claim, or reorder neighbours only as far
+as the fix needs.
+`
+    : "";
+  const coverage = broken.coverage.length
+    ? `
+YOUR PREVIOUS STORYBOARD, BELOW, DOES NOT COVER THE SOURCE:
+${list(broken.coverage)}
+
+Fix these by ADDING beats for what is missing, in their place in the part order,
+each citing the section it covers, and by correcting the fields named. Keep
+every other beat as it is.
+`
+    : "";
+  return `${prompt}
+${variety}${coverage}
+Return the whole storyboard again with these fixed. Never drop or merge beats:
+a repair with fewer beats than the plan below is refused.
 
 ${JSON.stringify(plan)}`;
 }
@@ -354,7 +410,7 @@ async function readPlan(outPath: string, source: Source, prefs: Prefs): Promise<
  * nothing.
  */
 function buildPrompt(source: Source, prefs: Prefs): string {
-  return `${systemPrompt(prefs)}
+  return `${systemPrompt(prefs)}${sourceBlocks(source, prefs)}
 
 Do not search the web and do not read files. Everything you need is below.
 Return the storyboard as your final message, conforming to the supplied schema.

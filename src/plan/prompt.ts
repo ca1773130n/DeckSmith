@@ -13,8 +13,9 @@
 import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
 import { repairTex } from "../emit/tex.js";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
-import { prefsSchema, type Source } from "../types.js";
+import { type LiteralKind, prefsSchema, type Source } from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
+import { PART_NAMES, sourceParts } from "./coverage.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 import {
   MAX_ALTERNATION,
@@ -814,6 +815,121 @@ read row by row). Set \`bespoke: true\` on the beats that explain a MECHANISM �
 a process that runs, an equation whose terms act, a curve that moves, a
 comparison that is a distance: when the call budget cannot pay for every beat,
 those are drawn first. Leave it null otherwise.`;
+
+/**
+ * What each literal kind draws, what it takes, and which label slots it has.
+ * A Record over `LiteralKind`, so a kind added to `LITERAL_KIND_NAMES`
+ * (src/types.ts) does not compile until the planner is told what it is. The
+ * slot names are the ones src/bespoke/literal.ts reads.
+ */
+export const LITERAL_KIND_DOCS: Record<LiteralKind, string> = {
+  haze: `the atmospheric scattering model I = J·t + A·(1−t) computed onto
+                     the picture: haze rises, and the picture's contrast and its
+                     edge (Sobel) map fade before any network sees them. Exact.
+                     Takes \`picture\`. Slots: clear, hazy, edges, profile.`,
+  "dark-channel": `the classical Dark Channel Prior, computed for real on the
+                     hazy picture: dark channel, then transmission, then the
+                     recovered picture. Prior work, labelled as that classical
+                     prior — never as the paper's method or another model's
+                     output. Takes \`picture\`. Slots: hazy, dark, transmission,
+                     recovered.`,
+  spikes: `leaky integrate-and-fire neurons, one per feature cell of the hazy
+                     picture: a cell passes on only when its membrane crosses
+                     the threshold, so weak cells go dark downstream. Threshold
+                     and gain are ILLUSTRATIVE, and the narration says so. Takes
+                     \`picture\`. Slots: features, membrane, threshold, output,
+                     noLeak.`,
+  "channel-threshold": `one fixed threshold against a threshold per channel set
+                     from that channel's own membrane statistics: channels with a
+                     small scale fall silent under the fixed one and fire under
+                     their own. Values ILLUSTRATIVE, and the narration says so.
+                     Takes \`picture\`. Slots: channels, fixed, calibrated.`,
+  sobel: `the real Sobel structure map of the hazy picture, gating and
+                     reweighting the smoothed features so edges and texture come
+                     back. Takes \`picture\`. Slots: hazy, structure, feature,
+                     reweighted.`,
+  table: `numbers the source reports, as a quiet table; one row lit per
+                     narration sentence (\`highlight\`, row indexes from 0, in
+                     the order they are spoken). Every number in a cell is one
+                     the source states, written exactly as it does. Takes
+                     \`columns\`, \`rows\`, \`highlight\`. Slots: caption.`,
+  recap: `the layers the deck's earlier literal scenes computed, small, in
+                     order: the summary told with the pictures the viewer has
+                     already seen. Takes \`beats\` (earlier literal beats). Slots:
+                     caption.`,
+};
+
+/**
+ * Shown when the build draws scenes (`bespokeFor`). The planner prefers a
+ * literal kind and falls back to a bespoke scene only when none fits.
+ */
+function literalScenes(): string {
+  const kinds = (Object.entries(LITERAL_KIND_DOCS) as Array<[LiteralKind, string]>)
+    .map(([k, doc]) => `  ${k.padEnd(18)} ${doc}`)
+    .join("\n");
+  return `
+
+LITERAL SCENES — THE MECHANISM ITSELF, COMPUTED, NEVER A METAPHOR
+
+The build can draw a beat as the source's own mechanism acting on real
+material: it computes the layers at build time and the scene shows them
+changing, one causal step per narration sentence. PREFER THIS. When a kind
+below shows what a beat explains, set \`literal\` on that beat; its archetype
+stays as the fallback. Only a beat no kind fits leaves \`literal\` null, and is
+drawn as a bespoke scene. Never use a kind for a point it does not show.
+
+${kinds}
+
+  - A kind that takes \`picture\` names the beat whose picture it runs on: this
+    beat or an earlier one carrying a figure or an illustration brief. Use ONE
+    picture for the whole deck: give an early beat a brief for a CLEAR, detailed
+    photograph of the material the method works on (the build computes the
+    degradation itself), with real edges and texture, and point every picture
+    kind at that beat.
+  - \`labels\` are the scene's few words, in the deck's language, by slot. A slot
+    left out gets the scene's default.
+  - NEVER FABRICATE. A scene shows what the build computes or what the source
+    states. A method the build cannot run is shown by the numbers the source
+    reports for it (a table, cited), never by a picture of its output.
+
+TAKEAWAY. Every beat but the title carries \`takeaway\`: ONE sentence naming
+what the viewer can now explain — a cause, a mechanism, a number and what it
+means. Not a topic ("the SSM module"), and not two points joined by "and": a
+beat with two takeaways is two beats.`;
+}
+
+/**
+ * The prompt blocks that depend on the SOURCE, not just the preferences: the
+ * parts it must cover, when it has them, and the literal kinds, when the build
+ * draws scenes. Empty for a source with no parts and a classic plan, so those
+ * prompts are byte-for-byte what they were.
+ */
+export function sourceBlocks(source: Source, prefs: Prefs): string {
+  const parts = sourceParts(source);
+  const coverage = parts.length
+    ? `
+
+SECTION COVERAGE — this source is an analysis with these parts. The deck covers
+EVERY ONE, IN THIS ORDER, and every beat but the title names its part in \`part\`:
+
+${parts
+  .map(
+    ({ part, sections }) =>
+      `  ${part.padEnd(12)} ${PART_NAMES[part]}\n${sections.map((s) => `               [section ${s.id}] ${s.heading.trim()}`).join("\n")}`,
+  )
+  .join("\n")}
+
+  - Every section listed is cited in \`evidence\` by at least one beat of its
+    part. A part with several sections — an experiment's setup and its results
+    — gets a beat for each.
+  - The title slide covers nothing: the problem gets its own beats after it.
+  - Prior work is what earlier approaches did and where they ran out, as the
+    source says it. Never invent a baseline or a result.
+  - Write as many beats as this takes. A plan that misses a part or a section,
+    or covers the parts out of order, is sent back.`
+    : "";
+  return `${coverage}${bespokeFor(prefs, designFor(prefs)) ? literalScenes() : ""}`;
+}
 
 /**
  * The rules, then the preferences the person asking for the deck chose. They go
