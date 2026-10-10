@@ -580,25 +580,35 @@ describe("picking a pack per deck", () => {
 
   it("is a pure function of the beats and the seed", () => {
     expect(rankPacks(beats, "abc")).toEqual(rankPacks(beats, "abc"));
-    expect(new Set(rankPacks(beats, "abc"))).toEqual(new Set(Object.keys(PACKS)));
+    expect(new Set(rankPacks(beats, "abc"))).toEqual(
+      new Set(Object.keys(PACKS).filter((n) => PACKS[n]?.ground === "dark")),
+    );
     expect(fnv1a("hypepaper")).toBe(fnv1a("hypepaper"));
   });
 
-  it("leans with the content: an equation deck finds the serif packs more often", () => {
+  it("ranks only the dark packs: the founder's default, 2026-10-11", () => {
+    for (const s of SEEDS)
+      for (const p of rankPacks(beats, s)) expect(PACKS[p]?.ground).toBe("dark");
+  });
+
+  it("leans with the content: a structure deck finds the drafting pack more often", () => {
     const only = (archetype: string) =>
       beats
         .filter((b) => b.archetype === archetype)
         .slice(0, 1)
         .flatMap((b) => Array(10).fill(b));
-    const formal = only("equation-walk");
+    const structure = only("pipeline");
     const quantity = only("bar-compare");
+    expect(structure.length).toBe(10);
+    expect(quantity.length).toBe(10);
     const share = (bs: typeof beats, pack: string) =>
       Array.from({ length: 400 }, (_, i) => rankPacks(bs, `s${i}`)[0]).filter((p) => p === pack)
         .length / 400;
-    expect(share(formal, "folio")).toBeGreaterThan(share(quantity, "folio"));
-    expect(share(quantity, "signal")).toBeGreaterThan(share(formal, "signal"));
+    expect(share(structure, "blueprint")).toBeGreaterThan(share(quantity, "blueprint"));
+    expect(share(quantity, "signal")).toBeGreaterThan(share(structure, "signal"));
     // Mild: no family hands any pack the majority.
-    expect(share(formal, "folio")).toBeLessThan(0.4);
+    expect(share(structure, "blueprint")).toBeLessThan(0.5);
+    expect(share(quantity, "signal")).toBeLessThan(0.5);
   });
 
   it("weighs every pack at least 1, so none is ever unreachable", () => {
