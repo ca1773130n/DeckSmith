@@ -1180,11 +1180,11 @@ describe("the PR #115 review's findings stay fixed", () => {
 
   it("3. invented 'source' numbers neither draw nor lift a ban; the source's own do", () => {
     const text = "A graph neural network passes messages between nodes A and B.";
-    const gcn = (weights: number[][][]) => ({
+    const gcn = (weights: number[][][], dim = 2) => ({
       kind: "message-passing",
       nodes: [
-        { id: "A", label: "A", features: [1] },
-        { id: "B", label: "B", features: [0] },
+        { id: "A", label: "A", features: dim === 2 ? [1, 0] : [1] },
+        { id: "B", label: "B", features: dim === 2 ? [0, 1] : [0] },
       ],
       edges: [{ from: "A", to: "B" }],
       layers: 1,
@@ -1192,13 +1192,34 @@ describe("the PR #115 review's findings stay fixed", () => {
       labels: lbl({ layer: "{l}", field: "{count}", example: "example" }),
     });
     const claim = "The trained GCN predicts each node's class";
-    const invented = findings(gcn([[[0.37]]]), text, claim);
+    const invented = findings(
+      gcn([
+        [
+          [0.37, 0.1],
+          [0.2, 0.4],
+        ],
+      ]),
+      text,
+      claim,
+    );
     expect(invented).toContainEqual(
       expect.stringMatching(/gives `weights` the source does not print/),
     );
     expect(invented).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
-    const own = findings(gcn([[[2]]]), `${text} Its weight is 2.`, claim);
+    const own = findings(
+      gcn([
+        [
+          [2, 3],
+          [4, 5],
+        ],
+      ]),
+      `${text} W = [[2, 3], [4, 5]].`,
+      claim,
+    );
     expect(own.filter((f) => /weights|claims/.test(f))).toEqual([]);
+    // A lone number is no evidence (PR #115 round 3): "Its weight is 2" does not ground a 1×1 W.
+    const lone = findings(gcn([[[2]]], 1), `${text} Its weight is 2.`, claim);
+    expect(lone).toContainEqual(expect.stringMatching(/claims what a trained network learns/));
     // A loss curve the source never states is refused.
     const series = {
       kind: "optimization",
@@ -1540,6 +1561,30 @@ describe("the PR #115 re-review's findings stay fixed", () => {
       } as never,
       sourceOf(text),
     );
+
+  it("round 3 HIGH: one-number rows never ground, in heads, embeddings or any matrix", () => {
+    // The reviewer's probe: q/k and embeddings of 1-dim rows off "1 model with 0 dropout".
+    const src =
+      "The model applies self-attention over tokens with queries and keys. We train 1 model with 0 dropout.";
+    const take = { takeaway: "The trained model attends to cat from sat" };
+    const col = [[1], [0], [1]];
+    const attn = {
+      kind: "attention",
+      tokens: ["the", "cat", "sat"],
+      heads: [{ q: col, k: col }],
+      labels: lbl({ content: "c", position: "p" }),
+    };
+    expect(findings(attn, src, take)).toContainEqual(
+      expect.stringMatching(/claims what a trained model attends to/),
+    );
+    const emb = { ...attn, heads: undefined, embeddings: col };
+    expect(findings(emb, src, take)).toContainEqual(
+      expect.stringMatching(/claims what a trained model attends to/),
+    );
+    // The column printed whole, in order, does ground.
+    const printed = `${src} The query column is [1, 0, 1] and the key column is [1, 0, 1].`;
+    expect(findings(attn, printed, take)).toEqual([]);
+  });
 
   it("HIGH 1. a row counts as the source's only when printed whole, in order, with its sign", () => {
     // The reviewer's probe: small integers from "2 heads (Figure 1)" and "Section 3 … 0 failures".
