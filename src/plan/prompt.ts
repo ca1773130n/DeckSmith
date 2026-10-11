@@ -892,7 +892,19 @@ ${kinds}
     into a text, where the slot says it may.
   - NEVER FABRICATE. A scene shows what the build computes or what the source
     states. A method the build cannot run is shown by the numbers the source
-    reports for it (a table, cited), never by a picture of its output.
+    reports for it, never by a picture of its output.
+  - A TABLE IS THE LAST RESORT. A table reads like a report; these kinds show
+    the thing it would list:
+      earlier approaches, family by family ..... prior-work (a classical
+                                                 method is RUN on the picture;
+                                                 a learned one by its numbers)
+      results against the best other methods ... margins
+      datasets evaluated, limits of a claim,
+      what was and was not tested .............. scope
+      future work, ablations not run ........... ablation
+      reported costs (energy, parameters) ...... scale
+    Use \`table\` only where none of these is honest, at most once a deck.
+    Two beats in a row never use the same kind.
 
 TAKEAWAY. Every beat but the title carries \`takeaway\`: ONE sentence naming
 what the viewer can now explain — a cause, a mechanism, a number and what it
