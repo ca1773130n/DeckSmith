@@ -422,7 +422,7 @@ export function findBands(img: Rgb): PanelBox[] {
  */
 function rows(c: Ctx, img: Rgb): MechanismResult {
   const d = c.lit;
-  const found = findBands(img);
+  const found = cutOf(img, "bands");
   if (found.length < 2)
     throw new Error(
       `region rows: the figure has no blank rows to split it by (found ${found.length} band); draw it as a figure, or walk it as panels`,
@@ -530,6 +530,21 @@ function rows(c: Ctx, img: Rgb): MechanismResult {
  * can be checked without its figure.
  */
 function placeholderFigure(): Rgb {
+  placeholder ??= drawPlaceholder();
+  return placeholder;
+}
+let placeholder: Rgb | undefined;
+
+/** Cut once per picture: plan-time checks cut the one placeholder in every format. */
+const cuts = new WeakMap<Rgb, { panels?: PanelBox[]; bands?: PanelBox[] }>();
+function cutOf(img: Rgb, how: "panels" | "bands"): PanelBox[] {
+  const c = cuts.get(img) ?? {};
+  cuts.set(img, c);
+  c[how] ??= how === "panels" ? findPanels(img) : findBands(img);
+  return c[how];
+}
+
+function drawPlaceholder(): Rgb {
   const S = 3;
   const W = 480 * S;
   const H = 300 * S;
@@ -581,7 +596,7 @@ function crop(img: Rgb, b: PanelBox): Rgb {
 function panels(c: Ctx): MechanismResult {
   const img = c.image as Rgb;
   const d = c.lit;
-  const found = findPanels(img);
+  const found = cutOf(img, "panels");
   if (found.length < 2)
     throw new Error(
       `region panels: the figure has no blank gutters to split it by (found ${found.length} panel); draw it as a figure, not as panels`,
