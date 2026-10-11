@@ -933,7 +933,7 @@ bespokeFlags(
     reportCut(cut);
     if (deck.page) step(`build: navigable deck → ${join(out, DECK_PAGE)}`);
 
-    // The scenes the pass already gated in full at this very id: seeked, not re-probed.
+    // The scenes the pass already gated in full at this very id: not re-probed.
     const probed = new Set(
       (bespoke?.report.scenes ?? [])
         .filter((sc) => sc.status === "bespoke" && sc.gatedAt !== undefined)
@@ -941,7 +941,7 @@ bespokeFlags(
         .map((sc) => sc.gatedAt as string),
     );
     const t0 = Date.now();
-    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source, probed);
+    await gate(out, false, storyboard, cut.kept, o.fidelity !== false, source, probed, false);
     step(`build: verify in ${Math.round((Date.now() - t0) / 1000)}s`);
   },
 );
@@ -1284,6 +1284,7 @@ function reportCut(cut: Cut): void {
  * `kept` is the cut `build` emitted — without it the budget gate has to guess
  * which beats the scenes it is reading correspond to. `source` is the same story
  * once more: it is what the unused-figure advisory reads, and only `build` has one.
+ * `seekRest` is false from `build` only; see `VerifyOptions.seekRest`.
  */
 async function gate(
   dir: string,
@@ -1293,13 +1294,14 @@ async function gate(
   fidelity = true,
   source?: Source,
   probed?: ReadonlySet<string>,
+  seekRest = true,
 ): Promise<void> {
   step(
-    `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute${probed?.size ? ` (${probed.size} generated scene(s) the bespoke pass gated in full are seeked, not re-probed)` : ""}`,
+    `verify: running the hyperframes gates${fidelity ? " and opening a frame at every stop" : ""}, about a minute${probed?.size ? ` (${probed.size} generated scene(s) the bespoke pass gated in full are not re-probed)` : ""}`,
   );
   const verdict = await verify(
     dir,
-    { snapshots, fidelity, ...(probed?.size ? { probed } : {}) },
+    { snapshots, fidelity, seekRest, ...(probed?.size ? { probed } : {}) },
     storyboard,
     kept,
     source,
