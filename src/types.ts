@@ -771,6 +771,10 @@ export const LITERAL_KIND_NAMES = [
   "table",
   "scale",
   "recap",
+  "prior-work",
+  "margins",
+  "scope",
+  "ablation",
   "attention",
   "diffusion",
   "optimization",
@@ -1214,14 +1218,101 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       reweighted: { what: "title of the feature reweighted by the structure map" },
     },
   },
+  "prior-work": {
+    doc: `earlier approaches shown by what they DO, one lane per family
+                     (2–4), side by side, lit in spoken order. A lane the build
+                     can run is run for real on the deck's picture: \`shows\`
+                     dark-channel (the classical prior, exact), sobel (a fixed
+                     filter, exact) or spikes (spike quantization of the edges,
+                     illustrative). A family of LEARNED methods is never drawn
+                     as an output: \`shows\` numbers, with \`numbers\` ({label,
+                     value}) the source reports for its members. Each lane has
+                     \`family\`, \`members\` and \`gap\` (where the source says it
+                     runs out). Takes \`lanes\`, and \`picture\` when a lane runs.`,
+    slots: {
+      computed: {
+        what: "on a lane that runs a classical method: it is computed on this picture (required when a lane shows dark-channel or sobel)",
+        optional: true,
+      },
+      example: {
+        what: "on a spikes lane: it is an example, in the deck's language (example · 예시 · 例 · 示例); required when a lane shows spikes",
+        optional: true,
+      },
+      reported: {
+        what: "over a numbers lane: these are the source's reported values (required when a lane shows numbers)",
+        optional: true,
+      },
+      caption: {
+        what: "under the lanes: what this is (prior work as the source groups it)",
+        optional: true,
+      },
+    },
+  },
+  margins: {
+    doc: `results against the best OTHER method as positions, not cells:
+                     each setting (dataset, split) placed by its margin on one
+                     metric (a strip) or two (a plane, quadrants), zero being
+                     level with the best other method, so where the method
+                     leads and trails is a place. Per setting and metric, the
+                     method's value, the best other method's value and its
+                     name, exactly as the source writes them; the margin is
+                     their difference. Use it for a results table. Takes
+                     \`ours\`, \`metrics\` ({name, lowerIsBetter}), \`settings\`
+                     ({name, values: [{ours, best, rival}] one per metric}).`,
+    slots: {
+      ahead: { what: "the region where the method leads on every metric" },
+      behind: { what: "the region where it trails on every metric" },
+      zero: { what: "on the zero line(s): level with the best other method" },
+      scaled: { what: "says each axis is scaled to its own largest margin" },
+    },
+  },
+  scope: {
+    doc: `what a claim rests on and what lies outside it, as nested
+                     regions (2–4 \`rings\`, inner to outer, each a \`label\` and
+                     its \`items\`): the innermost holds what the source shows
+                     results for, each ring out what it shows less of (only a
+                     qualitative comparison, only a mention), the outermost what
+                     it never tested. Use it for the datasets evaluated, the
+                     limits of a conclusion, the reach of a method — each ring
+                     lit as it is spoken. Takes \`rings\`.`,
+    slots: { caption: { what: "under the regions: what they are", optional: true } },
+  },
+  ablation: {
+    doc: `the experiments a paper did not run, as the holes they leave:
+                     every on/off combination of its \`components\` (one or two)
+                     is a cell, the ones the source reports (\`reported\`: the
+                     components each keeps, \`with\`, and its \`result\`) carry
+                     the result, the rest are visibly empty. Each setting the
+                     source fixes (\`settings\`: name, value — a number, a word or
+                     a list, as the source writes it) is a line with its ONE
+                     tested point. A proposal to vary something the source
+                     fixed IS a setting (its structure cue, its hardware, the
+                     datasets it measured); \`others\` only for what fits
+                     neither, outlined. The grid on the first sentence, then the
+                     settings and others in order over the next ones: order them
+                     as they are spoken. Use it for future work and missing
+                     ablations.`,
+    slots: {
+      on: { what: "beside a component that is kept" },
+      off: { what: "beside a component that is removed" },
+      missing: { what: "in a combination the source reports no result for" },
+      tested: {
+        what: "title of the settings: each was tested at one value (required when there are settings)",
+        optional: true,
+      },
+    },
+  },
   table: {
     doc: `numbers or claims the source reports, as a quiet table; rows lit
                      in the order they are spoken (\`highlight\`, row indexes
                      from 0), and \`marks\` ({row, col}) emphasise the cells that
                      win or are missing. Every number in a cell is one the
-                     source states, written exactly as it does. Prior methods
-                     appear here, by the numbers and claims the source gives.
-                     Takes \`columns\`, \`rows\`, \`highlight\`, \`marks\`.`,
+                     source states, written exactly as it does. THE LAST
+                     RESORT: results are \`margins\`, datasets and limits
+                     \`scope\`, future work \`ablation\`, earlier approaches
+                     \`prior-work\`; a table only where none is honest, at most
+                     one a deck. Takes \`columns\`, \`rows\`, \`highlight\`,
+                     \`marks\`.`,
     slots: { caption: { what: "under the table: what the numbers are", optional: true } },
   },
   scale: {
@@ -1518,6 +1609,54 @@ export const literalSchema = z.discriminatedUnion("kind", [
     kind: z.literal("recap"),
     /** Earlier literal beats whose computed layers come back, in order. */
     beats: z.array(z.string()),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("prior-work"),
+    /** The beat whose picture the lanes that run a method run on. */
+    picture: z.string().optional(),
+    lanes: z.array(
+      z.object({
+        family: z.string(),
+        members: z.string(),
+        shows: z.enum(["dark-channel", "sobel", "spikes", "numbers"]),
+        /** A `numbers` lane's values, exactly as the source reports them. */
+        numbers: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
+        /** Where the source says the family runs out. */
+        gap: z.string(),
+      }),
+    ),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("margins"),
+    /** The method the margins are of, as the source names it. */
+    ours: z.string(),
+    metrics: z.array(z.object({ name: z.string(), lowerIsBetter: z.boolean().default(false) })),
+    settings: z.array(
+      z.object({
+        name: z.string(),
+        /** One per metric: the method's value, the best other method's, and its name. */
+        values: z.array(z.object({ ours: z.string(), best: z.string(), rival: z.string() })),
+      }),
+    ),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("scope"),
+    /** Inner to outer: what the source shows results for, then less, then never tested. */
+    rings: z.array(z.object({ label: z.string(), items: z.array(z.string()) })),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("ablation"),
+    components: z.array(z.string()),
+    /** The combinations the source reports a result for: the components each keeps, and the result. */
+    reported: z.array(z.object({ with: z.array(z.string()), result: z.string() })).default([]),
+    /** Settings the source fixes, each tested at one value. */
+    settings: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
+    /** Further proposals that are neither a combination nor a setting. */
+    others: z.array(z.string()).default([]),
     ...literalLabels,
   }),
   z.object({
