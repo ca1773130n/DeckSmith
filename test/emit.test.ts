@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitScene, emitters } from "../src/emit/archetypes/index.js";
-import { cjkTypesetCss, emitComposition, planCut } from "../src/emit/composition.js";
+import { cjkTypesetCss, emitComposition, planCut, stageScene } from "../src/emit/composition.js";
 import {
   DIM,
   type EmitContext,
@@ -1305,5 +1305,40 @@ describe("pieces", () => {
     ).toThrow(
       /split-compare b1: the left figure "f-piece" is an animate piece[\s\S]*use claim-figure/,
     );
+  });
+});
+
+describe("stageScene, given the beat's sentences", () => {
+  const seg = (stop: number, seconds: number) => ({
+    stop,
+    text: "s",
+    audio: `${stop}.mp3`,
+    seconds,
+    cues: [{ start: 0, end: seconds, text: "s" }],
+  });
+  const scene = {
+    html: "",
+    holds: [1.95, 2.85, 3.65],
+    tl: [
+      { target: "#s1-h", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 0.3 },
+      { target: "#s1-a", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 1.15 },
+      { target: "#s1-b", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 2.05 },
+      { target: "#s1-c", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 2.95 },
+    ],
+  };
+
+  it("lands each stop's reveal as its sentence starts, not in the first four seconds", () => {
+    // r1: holds [1.95, 2.85, 3.65] in a 23.6s split-compare, still after 4s.
+    const { scene: s, open } = stageScene(scene, 1, [seg(0, 7.6), seg(1, 8.7)]);
+    expect(open).toBe(0.9);
+    // Stop 1's sentence starts when stop 0's ends; the third stop has none and
+    // is spread towards the end of speech, as a bespoke scene's is.
+    expect(s.holds).toEqual([1.95, 8.5, 12.85]);
+    expect(s.tl.map((t) => t.at)).toEqual([0.3, 1.15, 7.7, 12.15]);
+  });
+
+  it("leaves a scene with one stop, and a silent one, as they were", () => {
+    expect(stageScene({ ...scene, holds: [1.9] }, 1, [seg(0, 9)]).scene.tl).toEqual(scene.tl);
+    expect(stageScene(scene, 1).scene).toEqual(scene);
   });
 });

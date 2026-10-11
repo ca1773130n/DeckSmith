@@ -400,6 +400,7 @@ export function planCut(
       ({ scene } = stageScene(
         emitScene(beat, { source, format, theme, sid: `s${i + 1}`, start: 0, ...design(opts) }),
         speed,
+        opts.bespoke?.[beat.id] === undefined ? segments : undefined,
       ));
     } catch (err) {
       // Without a hook the error propagates exactly as it always has, which is
@@ -561,6 +562,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
           ? restyleChrome(emitted, sid, verb)
           : restyleEntrance(emitted, sid, verb),
       speed,
+      bespoke ? undefined : segments,
     );
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);
 
@@ -1019,9 +1021,68 @@ function spokenStarts(
  * divergence between them is invisible. Sharing the code is the only thing that
  * makes them the same answer.
  */
-export function stageScene(scene: Scene, speed: number): { scene: Scene; open: number } {
+export function stageScene(
+  scene: Scene,
+  speed: number,
+  /** The beat's sentences, for an ARCHETYPE scene: see `onSentences`. */
+  segments?: readonly Segment[],
+): { scene: Scene; open: number } {
   const paced = pace(scene, speed);
-  return { scene: paced, open: openSeconds(paced) };
+  const open = openSeconds(paced);
+  return { scene: segments?.length ? onSentences(paced, open, segments) : paced, open };
+}
+
+/**
+ * An archetype scene re-timed so each stop's reveal lands as its sentence starts.
+ *
+ * An archetype times its reveals on a fixed stagger — split-compare's two sides at
+ * 1.15s and 2.05s — because it never sees the narration. The scene then plays
+ * straight through (`framePlan`), so every reveal happened in its first four
+ * seconds and the rest of the slide was still. Measured on r1 of the literal
+ * verbs run: 32% of one deck and 44% of the other were runs of 6s or more with
+ * no pixel change, every one of them an archetype scene, e.g. holds
+ * [1.95, 2.85, 3.65] in a 23.6s split-compare.
+ *
+ * The holds are moved exactly as a bespoke scene's are (`bespokeHolds`): a stop
+ * with a sentence holds where that sentence starts, a stop without one is spread
+ * towards the end of speech. Every tween is then SHIFTED, never stretched, with
+ * its stop's hold — a tween belongs to the first stop whose hold it precedes —
+ * so the reveal keeps its own duration and finishes as its sentence begins.
+ * Shifts never decrease across stops, so tween order (which `fromTo` depends on)
+ * is unchanged. The first stop does not move: its sentence starts at `open`.
+ *
+ * A fixed point of `speechPlan`: a later sentence waits for its hold, and its
+ * hold is now its start. A bespoke scene (`script`) times itself and is untouched.
+ */
+function onSentences(scene: Scene, open: number, segments: readonly Segment[]): Scene {
+  if (scene.script !== undefined) return scene;
+  const old = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+    (a, b) => a - b,
+  );
+  if (old.length < 2) return scene;
+  const { starts, end } = speechPlan(open, old, segments);
+  const byStop = new Map<number, number>();
+  segments.forEach((s, i) => {
+    if (i > 0 && starts[i] !== undefined) byStop.set(Math.min(s.stop, old.length - 1), starts[i]);
+  });
+  const target = bespokeHolds(old, byStop, end);
+  const shift: number[] = [];
+  let d = 0;
+  old.forEach((h, k) => {
+    d = Math.max(d, (target[k] ?? h) - h);
+    shift.push(d);
+  });
+  if (shift.every((x) => x === 0)) return scene;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const by = (t: number) => {
+    const k = old.findIndex((h) => t <= h + 1e-9);
+    return shift[k < 0 ? old.length - 1 : k] as number;
+  };
+  return {
+    ...scene,
+    tl: scene.tl.map((t) => (by(t.at) === 0 ? t : { ...t, at: r3(t.at + by(t.at)) })),
+    holds: scene.holds.map((h) => (Number.isFinite(h) && h > 0 ? r3(h + by(h)) : h)),
+  };
 }
 
 /**
