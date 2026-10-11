@@ -334,7 +334,7 @@ async function sceneGates(
       : { findings: [] };
     const loose = await probeScenes(rest, {
       open: () => openDeck(dir),
-      gates: ["seek", "dead"],
+      gates: ["seek", "dead", "clip"],
       seekSeverity: "warning",
       cold: false,
       sparse: true,

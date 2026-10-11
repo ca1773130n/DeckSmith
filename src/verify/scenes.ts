@@ -1144,7 +1144,7 @@ export interface Probe {
 
 export interface ProbeOptions {
   /** Which gates. Default all three. `seek` alone is what `verify` runs on plain v2 scenes. */
-  gates?: ReadonlyArray<"motion" | "layout" | "seek" | "dead">;
+  gates?: ReadonlyArray<"motion" | "layout" | "seek" | "dead" | "clip">;
   /** `seek_order` severity; `verify` passes `warning` for scenes nobody generated. */
   seekSeverity?: Finding["severity"];
   /** Keep the PNGs (the critique round needs them). */
@@ -1253,6 +1253,17 @@ export async function probeScenes(
                 ...(got.wipe !== null ? { wipe: got.wipe } : {}),
               });
           }
+          const cut = (await deck.page.evaluate(`(${CUT})(${sid})`)) as CutSample["cut"];
+          cuts.push({ sid: w.sid, t: round(t), cut });
+        }
+      }
+      // `clip` alone: the words a clipping box cuts, on a scene the dense pass
+      // above did not walk (a literal scene, gated as a plain one). A seek and
+      // a read per sample, no screenshot.
+      if (gates.has("clip") && !(gates.has("layout") && bespoke)) {
+        const sid = JSON.stringify(w.sid);
+        for (let t = CAM_STEP / 2; t <= w.duration - 0.5; t += CAM_STEP) {
+          await deck.seek(w.start + t);
           const cut = (await deck.page.evaluate(`(${CUT})(${sid})`)) as CutSample["cut"];
           cuts.push({ sid: w.sid, t: round(t), cut });
         }
@@ -1399,7 +1410,7 @@ export async function probeScenes(
     ...(gates.has("layout") && gates.has("motion")
       ? gradeShots(cams, new Map(windows.map((w) => [w.sid, w.cues[0]?.t0 ?? 0])))
       : []),
-    ...(gates.has("layout") ? gradeCuts(cuts) : []),
+    ...(gates.has("layout") || gates.has("clip") ? gradeCuts(cuts) : []),
     ...(gates.has("motion") ? gradeMorphs(morphs) : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
     ...(gates.has("layout") ? gradeSeams(seams) : []),
