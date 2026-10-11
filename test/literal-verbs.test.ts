@@ -1538,6 +1538,88 @@ describe("what each verb computes", () => {
     expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1.35 / 8, 3);
   });
 
+  it("flow timeline: with no time stated, a parallel run is one step, so its lane is shorter", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "draft then verify") as Fixture);
+    expect(d.r.data.scale).toBe("dur");
+    const lit = literalSchema.parse({
+      kind: "flow",
+      form: "timeline",
+      lanes: [
+        { label: "serial", runs: [{ label: "K runs", parallel: false }] },
+        { label: "at once", runs: [{ label: "K+1 checks", parallel: true }] },
+      ],
+      labels: L({ unit: "one call", example: "example" }),
+    }) as Extract<Literal, { kind: "flow" }>;
+    const r = runVerb(flow as VerbRun<"flow">, {
+      lit,
+      labels: { unit: "one call", example: "example" },
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+    const track = r.frames[0]?.prims.filter((p) => p.p === "rect" && p.h === 4) as Array<{
+      w: number;
+    }>;
+    // Four example serial steps against one parallel step.
+    expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1 / 4, 3);
+    // Every run's words are on a plate.
+    const plates = r.frames[0]?.prims.filter((p) => p.p === "rect" && p.opacity === 0.92) ?? [];
+    expect(plates.length).toBe(2);
+  });
+
+  it("flow timeline: lanes of equal serial steps on example material are refused", () => {
+    const lit = literalSchema.parse({
+      kind: "flow",
+      form: "timeline",
+      lanes: [
+        { label: "x", runs: [{ label: "r", parallel: false }] },
+        { label: "y", runs: [{ label: "s", parallel: false }] },
+      ],
+      labels: L({ unit: "u", example: "example" }),
+    }) as Literal;
+    expect(drawProblems(lit, region_, theme)[0]).toMatch(/same number of serial steps/);
+  });
+
+  it("flow timeline: a stated duration is one block, and a stated total is printed at its lane's end", () => {
+    const lit = literalSchema.parse({
+      kind: "flow",
+      form: "timeline",
+      lanes: [
+        {
+          label: "long",
+          total: { value: "4.46" },
+          runs: [{ label: "a", dur: { value: "4.46" }, parallel: false }],
+        },
+        {
+          label: "short",
+          total: { value: "0.24" },
+          runs: [{ label: "b", dur: { value: "0.24" }, parallel: false }],
+        },
+      ],
+      labels: L({ unit: "s" }),
+    }) as Extract<Literal, { kind: "flow" }>;
+    const r = runVerb(flow as VerbRun<"flow">, {
+      lit,
+      labels: { unit: "s" },
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+    const prims = r.frames[0]?.prims ?? [];
+    const blocks = prims.filter((p) => p.p === "rect" && p.wipe);
+    expect(blocks).toHaveLength(2);
+    const ends = prims
+      .filter((p) => p.p === "text" && p.role === "accent")
+      .map((p) => (p as { text: string }).text);
+    expect(ends).toEqual(["4.46 s", "0.24 s"]);
+  });
+
   it("flow timeline: words too wide for a late run wrap under its lane, in the region, clear of the next lane", () => {
     const lit = literalSchema.parse({
       kind: "flow",

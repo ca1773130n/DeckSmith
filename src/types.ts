@@ -1354,8 +1354,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`count\` out, the runs are then example, tagged, and the
                      symbol goes in the run's label) — serial runs one after another,
                      a parallel run covering its count at once; a lane is as
-                     long as its stated \`total\` (or Σ count·dur), else every
-                     lane has one length and the runs show the difference.
+                     long as its stated \`total\` (printed at its end; or Σ
+                     count·dur), else as its serial steps: a parallel run is
+                     ONE step, so verifying γ+1 positions at once is drawn
+                     shorter than γ+1 serial runs. A stated duration with no
+                     count is one block. Lanes of equal steps are refused.
                      A timeline always fills the \`unit\` slot: what one run is.`,
     slots: {
       learned: {

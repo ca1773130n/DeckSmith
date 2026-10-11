@@ -13,11 +13,15 @@
  * (./message-passing.ts), W = I unless the source gives the weights.
  *
  * TIMELINE: serial runs one after another and parallel runs covering their
- * count at once, lane by lane. A lane's length is the source's: Σ count·dur
- * when every run's duration is stated, else the lane's stated `total`, else
- * every lane has one length and the number of runs is the difference. The
- * split of a total into runs is example material (tagged). Runs are revealed
- * in order; there is no playhead.
+ * count at once, lane by lane, every lane on ONE axis. A lane's length is the
+ * source's: Σ count·dur when every run's duration is stated, else the lane's
+ * stated `total` (printed at its end), else its serial steps — a parallel run
+ * is one step however many positions it covers, a serial run its count (four,
+ * example, when none is stated) — so a lane that takes fewer serial steps is
+ * visibly shorter. A run with a stated duration and no count is one block,
+ * never split into steps the source does not give. The split of a total into
+ * runs is example material (tagged). Runs are revealed in order; there is no
+ * playhead. A run's words sit on a plate, so no seam crosses them.
  */
 import type { Frame, MechanismResult, Prim } from "./common.js";
 import { TYPE, wrapBy } from "./common.js";
@@ -443,69 +447,105 @@ function graph(c: Ctx): MechanismResult {
 
 /* --------------------------------------------------------------- timeline */
 
+type Run = Ctx["lit"]["lanes"][number]["runs"][number];
+
+/** How lanes are measured: stated durations, stated totals, or steps (example). */
+type Scale = "dur" | "total" | "steps";
+
 function timeline(c: Ctx): MechanismResult {
   const d = c.lit;
   const { width: W, height: H } = c.region;
   const lanes = d.lanes;
   if (lanes.length < 1 || lanes.length > 4)
     throw new Error(`flow timeline draws 1–4 lanes, got ${lanes.length}`);
-  if (!c.labels.unit?.trim())
-    throw new Error("flow timeline needs the `unit` slot: what one run is");
+  const unit = c.labels.unit?.trim();
+  if (!unit) throw new Error("flow timeline needs the `unit` slot: what one run is");
   for (const l of lanes)
     if (!l.runs.length || l.runs.length > 8)
       throw new Error(`lane "${l.label}" needs 1–8 runs, got ${l.runs.length}`);
-  const count = (r: (typeof lanes)[number]["runs"][number]) =>
-    r.count ? num(r.count.value, `run "${r.label}" count`) : undefined;
+  const count = (r: Run) => (r.count ? num(r.count.value, `run "${r.label}" count`) : undefined);
   for (const l of lanes)
     for (const r of l.runs) {
       const k = count(r);
       if (k !== undefined && (!Number.isInteger(k) || k < 1))
         throw new Error(`run "${r.label}" count must be a whole number ≥ 1`);
     }
-  // Steps a run takes: a parallel run one, a serial run its count (4 when the source gives none: example).
-  const steps = (r: (typeof lanes)[number]["runs"][number]) => (r.parallel ? 1 : (count(r) ?? 4));
-  const allDur = lanes.every((l) => l.runs.every((r) => r.dur && (r.parallel || r.count)));
-  const allTotal = lanes.every((l) => l.total);
-  if (!allDur && !allTotal && lanes.some((l) => l.total))
+  const dur = (r: Run) => (r.dur ? num(r.dur.value, `run "${r.label}" dur`) : undefined);
+  // The serial steps a run takes, which is what a lane's length tracks when no time is
+  // stated: a parallel run is ONE step however many positions it covers, a serial run its
+  // count — one when it is a stated duration (a measured span is not split into steps the
+  // source never gives), four when nothing is stated (example).
+  const steps = (r: Run) => (r.parallel ? 1 : (count(r) ?? (r.dur ? 1 : 4)));
+  // A serial run's blocks: its count, else one block.
+  const blocksOf = (r: Run) => {
+    const k = r.parallel ? 1 : (count(r) ?? (r.dur ? 1 : 4));
+    return k <= 24 ? k : 1;
+  };
+  const scale: Scale = lanes.every((l) => l.runs.every((r) => r.dur))
+    ? "dur"
+    : lanes.every((l) => l.total)
+      ? "total"
+      : "steps";
+  if (scale === "steps" && lanes.some((l) => l.total))
     throw new Error(
       "flow timeline: give every lane a `total`, or none (lane lengths are compared only on stated totals)",
     );
+  // A run's share of its lane: its stated time when the lane states every run's, else its steps.
+  const weight = (l: (typeof lanes)[number], r: Run) =>
+    l.runs.every((q) => q.dur) ? (r.parallel ? 1 : (count(r) ?? 1)) * (dur(r) as number) : steps(r);
   const time = lanes.map((l) =>
-    allDur
-      ? l.runs.reduce((a, r) => a + steps(r) * num(r.dur?.value ?? "", `run "${r.label}" dur`), 0)
-      : allTotal
+    scale === "dur"
+      ? l.runs.reduce((a, r) => a + weight(l, r), 0)
+      : scale === "total"
         ? num(l.total?.value ?? "", `lane "${l.label}" total`)
-        : 1,
+        : l.runs.reduce((a, r) => a + steps(r), 0),
   );
   if (time.some((t) => !(t > 0)))
     throw new Error("flow timeline: every lane's time must be positive");
+  const tmax = Math.max(...time);
+  // On example steps, lanes of one length say nothing a timeline exists to say: r3 drew a
+  // parallel verify as long as K serial runs, and early exit as long as the full run.
+  if (lanes.length > 1 && scale === "steps" && Math.min(...time) / tmax > 0.95)
+    throw new Error(
+      "flow timeline: every lane takes the same number of serial steps, so they are drawn one length; give the runs' `count`, `dur` or the lanes' `total` the source states, or draw it as a chain",
+    );
+  // A stated total is printed at its lane's end, with the unit when the unit is a short word.
+  const unitShort = c.measure(unit, TYPE.label) <= 120 ? unit : "";
+  const endText = (i: number) => {
+    const l = lanes[i] as (typeof lanes)[number];
+    return lanes.every((q) => q.total) && l.total ? [l.total.value, unitShort].filter(Boolean).join(" ") : "";
+  };
+  const endW = Math.max(
+    0,
+    ...lanes.map((_, i) => (endText(i) ? c.measure(endText(i), TYPE.label) + 24 : 0)),
+  );
   const lw = Math.min(
     W * 0.3,
     Math.max(...lanes.map((l) => Math.min(W * 0.3, c.measure(l.label, TYPE.label) + 30))),
   );
-  const tw = W - lw - 20;
+  const tw = W - lw - 20 - endW;
   const unitH = 60;
   const gap = 28;
   const lineH = Math.round(TYPE.label * 1.18);
-  const tmax = Math.max(...time);
   // Pass 1, across: each run's span, and where its words go. Words too wide for the
   // run sit under the lane, wrapped to the track and pulled left to stay in the
   // region; labels under one lane that would collide stack downwards.
   type Under = { lines: string[]; left: number; top: number };
   const across = lanes.map((l, i) => {
     const len = (tw * (time[i] as number)) / tmax;
-    const stepW = len / l.runs.reduce((a, r) => a + steps(r), 0);
+    const unitW = len / l.runs.reduce((a, r) => a + weight(l, r), 0);
     const under: Under[] = [];
     let x = lw;
     const runs = l.runs.map((r) => {
       const k = count(r);
-      const span = stepW * steps(r);
+      const span = unitW * weight(l, r);
       const words = [r.label, ...(k !== undefined && r.count ? [`×${r.count.value}`] : [])].join(
         " ",
       );
       const ww = c.measure(words, TYPE.label);
       let below: Under | undefined;
-      if (ww > span - 8) {
+      // In the run on a plate, when it fits with the plate's margin.
+      if (ww + 2 * PLATE_PAD > span - 8) {
         const lines = ww <= W - x ? [words] : wrapBy(words, TYPE.label, tw, c.measure);
         if (lines.length > 2)
           throw new Error(`run "${r.label}" has no room for its words; shorten it`);
@@ -528,7 +568,7 @@ function timeline(c: Ctx): MechanismResult {
         below = { lines, left, top };
         under.push(below);
       }
-      const run = { r, k, x, span, words, below };
+      const run = { r, k, x, span, words, ww, below };
       x += span;
       return run;
     });
@@ -571,7 +611,7 @@ function timeline(c: Ctx): MechanismResult {
       cam: true,
     });
     prims.push({ p: "rect", x: lw, y: y + lh / 2 - 2, w: len, h: 4, fill: "rule", cam: true });
-    runs.forEach(({ r, k, x, span, words, below }, j) => {
+    runs.forEach(({ r, k, x, span, words, ww, below }, j) => {
       at = Math.min(12, at + 1);
       const role = j % 2 ? "b" : "a";
       const inner: Prim[] = [];
@@ -593,7 +633,7 @@ function timeline(c: Ctx): MechanismResult {
             wipe: true,
           });
       } else {
-        const blocks = steps(r) <= 24 ? steps(r) : 1;
+        const blocks = blocksOf(r);
         const bw = span / blocks;
         for (let q = 0; q < blocks; q++)
           inner.push({
@@ -611,24 +651,53 @@ function timeline(c: Ctx): MechanismResult {
           });
       }
       prims.push(...inner);
-      if (!below)
-        prims.push({
-          p: "text",
-          x: x + span / 2,
-          y: y + lh / 2 - TYPE.label * 0.6,
-          size: TYPE.label,
-          role: "auto",
-          anchor: "middle",
-          text: words,
-          at,
-        });
-      else
+      if (!below) {
+        // On a plate, so the seams between blocks and stacked positions never cross the words.
+        const ph = TYPE.label * 1.2 + 12;
+        prims.push(
+          {
+            p: "rect",
+            x: x + span / 2 - ww / 2 - PLATE_PAD,
+            y: y + lh / 2 - ph / 2,
+            w: ww + 2 * PLATE_PAD,
+            h: ph,
+            fill: "panel",
+            opacity: 0.92,
+            radius: 8,
+            at,
+          },
+          {
+            p: "text",
+            x: x + span / 2,
+            y: y + lh / 2 - TYPE.label * 0.6,
+            size: TYPE.label,
+            role: "fg",
+            anchor: "middle",
+            text: words,
+            at,
+          },
+        );
+      } else
         prims.push(
           ...textLines(below.lines, below.left, y + lh + 2 + below.top, TYPE.label, "muted", {
             at,
           }),
         );
     });
+    // The stated total at the lane's end, with the lane's last run.
+    const end = endText(i);
+    if (end)
+      prims.push({
+        p: "text",
+        x: lw + len + 16,
+        y: y + lh / 2 - TYPE.label * 0.6,
+        size: TYPE.label,
+        role: "accent",
+        anchor: "start",
+        weight: 700,
+        text: end,
+        at,
+      });
     y += lh + (gaps[i] ?? 0);
   });
   prims.push({
@@ -640,5 +709,8 @@ function timeline(c: Ctx): MechanismResult {
     anchor: "end",
     slot: "unit",
   });
-  return { rasters: {}, frames: [{ id: "lanes", prims, vars: {} }], data: {}, vars: {} };
+  return { rasters: {}, frames: [{ id: "lanes", prims, vars: {} }], data: { scale }, vars: {} };
 }
+
+/** Room around a run's words on their plate, px a side. */
+const PLATE_PAD = 14;
