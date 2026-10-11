@@ -9,7 +9,7 @@ import type { Figure } from "../../types.js";
 import { PIECE_ATTR } from "../animate-runtime.js";
 import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween } from "../kit.js";
-import { esc, staggerFor, wordAtoms, words } from "../kit.js";
+import { esc, figureCaption, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { captionFit, type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
@@ -524,7 +524,13 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // `CAP_LINES_ASSUMED` is the slack the demo's own three-line caption has
   // always taken; past that it is cut at a word.
   const capFor = (width: number) =>
-    captionFit(fig.caption, BODY_SIZE, width * MEASURE_SLACK, CAP_LINES_MAX, face);
+    captionFit(
+      figureCaption(p.caption, fig.caption, ctx.lang),
+      BODY_SIZE,
+      width * MEASURE_SLACK,
+      CAP_LINES_MAX,
+      face,
+    );
 
   // BESIDE IS ONLY VIABLE IF THE CLAIM FITS THE ROW. `.cf-beside` gives the claim
   // a fixed 560px column and centres the row on its tallest item, so a long claim

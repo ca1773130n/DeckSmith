@@ -245,6 +245,12 @@ export const claimFigureParamsSchema = z
     headline: z.string(),
     claim: z.string(),
     /**
+     * The figure's caption in the DECK'S language, short. The source's own caption
+     * is printed only when it is written in the deck's language: r2 printed
+     * "Figure 2 Comparison of CoT paradigms." under a Chinese slide.
+     */
+    caption: z.string().optional(),
+    /**
      * A figure in the inventory. Optional only because `illustration` is the
      * alternative; it comes FIRST in key order because structured output decodes
      * in that order, and the model should look for a real figure before it
@@ -447,6 +453,12 @@ export const annotatedFigureParamsSchema = z.object({
   eyebrow: z.string().optional(),
   headline: z.string(),
   figureId: z.string(),
+  /**
+   * The figure's caption in the DECK'S language, short. The source's own caption
+   * is printed only when it is written in the deck's language: r2 printed
+   * "Figure 2 Comparison of CoT paradigms." under a Chinese slide.
+   */
+  caption: z.string().optional(),
   /**
    * Show only this region of the figure, as fractions of the whole, scaled to
    * fill the plate.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_POSE, depthCss, scaleAt, tiltedFloor, worstScale } from "../src/emit/depth.js";
 import {
+  atomsOf,
   arrow,
   arrowDefs,
   captionFit,
@@ -271,6 +272,17 @@ describe("wrap", () => {
     expect(lines.length).toBeGreaterThan(1);
     for (const l of lines) expect(textWidth(l, 40)).toBeLessThanOrEqual(200);
     expect(lines.join("")).toBe("영상복원파이프라인단계");
+  });
+
+  it("never breaks inside a number or a Latin name in a run with no spaces", () => {
+    // r2's ablation grid: "完整OneVL：88.84" set as "…88" / ".84".
+    expect(atomsOf("完整OneVL：88.84")).toEqual(["完", "整", "OneVL：", "88.84"]);
+    for (const w of [180, 220, 260, 320]) {
+      const lines = wrap("完整OneVL：88.84", 40, w);
+      expect(lines.join("")).toBe("完整OneVL：88.84");
+      expect(lines.some((l) => l.includes("88.84"))).toBe(true);
+      expect(lines.some((l) => l.includes("OneVL"))).toBe(true);
+    }
   });
 
   it("never returns nothing", () => {

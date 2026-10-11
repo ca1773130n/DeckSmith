@@ -24,7 +24,7 @@
 import type { BeatOf, Format } from "../../types.js";
 import { fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { contentH, contentW, esc, spotlighter } from "../kit.js";
+import { contentH, contentW, esc, figureCaption, spotlighter } from "../kit.js";
 import type { Box, Pt } from "../svg.js";
 import {
   captionFit,
@@ -98,6 +98,9 @@ const RULE_W = 3;
  * plus a little, so the two can never converge again.
  */
 const LAB_GAP = Math.round(LAB * LAB_LH) + 12;
+
+/** v2: a figure wider than this (width ÷ height) is set across the stage, its labels under it. */
+const WIDE_VIEW = 2.2;
 
 /** The narrowest label column the search starts from, when the labels need it. */
 const MIN_GUTTER = 360;
@@ -733,7 +736,13 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
   const face = faceOf(ctx.theme.fontStack);
   // The caption as set, inside the two lines the stage reserves and the CSS
   // clamps to (`CAP_LINES`): a clamp that has to cut is clipped text to the gate.
-  const capText = captionFit(fig.caption, LAB, STAGE_W * MEASURE_SLACK, CAP_LINES, face);
+  const capText = captionFit(
+    figureCaption(p.caption, fig.caption, ctx.lang),
+    LAB,
+    STAGE_W * MEASURE_SLACK,
+    CAP_LINES,
+    face,
+  );
   const budget = stageBudget(ctx.format, p.eyebrow, p.headline, capText, face);
   // The ladder's last rung. Between `MIN_STAGE` and the whole canvas the figure
   // simply shrinks; below it there is no picture left to annotate, and drawing
@@ -746,10 +755,14 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
         `under the ${MIN_STAGE}px floor — shorten the headline or split the beat`,
     );
   }
-  const classic = planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face);
   const v2 = isV2(ctx);
+  // v2: a figure wider than `WIDE_VIEW` takes the stage's whole width with its
+  // labels in a row under it, as portrait does. Between two label margins r2's
+  // 4.8:1 trace diagram was drawn 920×190, its own legend at 14px.
+  const under = isPortrait(ctx.format) || (v2 && view.width / Math.max(1, view.height) > WIDE_VIEW);
+  const classic = planFigure(STAGE_W, notes, view, budget, under, face);
   const grown = v2
-    ? planFigure(STAGE_W, notes, view, budget, isPortrait(ctx.format), face, GROWN_UPSCALE)
+    ? planFigure(STAGE_W, notes, view, budget, under, face, GROWN_UPSCALE)
     : undefined;
   // Only a grown plan that FITS replaces the classic one: the labels it leaves
   // room for are what `ok` reports, and a bigger picture is not worth a label

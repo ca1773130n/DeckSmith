@@ -535,6 +535,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
       source,
       format,
       theme,
+      ...(storyboard.lang ? { lang: storyboard.lang } : {}),
       sid,
       start: rnd(at),
       ...design(opts),
