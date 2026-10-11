@@ -11,9 +11,10 @@
  * the scene then carries the example tag, and prints no computed value.
  *
  * Three layouts, one per input: a MAP (a picture: large, with the chain as a
- * column of thumbnails), PROFILES (1–2 vectors over named bins, full width,
- * each result revealed bin by bin) and a GRID (a small matrix, rows revealed
- * in turn). No layout invents a number: no ticks, no values on example data.
+ * column of thumbnails), PROFILES (1–2 vectors over named bins as columns, full
+ * width, each result wiped in bin by bin) and a GRID (a small matrix, rows
+ * revealed in turn). No layout invents a number: no ticks, no values on example
+ * data.
  */
 import {
   degrade,
@@ -355,6 +356,17 @@ function kernelInset(
 
 /* ---------------------------------------------------------- the profiles */
 
+/**
+ * Vectors over named bins as COLUMNS, one group per bin — a distribution over
+ * tokens is categorical, and r3 drew it as piecewise-linear "mountains". Each
+ * column stands at its value (a static shape revealed by a wipe, never grown).
+ * Each step's output is drawn solid in the accent, with the inputs it came from
+ * as their own colours' height marks across the bin. When an output and an
+ * earlier one SUM to an input (min(p, q) and max(0, p − q) sum to p), the output
+ * is stacked on the earlier one under that input's mark, so the identity is
+ * visible, computed, not asserted. Values are printed only on stated vectors
+ * (no `example` tag): an example's numbers would read as the paper's.
+ */
 function profileLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
   const { width: W, height: H } = c.region;
   const d = c.lit;
@@ -365,39 +377,37 @@ function profileLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
       throw new Error(
         `operate: bin "${b}" is wider than its column at 40px; use fewer or shorter bins`,
       );
+  const stated = !c.labels.example?.trim();
   const legendH = 56;
-  const top = TITLE_H + legendH;
+  const valueH = stated ? TYPE.label * 1.2 + 6 : 0;
+  const top = TITLE_H + legendH + valueH;
   const bottom = H - 60;
-  type Shown = { t: Tensor; role: "a" | "b" | "accent"; extra: Partial<Prim> };
-  /** One frame's chart: its own scale (the tensors it shows), its ground, the areas, the bins. */
-  const chart = (shown: Shown[]): Prim[] => {
-    const ymax = Math.max(1e-9, ...shown.map((e) => statOf(e.t.d, "max")));
-    const ymin = Math.min(0, ...shown.map((e) => statOf(e.t.d, "min")));
+  const colW = Math.min(binW * 0.62, 220);
+  const values = (t: Tensor) => Array.from({ length: t.w }, (_, i) => t.d[i] as number);
+  const inputs = L.main.slice(0, L.ins);
+  const roleOf = (k: number) => (k ? "b" : "a") as "a" | "b";
+  // An output that, with an earlier output, sums to an input: stacked on that output.
+  const near = (a: readonly number[], b: readonly number[]) =>
+    // Float32 arrays: equal to six significant digits.
+    a.length === b.length &&
+    a.every((v, i) => Math.abs(v - (b[i] as number)) <= 1e-5 * Math.max(1, Math.abs(v)));
+  const stackOf = (k: number): { on: number; input: number } | undefined => {
+    const out = values(L.main[L.ins + k] as Tensor);
+    for (let j = 0; j < k; j++) {
+      const below = values(L.main[L.ins + j] as Tensor);
+      if (below.length !== out.length) continue;
+      const sum = out.map((v, i) => v + (below[i] as number));
+      const input = inputs.findIndex((t) => near(values(t), sum));
+      if (input >= 0 && out.some((v) => v > 0) && below.some((v) => v > 0)) return { on: j, input };
+    }
+    return undefined;
+  };
+  // Headroom over the tallest column, so a height mark never meets the legend.
+  const ymaxOf = (vs: number[][]) => Math.max(1e-9, ...vs.flat()) * 1.08;
+  const yminOf = (vs: number[][]) => Math.min(0, ...vs.flat());
+  /** The ground, the zero line and the bin names, on one scale. */
+  const ground = (ymin: number, ymax: number, named: boolean): Prim[] => {
     const y = (v: number) => bottom - ((v - ymin) / (ymax - ymin)) * (bottom - top);
-    const area = ({ t, role, extra }: Shown): Prim[] => {
-      const m = t.w;
-      const xs = (i: number) =>
-        m === n ? (i + 0.5) * binW : (i / Math.max(1, m - 1)) * (W - binW) + binW / 2;
-      const pts: number[] = [];
-      for (let i = 0; i < m; i++) pts.push(xs(i), y(t.d[i] as number));
-      const poly = [xs(0), y(0), ...pts, xs(m - 1), y(0)];
-      return [
-        {
-          p: "path",
-          pts: poly,
-          role,
-          width: 0,
-          fill: role,
-          closed: true,
-          opacity: 0.35,
-          cam: true,
-          ...extra,
-        } as Prim,
-        { p: "path", pts, role, width: 5, cam: true, ...extra } as Prim,
-      ];
-    };
-    // The bins name the input's positions; an output of another length (a spectrum) has none.
-    const named = shown.every((e) => e.t.w === n);
     return [
       {
         p: "rect",
@@ -410,7 +420,6 @@ function profileLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
         cam: true,
       },
       { p: "line", x1: 0, y1: y(0), x2: W, y2: y(0), role: "rule", width: 2, cam: true },
-      ...shown.flatMap(area),
       ...(named
         ? d.bins.map(
             (b, i) =>
@@ -427,6 +436,81 @@ function profileLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
         : []),
     ];
   };
+  const scale = (ymin: number, ymax: number) => (v: number) =>
+    bottom - ((v - ymin) / (ymax - ymin)) * (bottom - top);
+  /** Columns of `vs` in bin `i`'s slot `slot` of `slots`, from `base` (stacked) upward. */
+  const columns = (
+    vs: readonly number[],
+    y: (v: number) => number,
+    role: "a" | "b" | "accent",
+    slot: number,
+    slots: number,
+    extra: Partial<Prim>,
+    base?: readonly number[],
+  ): Prim[] => {
+    const w = colW / slots;
+    const m = vs.length;
+    const cx = (i: number) => (m === n ? (i + 0.5) * binW : ((i + 0.5) * W) / m);
+    const cw = m === n ? w : Math.min(w, (W / m) * 0.62);
+    return vs.flatMap((v, i) => {
+      const b = base?.[i] ?? 0;
+      const y0 = y(b);
+      const y1 = y(b + v);
+      const h = Math.abs(y0 - y1);
+      if (h < 0.5) return [];
+      return [
+        {
+          p: "rect",
+          x: cx(i) - (m === n ? colW / 2 : cw / 2) + slot * cw,
+          y: Math.min(y0, y1),
+          w: Math.max(2, cw - 4),
+          h,
+          fill: role,
+          radius: 3,
+          cam: true,
+          ...extra,
+        } as Prim,
+      ];
+    });
+  };
+  /** A vector's height marks across each bin: what an output is compared against. */
+  const marks = (vs: readonly number[], y: (v: number) => number, role: "a" | "b"): Prim[] =>
+    vs.map(
+      (v, i) =>
+        ({
+          p: "line",
+          x1: (i + 0.5) * binW - colW / 2 - 10,
+          y1: y(v),
+          x2: (i + 0.5) * binW + colW / 2 + 10,
+          y2: y(v),
+          role,
+          width: 5,
+          cam: true,
+        }) as Prim,
+    );
+  /** Each column's value above it, on stated vectors only. */
+  const printed = (
+    vs: readonly number[],
+    y: (v: number) => number,
+    role: "fg" | "accent",
+    extra: Partial<Prim>,
+    base?: readonly number[],
+  ): Prim[] =>
+    stated && vs.length === n
+      ? vs.map(
+          (v, i) =>
+            ({
+              p: "text",
+              x: (i + 0.5) * binW,
+              y: y((base?.[i] ?? 0) + Math.max(0, v)) - TYPE.label * 1.2 - 4,
+              size: TYPE.label,
+              role,
+              anchor: "middle",
+              text: plain(v),
+              ...extra,
+            }) as Prim,
+        )
+      : [];
   const legend = (label: string, role: "a" | "b" | "accent", x: number): Prim[] => [
     { p: "rect", x, y: TITLE_H + 12, w: 32, h: 24, fill: role, radius: 4 },
     {
@@ -439,42 +523,39 @@ function profileLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
       text: label,
     },
   ];
-  const legends = L.names.flatMap((nm, k) => legend(nm, k ? "b" : "a", k * (W / 3)));
-  const inputs = (dim: boolean): Shown[] =>
-    L.main
-      .slice(0, L.ins)
-      .map((t, k) => ({ t, role: k ? "b" : "a", extra: dim ? { opacity: 0.18 } : {} }));
+  const legends = L.names.flatMap((nm, k) => legend(nm, roleOf(k), k * (W / 3)));
   const title = (p: Partial<Prim>): Prim =>
     ({ p: "text", x: 0, y: 6, size: TYPE.body, role: "fg", anchor: "start", ...p }) as Prim;
+  // The inputs, side by side in each bin, each wiped in on its own step.
+  const ins = inputs.map(values);
+  const y0 = scale(yminOf(ins), ymaxOf(ins));
   const frames: Frame[] = [
     {
       id: "in",
       prims: [
         title({ slot: "input" }),
         ...legends,
-        ...chart(
-          L.main
-            .slice(0, L.ins)
-            .map((t, k) => ({ t, role: k ? "b" : "a", extra: { at: k + 1, wipe: true } })),
-        ),
+        ...ground(yminOf(ins), ymaxOf(ins), true),
+        ...ins.flatMap((vs, k) => [
+          ...columns(vs, y0, roleOf(k), k, ins.length, { at: k + 1, wipe: true }),
+          ...(ins.length === 1 ? printed(vs, y0, "fg", { at: k + 1 }) : []),
+        ]),
       ],
       vars: {},
     },
   ];
   d.chain.forEach((s, k) => {
-    const out = L.main[L.ins + k] as Tensor;
+    const out = values(L.main[L.ins + k] as Tensor);
     const last = k === d.chain.length - 1 && !L.other;
-    // The output against what it was computed from; a different length is drawn alone.
-    const prev = k > 0 ? (L.main[L.ins + k - 1] as Tensor) : undefined;
-    const context: Shown[] =
-      out.w === n
-        ? [
-            ...inputs(true),
-            ...(prev && prev.w === n
-              ? [{ t: prev, role: "accent" as const, extra: { opacity: 0.12 } }]
-              : []),
-          ]
-        : [];
+    const st = stackOf(k);
+    const below = st ? values(L.main[L.ins + st.on] as Tensor) : undefined;
+    const sameLen = out.length === n;
+    const shownVs = sameLen
+      ? [...ins, out, ...(below ? [out.map((v, i) => v + (below[i] as number))] : [])]
+      : [out];
+    const ymin = yminOf(shownVs);
+    const ymax = ymaxOf(shownVs);
+    const y = scale(ymin, ymax);
     frames.push({
       id: `s${k + 1}`,
       prims: [
@@ -493,23 +574,33 @@ function profileLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
               } as Prim,
             ]
           : []),
-        ...chart([...context, { t: out, role: "accent", extra: { at: 1, wipe: true } }]),
+        ...ground(ymin, ymax, sameLen),
+        // What it is stacked on, in place from the start, quiet.
+        ...(below ? columns(below, y, "accent", 0, 1, { opacity: 0.4 }) : []),
+        ...columns(out, y, "accent", 0, 1, { at: 1, wipe: true }, below),
+        // The inputs' heights across each bin: the output against what it came from.
+        ...(sameLen ? ins.flatMap((vs, j) => marks(vs, y, roleOf(j))) : []),
+        ...printed(out, y, "accent", { at: 1 }, below),
       ],
       vars: {},
     });
   });
-  if (L.other)
+  if (L.other) {
+    const main = values(L.main.at(-1) as Tensor);
+    const other = values(L.other);
+    const vs = [main, other];
+    const y = scale(yminOf(vs), ymaxOf(vs));
     frames.push({
       id: "compare",
       prims: [
         title({ slot: d.compare === "params" ? "alt" : "condition" }),
-        ...chart([
-          { t: L.main.at(-1) as Tensor, role: "accent", extra: { opacity: 0.3 } },
-          { t: L.other, role: "b", extra: { at: 1, wipe: true } },
-        ]),
+        ...ground(yminOf(vs), ymaxOf(vs), main.length === n),
+        ...columns(main, y, "accent", 0, 2, { opacity: 0.45 }),
+        ...columns(other, y, "b", 1, 2, { at: 1, wipe: true }),
       ],
       vars: {},
     });
+  }
   return { rasters: {}, frames, data: {} };
 }
 

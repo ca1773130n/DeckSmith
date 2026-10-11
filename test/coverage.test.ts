@@ -943,6 +943,29 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     );
   });
 
+  it("draws one set of example vectors once: a second operate on them is the same chart", () => {
+    const beats = covered();
+    const vec = (label: string) => ({
+      kind: "operate",
+      vectors: [
+        { label: "p", values: [0.1, 0.4, 0.3, 0.2] },
+        { label: "q", values: [0.3, 0.3, 0.1, 0.3] },
+      ],
+      bins: ["a", "b", "c", "d"],
+      chain: [{ op: "combine", how: "min", of: [0, 1], label }],
+      labels: [
+        { slot: "input", text: "두 분포" },
+        { slot: "output", text: "겹침" },
+        { slot: "example", text: "예시" },
+      ],
+    });
+    beats[2] = beatOf("b02-prior", "prior-work", ["sec3"], { literal: vec("최솟값") });
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], { literal: vec("최솟값") });
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /b02-prior and b05-results run operate on the same vectors/,
+    );
+  });
+
   it("refuses a number in a literal label that the source never states", () => {
     const beats = covered();
     beats[5] = beatOf("b05-results", "experiments", ["sec7"], {

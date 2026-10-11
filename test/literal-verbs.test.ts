@@ -1521,6 +1521,16 @@ describe("what each verb computes", () => {
   it("operate on two distributions: min + residual is the first, exactly", () => {
     const d = draw(FIXTURES.find((f) => f.name === "accepted mass") as Fixture);
     expect(d.r.vars.sum).toBe("1");
+    // Columns, not areas; the residual stacked on the overlap, its top at p's mark.
+    const s2 = d.r.frames.find((f) => f.id === "s2")?.prims ?? [];
+    expect(s2.some((p) => p.p === "path" && p.closed)).toBe(false);
+    const base = s2.filter((p) => p.p === "rect" && p.opacity === 0.4) as Array<{ y: number }>;
+    const top = s2.filter((p) => p.p === "rect" && p.wipe) as Array<{ y: number; h: number }>;
+    expect(base.length).toBe(4);
+    // Bin b: overlap 0.3 + residual 0.1 = p's 0.4; the residual sits right on the overlap.
+    const pMarks = s2.filter((p) => p.p === "line" && p.role === "a") as Array<{ y1: number }>;
+    expect(Math.abs((top[0]?.y ?? 0) - (pMarks[1]?.y1 ?? 1))).toBeLessThan(0.5);
+    expect(Math.abs((top[0]?.y ?? 0) + (top[0]?.h ?? 0) - (base[1]?.y ?? 1))).toBeLessThan(0.5);
   });
 
   it("evolve: an EMA starts at its first input, and a frozen phase holds the state while inputs arrive", () => {

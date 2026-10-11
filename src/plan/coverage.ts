@@ -1840,6 +1840,20 @@ export function literalFindings(
     out.push(
       `The plan draws ${tables.length} tables (${tables.map((b) => b.id).join(", ")}). A table reads like a report: keep at most one, and draw the others as what they list — results as \`place\` (margin or plane), what was and was not evaluated as \`place\` sets, experiments not run as \`place\` combos, earlier approaches as \`prior-work\`, reported costs as \`place\` length — or leave \`literal\` null where nothing is honest.`,
     );
+  // The same example vectors in two operate beats are one chart drawn twice (r3 C: a
+  // sampling rule's p and q again under the acceptance rate): run both chains on one.
+  const byVectors = new Map<string, string[]>();
+  for (const b of beats) {
+    const l = b.literal;
+    if (l?.kind !== "operate" || !l.vectors.length) continue;
+    const key = JSON.stringify(l.vectors.map((v) => v.values));
+    byVectors.set(key, [...(byVectors.get(key) ?? []), b.id]);
+  }
+  for (const ids of byVectors.values())
+    if (ids.length > 1)
+      out.push(
+        `${ids.join(" and ")} run operate on the same vectors, so the deck shows one chart twice. Give the second beat's chain to the first (one longer chain), or draw the second another way.`,
+      );
   const forms = new Map<string, string[]>();
   for (const b of beats) {
     const f = b.literal && wordForm(b.literal);
