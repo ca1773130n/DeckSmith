@@ -13,6 +13,7 @@ import { prepareMorph } from "../emit/archetypes/equation-morph.js";
 import { prepareWalk } from "../emit/archetypes/equation-walk.js";
 import { DECK_PAGE } from "../emit/composition.js";
 import { FIT_FILE } from "../emit/fit.js";
+import { splitSentences } from "../narrate/narrate.js";
 import { arcProblems } from "../plan/arc.js";
 import { durationPlan } from "../plan/duration.js";
 import type { Prefs } from "../prefs.js";
@@ -896,21 +897,29 @@ export function scanPaperArc(storyboard: Storyboard, prefs: Prefs): Finding[] {
  * NARROW ON PURPOSE. It compares only beats that have BOTH a narration text and
  * segments, so a deck narrated at a lower density — where some beats are
  * deliberately silent — says nothing, and the existing missing-audio error keeps
- * its own case. Whitespace is normalised because the splitter re-joins sentences
- * at stop boundaries; on the demo's thirteen beats the concatenation reproduces
- * the authored text exactly, which is what makes the comparison safe to make
- * fatal.
+ * its own case.
+ *
+ * COMPARED SENTENCE BY SENTENCE, through the same `splitSentences` that cut the
+ * segments. The splitter trims each sentence, so whitespace at a sentence
+ * boundary is gone from the record and the segments' rejoin cannot know what it
+ * was. Rejoining with a space and comparing strings was right for English and
+ * wrong for every Chinese and Japanese deck: they write no space after 。, so
+ * every beat narrated over two or more stops "drifted" — 15 of 18 beats on a
+ * freshly narrated zh-Hans HypePaper run, exactly the multi-segment ones.
+ * Whitespace inside a sentence is still normalised, not dropped.
  */
 export function scanNarrationDrift(
   storyboard: Storyboard,
   narration: { beats: Record<string, { text: string }[]> },
 ): Finding[] {
-  const flat = (s: string | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
+  const sentences = (s: string | undefined) =>
+    splitSentences((s ?? "").replace(/\s+/g, " ").trim()).join("\n");
   const stale: string[] = [];
   for (const beat of storyboard.beats) {
     const segments = narration.beats[beat.id];
-    if (!segments?.length || !flat(beat.narration)) continue;
-    if (flat(segments.map((s) => s.text).join(" ")) !== flat(beat.narration)) stale.push(beat.id);
+    const said = sentences(beat.narration);
+    if (!segments?.length || !said) continue;
+    if (sentences(segments.map((s) => s.text).join(" ")) !== said) stale.push(beat.id);
   }
   if (!stale.length) return [];
   return [

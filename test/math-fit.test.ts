@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { UNFIT_ATTR } from "../src/emit/tex.js";
 import { chromePath, type DeckPage, openDeck } from "../src/render/capture.js";
 import type { Term } from "../src/types.js";
+import { check } from "../src/verify/check.js";
 import { fidelity, gradeUnfit } from "../src/verify/fidelity.js";
 
 const run = promisify(execFile);
@@ -46,6 +47,13 @@ const chip = pick("chip_overflow");
  * box at the 40px floor whichever line it is set on.
  */
 const UNFIT = `x = \\left( \\text{${"an argument that will not break anywhere ".repeat(4).trim()}} \\right)`;
+/**
+ * KaTeX sets `\not\equiv` as a slash overprinted on ≡ — a zero-width `.rlap`.
+ * HypePaper's ko a40d082b s4 carried exactly this, in the display and in its
+ * legend chip, and `hyperframes check` failed it twice on `content_overlap`
+ * over a frame that shows a clean ≢.
+ */
+const NEGATED = { id: "negated", tex: "K_{r+1} \\not\\equiv K_r", display: true };
 
 describe("gradeUnfit", () => {
   it("says nothing when every equation fit", () => {
@@ -79,7 +87,12 @@ describe.skipIf(chrome === null)("equation-walk, fitted in the renderer's own br
       lang: "en",
       sections: [{ id: "sec1", depth: 1, heading: "Method", text: "It works." }],
       figures: [],
-      equations: [wide.equation, chip.equation, { id: "unfit", tex: UNFIT, display: true }],
+      equations: [
+        wide.equation,
+        chip.equation,
+        { id: "unfit", tex: UNFIT, display: true },
+        NEGATED,
+      ],
       tables: [],
     };
     const beat = (c: Pick<Case, "beat" | "equation" | "terms">) => ({
@@ -100,12 +113,17 @@ describe.skipIf(chrome === null)("equation-walk, fitted in the renderer's own br
           equation: { id: "unfit", tex: UNFIT, display: true },
           terms: [{ tex: "x", label: "the argument", tone: "a" } as Term],
         }),
+        beat({
+          beat: "b4-negated",
+          equation: NEGATED,
+          terms: [{ tex: "\\not\\equiv", label: "not the same record", tone: "a" } as Term],
+        }),
       ],
     };
     await writeFile(join(dir, "source.json"), JSON.stringify(source));
     await writeFile(join(dir, "storyboard.json"), JSON.stringify(storyboard));
     // The third beat overflows on purpose, so the build's own gate fails and
-    // exits non-zero; what is under test is the deck it wrote — all three beats
+    // exits non-zero; what is under test is the deck it wrote — all four beats
     // of it, or the assertions below would be about a deck that dropped one.
     const said = await run(process.execPath, [
       repo("dist/cli.js"),
@@ -120,7 +138,7 @@ describe.skipIf(chrome === null)("equation-walk, fitted in the renderer's own br
       (r) => r.stderr,
       (err: { stderr?: string }) => err.stderr ?? "",
     );
-    expect(said).toMatch(/build: 3 beats at/);
+    expect(said).toMatch(/build: 4 beats at/);
     deck = await openDeck(out);
     await deck.page.waitForFunction("window.__hfTimelinesBuilding === false");
   }, 180_000);
@@ -197,4 +215,33 @@ describe.skipIf(chrome === null)("equation-walk, fitted in the renderer's own br
     expect(unfit[0]?.message).toContain("s3: the equation does not fit");
     expect(unfit[0]?.message).toContain(JSON.stringify(UNFIT));
   }, 120_000);
+
+  it("waives only KaTeX's overprinted slash, so check passes a negated relation", async () => {
+    const marks = await deck.page.evaluate(() => {
+      const flagged = (els: Element[]) =>
+        els.map((el) => el.hasAttribute("data-layout-allow-overlap"));
+      const all = Array.from(document.querySelectorAll("#s4 .katex *"));
+      return {
+        slash: flagged(all.filter((el) => el.matches(".rlap .mrel"))),
+        // The ≡ the slash sits on: still a solid block, still gated.
+        glyph: flagged(all.filter((el) => el.childElementCount === 0 && el.textContent === "≡")),
+        window: [
+          Number(document.getElementById("s4")?.getAttribute("data-start")),
+          Number(document.getElementById("s4")?.getAttribute("data-duration")),
+        ],
+      };
+    });
+    // One in the display, one in the legend chip.
+    expect(marks.slash).toEqual([true, true]);
+    expect(marks.glyph.length).toBeGreaterThan(0);
+    expect(marks.glyph.every((f) => !f)).toBe(true);
+    const [start = 0, dur = 0] = marks.window;
+    const verdict = await check(out, {
+      at: [0.25, 0.5, 0.75, 0.95].map((k) => Math.round((start + dur * k) * 1000) / 1000),
+    });
+    const overlaps = verdict.findings.filter(
+      (f) => f.rule === "content_overlap" && /#s4\b/.test(f.message),
+    );
+    expect(overlaps).toEqual([]);
+  }, 180_000);
 });
