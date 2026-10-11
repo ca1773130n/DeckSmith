@@ -661,7 +661,7 @@ describe("a literal scene leans through a still sentence", () => {
     script.split("\n").filter((l) => l.startsWith('tl.fromTo("#SCENEID-lit"'));
   const atOf = (l: string) => Number(/, (-?[\d.]+)\);$/.exec(l)?.[1]);
 
-  it("leans in and back inside each sentence, clear of every tween and sentence start", () => {
+  it("leans back and forward inside each sentence, clear of every tween and sentence start", () => {
     // Two groups over four sentences: the last two sentences have nothing to reveal.
     const script = [tween("a", 0.6, 1), tween("b", 0.6, 8.5)].join("\n");
     const cues = c([

@@ -164,11 +164,15 @@ export function literalFragment(
 
 /** The shortest still stretch inside a sentence a literal scene leans through. */
 const LEAN_MIN_SECONDS = 4;
-const LEAN_SCALE = 1.02;
+/**
+ * Back, not in: a scene's content runs to its region's edges, and the region clips.
+ * Leaning in by 1.02 cut r2's lengths labels at the region's left edge (text_clipped).
+ */
+const LEAN_SCALE = 0.985;
 
 /**
  * A scene's script with a slow lean of the whole scene through each still stretch
- * of a sentence: in, and back to rest before the next sentence starts or the
+ * of a sentence: back, and forward to rest before the next sentence starts or the
  * next tween runs, so every hold (a sentence's start) sees the layout as drawn.
  *
  * A kind times its steps on the sentences, but a step is one reveal and a sentence
