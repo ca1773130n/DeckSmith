@@ -513,7 +513,9 @@ function timeline(c: Ctx): MechanismResult {
   const unitShort = c.measure(unit, TYPE.label) <= 120 ? unit : "";
   const endText = (i: number) => {
     const l = lanes[i] as (typeof lanes)[number];
-    return lanes.every((q) => q.total) && l.total ? [l.total.value, unitShort].filter(Boolean).join(" ") : "";
+    return lanes.every((q) => q.total) && l.total
+      ? [l.total.value, unitShort].filter(Boolean).join(" ")
+      : "";
   };
   const endW = Math.max(
     0,
