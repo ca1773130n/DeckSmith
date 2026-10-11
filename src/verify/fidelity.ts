@@ -152,6 +152,7 @@ import type { Finding } from "../types.js";
 import { type ApparentStop, collectApparent, gradeApparent, midpoints } from "./apparent.js";
 import {
   collectFillRegion,
+  contentArea,
   type FillRow,
   fillInk,
   finalStops,
@@ -159,6 +160,7 @@ import {
   hideScenes,
   measureFill,
   readFitManifest,
+  stripContainers,
 } from "./fill.js";
 import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
 import { TYPE_FLOOR_PX } from "./typefloor.js";
@@ -260,37 +262,6 @@ export interface FidelityOptions {
  * `timing.json`. 0 when the file is missing, unparseable, or predates the field
  * — all three mean the same thing: nothing was reserved.
  */
-/** Each scene's window from timing.json, by id; empty without one. */
-function sceneWindowsOf(
-  timingText: string | null,
-): Map<string, { start: number; duration: number }> {
-  try {
-    const t = JSON.parse(timingText ?? "") as {
-      scenes?: Array<{ id: string; start: number; duration: number }>;
-    };
-    return new Map((t.scenes ?? []).map((s) => [s.id, { start: s.start, duration: s.duration }]));
-  } catch {
-    return new Map();
-  }
-}
-
-/**
- * Serialised into the page: when the last reveal of one scene's timeline ends,
- * in scene seconds — its own tweens only, and none longer than 2.5s, which are
- * camera drifts and ambient motion rather than something arriving. Null when
- * the scene has no timeline to read.
- */
-const collectRevealEnd = `(sid) => {
-  const tl = window.__timelines && window.__timelines[sid];
-  if (!tl || typeof tl.getChildren !== "function") return null;
-  let end = 0;
-  for (const tw of tl.getChildren(false, true, false)) {
-    const d = tw.duration();
-    if (d <= 2.5) end = Math.max(end, tw.startTime() + d);
-  }
-  return end > 0 ? end : null;
-}`;
-
 export function readReserve(timingText: string | null): number {
   if (!timingText) return 0;
   try {
@@ -304,8 +275,9 @@ export function readReserve(timingText: string | null): number {
 export interface FidelityReport {
   stops: Measured[];
   /**
-   * Main-axis fill at each scene's last hold — measured on every deck, graded
-   * only on a v2 one (`fit.json` present). See `./fill.ts`.
+   * Fill at each hold: every hold on a v2 deck (`fit.json` present), each with
+   * its content `area`, which is graded; each scene's last hold on a classic
+   * deck, measured and never graded. See `./fill.ts`.
    */
   fills: FillRow[];
   /**
@@ -777,7 +749,6 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
   const reserve = opts.captionReserve ?? readReserve(timingText);
   const manifest = readFitManifest(await readFile(join(dir, FIT_FILE), "utf8").catch(() => null));
   const finals = new Set(finalStops(stops));
-  const windows = sceneWindowsOf(timingText);
 
   let deck: Awaited<ReturnType<typeof openDeck>> | null = null;
   try {
@@ -836,34 +807,21 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...(await page.evaluate(collectApparent, stop.sid)),
       });
       const frame = await decodePng(await deck.shoot());
-      // THE SAME FRAME again, at a scene's last hold only: how much of its
-      // region the body painted. One DOM read for the region, one more pass
-      // over pixels already decoded.
-      if (finals.has(stop)) {
-        // At the scene's SETTLED frame when its reveals run past its last hold:
-        // a literal scene's last hold is where its last sentence starts, and the
-        // parts that sentence names arrive while it is spoken. Measured at the
-        // hold, r1 judged a scope with its last column still empty.
-        const win = windows.get(stop.sid);
-        const end = win
-          ? ((await page.evaluate(`(${collectRevealEnd})(${JSON.stringify(stop.sid)})`)) as
-              | number
-              | null)
-          : null;
-        const t =
-          win && end !== null ? Math.min(win.start + win.duration - 0.5, win.start + end + 0.3) : 0;
-        let shot = frame;
-        let at = stop;
-        if (t > stop.t + 0.05) {
-          await deck.seek(t);
-          shot = await decodePng(await deck.shoot());
-          at = { ...stop, t: Math.round(t * 1000) / 1000 };
-        }
-        const region = await page.evaluate(collectFillRegion, stop.sid);
-        fills.push(
-          measureFill(shot, fillInk(region, background(shot), INK_DELTA, plate), region, at),
-        );
+      // THE SAME FRAME again, at EVERY hold: how much of its region the body
+      // painted. At the hold itself, never at a later settled frame: r2's scope
+      // revealed its second column after its last hold, and a measure taken once
+      // the reveals had run called both empty hold frames full. The content
+      // area is one more capture with the scene's containers made transparent.
+      const fillRegion = await page.evaluate(collectFillRegion, stop.sid);
+      const ink = fillInk(fillRegion, background(frame), INK_DELTA, plate);
+      const row = measureFill(frame, ink, fillRegion, stop);
+      if (manifest) {
+        await page.evaluate(stripContainers, stop.sid, true);
+        const bare = await decodePng(await deck.shoot());
+        await page.evaluate(stripContainers, stop.sid, false);
+        row.area = contentArea(bare, ink, fillRegion);
       }
+      if (finals.has(stop) || manifest) fills.push(row);
       measured.push({
         ...stop,
         ink: inkIn(frame, region, plate),

@@ -42,23 +42,40 @@
  * is ink but not detail. Both are placement-independent: they do not move when
  * a look redefines where its body region is.
  *
+ * AND THE GRADED MEASURE, `area`: the bounding box of the body's REAL CONTENT
+ * over the region's area, at EVERY hold. Real content is what is left once the
+ * page's containers are made transparent (`stripContainers`): a card's wash and
+ * border, a figure's plate, a plot's panel. A row of three thin cards in a 170px
+ * band read as a full region on a wash that spanned it, and a column of bullets
+ * in a full-height panel read full by the panel (founder, 2026-10-12: "content
+ * sits small in the top-left with two thirds of the frame empty"). An extent is
+ * one axis; content in the top-left third is a third of BOTH axes, a ninth of
+ * the area, and only an area can say so.
+ *
  * GRADED ONLY ON A V2 DECK, i.e. one whose build wrote `fit.json`. A classic deck
  * is measured (so the eval can compare the two designs on the same storyboard)
- * but never gets a finding: v0.8.0's verdicts do not move. Both findings are
- * WARNINGS, as the plan's M1 sets them — a new gate starts by reporting:
+ * but never gets a finding: v0.8.0's verdicts do not move.
  *
- *   hollow_at_hold        measured fill under 0.70, the EMPTY band
- *   fill_model_disagrees  |predicted − measured| over 0.20 — the build-time
- *                         arithmetic and the browser disagree, which is a bug
- *                         in the model, not a matter of taste
+ *   hollow_at_hold        ERROR: at a hold, the content's box covers under 70%
+ *                         of the region's area. Every scene with a body, every
+ *                         hold — the title and kinetic slides have no body
+ *                         under a title band (their words are the slide) and
+ *                         are not graded
+ *   fill_model_disagrees  WARNING: |predicted − measured| main-axis fill over
+ *                         0.20 at the last hold — the build-time arithmetic and
+ *                         the browser disagree, which is a bug in the model
  */
-import { EMPTY_BELOW, type FitManifest } from "../emit/fit.js";
+import type { FitManifest } from "../emit/fit.js";
 import type { Finding } from "../types.js";
 
 /** A row counts as painted from this many off-background pixels: one is a stray fringe. */
 export const MIN_ROW_INK = 2;
 /** Predicted and measured fill may differ by this much before the model is called wrong. */
 export const FILL_TOLERANCE = 0.2;
+/** A hold's content box must cover at least this share of its region's area. */
+export const CONTENT_AREA_MIN = 0.7;
+/** Archetypes with no body under a title band: their words are the slide, so there is no region to fill. */
+export const NO_BODY = new Set(["title", "kinetic"]);
 
 /** Device px, in the frame's own coordinates. */
 export interface Box {
@@ -280,7 +297,76 @@ export function hideScenes(on: boolean): void {
   }
 }
 
-/** One scene's last hold, measured. */
+/**
+ * Run IN THE PAGE: make every CONTAINER in a scene transparent (`on`), or put
+ * it back. What is left is the content `area` measures.
+ *
+ * A container is an element whose box encloses the centre of a piece of
+ * content (a run of text, a picture, an SVG mark): an HTML one loses its
+ * background, border and shadow (what it holds stays), and an SVG `rect` is
+ * hidden. That is a card's wash, a figure's plate, a plot's panel, and a
+ * full-frame backdrop behind a lone number. What encloses nothing is content: a
+ * filled shape (a dot, a tile, a bar), a picture, a glyph — except an HTML leaf
+ * with a border and no fill, an empty box, which draws nothing. Classes
+ * and one style element, removed on `false`, so GSAP's inline styles are never
+ * touched.
+ */
+export function stripContainers(sid: string, on: boolean): void {
+  const STYLE = "ds-fill-probe";
+  const scene = document.querySelector(`[data-composition-id="${CSS.escape(sid)}"]`);
+  if (!on) {
+    document.getElementById(STYLE)?.remove();
+    for (const el of Array.from(document.querySelectorAll(".dsfp-c, .dsfp-e, .dsfp-h")))
+      el.classList.remove("dsfp-c", "dsfp-e", "dsfp-h");
+    return;
+  }
+  if (!scene) return;
+  const css = document.createElement("style");
+  css.id = STYLE;
+  css.textContent =
+    ".dsfp-c{background-color:transparent!important;background-image:none!important;border-color:transparent!important;box-shadow:none!important;outline-color:transparent!important}" +
+    ".dsfp-e{border-color:transparent!important;box-shadow:none!important;outline-color:transparent!important}" +
+    ".dsfp-h{fill-opacity:0!important;stroke-opacity:0!important}";
+  document.head.appendChild(css);
+  const SVG = "http://www.w3.org/2000/svg";
+  const marks: Array<{ x: number; y: number }> = [];
+  for (const el of Array.from(scene.querySelectorAll("*"))) {
+    if (el.namespaceURI === SVG) {
+      const tag = el.tagName.toLowerCase();
+      if (["rect", "g", "svg", "defs", "clippath", "mask", "lineargradient", "stop"].includes(tag))
+        continue;
+    } else if (el.childElementCount > 0 || (el.textContent ?? "").trim() === "") {
+      if (!["IMG", "CANVAS", "VIDEO"].includes(el.tagName)) continue;
+    }
+    const b = el.getBoundingClientRect();
+    if (b.width <= 0 && b.height <= 0) continue;
+    marks.push({ x: b.left + b.width / 2, y: b.top + b.height / 2 });
+  }
+  const encloses = (el: Element) => {
+    const b = el.getBoundingClientRect();
+    return marks.some((m) => m.x > b.left && m.x < b.right && m.y > b.top && m.y < b.bottom);
+  };
+  for (const el of Array.from(scene.querySelectorAll("*"))) {
+    if (el.namespaceURI === SVG) {
+      if (el.tagName.toLowerCase() === "rect" && encloses(el)) el.classList.add("dsfp-h");
+      continue;
+    }
+    if (["IMG", "CANVAS", "VIDEO"].includes(el.tagName)) continue;
+    const text = el.childElementCount === 0 && (el.textContent ?? "").trim() !== "";
+    if (text) continue;
+    if (encloses(el)) {
+      el.classList.add("dsfp-c");
+      continue;
+    }
+    const cs = getComputedStyle(el);
+    const clear =
+      /^rgba\(.*,\s*0\)$/.test(cs.backgroundColor) || cs.backgroundColor === "transparent";
+    if (el.childElementCount === 0 && clear && cs.backgroundImage === "none")
+      el.classList.add("dsfp-e");
+  }
+}
+
+/** One scene's hold, measured. */
 export interface FillRow {
   sid: string;
   t: number;
@@ -295,6 +381,11 @@ export interface FillRow {
   /** Share of the frame's cells holding ink, and of cells whose pixels vary. See `occupancy`. */
   cells: number;
   detail: number;
+  /**
+   * The content box's share of the region's AREA, measured on the frame with its
+   * containers stripped (`stripContainers`). Absent when that frame was not taken.
+   */
+  area?: number;
 }
 
 /** Cell edge at a 1080p frame, and the border left out of the count. */
@@ -403,6 +494,22 @@ export function measureFill(
   };
 }
 
+/**
+ * The content box's share of the region's area: the extent of ink in the region
+ * (down to `scanBottom` or the frame's edge) on a frame whose containers were
+ * stripped, each side capped at the region's. Pure. 0 with no region or no ink.
+ */
+export function contentArea(frame: FrameLike, test: InkTest, region: FillRegion | null): number {
+  if (!region || region.height <= 0) return 0;
+  const w = region.right - region.left;
+  if (w <= 0) return 0;
+  const body = inkExtent(frame, test, { ...region, bottom: region.scanBottom ?? frame.height });
+  if (!body) return 0;
+  const fw = Math.min(1, (body.right - body.left) / w);
+  const fh = Math.min(1, (body.bottom - body.top) / region.height);
+  return r3(fw * fh);
+}
+
 /** The last declared stop of each scene: the final hold the fill is judged at. */
 export function finalStops<S extends { sid: string; t: number }>(stops: readonly S[]): S[] {
   const last = new Map<string, S>();
@@ -424,26 +531,45 @@ export function readFitManifest(text: string | null): FitManifest | null {
   }
 }
 
-/** Findings for a v2 deck's measured fills. Nothing at all for a classic deck. */
+/**
+ * Findings for a v2 deck's measured fills. Nothing at all for a classic deck.
+ *
+ * `rows` is every hold: `hollow_at_hold` is judged at each one that carries an
+ * `area`, one finding per scene naming its emptiest hold, and the model check at
+ * each scene's last hold (`finalStops`).
+ */
 export function gradeFill(rows: readonly FillRow[], manifest: FitManifest | null): Finding[] {
   if (!manifest) return [];
   const bySid = new Map(manifest.scenes.map((s) => [s.id, s]));
   const pct = (v: number) => `${Math.round(100 * v)}%`;
   const out: Finding[] = [];
+  const worst = new Map<string, { row: FillRow; n: number }>();
   for (const row of rows) {
+    const scene = bySid.get(row.sid);
+    if (row.area === undefined || (scene && NO_BODY.has(scene.archetype))) continue;
+    if (row.area >= CONTENT_AREA_MIN) continue;
+    const seen = worst.get(row.sid);
+    if (!seen) worst.set(row.sid, { row, n: 1 });
+    else {
+      seen.n++;
+      if ((row.area as number) < (seen.row.area as number)) seen.row = row;
+    }
+  }
+  for (const [sid, { row, n }] of worst) {
+    const scene = bySid.get(sid);
+    const what = scene ? `${scene.archetype} ${scene.beat}` : "?";
+    out.push({
+      severity: "error",
+      gate: "fill",
+      rule: "hollow_at_hold",
+      ...(scene ? { beatId: scene.beat } : {}),
+      message: `#${sid} (${what}): its content covers ${pct(row.area as number)} of its region at t=${row.t}s${n > 1 ? ` (${n} holds under ${pct(CONTENT_AREA_MIN)})` : ""} — the box around what the slide shows, containers left out, must cover ${pct(CONTENT_AREA_MIN)} of the room under the title band at every hold, or the slide reads as content in a corner of an empty frame.`,
+    });
+  }
+  for (const row of finalStops(rows)) {
     const scene = bySid.get(row.sid);
     const what = scene ? `${scene.archetype} ${scene.beat}` : "?";
     const predicted = scene?.fit?.fill;
-    const said = predicted === undefined ? "no prediction" : `predicted ${pct(predicted)}`;
-    if (row.fill < EMPTY_BELOW) {
-      out.push({
-        severity: "warning",
-        gate: "fill",
-        rule: "hollow_at_hold",
-        ...(scene ? { beatId: scene.beat } : {}),
-        message: `#${row.sid} (${what}) paints ${pct(row.fill)} of its region's height at its last hold (t=${row.t}s, ${said}); under ${pct(EMPTY_BELOW)} the slide reads as a band through empty space.`,
-      });
-    }
     if (predicted !== undefined && Math.abs(predicted - row.fill) > FILL_TOLERANCE) {
       out.push({
         severity: "warning",

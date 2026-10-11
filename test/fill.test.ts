@@ -9,6 +9,8 @@
 import { describe, expect, it } from "vitest";
 import type { FitManifest } from "../src/emit/fit.js";
 import {
+  CONTENT_AREA_MIN,
+  contentArea,
   FILL_TOLERANCE,
   type FillRow,
   fillInk,
@@ -217,6 +219,25 @@ describe("readFitManifest", () => {
   });
 });
 
+describe("contentArea", () => {
+  const region = { left: 0, right: 100, top: 20, bottom: 100, height: 80, bg: null };
+  it("is the content box over the region's AREA: a corner third of both sides is a ninth", () => {
+    const f = frame(100, 100, [{ x: 0, y: 20, w: 33, h: 27 }]);
+    expect(contentArea(f, test, region)).toBeCloseTo(0.33 * (27 / 80), 3);
+  });
+  it("spans the box of everything, so two corners fill it", () => {
+    const f = frame(100, 100, [
+      { x: 0, y: 20, w: 5, h: 5 },
+      { x: 95, y: 95, w: 5, h: 5 },
+    ]);
+    expect(contentArea(f, test, region)).toBe(1);
+  });
+  it("reads 0 with no region or nothing painted", () => {
+    expect(contentArea(frame(100, 100, []), test, region)).toBe(0);
+    expect(contentArea(frame(100, 100, [{ x: 0, y: 0, w: 9, h: 9 }]), test, null)).toBe(0);
+  });
+});
+
 describe("gradeFill", () => {
   const row = (fill: number): FillRow => ({
     sid: "s3",
@@ -241,19 +262,36 @@ describe("gradeFill", () => {
   });
 
   it("says nothing about a classic deck, whatever it measured — v0.8.0's verdicts do not move", () => {
-    expect(gradeFill([row(0.3)], null)).toEqual([]);
+    expect(gradeFill([{ ...row(0.3), area: 0.1 }], null)).toEqual([]);
   });
 
-  it("warns at a hollow hold on a v2 deck, naming the scene, the beat and the prediction", () => {
-    const [f] = gradeFill([row(0.55)], manifest(0.6));
-    expect(f).toMatchObject({
-      severity: "warning",
+  it("fails a hold whose content box covers under 70% of the region, once per scene at its emptiest hold", () => {
+    const found = gradeFill(
+      [
+        { ...row(0.9), t: 4, area: 0.5 },
+        { ...row(0.9), t: 9, area: 0.3 },
+        { ...row(0.9), t: 12, area: 0.9 },
+      ],
+      manifest(0.9),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      severity: "error",
       gate: "fill",
       rule: "hollow_at_hold",
       beatId: "b03",
     });
-    expect(f?.message).toContain("#s3 (bar-compare b03) paints 55%");
-    expect(f?.message).toContain("predicted 60%");
+    expect(found[0]?.message).toContain("#s3 (bar-compare b03): its content covers 30%");
+    expect(found[0]?.message).toContain("t=9s (2 holds under 70%)");
+  });
+
+  it("passes a full content box at every hold, and never grades a slide with no body", () => {
+    expect(gradeFill([{ ...row(0.9), area: CONTENT_AREA_MIN }], manifest(0.9))).toEqual([]);
+    const title: FitManifest = {
+      design: "v2",
+      scenes: [{ id: "s3", beat: "b01", archetype: "title" }],
+    };
+    expect(gradeFill([{ ...row(0.5), area: 0.1 }], title)).toEqual([]);
   });
 
   it("warns when the build's prediction and the browser disagree by more than the tolerance", () => {
