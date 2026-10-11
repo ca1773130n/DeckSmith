@@ -220,7 +220,10 @@ export const priorWorkKind: KindImpl = {
             throw new Error(
               `literal: prior-work lane "${lane.family}" needs ${Math.ceil(need + 70)}px for its numbers and has ${Math.floor(vh)}px; give fewer or shorter ones`,
             );
-          const gapY = (vh - 70 - need) / (rows.length + 1);
+          // The box is as tall as its numbers, not the lane's picture height: a box mostly
+          // empty around one number read as a placeholder (r3 of the pure-planner deck).
+          const gapY = Math.min(36, (vh - 70 - need) / (rows.length + 1));
+          const bh = Math.min(vh, 70 + need + gapY * (rows.length + 1));
           let y = 70 + gapY;
           const nums = rows
             .map((r, i) => {
@@ -238,7 +241,7 @@ export const priorWorkKind: KindImpl = {
               return html;
             })
             .join("");
-          visual = `<div id="SCENEID-v${k}" style="position:absolute;left:0;top:${px(vy)};width:${px(cw)};height:${px(vh)};border:3px solid ${theme.rule};border-radius:6px;box-sizing:border-box">${label(`t${k}`, tagOf(lane.shows), 24, 14, SMALL, theme.muted)}${nums}</div>`;
+          visual = `<div id="SCENEID-v${k}" style="position:absolute;left:0;top:${px(vy)};width:${px(cw)};height:${px(bh)};border:3px solid ${theme.rule};border-radius:6px;box-sizing:border-box">${label(`t${k}`, tagOf(lane.shows), 24, 14, SMALL, theme.muted)}${nums}</div>`;
         }
         return `<div id="SCENEID-lane${k}" style="position:absolute;left:${px(x)};top:0;width:${px(cw)};height:${px(H)}">${words}${visual}</div>`;
       })

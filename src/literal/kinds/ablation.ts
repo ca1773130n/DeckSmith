@@ -80,7 +80,7 @@ export const ablationKind: KindImpl = {
     // The reported results, at the deck's headline size: what the source did measure.
     // Beside the grid when the scene has the width (no settings column), else under it.
     const BIG = 56;
-    const cellMax = Math.round(Math.min(170, (gw - headW - 16) / 2));
+    const cellMax = Math.round(Math.min(220, (gw - headW - 16) / 2));
     const beside = gw - (headW + 2 * cellMax + 16) - 64 >= 420;
     const rx = beside ? headW + 2 * cellMax + 16 + 64 : 0;
     const rw = gw - rx;

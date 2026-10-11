@@ -11,7 +11,7 @@ import type { Fragment } from "../bespoke/contract.js";
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
 import type { LiteralKind } from "../types.js";
-import { type Cue, type Layers, needNumber, px, r3, slotText, type Tl } from "./kit.js";
+import { type Cue, type Layers, label, needNumber, px, r3, slotText, type Tl } from "./kit.js";
 
 /** What a kind is given: its picture (picture kinds), its data (data kinds), the earlier scenes (recap). */
 export interface KindInput {
@@ -91,16 +91,24 @@ export interface Pose {
   scale: number;
 }
 export const REST: Pose = { x: 0, y: 0, scale: 1 };
-export function drift(tl: Tl, id: string, t0: number, t1: number, to: Pose, from: Pose = REST) {
+export function drift(
+  tl: Tl,
+  id: string,
+  t0: number,
+  t1: number,
+  to: Pose,
+  from: Pose = REST,
+  origin = "50% 50%",
+) {
   if (!(t1 - t0 > 0.3)) return;
   tl.fromTo(
     id,
-    { x: r3(from.x), y: r3(from.y), scale: r3(from.scale), transformOrigin: "50% 50%" },
+    { x: r3(from.x), y: r3(from.y), scale: r3(from.scale), transformOrigin: origin },
     {
       x: r3(to.x),
       y: r3(to.y),
       scale: r3(to.scale),
-      transformOrigin: "50% 50%",
+      transformOrigin: origin,
       duration: t1 - t0,
       ease: "sine.inOut",
     },
@@ -176,6 +184,38 @@ export function wrap(
   }
   if (cur) lines.push(cur);
   return lines.length ? lines : [""];
+}
+
+/**
+ * A label on a picture that wraps to the picture's width instead of running past its
+ * edge (a panel clips it: "…적용한 장면 0" in r3 of the pure-planner deck). One element, so
+ * a tween of `id` still moves all of it; the browser wraps, word by word (keep-all keeps a
+ * Korean word whole), and `fromBottom` grows it upward from `y` by the lines `wrap`
+ * measures.
+ */
+export function tag(
+  id: string,
+  text: string,
+  x: number,
+  y: number,
+  maxW: number,
+  size: number,
+  color: string,
+  theme: Theme,
+  extra = "",
+  fromBottom = false,
+): string {
+  const n = wrap(text, size, maxW, theme).length;
+  const top = fromBottom ? y - (n - 1) * size * 1.15 : y;
+  return label(
+    id,
+    text,
+    x,
+    top,
+    size,
+    color,
+    `${extra};white-space:normal;word-break:keep-all;width:${px(maxW)}`,
+  );
 }
 
 export function std(v: ArrayLike<number>): number {

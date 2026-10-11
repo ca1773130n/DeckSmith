@@ -15,6 +15,7 @@ import {
   REST,
   spread,
   stepStarts,
+  tag,
 } from "../kind.js";
 import { cropOf, cropOrigins, nativeSize } from "../kinds-shared.js";
 import {
@@ -160,7 +161,7 @@ export const cropsKind: KindImpl = {
       })
       .join("\n");
     const markup = `<div id="SCENEID-lit">
-${panel("pic", 0, 0, pw, ph, `<div id="SCENEID-pic-cam" style="position:absolute;left:0;top:0;width:${px(pw)};height:${px(ph)}">${img("pic-i", href(f.pic as string), 0, 0, pw, ph)}${boxes}</div>${label("l-pic", lab(K, spec, "picture"), 20, 14, LABEL, "", ON_PHOTO)}`, "lit-dark")}
+${panel("pic", 0, 0, pw, ph, `<div id="SCENEID-pic-cam" style="position:absolute;left:0;top:0;width:${px(pw)};height:${px(ph)}">${img("pic-i", href(f.pic as string), 0, 0, pw, ph)}${boxes}</div>${tag("l-pic", lab(K, spec, "picture"), 20, 14, pw - 40, LABEL, "", theme, ON_PHOTO)}`, "lit-dark")}
 ${label("l-batch", lab(K, spec, "batchLabel"), bx, 0, LABEL, theme.fg)}
 ${tiles}
 </div>`;

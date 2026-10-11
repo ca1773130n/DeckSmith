@@ -14,7 +14,7 @@
  * refuses a plan that cannot fit.
  */
 import type { Theme } from "../../emit/kit.js";
-import { drift, type KindImpl, lab, spread, stepStarts, widthOf } from "../kind.js";
+import { drift, type KindImpl, lab, REST, spread, stepStarts, widthOf } from "../kind.js";
 import { baseCss, LABEL, label, px, r3, SMALL, Tl } from "../kit.js";
 
 export interface ScopeData {
@@ -72,7 +72,7 @@ export function scopeLayout(
         `literal: scope part "${ring.label}" needs ${Math.ceil(need)}px for its items and has ${Math.floor(room)}px; shorten the items or give fewer`,
       );
     // The spare height between items, capped so a short list reads as a list, not scattered.
-    const gap = Math.min(40, (room - need) / Math.max(1, lines.length));
+    const gap = Math.min(72, (room - need) / Math.max(1, lines.length));
     let y = top;
     const items = lines.map((l) => {
       const at = y;
@@ -184,7 +184,8 @@ ${caption ? label("cap", caption, 0, L.captionY, SMALL, theme.muted) : ""}
       // While the rest of its sentence is spoken, the camera leans in on the part: a slow
       // push-in, the only motion a short list has left once its items are all there.
       const last = (times[times.length - 1] as number) + 0.5;
-      drift(tl, `zc${k}`, last, t1 - 0.1, { x: 0, y: 0, scale: 1.04 });
+      // From the part's top-left corner, so its first word never leaves the region.
+      drift(tl, `zc${k}`, last, t1 - 0.1, { x: 0, y: 0, scale: 1.04 }, REST, "0% 0%");
       times.forEach((t, i) => {
         tl.fromTo(
           `c${k}-${i}`,

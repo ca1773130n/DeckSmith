@@ -17,6 +17,7 @@ import {
   REST,
   spread,
   stepStarts,
+  tag,
   wrap,
 } from "../kind.js";
 import { darkChannel, dcp } from "../kinds-shared.js";
@@ -127,7 +128,8 @@ export const darkChannelKind: KindImpl = {
     const qx = 2 * pw + gap + 64;
     const qw = W - qx;
     const rowY = r3(d.row * ph);
-    const tag = (id: string, text: string) => label(id, text, 20, 14, LABEL, "", ON_PHOTO);
+    const onTile = (id: string, text: string, x = 0, y = 0) =>
+      tag(id, text, x + 20, y + 14, pw - 40, LABEL, "", theme, ON_PHOTO);
     const tile = (id: string, src: string, x: number, y: number, over = "") =>
       panel(
         id,
@@ -175,14 +177,14 @@ export const darkChannelKind: KindImpl = {
     const fPremV = lines("l-premise2", premiseV, legendY + 100 + fShare.h + fPrem.h, theme.accent);
     const markup = `<div id="SCENEID-lit">
 ${tile("p-hazy", f.hazy as string, 0, 0)}
-${tag("l-hazy", lab(K, spec, "hazy"))}
+${onTile("l-hazy", lab(K, spec, "hazy"))}
 ${panel("p-dark", x2, 0, pw, ph, `${img("dark-u", href(f.hazy as string), 0, 0, pw, ph)}<div id="SCENEID-dark-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("dark-i", href(f.dark as string), 0, 0, pw, ph)}</div><div id="SCENEID-dark-edge" style="position:absolute;left:0;top:0;width:4px;height:${px(ph)};background:${theme.accent}"></div>`, "lit-dark")}
-${label("l-dark", lab(K, spec, "dark"), x2 + 20, 14, LABEL, "", ON_PHOTO)}
+${onTile("l-dark", lab(K, spec, "dark"), x2)}
 ${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}`)}
-${label("l-trans", lab(K, spec, "transmission"), 20, y2 + 14, LABEL, "", ON_PHOTO)}
-${label("l-miss", lab(K, spec, "miss", t), 20, y2 + ph - 64, SMALL, "", ON_PHOTO)}
+${onTile("l-trans", lab(K, spec, "transmission"), 0, y2)}
+${tag("l-miss", lab(K, spec, "miss", t), 20, y2 + ph - 64, pw - 40, SMALL, "", theme, ON_PHOTO, true)}
 ${panel("p-rec", x2, y2, pw, ph, `<div id="SCENEID-p-rec-cam" style="position:absolute;left:0;top:0;width:${px(pw)};height:${px(ph)}">${img("rec-u", href(f.hazy as string), 0, 0, pw, ph)}<div id="SCENEID-rec-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("rec-i", href(f.rec as string), 0, 0, pw, ph)}</div></div>`, "lit-dark")}
-${label("l-rec", lab(K, spec, "recovered"), x2 + 20, y2 + 14, LABEL, "", ON_PHOTO)}
+${onTile("l-rec", lab(K, spec, "recovered"), x2, y2)}
 ${label("l-plot", lab(K, spec, "profile"), qx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${py0}" x2="0" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
