@@ -99,6 +99,9 @@ const RULE_W = 3;
  */
 const LAB_GAP = Math.round(LAB * LAB_LH) + 12;
 
+/** The narrowest label column the search starts from, when the labels need it. */
+const MIN_GUTTER = 360;
+
 /** Past four lines a callout label has stopped being a label. */
 const LINE_CEIL = 4;
 
@@ -182,8 +185,13 @@ const STEPS = 6;
 function columns(notes: readonly FigureNote[], stageW: number, face: Face): number[] {
   const words = notes.flatMap((n) => n.text.split(/\s+/).filter(Boolean));
   if (words.length === 0) return [stageW / 3];
-  const floor = Math.max(...words.map((w) => textWidth(w, LAB, LAB_WEIGHT, 0, false, face)));
   const ceiling = Math.max(...notes.map((n) => textWidth(n.text, LAB, LAB_WEIGHT, 0, false, face)));
+  // Never narrower than MIN_GUTTER unless every label is: a 170px column set
+  // three-word notes on four lines each, under a wide figure that had the room.
+  const floor = Math.max(
+    ...words.map((w) => textWidth(w, LAB, LAB_WEIGHT, 0, false, face)),
+    Math.min(MIN_GUTTER, ceiling, stageW / 3),
+  );
   // A single word longer than the widest label cannot happen, but a label of one
   // word makes them equal — one attempt is then the whole search.
   const hi = Math.max(floor, ceiling);

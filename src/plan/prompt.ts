@@ -150,7 +150,11 @@ DRAWING ARCHETYPES — reach here first
                  plus the "the document says" line the inventory prints under it,
                  usually tell you — this beats claim-figure, which just parks the
                  image beside a sentence. Up to five notes, each pointing at one
-                 thing.
+                 thing: put its x/y ON that thing — a bar or a row at its own
+                 end, a curve at the point the note is about — never at the
+                 figure's middle, and never three notes at one x. The leader
+                 runs from the point to the nearest margin across whatever lies
+                 between.
                  USE \`crop\` — { x, y, w, h }, the same fractions — to make the
                  beat about ONE REGION rather than a whole page. A paper figure is
                  usually several panels drawn to be read at arm's length, and a
