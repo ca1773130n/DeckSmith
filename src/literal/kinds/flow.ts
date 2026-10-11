@@ -486,19 +486,78 @@ function timeline(c: Ctx): MechanismResult {
   const tw = W - lw - 20;
   const unitH = 60;
   const gap = 28;
-  const lh = Math.min(260, (H - unitH - (lanes.length - 1) * gap) / lanes.length);
+  const lineH = Math.round(TYPE.label * 1.18);
   const tmax = Math.max(...time);
+  // Pass 1, across: each run's span, and where its words go. Words too wide for the
+  // run sit under the lane, wrapped to the track and pulled left to stay in the
+  // region; labels under one lane that would collide stack downwards.
+  type Under = { lines: string[]; left: number; top: number };
+  const across = lanes.map((l, i) => {
+    const len = (tw * (time[i] as number)) / tmax;
+    const stepW = len / l.runs.reduce((a, r) => a + steps(r), 0);
+    const under: Under[] = [];
+    let x = lw;
+    const runs = l.runs.map((r) => {
+      const k = count(r);
+      const span = stepW * steps(r);
+      const words = [r.label, ...(k !== undefined && r.count ? [`×${r.count.value}`] : [])].join(
+        " ",
+      );
+      const ww = c.measure(words, TYPE.label);
+      let below: Under | undefined;
+      if (ww > span - 8) {
+        const lines = ww <= W - x ? [words] : wrapBy(words, TYPE.label, tw, c.measure);
+        if (lines.length > 2)
+          throw new Error(`run "${r.label}" has no room for its words; shorten it`);
+        const w = Math.max(...lines.map((t) => c.measure(t, TYPE.label)));
+        const left = Math.max(lw, Math.min(x + 4, W - w));
+        const h = lines.length * lineH;
+        let top = 0;
+        for (let moved = true; moved; ) {
+          moved = false;
+          for (const u of under) {
+            const uw = Math.max(...u.lines.map((t) => c.measure(t, TYPE.label)));
+            const apart = left >= u.left + uw + 16 || u.left >= left + w + 16;
+            const ub = u.top + u.lines.length * lineH;
+            if (!apart && top < ub && u.top < top + h) {
+              top = ub;
+              moved = true;
+            }
+          }
+        }
+        below = { lines, left, top };
+        under.push(below);
+      }
+      const run = { r, k, x, span, words, below };
+      x += span;
+      return run;
+    });
+    const band = under.length
+      ? Math.max(...under.map((u) => u.top + u.lines.length * lineH)) + 2
+      : 0;
+    return { len, runs, band };
+  });
+  // Pass 2, down: a lane's under-labels widen the gap after it, so they never sit on
+  // the next lane. The last lane's labels share the unit's row, as one line always did.
+  const gaps = across.slice(0, -1).map((a) => Math.max(gap, a.band + 8));
+  const lastExtra = Math.max(0, (across.at(-1)?.band ?? 0) - lineH - 2);
+  const lh = Math.min(
+    260,
+    (H - unitH - gaps.reduce((a, g) => a + g, 0) - lastExtra) / lanes.length,
+  );
+  if (lh < 60)
+    throw new Error(
+      "flow timeline: the run labels under the lanes leave them no room; shorten them",
+    );
   const prims: Prim[] = [];
   let at = 0;
+  let y = 0;
   lanes.forEach((l, i) => {
-    const y = i * (lh + gap);
+    const { len, runs } = across[i] as (typeof across)[number];
     const label = wrapBy(l.label, TYPE.label, lw - 20, c.measure);
     if (label.length > 2)
       throw new Error(`lane label "${l.label}" needs ${label.length} lines; shorten it`);
     prims.push(...textLines(label, 0, y + (lh - label.length * 47) / 2, TYPE.label, "fg"));
-    const len = (tw * (time[i] as number)) / tmax;
-    const total = l.runs.reduce((a, r) => a + steps(r), 0);
-    const stepW = len / total;
     // The lane's time: the whole axis, so a shorter lane's saved time is visible as empty.
     prims.push({
       p: "rect",
@@ -512,11 +571,8 @@ function timeline(c: Ctx): MechanismResult {
       cam: true,
     });
     prims.push({ p: "rect", x: lw, y: y + lh / 2 - 2, w: len, h: 4, fill: "rule", cam: true });
-    let x = lw;
-    l.runs.forEach((r, j) => {
+    runs.forEach(({ r, k, x, span, words, below }, j) => {
       at = Math.min(12, at + 1);
-      const k = count(r);
-      const span = stepW * steps(r);
       const role = j % 2 ? "b" : "a";
       const inner: Prim[] = [];
       if (r.parallel) {
@@ -555,10 +611,7 @@ function timeline(c: Ctx): MechanismResult {
           });
       }
       prims.push(...inner);
-      const words = [r.label, ...(k !== undefined && r.count ? [`×${r.count.value}`] : [])].join(
-        " ",
-      );
-      if (c.measure(words, TYPE.label) <= span - 8)
+      if (!below)
         prims.push({
           p: "text",
           x: x + span / 2,
@@ -569,20 +622,14 @@ function timeline(c: Ctx): MechanismResult {
           text: words,
           at,
         });
-      else if (c.measure(words, TYPE.label) <= W - x)
-        prims.push({
-          p: "text",
-          x: x + 4,
-          y: y + lh + 2,
-          size: TYPE.label,
-          role: "muted",
-          anchor: "start",
-          text: words,
-          at,
-        });
-      else throw new Error(`run "${r.label}" has no room for its words; shorten it`);
-      x += span;
+      else
+        prims.push(
+          ...textLines(below.lines, below.left, y + lh + 2 + below.top, TYPE.label, "muted", {
+            at,
+          }),
+        );
     });
+    y += lh + (gaps[i] ?? 0);
   });
   prims.push({
     p: "text",

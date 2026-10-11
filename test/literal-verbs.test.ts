@@ -1538,6 +1538,52 @@ describe("what each verb computes", () => {
     expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1.35 / 8, 3);
   });
 
+  it("flow timeline: words too wide for a late run wrap under its lane, in the region, clear of the next lane", () => {
+    const lit = literalSchema.parse({
+      kind: "flow",
+      form: "timeline",
+      lanes: [
+        {
+          label: "full",
+          total: { value: "4" },
+          runs: [
+            { label: "read", parallel: false },
+            { label: "attend to only part of the input or stop early", parallel: false },
+          ],
+        },
+        { label: "short", total: { value: "1" }, runs: [{ label: "read", parallel: false }] },
+      ],
+      labels: L({ unit: "one call", example: "example" }),
+    }) as Extract<Literal, { kind: "flow" }>;
+    const narrow = { width: 860, height: 1100 };
+    const r = runVerb(flow as VerbRun<"flow">, {
+      lit,
+      labels: { unit: "one call", example: "example" },
+      region: narrow,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+    const prims = r.frames[0]?.prims ?? [];
+    const lanes = prims.filter((p) => p.p === "rect" && p.opacity === 0.5) as Array<{
+      y: number;
+      h: number;
+    }>;
+    const under = prims.filter((p) => p.p === "text" && p.role === "muted" && !p.slot) as Array<{
+      x: number;
+      y: number;
+      text: string;
+    }>;
+    expect(under.length).toBe(2);
+    for (const t of under) {
+      expect(t.x).toBeGreaterThanOrEqual(0);
+      expect(t.x + measure(t.text, 40)).toBeLessThanOrEqual(narrow.width);
+      expect(t.y + 40).toBeLessThanOrEqual(lanes[1]?.y ?? 0);
+    }
+  });
+
   it("place: a curve is the stated formula across the axis, drawn under the points", () => {
     const d = draw(FIXTURES.find((f) => f.name === "expected tokens per call") as Fixture);
     const curves = d.r.frames[0]?.prims.filter((p) => p.p === "path" && p.wipe) ?? [];
