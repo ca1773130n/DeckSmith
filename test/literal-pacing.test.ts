@@ -146,14 +146,22 @@ describe("the deck kinds use their region", () => {
     }
   });
 
-  it("lengths to scale fill the height, centred", () => {
+  it("lengths are areas, never bars, and fill the height", () => {
     const m = draw("place").markup;
-    const rows = [
-      ...m.matchAll(/id="SCENEID-i\d+-\d+" style="[^"]*top:(\d+)px;[^"]*height:(\d+)px/g),
-    ].map((r) => [Number(r[1]), Number(r[2])] as const);
-    const first = rows[0] as readonly [number, number];
-    const last = rows[rows.length - 1] as readonly [number, number];
-    expect(last[0] + last[1] - first[0]).toBeGreaterThan(region.height * 0.5);
+    const tops = [
+      ...m.matchAll(
+        /id="SCENEID-[gv][\d-]+" class="lit-label" style="left:[^;]*;top:(-?[\d.]+)px/g,
+      ),
+    ].map((r) => Number(r[1]));
+    expect(Math.max(...tops) + 60 - Math.min(...tops)).toBeGreaterThan(region.height * 0.5);
+    // Every filled block is a square (a unit cell or a value's square): no bar.
+    const blocks = [
+      ...m.matchAll(
+        /<div style="[^"]*width:([\d.]+)px;height:([\d.]+)px;background:[^"]*border-radius/g,
+      ),
+    ];
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const b of blocks) expect(Math.abs(Number(b[1]) - Number(b[2])), b[0]).toBeLessThan(1);
   });
 
   it("a recap shows every tile from the start, quiet, and lights each on its sentence", () => {

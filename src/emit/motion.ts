@@ -49,7 +49,7 @@
 import type { Archetype, BeatRole } from "../types.js";
 import { ARCHETYPE_FAMILY } from "../types.js";
 import { handoffStatement } from "./camera.js";
-import { fromTo, type Scene, type Tween, type Vars } from "./kit.js";
+import { fromTo, PREVIEW, type Scene, type Tween, type Vars } from "./kit.js";
 
 /* ------------------------------------------------------------- vocabulary */
 
@@ -472,7 +472,11 @@ export function rgba(hex: string, a: number): string | undefined {
 function subjectOf(scene: Scene, sid: string, lo: number, hi: number): string | undefined {
   let best: { target: string; d: number; at: number } | undefined;
   for (const t of scene.tl) {
-    if (!(t.from.opacity === 0 && t.to.opacity === 1) || t.to.immediateRender === false) continue;
+    // A part revealed from nothing, or brought up from its preview (`previewed`:
+    // it stood at PREVIEW from the open and comes to full here).
+    const fresh = t.from.opacity === 0 && t.to.immediateRender !== false;
+    const lit = t.from.opacity === PREVIEW;
+    if (!(fresh || lit) || t.to.opacity !== 1) continue;
     const end = t.at + durationOf(t);
     if (end <= lo + 1e-3 || end > hi + 1e-3) continue;
     let target = t.target.trim();

@@ -239,6 +239,16 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
       ),
       // v2: the legend is a body line (`TYPE_SCALE`), not 48px.
       legendCss(theme, isV2(ctx)),
+      // v2: the equation at the top of the box, the legend across its foot, as the
+      // walk sets them (the fill gate measures the content's box at every hold).
+      ...(isV2(ctx)
+        ? [
+            `#${sid} .eqslide{justify-content:space-between}`,
+            // One row of up to three entries spanning the box, each wrapping in its column.
+            `#${sid} .legend{display:grid;grid-template-columns:repeat(${Math.max(1, Math.min(3, both.length))},minmax(0,1fr));gap:36px 56px;width:100%;margin-inline:0}`,
+            `#${sid} .leg{max-width:none}`,
+          ]
+        : []),
       ambient(sid, "-morph", BREATHE),
     ].join("\n"),
   };

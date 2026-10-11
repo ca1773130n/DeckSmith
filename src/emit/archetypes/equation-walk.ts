@@ -9,7 +9,7 @@
 import type { Term } from "../../types.js";
 import { fitOf, isV2 } from "../fit.js";
 import type { Emitter, Theme, Vars } from "../kit.js";
-import { contentW, esc, js, raw, spotlighter } from "../kit.js";
+import { contentW, esc, js, previewed, raw, spotlighter } from "../kit.js";
 import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
 import { escapedCommandError, repairTex, texError, UNFIT_ATTR } from "../tex.js";
@@ -778,12 +778,19 @@ ${slide}`;
     const at = first + i * step;
     const colour = theme.tones[term.tone];
     tl.push(
-      tween(
-        `#${sid}-leg-${term.tone}`,
-        { opacity: 0, x: -18 },
-        { opacity: 1, x: 0, duration: 0.5 },
-        at,
-      ),
+      // v2: every legend entry stands at PREVIEW from the open, so each hold shows
+      // the whole walk (the fill gate measures every hold); it comes to full on
+      // its term's cue.
+      ...(v2
+        ? previewed(`#${sid}-leg-${term.tone}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, at)
+        : [
+            tween(
+              `#${sid}-leg-${term.tone}`,
+              { opacity: 0, x: -18 },
+              { opacity: 1, x: 0, duration: 0.5 },
+              at,
+            ),
+          ]),
       ...spot.lit(`.t-${term.tone}`, at),
       // The tint stays for the rest of the slide — it is what ties the symbol to
       // its legend chip. Only the swell is taken back, on the next term's cue.
@@ -857,7 +864,9 @@ ${slide}`;
     measure,
     ...(walk.notes.length ? { warnings: walk.notes } : {}),
     holds: holdsWithin(holds, beat.seconds),
-    ...(v2 ? { fit: fitOf(eqH + EQ_GAP + legH + slack / 3, region) } : {}),
+    // v2 spreads the equation to the top of the box and the legend to its foot,
+    // so the painted extent is the box.
+    ...(v2 ? { fit: fitOf(region, region) } : {}),
     css: [
       chromeCss(theme),
       // `flex:1`, not `height:68vh`. 68vh is 734px measured against the viewport,
@@ -889,7 +898,17 @@ ${slide}`;
       ".term{display:inline-block}",
       legendCss(theme, v2),
       // Scoped, because `legendCss` is the shared block every walk emits once.
-      ...(grows ? [`#${sid} .legend{gap:${LEG_GAP_V2}px}`] : []),
+      // v2: the equation at the top of the box and the legend across its foot, its
+      // entries spread edge to edge — the content's own box is the region, which
+      // the fill gate measures at every hold.
+      ...(grows
+        ? [
+            `#${sid} .eqslide{justify-content:space-between}`,
+            // One row of up to three entries spanning the box, each wrapping in its column.
+            `#${sid} .legend{display:grid;grid-template-columns:repeat(${Math.max(1, Math.min(3, terms.length))},minmax(0,1fr));gap:36px 56px;width:100%;margin-inline:0}`,
+            `#${sid} .leg{max-width:none}`,
+          ]
+        : []),
       // The block, not the term under discussion: which term that is, is a fact
       // about the paused timeline, and CSS cannot see it. The terms are also the
       // one thing here GSAP tints and swells, so a rule on them would win the

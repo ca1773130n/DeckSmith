@@ -5,7 +5,7 @@
  */
 import { EMPTY_BELOW, fitOf, growToFit, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
-import { esc, lift, settle, spotlighter } from "../kit.js";
+import { esc, lift, previewed, settle, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { faceOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
@@ -181,10 +181,16 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
   // A table's rows may take more air than a box's panels: the rules between them
   // are what hold a sparse table together, where air inside a border reads as a
   // hole. So short rows open out to `ROWS_FILL` of the box, their text centred.
-  const cap = Math.min(
-    budget,
-    Math.round(rowsVariant ? Math.max(need * air, budget * ROWS_FILL) : need * air),
-  );
+  // v2: the panels take the whole box and their words are spread down it (the
+  // label at the top, the last line at the bottom), so the content's own box
+  // fills the region the fill gate measures; classic keeps panels sized to
+  // their content (the reason for the cap above).
+  const cap = v2
+    ? Math.round(budget)
+    : Math.min(
+        budget,
+        Math.round(rowsVariant ? Math.max(need * air, budget * ROWS_FILL) : need * air),
+      );
 
   const note = p.note ? `\n<div class="conote" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html =
@@ -203,19 +209,24 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
 
   p.panels.forEach((_, i) => {
     const at = first + i * step;
-    tl.push(
-      tween(`#${sid}-p${i}`, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.55 }, at),
-      // The panel's own contents arrive in reading order rather than as one
-      // block: the label, then its lines a frame apart. A stagger inside the
-      // panel costs no hold and is the difference between a card appearing and
-      // a point being made.
-      tween(
-        `#${sid}-p${i} .pline`,
-        { opacity: 0, y: 10 },
-        { opacity: 1, y: 0, duration: 0.4, stagger: 0.06, immediateRender: false },
-        at + 0.18,
-      ),
-    );
+    if (v2)
+      // Every panel stands at PREVIEW from the open, so each hold shows the whole
+      // table; a panel comes to full when it is spoken.
+      tl.push(...previewed(`#${sid}-p${i}`, { opacity: 0 }, { opacity: 1, duration: 0.55 }, at));
+    else
+      tl.push(
+        tween(`#${sid}-p${i}`, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.55 }, at),
+        // The panel's own contents arrive in reading order rather than as one
+        // block: the label, then its lines a frame apart. A stagger inside the
+        // panel costs no hold and is the difference between a card appearing and
+        // a point being made.
+        tween(
+          `#${sid}-p${i} .pline`,
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 0.4, stagger: 0.06, immediateRender: false },
+          at + 0.18,
+        ),
+      );
     const emph = Math.min(0.4, step / 2);
     // v2: the last part's arrival brings everything back to full instead of
     // dimming its neighbour, so the slide's FINAL stop — the frame a paused
@@ -238,7 +249,11 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
 
   if (p.note) {
     const at = first + p.panels.length * step;
-    tl.push(tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at));
+    tl.push(
+      ...(v2
+        ? previewed(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at)
+        : [tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, at)]),
+    );
     holds.push(at + 0.7);
   }
   if (p.panels.length > 1 && !v2) tl.push(...spot.restore(first + p.panels.length * step));
@@ -293,9 +308,12 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
       ...(v2
         ? [
             `#${sid} .pline,#${sid} .plabel{text-wrap:balance}`,
+            // Spread down the box: the label at the top, the last line at the bottom.
             ...(rowsVariant
               ? []
-              : [`#${sid} .panel{display:flex;flex-direction:column;justify-content:center}`]),
+              : [
+                  `#${sid} .panel{display:flex;flex-direction:column;justify-content:space-between}`,
+                ]),
           ]
         : []),
       ...(v2
@@ -315,6 +333,15 @@ export const callout: Emitter<"callout"> = (beat, ctx) => {
             `#${sid} .panel{display:grid;grid-template-columns:${labelW}px 1fr;column-gap:${ROW_GUTTER}px;align-content:center;background:none;border:0;border-top:2px solid ${theme.rule};border-radius:0;padding:${ROW_PAD_Y}px 0}`,
             `#${sid} .plabel{grid-row:1 / span ${ROW_MAX_LINES + 1};margin:0}`,
             `#${sid} .pline{grid-column:2;margin-top:0}`,
+            // v2: the table's words reach its edges — the first row's at the top, the
+            // last row's at the bottom, each row's lines set to the right edge.
+            ...(v2
+              ? [
+                  `#${sid} .panel:first-child{align-content:start}`,
+                  `#${sid} .panel:last-child{align-content:end}`,
+                  `#${sid} .pline{text-align:right}`,
+                ]
+              : []),
           ]
         : []),
       ...(F.css ? [F.css] : []),

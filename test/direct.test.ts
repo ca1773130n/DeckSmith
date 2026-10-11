@@ -354,8 +354,13 @@ describe("design: the switch", () => {
     // Then annotated-figure's label column starts at 360px (2026-10-11, literal
     // verbs r1: a 170px column set notes on four lines), re-pinned after reading
     // s4 at 30s: labels on two lines, the strip figure a little narrower.
+    // Then the r2 layout round (2026-10-12), re-pinned after reading every
+    // scene's first hold: parts not yet spoken stand at PREVIEW from the open
+    // (previewParts), callout words spread down their box (rows right-aligned),
+    // equation legends span the box in a grid, grids widen into their room,
+    // line-chart values and deltas sit off the line, the stack probe moves left.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "8c4ef8c0a6ed5a77580fcd669ec3e91fe15091332f7f64c6044554355ef9bada",
+      "b8498eaa5ffebcca04f4405040de0d2081a527e8c5cf788b3a421dad1c9b8a16",
     );
   });
 

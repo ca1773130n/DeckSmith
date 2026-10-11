@@ -545,11 +545,19 @@ describe("grid labels under v2", () => {
     // Classic mixes the styles; v2 leads all three out.
     expect(leaders(classic)).toBeLessThan(3);
     expect(leaders(v2)).toBe(3);
-    // And the gutter labels start near the field, not at the far edge of the box.
+    // And the gutter labels start just past the field, not at the far edge of the
+    // box. (v2 widens the field into its room — V2_STRETCH — so its gutter sits
+    // further right than classic's, still beside the field.)
     const labelX = (html: string) =>
       Math.max(
         ...[...html.matchAll(/<text x="([\d.]+)"[^>]*class="grlab/g)].map((m) => Number(m[1])),
       );
-    expect(labelX(v2)).toBeLessThan(labelX(classic));
+    const fieldRight = (html: string) =>
+      Math.max(
+        ...[...html.matchAll(/<rect x="([\d.]+)"[^>]*width="([\d.]+)"[^>]*class="gcell/g)].map(
+          (m) => Number(m[1]) + Number(m[2]),
+        ),
+      );
+    expect(labelX(v2) - fieldRight(v2)).toBeLessThan(120);
   });
 });

@@ -10,7 +10,8 @@ import type { Archetype, Beat } from "../../types.js";
 import { FIELD_ARCHETYPES, V2_FIELD_ARCHETYPES } from "../../types.js";
 import { backdropFigure, glass, overBackdrop, overField } from "../backdrop.js";
 import { isV2 } from "../fit.js";
-import type { EmitContext, Emitter, Scene } from "../kit.js";
+import type { EmitContext, Emitter, Scene, Tween } from "../kit.js";
+import { PREVIEW, previewed } from "../kit.js";
 import { annotatedFigure } from "./annotated-figure.js";
 import { barCompare } from "./bar-compare.js";
 import { callout } from "./callout.js";
@@ -64,6 +65,53 @@ export function emitScene(beat: Beat, ctx: EmitContext): Scene {
   // Here rather than in `layout` so that every caller staging the beat gets it.
   const bespoke = ctx.bespoke?.[beat.id];
   if (bespoke) return bespokeScene(beat, ctx, bespoke);
+  const scene = archetypeScene(beat, ctx);
+  return isV2(ctx) ? previewParts(scene, ctx.sid) : scene;
+}
+
+/** The chrome's ids, which arrive as the slide opens and are never previewed. */
+const CHROME = /-(?:e|h|k)$/;
+
+/**
+ * v2: every PART of a scene stands at `PREVIEW` from the open instead of
+ * arriving from nothing, and comes to full when its tween runs — so every hold
+ * shows the whole layout (the fill gate measures the content's box at each one,
+ * src/verify/fill.ts) and the reveal still says which part is being spoken to.
+ *
+ * A part is an element addressed by id alone whose FIRST tween fades it in
+ * from 0, and which no later tween fades out again: a transient (a packet, a
+ * morph's intermediate, a highlight that comes and goes) or a part shown in
+ * place of another would read as a ghost, so it keeps its own entrance. The
+ * chrome and class-addressed words are left alone. The entrance's offset and
+ * scale (`x`, `y`, `scale…`) are dropped: a previewed part stands where and as
+ * large as it lands, so its words are never drawn under their declared size.
+ */
+export function previewParts(scene: Scene, sid: string): Scene {
+  const firsts = new Map<string, Tween>();
+  const hidden = new Set<string>();
+  const byTime = [...scene.tl].sort((a, b) => a.at - b.at);
+  for (const t of byTime) {
+    if (!firsts.has(t.target)) firsts.set(t.target, t);
+    else if (t.to.opacity === 0) hidden.add(t.target);
+  }
+  const part = (t: Tween) =>
+    new RegExp(`^#${sid}-[\\w-]+$`).test(t.target) &&
+    !CHROME.test(t.target) &&
+    firsts.get(t.target) === t &&
+    !hidden.has(t.target) &&
+    t.from.opacity === 0 &&
+    typeof t.to.opacity === "number" &&
+    t.to.opacity > PREVIEW;
+  const tl = scene.tl.flatMap((t): Tween[] => {
+    if (!part(t)) return [t];
+    const { x: _x, y: _y, scale: _s, scaleX: _sx, scaleY: _sy, ...from } = t.from;
+    const { x: _tx, y: _ty, scale: _ts, scaleX: _tsx, scaleY: _tsy, ...to } = t.to;
+    return previewed(t.target, from, to, t.at);
+  });
+  return { ...scene, tl };
+}
+
+function archetypeScene(beat: Beat, ctx: EmitContext): Scene {
   const emit = emitters[beat.archetype] as Emitter<Archetype>;
   // A beat with a drawn backdrop is the same scene in glass colours, over its
   // picture (src/emit/backdrop.ts). Here rather than in the shell so every

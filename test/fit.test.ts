@@ -469,12 +469,13 @@ describe("callout under v2", () => {
     expect(callout(short, ctx("v2")).warnings).toBeUndefined();
   });
 
-  it("splits a panel's air above and below its lines, and balances a wrapped line", () => {
+  it("spreads a panel's words down its box, and balances a wrapped line", () => {
     // ko deck b09 (2026-10-09): three panels to y≈655 with their text ending at
-    // y≈445-500, and "= 0.9" alone on a line.
+    // y≈445-500, and "= 0.9" alone on a line. Since the fill gate measures the
+    // content's box at every hold (2026-10-12), the words reach the box's ends.
     const v = callout(short, ctx("v2"));
     expect(v.css).toContain(
-      "#s1 .panel{display:flex;flex-direction:column;justify-content:center}",
+      "#s1 .panel{display:flex;flex-direction:column;justify-content:space-between}",
     );
     expect(v.css).toContain("#s1 .pline,#s1 .plabel{text-wrap:balance}");
     // Rows are a table: their own grid, not a centred column.

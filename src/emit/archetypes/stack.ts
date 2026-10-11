@@ -91,7 +91,7 @@ export function numSpine(floor: number): number {
 }
 
 /** The probe's spine, left of the numerals, and how tall its rule stands. */
-const PROBE_X = 16;
+const PROBE_X = 8;
 const PROBE_H = 46;
 const NUM_W = 70;
 
