@@ -17,6 +17,7 @@ import {
   normBy,
   num,
   panel,
+  spread,
   std,
   stepStarts,
   widthOf,
@@ -193,15 +194,15 @@ export const channelThresholdKind: KindImpl = {
     const names = channelNames(spec, n);
     const gap = 24;
     const cw = Math.floor((W - (n - 1) * gap) / n);
-    // Two rows of maps, a histogram row and four label lines must fit the region's height:
-    // the maps shrink (keeping 3:2) before anything runs off the bottom.
-    const histH = 120;
-    const ch = even(Math.min(cw / 1.5, (H - LAB_H * 4 - histH - 24 - 20 - 20) / 2));
+    // ONE row of large tiles: each channel's map, then — a layer change on the same tile — the
+    // spikes it gives under the fixed threshold, then under its own. The histograms below
+    // take the height the second row of small maps used to.
+    const ch = even(Math.min(cw / 1.5, H - LAB_H * 4 - 24 - 20 - 20 - 120));
     const mw = even(ch * 1.5);
     const yMap = LAB_H * 2;
     const yHist = yMap + ch + 24;
+    const histH = Math.max(120, Math.min(240, H - yHist - LAB_H * 2 - 40));
     const yRow = yHist + histH + 20;
-    const ySp = yRow + LAB_H;
     const cols = d.channels
       .map((c, k) => {
         const x = k * (cw + gap);
@@ -213,10 +214,9 @@ export const channelThresholdKind: KindImpl = {
           )
           .join("");
         return `${label(`n${k}`, names[k] as string, x, LAB_H, SMALL, theme.fg)}
-${panel(`m${k}`, x, yMap, mw, ch, img(`mi${k}`, href(f[`map${k}`] as string), 0, 0, mw, ch), "lit-dark")}
+${panel(`m${k}`, x, yMap, mw, ch, `${img(`mi${k}`, href(f[`map${k}`] as string), 0, 0, mw, ch)}${img(`sf${k}`, href(f[`fix${k}`] as string), 0, 0, mw, ch)}${img(`sc${k}`, href(f[`cal${k}`] as string), 0, 0, mw, ch)}`, "lit-dark")}
 <svg id="SCENEID-h${k}" width="${cw}" height="${histH}" viewBox="0 0 ${cw} ${histH}" style="left:${px(x)};top:${px(yHist)}">${bars}<line x1="0" y1="${histH}" x2="${cw}" y2="${histH}" stroke="${theme.rule}" stroke-width="2"/></svg>
-<div id="SCENEID-th${k}" style="position:absolute;left:${px(x + d.thetaFixed * cw - 2)};top:${px(yHist - 6)};width:5px;height:${px(histH + 12)};background:${theme.accent}"></div>
-${panel(`s${k}`, x, ySp, mw, ch, `${img(`sf${k}`, href(f[`fix${k}`] as string), 0, 0, mw, ch)}${img(`sc${k}`, href(f[`cal${k}`] as string), 0, 0, mw, ch)}`, "lit-dark")}`;
+<div id="SCENEID-th${k}" style="position:absolute;left:${px(x + d.thetaFixed * cw - 2)};top:${px(yHist - 6)};width:5px;height:${px(histH + 12)};background:${theme.accent}"></div>`;
       })
       .join("\n");
     const note = lab(K, spec, "note", { alpha: d.alpha, D: d.D });
@@ -227,9 +227,10 @@ ${label("l-note", note, W - widthOf(note, SMALL, theme) - 8, 0, SMALL, theme.mut
 ${cols}
 ${label("l-fix", lab(K, spec, "fixed"), 0, yRow, LABEL, theme.fg)}
 ${label("l-cal", lab(K, spec, "calibrated"), 0, yRow, LABEL, theme.accent)}
-${label("l-stand", standIn, 0, ySp + ch + 20, SMALL, theme.muted)}
+${label("l-stand", standIn, 0, yRow + LAB_H, SMALL, theme.muted)}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
+    const last = cues[cues.length - 1]?.t1 ?? s0 + 12;
     // With one cue, the calibration is the cue's second half.
     const cal =
       cues.length >= 2 ? s1 : Math.max(s0 + 4.5, ((cues[0]?.t0 ?? 0.8) + (cues[0]?.t1 ?? 9)) / 2);
@@ -241,33 +242,37 @@ ${label("l-stand", standIn, 0, ySp + ch + 20, SMALL, theme.muted)}
       tl.show(`m${k}`, 0.2 + k * 0.12, 0.5);
       tl.show(`n${k}`, 0.2 + k * 0.12, 0.5);
       tl.show(`h${k}`, s0 + 0.6 + k * 0.1, 0.5);
-    }
-    // Step 1: ONE threshold for every channel; the small-scale ones fall silent.
-    const f0 = s0 + 1.6;
-    tl.show("l-fix", f0);
-    for (let k = 0; k < n; k++) {
-      tl.show(`th${k}`, f0, 0.4);
-      tl.show(`s${k}`, f0 + 0.3, 0.6);
+      tl.fromTo(`sf${k}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
       tl.fromTo(`sc${k}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     }
+    // Step 1: ONE threshold for every channel; channel by channel, each map gives way to the
+    // spikes that threshold lets through — the small-scale ones fall silent.
+    const f0 = s0 + 1.6;
+    tl.show("l-fix", f0);
+    for (let k = 0; k < n; k++) tl.show(`th${k}`, f0, 0.4);
+    spread(f0 + 0.3, cal, n, 0.4, 1.6).forEach((at, k) => {
+      tl.fromTo(`sf${k}`, { opacity: 0 }, { opacity: 1, duration: 0.9, ease: "sine.inOut" }, at);
+    });
     tl.fromTo("l-cal", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-    // Step 2: each channel's threshold moves to its own scale, and its spikes appear.
-    d.channels.forEach((c, k) => {
+    // Step 2: channel by channel, the threshold moves to that channel's own scale and its spikes
+    // appear — spread over the sentence that says it.
+    tl.hide("l-fix", cal, 0.4);
+    tl.fromTo("l-cal", { opacity: 0 }, { opacity: 1, duration: 0.5 }, cal + 0.4);
+    spread(cal + 0.2, last, n, 0.6, 2.4, 2.2).forEach((at, k) => {
+      const c = d.channels[k] as (typeof d.channels)[number];
       tl.fromTo(
         `th${k}`,
         { x: 0 },
         { x: r3((c.theta - d.thetaFixed) * cw), duration: 1.6, ease: "sine.inOut" },
-        cal,
+        at,
       );
       tl.fromTo(
         `sc${k}`,
         { opacity: 0 },
         { opacity: 1, duration: 1.0, ease: "sine.inOut" },
-        cal + 0.9,
+        at + 0.9,
       );
     });
-    tl.hide("l-fix", cal, 0.4);
-    tl.fromTo("l-cal", { opacity: 0 }, { opacity: 1, duration: 0.5 }, cal + 0.4);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };

@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import type { Fragment } from "../../bespoke/contract.js";
 import type { Theme } from "../../emit/kit.js";
-import { even, type KindImpl, type KindSpec } from "../kind.js";
+import { drift, even, type KindImpl, type KindSpec } from "../kind.js";
 import type { Box } from "../kinds-shared.js";
 import {
   AIRLIGHT,
@@ -121,12 +121,14 @@ function sobelFragment(
     .join("");
   const markup = `<div id="SCENEID-lit">
 <div class="lit-panel" style="left:0;top:0;width:${px(iw)};height:${px(ih)}">
+<div id="SCENEID-pcam" style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)}">
 <img id="SCENEID-photo" src="${href(L.files.hazy as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
 <div id="SCENEID-reveal" style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)};overflow:hidden">
 <div style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)};background:rgba(13,16,20,.72)"></div>
 <img src="${href(L.files.edges as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
 </div>
 <div id="SCENEID-sweep" style="position:absolute;left:0;top:0;width:4px;height:${px(ih)};background:#fff;box-shadow:0 0 18px rgba(255,255,255,.9)"></div>
+</div>
 ${label("tag-hazy", lab("hazy"), 28, 22, LABEL, "", ON_PHOTO)}
 ${label("tag-sobel", lab("structure"), 28, 22, LABEL, "", ON_PHOTO)}
 </div>
@@ -138,18 +140,20 @@ ${label("f-label", lab("feature"), cx, 0, LABEL, theme.fg)}
 ${label("w-label", lab("reweighted"), cx, y2 - 64, LABEL, theme.fg)}
 <div id="SCENEID-wpanel" class="lit-panel lit-dark" style="left:${px(cx)};top:${px(y2)};width:${px(fw)};height:${px(fh)}">
 <img id="SCENEID-feat2" src="${href(L.files.feat as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
-<img id="SCENEID-featw" src="${href(L.files.featW as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
+<div id="SCENEID-featw" style="position:absolute;left:0;top:0;width:0;height:${px(fh)};overflow:hidden"><img src="${href(L.files.featW as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt=""></div>
 <img id="SCENEID-feats" src="${href(L.files.featS as string)}" style="left:0;top:0;width:${px(fw)};height:${px(fh)}" alt="">
 </div>
 </div>`;
   const c0 = cues[0] ?? { t0: 0.8, t1: 10 };
+  const end = cues[cues.length - 1]?.t1 ?? c0.t1;
   const tl = new Tl();
   tl.show("photo", 0.05, 0.5);
   tl.show("tag-hazy", 0.3);
   tl.fromTo("tag-sobel", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-  // The kernel slides across the picture; behind it, the edges it measured light up.
+  // The kernel slides across the picture for the length of its sentence; behind it, the edges
+  // it measured light up.
   const s0 = Math.max(1.2, c0.t0 + 0.4);
-  const span = 4.2;
+  const span = Math.max(4.2, Math.min(7, c0.t1 - s0 - 0.8));
   tl.show("kernel", s0 - 0.5, 0.4);
   tl.show("sweep", s0 - 0.3, 0.3);
   tl.fromTo("reveal", { width: 0 }, { width: iw, duration: span, ease: "none" }, s0);
@@ -160,7 +164,8 @@ ${label("w-label", lab("reweighted"), cx, y2 - 64, LABEL, theme.fg)}
   tl.hide("tag-hazy", s0 + span - 0.2, 0.4);
   tl.show("tag-sobel", s0 + span + 0.1);
   // Then the structure map gates the feature, and the reweighted feature keeps the edges —
-  // on the second sentence, when there is one.
+  // on the second sentence, when there is one: the gate is applied across the feature as it
+  // is said, while the camera reads the structure map closely.
   const f0 = Math.max(s0 + span + 0.5, (cues[1]?.t0 ?? 0) + 0.2);
   tl.show("f-label", f0);
   tl.show("fpanel", f0, 0.4);
@@ -168,12 +173,18 @@ ${label("w-label", lab("reweighted"), cx, y2 - 64, LABEL, theme.fg)}
   tl.show("feat", f0, 0.6);
   tl.show("w-label", f0 + 0.6);
   tl.show("feat2", f0 + 0.6, 0.6);
-  tl.fromTo("featw", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
   tl.fromTo("feats", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
   const g0 = f0 + 1.4;
+  const gd = Math.max(2, Math.min(5, (end - g0) * 0.55));
   tl.fromTo("feats", { opacity: 0 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, g0);
-  tl.fromTo("featw", { opacity: 0 }, { opacity: 1, duration: 1.2, ease: "sine.inOut" }, g0 + 1.0);
-  tl.fromTo("feats", { opacity: 1 }, { opacity: 0, duration: 1.2, ease: "sine.inOut" }, g0 + 1.2);
+  tl.fromTo("featw", { width: 0 }, { width: fw, duration: gd, ease: "sine.inOut" }, g0 + 0.8);
+  tl.fromTo(
+    "feats",
+    { opacity: 1 },
+    { opacity: 0, duration: 1.2, ease: "sine.inOut" },
+    g0 + 0.8 + gd,
+  );
+  drift(tl, "pcam", s0 + span + 0.4, end - 0.2, { x: iw * 0.06, y: ih * 0.05, scale: 1.18 });
   return { markup, css: baseCss(theme), script: tl.script };
 }
 

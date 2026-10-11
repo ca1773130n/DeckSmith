@@ -1132,8 +1132,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     doc: `a threshold calibrated during training and frozen at
                      inference: random crops of the picture stream in, each one's
                      variance moves an exponential moving average, the
-                     threshold (proportional to it) follows; then a test picture arrives and the
-                     line does not move. Values ILLUSTRATIVE. Takes \`picture\`.`,
+                     threshold (proportional to it) follows; then crops of a
+                     test picture arrive, each measured, and the line does not
+                     move. Values ILLUSTRATIVE. Takes \`picture\`.`,
     slots: {
       alpha: { what: "the paper's threshold scale α", number: true },
       momentum: { what: "the paper's EMA momentum μ", number: true },
@@ -1145,7 +1146,7 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       formula: { what: "legend of the threshold line, as the source states the rule" },
       own: { what: "legend of the dots: each crop's own value; say it is illustrative" },
       frozen: { what: "on the frozen threshold at inference" },
-      test: { what: "on the test picture's own value, which is not recalibrated" },
+      test: { what: "on the test crops' own values, which do not recalibrate the threshold" },
     },
   },
   backbone: {
@@ -1163,7 +1164,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       skip: { what: "on the skip connections" },
       prb: { what: "title of the continuous map the spike features become" },
       output: { what: "title of the output convolution" },
-      untrained: { what: "in the output's box: it needs trained weights, so it is not drawn" },
+      untrained: {
+        what: "where the output would be: it needs trained weights, so it is not drawn",
+      },
       note: { what: "says these are fixed operations, not the trained network" },
       depth: {
         what: "says the number of levels and the 2× steps are illustrative when the source does not state them",
@@ -1186,7 +1189,8 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     doc: `the training picture (at the size the source says images are
                      resized to, else its own) with random training crops of
                      the stated size drawn to scale, then gathered into one
-                     batch of the stated size. Takes \`picture\`.`,
+                     batch of the stated size, and fresh random batches cut for
+                     the next training steps. Takes \`picture\`.`,
     slots: {
       crop: { what: "the training crop size in pixels", number: true },
       batch: { what: "the batch size", number: true },
@@ -1229,9 +1233,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     slots: { caption: { what: "under the lengths: what they are", optional: true } },
   },
   recap: {
-    doc: `the layers the deck's earlier literal scenes computed, small, in
-                     order: the summary told with the pictures the viewer has
-                     already seen. Takes \`beats\` (earlier literal beats).`,
+    doc: `the layers the deck's earlier literal scenes computed, in order:
+                     each a tile, the one being spoken also large, then the
+                     \`result\` in its place — the summary told with the
+                     pictures the viewer has already seen. Takes \`beats\`
+                     (earlier literal beats).`,
     slots: {
       caption: { what: 'one word per tile, joined by "→"', optional: true },
       result: { what: "what the source reports came of it, in its own numbers", optional: true },

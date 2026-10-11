@@ -234,7 +234,10 @@ const cases: Array<[Kind, Layers, unknown]> = [
         ],
         own: [0.05, 0.06, 0.04],
         theta: [0.05, 0.051, 0.05],
-        testOwn: 0.02,
+        tests: [
+          { origin: [10, 20], own: 0.02 },
+          { origin: [500, 300], own: 0.018 },
+        ],
       },
     },
     undefined,
@@ -671,13 +674,27 @@ describe.skipIf(!ffmpeg)(
       expect(d.origins).toHaveLength(3);
       for (const [x, y] of d.origins)
         expect(x + 256 <= 512 && y + 256 <= 512 && x >= 0 && y >= 0).toBe(true);
+      // The next training steps draw fresh batches of the same size from the same picture.
+      const next = (L.data as { next: Array<Array<[number, number]>> }).next;
+      expect(next.map((b) => b.length)).toEqual([3, 3]);
+      for (const [x, y] of next.flat()) expect(x + 256 <= 512 && y + 256 <= 512).toBe(true);
+      for (let j = 0; j < 2; j++)
+        for (let i = 0; i < 3; i++)
+          await expect(stat(join(dir, L.files[`n${j}-${i}`] as string))).resolves.toBeTruthy();
       // No training size: the picture's own, and a 200×150 picture has no 256 crop in it.
       await expect(run("crops", small, { size: "" })).rejects.toThrow(/does not fit a 200×150/);
     });
 
     it("ema-threshold: θ = α·EMA(variance) with the plan's α and μ, and refuses a picture smaller than a crop", async () => {
       const L = await run("ema-threshold", pic, { alpha: "0.5", momentum: "0.8" });
-      const d = L.data as { own: number[]; theta: number[] };
+      const d = L.data as {
+        own: number[];
+        theta: number[];
+        tests: Array<{ origin: [number, number]; own: number }>;
+      };
+      // Inference: crops of the denser-haze picture, each measured with the same α; none moves θ.
+      expect(d.tests).toHaveLength(5);
+      for (const t of d.tests) expect(t.own).toBeGreaterThan(0);
       // own = α·σ², so the EMA can be replayed from it.
       let v = (d.own[0] as number) / 0.5;
       for (let i = 1; i < d.own.length; i++) {

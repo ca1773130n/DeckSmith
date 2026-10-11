@@ -3,7 +3,7 @@
  * picture, then gathered into one batch of the stated size.
  */
 import { join } from "node:path";
-import { even, img, type KindImpl, LAB_H, lab, num, panel, stepStarts } from "../kind.js";
+import { even, img, type KindImpl, LAB_H, lab, num, panel, spread, stepStarts } from "../kind.js";
 import { cropOf, cropOrigins, nativeSize } from "../kinds-shared.js";
 import {
   AIRLIGHT,
@@ -56,6 +56,9 @@ function resample(img: Rgb, n: number): Rgb {
   return { w: n, h: n, d };
 }
 
+/** Fresh batches drawn after the first, while the training recipe is narrated. */
+const NEXT_BATCHES = 2;
+
 export const cropsKind: KindImpl = {
   picture: true,
   async layers({ image, dir, beatId, spec }) {
@@ -80,13 +83,36 @@ export const cropsKind: KindImpl = {
         toRgba(cropOf(pic, x, y, crop)),
       );
     }
-    return { files, data: { w, h, crop, origins } };
+    // The next training steps draw fresh batches from the same picture: the crops are random
+    // per step, which is what the scene shows while the rest of the recipe is said.
+    const next: Array<Array<[number, number]>> = [];
+    for (let j = 0; j < NEXT_BATCHES; j++) {
+      const o = cropOrigins(w, h, crop, batch, 5 + j);
+      next.push(o);
+      for (const [i, [x, y]] of o.entries()) {
+        files[`n${j}-${i}`] = `${beatId}-next${j}-${i}.jpg`;
+        await writeRaster(
+          join(dir, files[`n${j}-${i}`] as string),
+          crop,
+          crop,
+          toRgba(cropOf(pic, x, y, crop)),
+        );
+      }
+    }
+    return { files, data: { w, h, crop, origins, next } };
   },
   fragment(L, { width: W, height: H }, cues, spec, theme, href) {
     const K = "crops";
-    const d = L.data as { w: number; h: number; crop: number; origins: Array<[number, number]> };
+    const d = L.data as {
+      w: number;
+      h: number;
+      crop: number;
+      origins: Array<[number, number]>;
+      next?: Array<Array<[number, number]>>;
+    };
     const f = L.files as Record<string, string>;
     const n = d.origins.length;
+    const next = d.next ?? [];
     const right = 600;
     const pw = even(Math.min(W - right - 60, (H - LAB_H) * (d.w / d.h)));
     const ph = even((pw * d.h) / d.w);
@@ -95,18 +121,20 @@ export const cropsKind: KindImpl = {
     const bx = pw + 60;
     const cols = n <= 1 ? 1 : 2;
     const rows = Math.ceil(n / cols);
-    const tile = Math.min(
-      260,
-      (W - bx - 24 * (cols - 1)) / cols,
-      (H - LAB_H - 24 * (rows - 1)) / rows,
+    // The batch takes the rest of the region: tiles as large as the columns and rows allow.
+    const tile = even(
+      Math.min((W - bx - 24 * (cols - 1)) / cols, (H - LAB_H - 24 * (rows - 1)) / rows),
     );
     const slot = (i: number) =>
       [bx + (i % cols) * (tile + 24), LAB_H + Math.floor(i / cols) * (tile + 24)] as const;
     const crops = d.origins
       .map(([x, y], i) => {
         const [sx, sy] = slot(i);
+        const later = next
+          .map((_, j) => img(`t${i}-n${j}`, href(f[`n${j}-${i}`] as string), 0, 0, tile, tile))
+          .join("");
         return `<div id="SCENEID-r${i}" style="position:absolute;left:${px(x * k)};top:${px(LAB_H + y * k)};width:${px(cs)};height:${px(cs)};border:4px solid ${theme.accent};box-sizing:border-box"></div>
-<div id="SCENEID-t${i}" class="lit-panel" style="left:${px(sx)};top:${px(sy)};width:${px(tile)};height:${px(tile)}">${img(`t${i}-i`, href(f[`c${i}`] as string), 0, 0, tile, tile)}</div>`;
+<div id="SCENEID-t${i}" class="lit-panel" style="left:${px(sx)};top:${px(sy)};width:${px(tile)};height:${px(tile)}">${img(`t${i}-i`, href(f[`c${i}`] as string), 0, 0, tile, tile)}${later}</div>`;
       })
       .join("\n");
     const markup = `<div id="SCENEID-lit">
@@ -116,15 +144,16 @@ ${label("l-batch", lab(K, spec, "batchLabel"), bx, 0, LABEL, theme.fg)}
 ${crops}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
+    const end = cues[1]?.t1 ?? s1 + 8;
     const tl = new Tl();
     tl.show("pic", 0.05, 0.5);
     tl.show("l-pic", 0.2);
-    // Step 1: random crops, at true scale on the picture, one after another.
+    // Step 1: random crops, at true scale on the picture, one after another over the sentence.
     const c0 = Math.max(0.8, s0 + 0.4);
-    const dt = Math.max(0.6, Math.min(1.4, (s1 - c0 - 0.4) / n));
-    for (let i = 0; i < n; i++) tl.show(`r${i}`, c0 + i * dt, 0.4);
+    const at0 = spread(c0, s1, n, 0.6, 2.4);
+    for (let i = 0; i < n; i++) tl.show(`r${i}`, at0[i] as number, 0.4);
     // Step 2: the crops leave the picture and stack into one batch.
-    const b0 = Math.max(s1, c0 + n * dt + 0.2);
+    const b0 = Math.max(s1, (at0[n - 1] as number) + 0.6);
     tl.show("l-batch", b0);
     d.origins.forEach(([x, y], i) => {
       const at = b0 + 0.3 + i * 0.6;
@@ -140,6 +169,40 @@ ${crops}
         { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.8, ease: "power2.inOut" },
         at,
       );
+      for (let j = 0; j < next.length; j++)
+        tl.fromTo(`t${i}-n${j}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+    });
+    // Then the next steps: each draws a fresh random batch from the same picture — the boxes
+    // move to new places and the tiles become what they now cut.
+    const nb = spread(b0 + 0.3 + n * 0.6 + 0.8, end, next.length, 1.2, 3.2, 1.2);
+    next.forEach((o, j) => {
+      const at = nb[j] as number;
+      o.forEach(([x, y], i) => {
+        // Offsets from where the box was drawn (the first batch's place), as a transform.
+        const [ox, oy] = d.origins[i] as [number, number];
+        const [px0, py0] = (j === 0 ? d.origins : (next[j - 1] as Array<[number, number]>))[i] as [
+          number,
+          number,
+        ];
+        tl.fromTo(
+          `r${i}`,
+          { x: r3((px0 - ox) * k), y: r3((py0 - oy) * k) },
+          {
+            x: r3((x - ox) * k),
+            y: r3((y - oy) * k),
+            duration: 0.7,
+            ease: "power2.inOut",
+            immediateRender: false,
+          },
+          at + i * 0.15,
+        );
+        tl.fromTo(
+          `t${i}-n${j}`,
+          { opacity: 0 },
+          { opacity: 1, duration: 0.6, ease: "sine.inOut" },
+          at + 0.5 + i * 0.15,
+        );
+      });
     });
     return { markup, css: baseCss(theme), script: tl.script };
   },

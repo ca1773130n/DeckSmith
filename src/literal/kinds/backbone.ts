@@ -4,6 +4,7 @@
  */
 import { join } from "node:path";
 import {
+  drift,
   even,
   img,
   type KindImpl,
@@ -11,6 +12,7 @@ import {
   lab,
   normBy,
   panel,
+  spread,
   std,
   stepStarts,
   widthOf,
@@ -234,11 +236,11 @@ export const backboneKind: KindImpl = {
       const a = box(i);
       return `<line id="SCENEID-k${i}" x1="${r3(a.x + a.w + 6)}" y1="${r3(y)}" x2="${r3((X[j] as number) - 6)}" y2="${r3(y)}" stroke="${theme.muted}" stroke-width="4" stroke-dasharray="10 9"/>`;
     };
-    const outLines = wrap(lab(K, spec, "untrained"), SMALL, full - 48, theme);
+    // The output is NOT drawn — it needs trained weights — and no empty box stands in for it:
+    // the words say so where it would be, and the arrow ends on them.
+    const outLines = wrap(lab(K, spec, "untrained"), SMALL, full, theme);
     const outText = outLines
-      .map((t, i) =>
-        label(`ot${i}`, t, (X[6] as number) + 24, yIn + 24 + i * 52, SMALL, theme.muted),
-      )
+      .map((t, i) => label(`ot${i}`, t, X[6] as number, yIn + 8 + i * 52, SMALL, theme.muted))
       .join("");
     const note = lab(K, spec, "note");
     // The depth note sits in the free band left of the bottom map, wrapped to it.
@@ -252,18 +254,17 @@ export const backboneKind: KindImpl = {
 ${label("l-in", lab(K, spec, "input"), X[0] as number, yIn - LAB_H, SMALL, theme.fg)}
 ${panel("in", X[0] as number, yIn, full, fullH, img("in-i", href(f.input as string), 0, 0, full, fullH), "lit-dark")}
 ${mapLabel("l0", lab(K, spec, "shallow"), 0)}
-${map("m0", f.shallow as string, 0, false)}
+${panel("m0", X[0] as number, Y[0] as number, full, fullH, `<div id="SCENEID-m0-w" style="position:absolute;left:0;top:0;width:0;height:${px(fullH)};overflow:hidden">${img("m0-i", href(f.shallow as string), 0, 0, full, fullH)}</div>`, "lit-dark")}
 ${mapLabel("l1", lab(K, spec, "encoder"), 1)}${map("m1", f.e1 as string, 1)}
 ${map("m2", f.e2 as string, 2)}
 ${map("m3", f.e3 as string, 3)}
 ${map("m4", f.d2 as string, 4)}
 ${mapLabel("l5", lab(K, spec, "decoder"), 5)}${map("m5", f.d1 as string, 5)}
 ${mapLabel("l6", lab(K, spec, "prb"), 6)}
-${panel("m6", X[6] as number, Y[6] as number, full, fullH, `${img("m6-s", href(f.d0 as string), 0, 0, full, fullH, "image-rendering:pixelated")}${img("m6-c", href(f.prb as string), 0, 0, full, fullH)}`, "lit-dark")}
+${panel("m6", X[6] as number, Y[6] as number, full, fullH, `<div id="SCENEID-m6-cam" style="position:absolute;left:0;top:0;width:${px(full)};height:${px(fullH)}">${img("m6-s", href(f.d0 as string), 0, 0, full, fullH, "image-rendering:pixelated")}${img("m6-c", href(f.prb as string), 0, 0, full, fullH)}</div>`, "lit-dark")}
 <svg id="SCENEID-flow" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="left:0;top:0"><defs><marker id="SCENEID-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${theme.fg}"/></marker></defs>${flow.join("")}${skip(0, 6)}${skip(1, 5)}${skip(2, 4)}</svg>
 ${label("l-skip", lab(K, spec, "skip"), (X[2] as number) - 10, (Y[1] as number) + 12 - 54, SMALL, theme.muted)}
 ${label("l-out", lab(K, spec, "output"), X[6] as number, yIn - LAB_H, SMALL, theme.fg)}
-<div id="SCENEID-out" style="position:absolute;left:${px(X[6] as number)};top:${px(yIn)};width:${px(full)};height:${px(fullH)};border:3px dashed ${theme.muted};box-sizing:border-box;border-radius:6px"></div>
 ${outText}
 ${label("l-fixed", note, Math.max(X[1] as number, (W - widthOf(note, SMALL, theme)) / 2), 0, SMALL, theme.muted)}
 ${depth}
@@ -293,41 +294,51 @@ ${depth}
         at,
       );
     };
-    // Step 1: a 3×3 filter turns the input into shallow features.
+    const end = cues[3]?.t1 ?? s3 + 8;
+    // Step 1: a 3×3 filter turns the input into shallow features — swept across the picture
+    // for the length of its sentence, the input beside it under a slow look.
     tl.show("a0", s0 + 0.4, 0.4);
-    appear("m0", 0, [(X[0] as number) + full / 2, yIn + fullH / 2], 1, s0 + 0.6);
+    const m0 = s0 + 0.6;
+    const m0d = Math.max(2.4, Math.min(5.5, s1 - m0 - 0.6));
+    tl.show("m0", m0, 0.3);
+    tl.fromTo("m0-w", { width: 0 }, { width: full, duration: m0d, ease: "none" }, m0);
     tl.show("l0", s0 + 1.3);
-    // Step 2: down, scale by scale — each map is the one before, pooled to half and spiked.
-    for (let i = 1; i <= 3; i++) {
-      const at = s1 + 0.3 + (i - 1) * 1.1;
+    // Step 2: down, scale by scale — each map is the one before, pooled to half and spiked —
+    // one level per part of the sentence.
+    spread(s1 + 0.3, s2, 3, 0.8, 2.2).forEach((at, j) => {
+      const i = j + 1;
       tl.show(`a${i}`, at - 0.2, 0.3);
       appear(`m${i}`, i, centre(i - 1), 2, at);
       if (i === 1) tl.show("l1", at + 0.6);
-    }
+    });
     for (let i = 0; i < depthLines.length; i++) tl.show(`dn${i}`, s1 + 3.8);
     // Step 3: up, scale by scale, each joined by the encoder's map across its skip.
-    for (const [i, from] of [
-      [4, 3],
-      [5, 4],
-    ] as const) {
-      const at = s2 + 0.5 + (i - 4) * 1.4;
+    const up = spread(s2 + 0.5, s3, 2, 1.2, 2.4);
+    for (const [j, [i, from]] of (
+      [
+        [4, 3],
+        [5, 4],
+      ] as const
+    ).entries()) {
+      const at = up[j] as number;
       tl.show(`k${6 - i}`, at - 0.4, 0.5);
       tl.show(`a${i}`, at - 0.2, 0.3);
       appear(`m${i}`, i, centre(from), 0.5, at);
       if (i === 5) tl.show("l5", at + 0.6);
     }
     tl.show("l-skip", s2 + 0.2);
-    // Step 4: the output is not drawn (it needs trained weights); full size as spike levels,
-    // then the PRB's continuous map — the scene ends on what the fixed operations computed.
-    tl.show("l-out", s3);
-    tl.show("out", s3, 0.5);
-    for (let i = 0; i < outLines.length; i++) tl.show(`ot${i}`, s3 + 0.3);
-    tl.show("k0", s3 + 0.6, 0.5);
-    tl.show("a6", s3 + 0.8, 0.3);
-    appear("m6", 6, centre(5), 0.5, s3 + 1.0);
-    tl.show("l6", s3 + 1.6);
-    tl.fromTo("m6-c", { opacity: 0 }, { opacity: 1, duration: 1.2, ease: "sine.inOut" }, s3 + 2.4);
+    // Step 4: full size again as spike levels, then the PRB's continuous map; the output is not
+    // drawn (it needs trained weights), so the scene ends on what the fixed operations computed,
+    // looked at closely.
+    tl.show("k0", s3 + 0.3, 0.5);
+    tl.show("a6", s3 + 0.5, 0.3);
+    appear("m6", 6, centre(5), 0.5, s3 + 0.7);
+    tl.show("l6", s3 + 1.3);
+    tl.fromTo("m6-c", { opacity: 0 }, { opacity: 1, duration: 1.6, ease: "sine.inOut" }, s3 + 2.0);
     tl.show("a7", s3 + 3.4, 0.4);
+    tl.show("l-out", s3 + 3.6);
+    for (let i = 0; i < outLines.length; i++) tl.show(`ot${i}`, s3 + 3.9);
+    drift(tl, "m6-cam", s3 + 3.6, end - 0.2, { x: 0, y: 0, scale: 1.25 });
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };

@@ -8,7 +8,7 @@
 import { join } from "node:path";
 import type { Fragment } from "../../bespoke/contract.js";
 import type { Theme } from "../../emit/kit.js";
-import { even, type KindImpl, type KindSpec } from "../kind.js";
+import { drift, even, type KindImpl, type KindSpec, type Pose } from "../kind.js";
 import type { Box } from "../kinds-shared.js";
 import {
   AIRLIGHT,
@@ -136,16 +136,20 @@ function hazeFragment(
   const bx = pw + 22;
   const markup = `<div id="SCENEID-lit">
 <div id="SCENEID-photo" class="lit-panel" style="left:0;top:0;width:${px(iw)};height:${px(ih)}">
+<div id="SCENEID-pcam" style="position:absolute;left:0;top:0;width:${px(iw)};height:${px(ih)}">
 <img id="SCENEID-clear" src="${href(L.files.clear as string)}" style="left:0;top:0;width:${px(iw)};height:${px(ih)}" alt="">
 <div id="SCENEID-front" style="position:absolute;left:0;bottom:0;width:${px(iw)};height:0;overflow:hidden"><img src="${href(L.files.hazy as string)}" style="left:0;top:auto;bottom:0;width:${px(iw)};height:${px(ih)}" alt=""></div>
 <div id="SCENEID-scan" style="position:absolute;left:0;top:${px(d.row - 2)};width:${px(iw)};height:4px;background:${theme.accent};transform-origin:0 50%"></div>
+</div>
 ${label("tag-clear", lab("clear"), 28, 22, LABEL, "", ON_PHOTO)}
 ${label("tag-hazy", lab("hazy"), 28, ih - 76, LABEL, "", ON_PHOTO)}
 </div>
 ${label("edge-label", lab("edges"), cx, 0, LABEL, theme.fg)}
 <div id="SCENEID-edge" class="lit-panel lit-dark" style="left:${px(cx)};top:64px;width:${px(ew)};height:${px(eh)}">
+<div id="SCENEID-ecam" style="position:absolute;left:0;top:0;width:${px(ew)};height:${px(eh)}">
 <img src="${href(L.files.edgeClear as string)}" style="left:0;top:0;width:${px(ew)};height:${px(eh)}" alt="">
 <div id="SCENEID-edge-front" style="position:absolute;left:0;bottom:0;width:${px(ew)};height:0;overflow:hidden;background:#0d1014"><img src="${href(L.files.edgeHazy as string)}" style="left:0;top:auto;bottom:0;width:${px(ew)};height:${px(eh)}" alt=""></div>
+</div>
 </div>
 ${label("prof-label", lab("profile"), cx, 64 + eh + 36, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${cw}" height="${H}" viewBox="0 0 ${cw} ${H}" style="left:${px(cx)};top:0">
@@ -169,7 +173,8 @@ ${label("prof-label", lab("profile"), cx, 64 + eh + 36, LABEL, theme.fg)}
   // transmission is t, so a still mid-rise shows the picture, its edges and the
   // line's brightness both before and after.
   const h0 = Math.max(2.4, c0.t0 + 1.4);
-  const dur = Math.max(3, Math.min(4.5, (c0.t1 - h0) * 0.7));
+  // The rise takes most of its sentence: the viewer watches the edges fade while it is said.
+  const dur = Math.max(3, Math.min(8, (c0.t1 - h0) * 0.85));
   tl.fromTo("front", { height: 0 }, { height: ih, duration: dur, ease: "none" }, h0);
   tl.fromTo("edge-front", { height: 0 }, { height: eh, duration: dur, ease: "none" }, h0);
   tl.fromTo(
@@ -187,6 +192,18 @@ ${label("prof-label", lab("profile"), cx, 64 + eh + 36, LABEL, theme.fg)}
     atRow - 0.35,
   );
   tl.hide("tag-clear", h0 + dur - 0.6, 0.5);
+  // The next sentence: the camera closes in on the scanned line, picture and edge map together,
+  // so the detail the haze took is what fills the frame while the problem is stated.
+  const c1 = cues[1];
+  const p0 = Math.max(h0 + dur + 0.3, c1 ? c1.t0 : h0 + dur + 0.3);
+  const p1 = c1 ? c1.t1 - 0.3 : Math.max(p0 + 3, c0.t1 - 0.2);
+  const s = 1.3;
+  const toward = (h: number, fy: number): Pose => {
+    const lim = ((s - 1) * h) / 2;
+    return { x: 0, y: Math.max(-lim, Math.min(lim, s * (h / 2 - fy))), scale: s };
+  };
+  drift(tl, "pcam", p0, p1, toward(ih, d.row));
+  drift(tl, "ecam", p0, p1, toward(eh, (d.row / ih) * eh));
   return { markup, css: baseCss(theme), script: tl.script };
 }
 

@@ -5,20 +5,31 @@
  * against the truth on screen. Prior work, labelled as that.
  */
 import { join } from "node:path";
-import { even, img, type KindImpl, LAB_H, lab, mean, panel, stepStarts } from "../kind.js";
+import {
+  drift,
+  even,
+  img,
+  type KindImpl,
+  LAB_H,
+  lab,
+  mean,
+  panel,
+  REST,
+  spread,
+  stepStarts,
+  wrap,
+} from "../kind.js";
+import { darkChannel, dcp } from "../kinds-shared.js";
 import {
   AIRLIGHT,
   baseCss,
-  boxBlur,
   haze,
   LABEL,
   label,
-  luma,
   mapRgba,
   ON_PHOTO,
   px,
   quantile,
-  type Rgb,
   r3,
   readRgb,
   SMALL,
@@ -28,111 +39,8 @@ import {
   writeRaster,
 } from "../kit.js";
 
-/** Separable min filter of radius r (a (2r+1)² patch), edges clamped. */
-export function minFilter(v: Float32Array, w: number, h: number, r: number): Float32Array {
-  const pass = (src: Float32Array, horizontal: boolean) => {
-    const out = new Float32Array(src.length);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        let m = Number.POSITIVE_INFINITY;
-        for (let k = -r; k <= r; k++) {
-          const xx = horizontal ? Math.min(w - 1, Math.max(0, x + k)) : x;
-          const yy = horizontal ? y : Math.min(h - 1, Math.max(0, y + k));
-          const s = src[yy * w + xx] as number;
-          if (s < m) m = s;
-        }
-        out[y * w + x] = m;
-      }
-    return out;
-  };
-  return pass(pass(v, true), false);
-}
-
-/** The dark channel: the patch minimum of the per-pixel minimum over colour. */
-export function darkChannel(img: Rgb, r: number, A: readonly number[] = [1, 1, 1]): Float32Array {
-  const m = new Float32Array(img.w * img.h);
-  for (let i = 0, j = 0; i < m.length; i++, j += 3)
-    m[i] = Math.min(
-      (img.d[j] as number) / (A[0] as number),
-      (img.d[j + 1] as number) / (A[1] as number),
-      (img.d[j + 2] as number) / (A[2] as number),
-    );
-  return minFilter(m, img.w, img.h, r);
-}
-
-/** He et al.'s guided filter, grey guide. */
-export function guidedFilter(
-  I: Float32Array,
-  p: Float32Array,
-  w: number,
-  h: number,
-  r: number,
-  eps: number,
-): Float32Array {
-  const n = I.length;
-  const mul = (a: Float32Array, b: Float32Array) => a.map((v, i) => v * (b[i] as number));
-  const mI = boxBlur(I, w, h, r);
-  const mP = boxBlur(p, w, h, r);
-  const cII = boxBlur(mul(I, I), w, h, r);
-  const cIP = boxBlur(mul(I, p), w, h, r);
-  const a = new Float32Array(n);
-  const b = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const varI = (cII[i] as number) - (mI[i] as number) ** 2;
-    const cov = (cIP[i] as number) - (mI[i] as number) * (mP[i] as number);
-    a[i] = cov / (varI + eps);
-    b[i] = (mP[i] as number) - (a[i] as number) * (mI[i] as number);
-  }
-  const mA = boxBlur(a, w, h, r);
-  const mB = boxBlur(b, w, h, r);
-  const q = new Float32Array(n);
-  for (let i = 0; i < n; i++) q[i] = (mA[i] as number) * (I[i] as number) + (mB[i] as number);
-  return q;
-}
-
-export interface DcpResult {
-  dark: Float32Array;
-  A: [number, number, number];
-  t: Float32Array;
-  J: Rgb;
-}
-
-/** The classical Dark Channel Prior dehaze (He, Sun, Tang), guided-filter refined. */
-export function dcp(I: Rgb, r: number, omega = 0.95, t0 = 0.1): DcpResult {
-  const { w, h } = I;
-  const dark = darkChannel(I, r);
-  // Airlight: among the brightest 0.1% of the dark channel, the brightest input pixel.
-  const order = Array.from(dark, (v, i) => [v, i] as const).sort(
-    (a, b) => b[0] - a[0] || a[1] - b[1],
-  );
-  const top = order.slice(0, Math.max(1, Math.round(dark.length * 0.001)));
-  let best = (top[0] as readonly [number, number])[1];
-  let bestY = -1;
-  const L = luma(I);
-  for (const [, i] of top)
-    if ((L[i] as number) > bestY) {
-      bestY = L[i] as number;
-      best = i;
-    }
-  const A: [number, number, number] = [
-    I.d[best * 3] as number,
-    I.d[best * 3 + 1] as number,
-    I.d[best * 3 + 2] as number,
-  ];
-  const raw = darkChannel(I, r, A).map((v) => 1 - omega * v);
-  const t = guidedFilter(L, raw, w, h, Math.max(4, r * 4), 1e-3).map((v) =>
-    Math.max(0, Math.min(1, v)),
-  );
-  const d = new Float32Array(I.d.length);
-  for (let i = 0; i < w * h; i++) {
-    const ti = Math.max(t[i] as number, t0);
-    for (let c = 0; c < 3; c++) {
-      const a = A[c] as number;
-      d[i * 3 + c] = Math.max(0, Math.min(1, ((I.d[i * 3 + c] as number) - a) / ti + a));
-    }
-  }
-  return { dark, A, t, J: { w, h, d } };
-}
+// The classical prior's maths is shared with prior-work, which runs it too (kinds-shared.ts).
+export { type DcpResult, darkChannel, dcp, guidedFilter, minFilter } from "../kinds-shared.js";
 
 const DCP_W = 600;
 const DCP_H = 400;
@@ -210,18 +118,46 @@ export const darkChannelKind: KindImpl = {
     const K = "dark-channel";
     const f = L.files as Record<string, string>;
     const gap = 28;
-    const ph = even((H - 2 * LAB_H - gap) / 2);
+    // The four pictures as large as the region allows, their titles ON them (a title line
+    // above each row took 120px of picture); the plot column keeps room for its words.
+    const ph = even(Math.min((H - gap) / 2, ((W - 600 - 64 - gap) / 2 / 1.5) | 0));
     const pw = even(ph * 1.5);
     const x2 = pw + gap;
-    const y2 = LAB_H * 2 + ph + gap;
+    const y2 = ph + gap;
     const qx = 2 * pw + gap + 64;
     const qw = W - qx;
     const rowY = r3(d.row * ph);
+    const tag = (id: string, text: string) => label(id, text, 20, 14, LABEL, "", ON_PHOTO);
     const tile = (id: string, src: string, x: number, y: number, over = "") =>
-      panel(id, x, y, pw, ph, `${img(`${id}-i`, href(src), 0, 0, pw, ph)}${over}`, "lit-dark");
+      panel(
+        id,
+        x,
+        y,
+        pw,
+        ph,
+        `<div id="SCENEID-${id}-cam" style="position:absolute;left:0;top:0;width:${px(pw)};height:${px(ph)}">${img(`${id}-i`, href(src), 0, 0, pw, ph)}${over}</div>`,
+        "lit-dark",
+      );
+    // The plot column's words, wrapped to it: the premise is a sentence in the deck's language.
+    const lines = (id: string, text: string, y: number, color: string) => {
+      const ls = wrap(text, SMALL, qw, theme);
+      return {
+        h: ls.length * 50,
+        html: ls.map((t, i) => label(`${id}${i}`, t, qx, y + i * 50, SMALL, color)).join(""),
+        ids: ls.map((_, i) => `${id}${i}`),
+      };
+    };
+    const t = { t: d.tTrue };
+    const share = lab(K, spec, "missShare", { p: Math.round(d.missFrac * 100) });
+    const premise = lab(K, spec, "premise");
+    const premiseV = lab(K, spec, "premiseValue", { v: d.premise });
+    const foot = [premise, premiseV, share].reduce(
+      (n, s) => n + wrap(s, SMALL, qw, theme).length * 50,
+      0,
+    );
     // Transmission plot: 0..1 up the axis, the truth as a dashed line.
     const py0 = LAB_H + 20;
-    const plotH = H - py0 - LAB_H * 4 - 30;
+    const plotH = H - py0 - 2 * 50 - foot - 40;
     const plotW = qw - 10;
     // A window around the truth, so a miss of a few hundredths is visible.
     const lo = Math.max(0, Math.min(d.tTrue - 0.2, ...d.profile) - 0.02);
@@ -233,17 +169,20 @@ export const darkChannelKind: KindImpl = {
     const truthY = yOf(d.tTrue);
     const scan = (id: string) =>
       `<div id="SCENEID-${id}" style="position:absolute;left:0;top:${px(rowY - 2)};width:${px(pw)};height:4px;background:${theme.accent}"></div>`;
-    const t = { t: d.tTrue };
     const legendY = py0 + plotH + 24;
+    const fShare = lines("l-share", share, legendY + 100, theme.accent);
+    const fPrem = lines("l-premise", premise, legendY + 100 + fShare.h, theme.fg);
+    const fPremV = lines("l-premise2", premiseV, legendY + 100 + fShare.h + fPrem.h, theme.accent);
     const markup = `<div id="SCENEID-lit">
-${label("l-hazy", lab(K, spec, "hazy"), 0, 0, LABEL, theme.fg)}
-${tile("p-hazy", f.hazy as string, 0, LAB_H)}
-${label("l-dark", lab(K, spec, "dark"), x2, 0, LABEL, theme.fg)}
-${panel("p-dark", x2, LAB_H, pw, ph, `${img("dark-u", href(f.hazy as string), 0, 0, pw, ph)}<div id="SCENEID-dark-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("dark-i", href(f.dark as string), 0, 0, pw, ph)}</div>`, "lit-dark")}
-${label("l-trans", lab(K, spec, "transmission"), 0, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}${label("l-miss", lab(K, spec, "miss", t), 20, ph - 64, SMALL, "", ON_PHOTO)}`)}
-${label("l-rec", lab(K, spec, "recovered"), x2, y2 - LAB_H, LABEL, theme.fg)}
-${tile("p-rec", f.rec as string, x2, y2)}
+${tile("p-hazy", f.hazy as string, 0, 0)}
+${tag("l-hazy", lab(K, spec, "hazy"))}
+${panel("p-dark", x2, 0, pw, ph, `${img("dark-u", href(f.hazy as string), 0, 0, pw, ph)}<div id="SCENEID-dark-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("dark-i", href(f.dark as string), 0, 0, pw, ph)}</div><div id="SCENEID-dark-edge" style="position:absolute;left:0;top:0;width:4px;height:${px(ph)};background:${theme.accent}"></div>`, "lit-dark")}
+${label("l-dark", lab(K, spec, "dark"), x2 + 20, 14, LABEL, "", ON_PHOTO)}
+${tile("p-trans", f.trans as string, 0, y2, `${scan("scan")}${img("miss", href(f.miss as string), 0, 0, pw, ph)}`)}
+${label("l-trans", lab(K, spec, "transmission"), 20, y2 + 14, LABEL, "", ON_PHOTO)}
+${label("l-miss", lab(K, spec, "miss", t), 20, y2 + ph - 64, SMALL, "", ON_PHOTO)}
+${panel("p-rec", x2, y2, pw, ph, `<div id="SCENEID-p-rec-cam" style="position:absolute;left:0;top:0;width:${px(pw)};height:${px(ph)}">${img("rec-u", href(f.hazy as string), 0, 0, pw, ph)}<div id="SCENEID-rec-w" style="position:absolute;left:0;top:0;width:0;height:${px(ph)};overflow:hidden">${img("rec-i", href(f.rec as string), 0, 0, pw, ph)}</div></div>`, "lit-dark")}
+${label("l-rec", lab(K, spec, "recovered"), x2 + 20, y2 + 14, LABEL, "", ON_PHOTO)}
 ${label("l-plot", lab(K, spec, "profile"), qx, 0, LABEL, theme.fg)}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${py0}" x2="0" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
@@ -252,25 +191,30 @@ ${label("l-plot", lab(K, spec, "profile"), qx, 0, LABEL, theme.fg)}
 <polyline id="SCENEID-est" points="${pts}" fill="none" stroke="${theme.accent}" stroke-width="4" stroke-linejoin="round"/>
 </svg>
 ${label("l-truth", lab(K, spec, "truth", t), qx, legendY, SMALL, theme.fg)}
-${label("l-est", lab(K, spec, "estimate"), qx + qw / 2, legendY, SMALL, theme.accent)}
-${label("l-premise", lab(K, spec, "premise"), qx, H - LAB_H * 3 + 4, SMALL, theme.fg)}
-${label("l-premise2", lab(K, spec, "premiseValue", { v: d.premise }), qx, H - LAB_H * 2 + 4, SMALL, theme.accent)}
-${label("l-share", lab(K, spec, "missShare", { p: Math.round(d.missFrac * 100) }), qx, H - LAB_H + 4, SMALL, theme.accent)}
+${label("l-est", lab(K, spec, "estimate"), qx, legendY + 50, SMALL, theme.accent)}
+${fShare.html}${fPrem.html}${fPremV.html}
 </div>`;
     const [s0, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
+    const end = cues[3]?.t1 ?? s3 + 8;
     const tl = new Tl();
-    // Step 1: the classical prior is applied to the hazy input.
+    // Step 1: the classical prior is applied to the hazy input — the camera reads across it.
     tl.show("p-hazy", 0.05, 0.5);
     tl.show("l-hazy", 0.2);
     tl.show("l-dark", Math.max(0.6, s0 + 0.6));
     tl.show("p-dark", Math.max(0.6, s0 + 0.6), 0.4);
-    // Step 2: the dark channel, computed patch by patch, sweeps across the input it is computed from.
-    tl.fromTo(
-      "dark-w",
-      { width: 0 },
-      { width: pw, duration: 2.4, ease: "none" },
-      Math.max(1.2, s1 + 0.2),
-    );
+    drift(tl, "p-hazy-cam", Math.max(1.2, s0 + 1.0), s1 - 0.1, {
+      x: -pw * 0.06,
+      y: 0,
+      scale: 1.14,
+    });
+    // Step 2: the dark channel, computed patch by patch, sweeps across the input it is computed
+    // from — for the length of its sentence.
+    const sweep = Math.max(2.4, Math.min(6, s2 - s1 - 1.0));
+    const w0 = Math.max(1.2, s1 + 0.2);
+    tl.fromTo("dark-w", { width: 0 }, { width: pw, duration: sweep, ease: "none" }, w0);
+    tl.fromTo("dark-edge", { x: 0 }, { x: pw - 4, duration: sweep, ease: "none" }, w0);
+    tl.hide("dark-edge", w0 + sweep, 0.3);
+    drift(tl, "p-hazy-cam", w0, w0 + sweep, REST, { x: -pw * 0.06, y: 0, scale: 1.14 });
     // Step 3: transmission from the dark channel; along one line it is checked against the truth.
     tl.show("l-trans", s2);
     tl.show("p-trans", s2, 0.8);
@@ -282,15 +226,21 @@ ${label("l-share", lab(K, spec, "missShare", { p: Math.round(d.missFrac * 100) }
     tl.fromTo("est", { opacity: 0 }, { opacity: 1, duration: 0.8 }, s2 + 1.6);
     tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s2 + 2.6);
     tl.show("l-miss", s2 + 2.8);
-    // Step 4: the recovered picture — plausible to the eye — and, measured, how much of its
-    // transmission was wrong and what the prior assumed. (Its colour error is NOT larger where
-    // the transmission missed on every picture: measured on the r2 deck it was 0.8×, so the
-    // scene states the miss itself, never "the recovery fails there".)
+    // Step 4: the recovered picture — plausible to the eye — sweeps over the hazy one, and,
+    // measured, how much of its transmission was wrong and what the prior assumed. (Its colour
+    // error is NOT larger where the transmission missed on every picture: measured on the r2
+    // deck it was 0.8x, so the scene states the miss itself, never "the recovery fails there".)
     tl.show("l-rec", s3);
-    tl.show("p-rec", s3, 0.8);
-    tl.show("l-share", s3 + 1.4);
-    tl.show("l-premise", s3 + 2.4);
-    tl.show("l-premise2", s3 + 2.8);
+    tl.show("p-rec", s3, 0.6);
+    const r0 = s3 + 0.5;
+    const rd = Math.max(2.4, Math.min(4.5, (end - s3) * 0.3));
+    tl.fromTo("rec-w", { width: 0 }, { width: pw, duration: rd, ease: "sine.inOut" }, r0);
+    const at = spread(r0 + rd, end, 3, 0.6, 3.2);
+    for (const id of fShare.ids) tl.show(id, at[0] as number);
+    for (const id of fPrem.ids) tl.show(id, at[1] as number);
+    for (const id of fPremV.ids) tl.show(id, (at[2] as number) + 0.3);
+    // While the premise is read, the camera settles on the recovered picture.
+    drift(tl, "p-rec-cam", r0 + rd, end - 0.2, { x: pw * 0.05, y: -ph * 0.04, scale: 1.12 });
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };

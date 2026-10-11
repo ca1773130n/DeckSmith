@@ -4,7 +4,20 @@
  * and the crop size are the plan's number slots, never constants here.
  */
 import { join } from "node:path";
-import { even, img, type KindImpl, LAB_H, lab, num, panel, std, stepStarts } from "../kind.js";
+import {
+  even,
+  img,
+  type KindImpl,
+  LAB_H,
+  lab,
+  num,
+  panel,
+  spread,
+  std,
+  stepStarts,
+  widthOf,
+  wrap,
+} from "../kind.js";
 import { cropOf, cropOrigins, nativeSize } from "../kinds-shared.js";
 import {
   AIRLIGHT,
@@ -48,6 +61,8 @@ export function emaThresholds(variances: readonly number[], mu: number, alpha: n
 }
 
 const N_CROPS = 16;
+/** Test crops at inference, each measured and none recalibrating the threshold. */
+const N_TESTS = 5;
 /** The test picture's haze: denser than training's, so its statistics differ (illustrative). */
 const T_TEST = 0.2;
 
@@ -68,7 +83,11 @@ export const emaKind: KindImpl = {
     const vars = origins.map(([x, y]) => sobelVariance(cropOf(full, x, y, crop)));
     const run = emaThresholds(vars, mu, alpha);
     const testImg = haze(await readRgb(image as string, w, h), T_TEST, AIRLIGHT);
-    const testOwn = alpha * sobelVariance(testImg);
+    // Inference: crops of the denser-haze picture, each its own value; the threshold does not move.
+    const tests = cropOrigins(w, h, crop, N_TESTS, 20261011).map(([x, y]) => ({
+      origin: [x, y] as [number, number],
+      own: alpha * sobelVariance(cropOf(testImg, x, y, crop)),
+    }));
     const DW = 720;
     const DH = Math.round((DW * h) / w);
     const files = { hazy: `${beatId}-train.jpg`, test: `${beatId}-test.jpg` };
@@ -95,7 +114,7 @@ export const emaKind: KindImpl = {
         origins,
         own: run.own.map(sig),
         theta: run.theta.map(sig),
-        testOwn: sig(testOwn),
+        tests: tests.map((t) => ({ origin: t.origin, own: sig(t.own) })),
       },
     };
   },
@@ -108,26 +127,44 @@ export const emaKind: KindImpl = {
       origins: Array<[number, number]>;
       own: number[];
       theta: number[];
-      testOwn: number;
+      tests: Array<{ origin: [number, number]; own: number }>;
     };
     const f = L.files as Record<string, string>;
-    const pw = Math.min(760, even(((H - LAB_H) * 1.5) | 0));
+    // The picture takes the region's height (and at most 55% of its width): the crops are read
+    // on it. The plot column keeps 560px, and its words wrap to it in the deck's face.
+    const pw = even(Math.min(W * 0.55, (H - LAB_H) * (d.w / d.h), W - 72 - 560));
     const ph = even((pw * d.h) / d.w);
     const k = pw / d.w;
     const cs = r3(d.crop * k);
     const qx = pw + 72;
     const qw = W - qx;
-    // Plot: crops 1..N on the left 68%, then the inference column.
+    const block = (id: string, text: string, size: number, y: number, color: string) => {
+      const ls = wrap(text, size, qw, theme);
+      const lh = Math.round(size * 1.22);
+      return {
+        h: ls.length * lh,
+        ids: ls.map((_, i) => `${id}${i}`),
+        html: ls.map((t, i) => label(`${id}${i}`, t, qx, y + i * lh, size, color)).join(""),
+      };
+    };
+    const ema = block("l-ema", lab(K, spec, "formula"), LABEL, 0, theme.accent);
+    const own = block("l-own", lab(K, spec, "own"), SMALL, ema.h + 4, theme.muted);
+    const testText = lab(K, spec, "test");
+    const testH = wrap(testText, SMALL, qw, theme).length * Math.round(SMALL * 1.22);
+    const test = block("l-test", testText, SMALL, H - testH, theme.fg);
+    // Plot: crops 1..N on the left 64%, then the inference column.
     const n = d.own.length;
-    const trainW = qw * 0.68;
+    const m = d.tests.length;
+    const trainW = qw * 0.64;
     const infX = trainW + 60;
-    const py0 = LAB_H * 2 + 20;
-    const plotH = H - py0 - LAB_H * 2 - 10;
-    const vals = [...d.own, ...d.theta, d.testOwn];
+    const py0 = ema.h + own.h + 28;
+    const plotH = H - py0 - testH - LAB_H - 16;
+    const vals = [...d.own, ...d.theta, ...d.tests.map((t) => t.own)];
     const vmax = Math.max(...vals) * 1.15;
     const vmin = Math.min(...vals) * 0.8;
     const yOf = (v: number) => r3(py0 + (1 - (v - vmin) / (vmax - vmin)) * plotH);
     const xOf = (i: number) => r3(((i + 0.5) / n) * trainW);
+    const tx = (j: number) => r3(infX + ((j + 0.5) / m) * (qw - infX));
     const dots = d.own
       .map(
         (v, i) =>
@@ -142,38 +179,46 @@ export const emaKind: KindImpl = {
       })
       .join("");
     const last = d.theta[n - 1] as number;
+    const frozen = lab(K, spec, "frozen");
+    const tdots = d.tests
+      .map(
+        (t, j) =>
+          `<circle id="SCENEID-t${j}" cx="${tx(j)}" cy="${yOf(t.own)}" r="12" fill="none" stroke="${theme.fg}" stroke-width="4"/><line id="SCENEID-g${j}" x1="${tx(j)}" y1="${yOf(t.own)}" x2="${tx(j)}" y2="${yOf(last)}" stroke="${theme.fg}" stroke-width="3" stroke-dasharray="4 6"/>`,
+      )
+      .join("");
     const markup = `<div id="SCENEID-lit">
 ${label("l-train", lab(K, spec, "train"), 0, 0, LABEL, theme.fg)}
 ${label("l-infer", lab(K, spec, "infer"), 0, 0, LABEL, theme.fg)}
-${panel("pic", 0, LAB_H, pw, ph, `${img("train", href(f.hazy as string), 0, 0, pw, ph)}${img("test", href(f.test as string), 0, 0, pw, ph)}<div id="SCENEID-crop" style="position:absolute;left:0;top:0;width:${px(cs)};height:${px(cs)};border:4px solid ${theme.accent};box-sizing:border-box"></div>`, "lit-dark")}
-${label("l-ema", lab(K, spec, "formula"), qx, 0, LABEL, theme.accent)}
-${label("l-own", lab(K, spec, "own"), qx, LAB_H + 4, SMALL, theme.muted)}
+${panel("pic", 0, LAB_H, pw, ph, `${img("train", href(f.hazy as string), 0, 0, pw, ph)}${img("test", href(f.test as string), 0, 0, pw, ph)}<div id="SCENEID-crop" style="position:absolute;left:0;top:0;width:${px(cs)};height:${px(cs)};border:4px solid ${theme.accent};box-sizing:border-box"></div><div id="SCENEID-tcrop" style="position:absolute;left:0;top:0;width:${px(cs)};height:${px(cs)};border:4px solid ${theme.fg};box-sizing:border-box"></div>`, "lit-dark")}
+${ema.html}
+${own.html}
 <svg id="SCENEID-plot" width="${qw}" height="${H}" viewBox="0 0 ${qw} ${H}" style="left:${px(qx)};top:0">
 <line x1="0" y1="${r3(py0 + plotH)}" x2="${qw}" y2="${r3(py0 + plotH)}" stroke="${theme.rule}" stroke-width="2"/>
 <rect id="SCENEID-zone" x="${r3(infX - 24)}" y="${py0}" width="${r3(qw - infX + 24)}" height="${r3(plotH)}" fill="${theme.rule}" opacity="0.35"/>
 ${dots}${segs}
 <line id="SCENEID-frozen" x1="${xOf(n - 1)}" y1="${yOf(last)}" x2="${qw}" y2="${yOf(last)}" stroke="${theme.accent}" stroke-width="5" stroke-dasharray="14 10"/>
-<circle id="SCENEID-tdot" cx="${r3(infX + (qw - infX) / 2)}" cy="${yOf(d.testOwn)}" r="12" fill="none" stroke="${theme.fg}" stroke-width="4"/>
-<line id="SCENEID-gap" x1="${r3(infX + (qw - infX) / 2)}" y1="${yOf(d.testOwn)}" x2="${r3(infX + (qw - infX) / 2)}" y2="${yOf(last)}" stroke="${theme.fg}" stroke-width="3" stroke-dasharray="4 6"/>
+${tdots}
 </svg>
-${label("l-frozen", lab(K, spec, "frozen"), qx + infX - 24, py0 + plotH + 6, SMALL, theme.accent)}
-${label("l-test", lab(K, spec, "test"), qx, H - LAB_H + 6, SMALL, theme.fg)}
+${label("l-frozen", frozen, Math.min(qx + infX - 24, W - widthOf(frozen, SMALL, theme)), py0 + plotH + 6, SMALL, theme.accent)}
+${test.html}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
+    const end = cues[1]?.t1 ?? s1 + 8;
     const tl = new Tl();
     tl.show("l-train", 0.1);
     tl.show("pic", 0.05, 0.5);
-    tl.show("l-ema", 0.4);
+    for (const id of ema.ids) tl.show(id, 0.4);
     tl.show("plot", 0.4, 0.5);
     tl.fromTo("test", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     tl.fromTo("l-infer", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     tl.fromTo("zone", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+    tl.fromTo("tcrop", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
     // Step 1, training: the crop visits N places; each one's variance moves the running average.
     const c0 = s0 + 0.8;
     const span = Math.max(4, Math.min(n * 0.55, s1 - c0 - 0.6));
     const dt = span / n;
     tl.show("crop", c0 - 0.3, 0.3);
-    tl.show("l-own", c0);
+    for (const id of own.ids) tl.show(id, c0);
     d.origins.forEach(([x, y], i) => {
       const at = c0 + i * dt;
       const prev = d.origins[i - 1] ?? [x, y];
@@ -186,7 +231,8 @@ ${label("l-test", lab(K, spec, "test"), qx, H - LAB_H + 6, SMALL, theme.fg)}
       tl.show(`o${i}`, at + dt * 0.4, 0.25);
       tl.show(`e${i}`, at + dt * 0.5, 0.25);
     });
-    // Step 2, inference: the threshold stops; a differently hazed picture arrives and is not recalibrated.
+    // Step 2, inference: the threshold stops; a differently hazed picture arrives, and crop after
+    // crop of it is measured against a line that does not move — for the whole sentence.
     const i0 = Math.max(c0 + span + 0.4, s1);
     tl.hide("crop", i0, 0.3);
     tl.hide("l-train", i0, 0.4);
@@ -195,9 +241,21 @@ ${label("l-test", lab(K, spec, "test"), qx, H - LAB_H + 6, SMALL, theme.fg)}
     tl.show("frozen", i0 + 0.3, 0.6);
     tl.show("l-frozen", i0 + 0.5);
     tl.fromTo("test", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, i0 + 1.0);
-    tl.show("tdot", i0 + 2.0, 0.5);
-    tl.show("gap", i0 + 2.4, 0.5);
-    tl.show("l-test", i0 + 2.4);
+    const ts = spread(i0 + 2.0, end, m, 0.6, 1.8);
+    tl.show("tcrop", (ts[0] as number) - 0.3, 0.3);
+    d.tests.forEach((t, j) => {
+      const at = ts[j] as number;
+      const prev = d.tests[j - 1]?.origin ?? t.origin;
+      tl.fromTo(
+        "tcrop",
+        { x: r3(prev[0] * k), y: r3(prev[1] * k) },
+        { x: r3(t.origin[0] * k), y: r3(t.origin[1] * k), duration: 0.3, ease: "power1.inOut" },
+        at,
+      );
+      tl.show(`t${j}`, at + 0.3, 0.3);
+      tl.show(`g${j}`, at + 0.5, 0.4);
+    });
+    for (const id of test.ids) tl.show(id, (ts[0] as number) + 0.6);
     return { markup, css: baseCss(theme), script: tl.script };
   },
 };
