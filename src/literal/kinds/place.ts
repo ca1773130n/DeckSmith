@@ -117,11 +117,17 @@ function pointsIn(c: Ctx): MechanismResult {
     labels.every((l) => d.items.filter((it) => it.label === l).length >= 2);
   const keyed: Mode = crossed ? "crossed" : "numbered";
   if (d.items.length > NAMED_MAX) return layoutPoints(c, keyed) as MechanismResult;
-  return layoutPoints(c, "labels") ?? (layoutPoints(c, keyed) as MechanismResult);
+  // Each point named beside it, on one line; else the name over its values, which is
+  // narrower and finds a place where a long line does not; else a key.
+  return (
+    layoutPoints(c, "labels") ??
+    layoutPoints(c, "labels", true) ??
+    (layoutPoints(c, keyed) as MechanismResult)
+  );
 }
 
 /** The scene in one naming mode; null when a label finds no free place (`labels` only). */
-function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
+function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | null {
   const d = c.lit;
   const two = d.form === "plane";
   const vals = d.items.map((it) => it.values.map((v) => numberIn(v, `item "${it.label}"`)));
@@ -590,9 +596,11 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
             ? `${nameOf(it)}: ${tuple}`
             : nameOf(it);
     const lines =
-      mode === "numbered" || c.measure(one, TYPE.label) <= maxW || !tuple
+      mode === "numbered" || !tuple || (!stacked && c.measure(one, TYPE.label) <= maxW)
         ? [one]
-        : [...wrapBy(nameOf(it), TYPE.label, maxW, c.measure), tuple];
+        : onSeries
+          ? [tuple]
+          : [...wrapBy(nameOf(it), TYPE.label, maxW, c.measure), tuple];
     const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
     const h = (lines.length - 1) * LH + TYPE.label * 1.2;
     const spot = placeLabel(
