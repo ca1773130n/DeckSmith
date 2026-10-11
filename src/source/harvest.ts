@@ -211,7 +211,7 @@ export type Block =
   | { kind: "paragraph"; text: string }
   | { kind: "code"; text: string }
   | { kind: "list"; ordered: boolean; items: string[] }
-  | { kind: "table"; columns: string[]; rows: string[][] }
+  | { kind: "table"; columns: string[]; rows: string[][]; caption?: string }
   | { kind: "image"; src: string; alt: string; caption: string }
   | { kind: "video"; src: string; poster: string; href: string; caption: string };
 
@@ -568,6 +568,15 @@ function readDom(marker: string): Seen {
       out.push(block);
       return;
     }
+    // A figure holding a table is a captioned table (arXiv's LaTeXML writes every
+    // `\begin{table}` so). Read as words, arXiv 2211.17192's Table 2 came out as
+    // one paragraph of 72 numbers and no table at all.
+    const grid = el.querySelector("table");
+    const table = grid && !isEquation(grid) ? tableOf(grid) : undefined;
+    if (table) {
+      out.push(caption ? { ...table, caption } : table);
+      return;
+    }
     const text = words(el);
     if (text) out.push({ kind: "paragraph", text });
   }
@@ -635,8 +644,26 @@ function readDom(marker: string): Seen {
     };
   }
 
+  /**
+   * A display equation laid out as a table: LaTeXML's numbered equations are
+   * `<table class="ltx_equation">`. Read as a table they were five "tables"
+   * of one row each, the formula doubled (MathML text, then its TeX).
+   */
+  function isEquation(el: Element): boolean {
+    return /\bltx_(?:equation|equationgroup|eqn_table)\b/.test(el.getAttribute("class") ?? "");
+  }
+
+  /** The TeX a page carries for its math, as `$…$` spans; "" when it carries none. */
+  function texOf(el: Element): string {
+    return [...el.querySelectorAll('annotation[encoding="application/x-tex"]')]
+      .map((a) => (a.textContent ?? "").replace(/\s+/g, " ").trim())
+      .filter((t) => t && !t.includes("$"))
+      .map((t) => `$${t}$`)
+      .join(" ");
+  }
+
   /** The first row is the header, whether or not the page spelled it `<th>`. */
-  function tableOf(el: Element): Block | undefined {
+  function tableOf(el: Element): Extract<Block, { kind: "table" }> | undefined {
     const rows = [...el.querySelectorAll("tr")].map((tr) =>
       [...tr.children].filter((c) => c.tagName === "TD" || c.tagName === "TH").map(words),
     );
@@ -663,6 +690,11 @@ function readDom(marker: string): Seen {
       return;
     }
     if (tag === "table") {
+      if (isEquation(el)) {
+        const tex = texOf(el);
+        if (tex) out.push({ kind: "paragraph", text: tex });
+        return;
+      }
       const table = tableOf(el);
       if (table) out.push(table);
       return;
@@ -1665,6 +1697,8 @@ export function toMarkdown(blocks: readonly Block[]): string {
         break;
       case "table":
         out.push(pipes(item.columns, item.rows));
+        // `parseMarkdown` captions a table with the italic paragraph after it.
+        if (item.caption) out.push(`*${inline(item.caption)}*`);
         break;
       case "image":
         out.push(`![${inline(item.alt)}](${destination(item.src)})`);
