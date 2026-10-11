@@ -49,6 +49,7 @@ import {
   type Source,
   type Storyboard,
 } from "../types.js";
+import { lateReveals, SEEN_WHOLE_S } from "./check.js";
 import { figurePanels } from "./kinds/region.js";
 import { type Cue, type Layers, round3 } from "./kit.js";
 import { KINDS } from "./registry.js";
@@ -357,9 +358,13 @@ export async function literalPass(
     bespoke: placeholder,
   });
   const cuesOf = new Map<string, Cue[]>();
+  const durationOf = new Map<string, number>();
   for (const sc of timing.scenes) {
     const beat = kept[Number(sc.id.slice(1)) - 1];
-    if (beat) cuesOf.set(beat.id, sentenceCues(timing, sc.id));
+    if (beat) {
+      cuesOf.set(beat.id, sentenceCues(timing, sc.id));
+      durationOf.set(beat.id, sc.duration);
+    }
   }
   const dir = join(input.out, LITERAL_DIR);
   await mkdir(dir, { recursive: true });
@@ -395,6 +400,16 @@ export async function literalPass(
     });
     earlier.set(beat.id, { kind: spec.kind, layers, labels: spec.labels });
     const fragment = literalFragment(spec.kind, layers, region, cues, spec, theme);
+    const late = lateReveals(fragment.script, durationOf.get(beat.id) ?? Number.POSITIVE_INFINITY);
+    if (late.length)
+      throw new Error(
+        `literal: ${beat.id} (${spec.kind}) shows ${late
+          .slice(0, 4)
+          .map((r) => `${r.id} at ${r.at}s`)
+          .join(
+            ", ",
+          )} too late to stand whole for ${SEEN_WHOLE_S}s before the scene ends at ${durationOf.get(beat.id)}s`,
+      );
     map[beat.id] = {
       fragment,
       holds: placeholder[beat.id]?.holds ?? [],

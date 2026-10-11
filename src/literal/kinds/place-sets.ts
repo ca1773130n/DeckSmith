@@ -158,14 +158,17 @@ ${caption ? label("cap", caption, 0, L.captionY, SMALL, theme.muted) : ""}
     const at = stepStarts(cues, R);
     const end = cues[cues.length - 1]?.t1 ?? (at[R - 1] as number) + 6;
     const tl = new Tl();
-    // Every part and its name are there from the start, quiet but legible, so the frame is
-    // whole and the split is seen at once. Part by part, on its sentence, it comes forward and
-    // its items arrive one by one while it is spoken; the part before steps back.
+    // Every part, its name AND its items are there from the start, quiet but legible, so the
+    // frame is whole at every hold: r2 brought a part's items in on its own sentence, which
+    // started after the scene's last hold, and both hold frames showed the last column empty.
+    // Part by part, on its sentence, it comes forward and its items are lit one by one while it
+    // is spoken; the part before steps back.
     const IDLE = 0.55;
+    const ITEM_IDLE = 0.45;
     for (let k = 0; k < R; k++) {
       tl.fromTo(`z${k}`, { opacity: 0 }, { opacity: IDLE, duration: 0.6 }, r3(0.2 + k * 0.15));
       for (let i = 0; i < (d.rings[k]?.items.length ?? 0); i++)
-        tl.fromTo(`c${k}-${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+        tl.fromTo(`c${k}-${i}`, { opacity: ITEM_IDLE }, { opacity: ITEM_IDLE, duration: 0.01 }, 0);
     }
     if (caption) tl.show("cap", 0.8);
     d.rings.forEach((ring, k) => {
@@ -182,8 +185,8 @@ ${caption ? label("cap", caption, 0, L.captionY, SMALL, theme.muted) : ""}
       times.forEach((t, i) => {
         tl.fromTo(
           `c${k}-${i}`,
-          { opacity: 0, y: 14 },
-          { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" },
+          { opacity: ITEM_IDLE },
+          { opacity: 1, duration: 0.5, ease: "power2.out" },
           t,
         );
       });
