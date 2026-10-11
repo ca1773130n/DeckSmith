@@ -1008,20 +1008,35 @@ function verbatim(expr: string, text: string): boolean {
  * Table 2, where "EnDe, temp=0 → 3.4X" is one row: requiring the label in the
  * same passage as the value refused every row, and the planner fell back to
  * labelling four points "T5-small" with the real distinction in a legend.
+ *
+ * A point whose axes are one measure under two conditions (α at t=0 against α
+ * at t=1) may take its values from several rows: each row names every part,
+ * the values sit in one column, and each row's condition cell is the one its
+ * axis names (its numbers in that axis's name and not in the others', or the
+ * cell itself named there). Measured on arXiv 2211.17192's Table 3, printed
+ * one row per (model, sampling): the diagonal plane the planner is told to
+ * draw for exactly this case was refused on every point.
  */
 function tableRowStates(
   source: Source,
   item: { label: string; values: readonly string[]; group?: string | undefined },
+  axes: ReadonlyArray<{ name: string }> = [],
 ): boolean {
   const parts = [...new Set([...namesIn(item.label), ...namesIn(item.group ?? "")])];
   const want = item.values.flatMap((v) => numbersIn(v));
   if (!parts.length || !want.length) return false;
-  return source.tables.some((t) =>
-    t.rows.some((row) => {
-      const got = new Set(row.flatMap((c) => numbersIn(c)));
-      if (!want.every((n) => got.has(n))) return false;
-      return parts.every((part) => {
-        if (row.some((c) => named(c, part)) || named(t.caption ?? "", part)) return true;
+  // "LaMDA 100M" names the cell "LaMDA (100M)": brackets are not part of a name.
+  const unbracket = (x: string) =>
+    x
+      .replace(/[()[\]（）]/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim();
+  const cellNames = (c: string, part: string) =>
+    named(c, part) || named(unbracket(c), unbracket(part));
+  return source.tables.some((t) => {
+    const namesAll = (row: readonly string[]) =>
+      parts.every((part) => {
+        if (row.some((c) => cellNames(c, part)) || named(t.caption ?? "", part)) return true;
         const m = /^(.*?\S)\s*[=:]?\s*(-?\d+(?:\.\d+)?)$/u.exec(part);
         if (!m) return false;
         const [, head, value] = m as unknown as [string, string, string];
@@ -1032,8 +1047,46 @@ function tableRowStates(
             numbersIn(row[j] ?? "").includes(value),
         );
       });
-    }),
-  );
+    const rows = t.rows.filter(namesAll);
+    if (
+      rows.some((row) => {
+        const got = new Set(row.flatMap((c) => numbersIn(c)));
+        return want.every((n) => got.has(n));
+      })
+    )
+      return true;
+    return splitRowsState(t.columns.length, rows, item.values, axes);
+  });
+}
+
+/** Whether each value sits in one column of its own row, that row's condition cell named by its axis. */
+function splitRowsState(
+  width: number,
+  rows: ReadonlyArray<readonly string[]>,
+  values: readonly string[],
+  axes: ReadonlyArray<{ name: string }>,
+): boolean {
+  if (values.length < 2 || values.length !== axes.length) return false;
+  const vs = values.map((v) => numbersIn(v));
+  if (vs.some((v) => v.length !== 1)) return false;
+  const axisNums = axes.map((a) => new Set(numbersIn(a.name)));
+  const conditionOf = (cell: string, k: number) => {
+    const ns = numbersIn(cell);
+    const inAxis = (q: number) =>
+      ns.length ? ns.every((n) => axisNums[q]?.has(n)) : named(axes[q]?.name ?? "", cell.trim());
+    return inAxis(k) && axes.every((_, q) => q === k || !inAxis(q));
+  };
+  for (let j = 0; j < width; j++)
+    for (let c = 0; c < width; c++) {
+      if (c === j) continue;
+      const picked = vs.map(([v], k) =>
+        rows.find(
+          (row) => numbersIn(row[j] ?? "").includes(v as string) && conditionOf(row[c] ?? "", k),
+        ),
+      );
+      if (picked.every(Boolean) && new Set(picked).size === picked.length) return true;
+    }
+  return false;
 }
 
 /** A passage that is a list item ("- X", "1. X"): one row of a list. */
@@ -1122,7 +1175,7 @@ function wordGrounding(lit: Literal, source: Source, text: string): string[] {
     for (const it of lit.items)
       if (
         !ps.some((p) => has(p, it.label) && it.values.every((v) => states(p, v))) &&
-        !tableRowStates(source, it) &&
+        !tableRowStates(source, it, lit.axes) &&
         !listRowStates(ps, it)
       )
         out.push(

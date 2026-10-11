@@ -705,6 +705,52 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     expect(found).toMatch(/places "LHID · Temp 0" at 2.6/);
   });
 
+  it("places a point of one measure under two conditions by the two rows its axes name", () => {
+    // One row per (model, sampling): α at t=0 and α at t=1 are two rows.
+    const long = sourceSchema.parse({
+      ...analysis,
+      tables: [
+        {
+          id: "tbl1",
+          caption: "표 3.",
+          columns: ["Mp", "Mq", "Smpl", "α"],
+          rows: [
+            ["LHID (137B)", "LHID (100M)", "t=0", "0.61"],
+            ["LHID (137B)", "LHID (100M)", "t=1", "0.57"],
+            ["LHID (137B)", "LHID (2B)", "t=0", "0.71"],
+            ["LHID (137B)", "LHID (2B)", "t=1", "0.70"],
+          ],
+        },
+      ],
+    });
+    const beats = covered();
+    const diagonal = (items: Array<{ label: string; values: string[] }>) =>
+      beatOf("b05-results", "experiments", ["sec7"], {
+        literal: {
+          kind: "place",
+          form: "plane",
+          diagonal: true,
+          axes: [
+            { name: "α (t=0)", lowerIsBetter: false },
+            { name: "α (t=1)", lowerIsBetter: false },
+          ],
+          items,
+        },
+      });
+    const refused = (items: Array<{ label: string; values: string[] }>) => {
+      beats[5] = diagonal(items);
+      return literalFindings(plan(beats), long).join("\n");
+    };
+    expect(refused([{ label: "LHID 100M", values: ["0.61", "0.57"] }])).not.toMatch(/places/);
+    // Swapped conditions, and a value from another model's row.
+    expect(refused([{ label: "LHID 100M", values: ["0.57", "0.61"] }])).toMatch(
+      /places "LHID 100M" at 0.57, 0.61/,
+    );
+    expect(refused([{ label: "LHID 100M", values: ["0.61", "0.70"] }])).toMatch(
+      /places "LHID 100M" at 0.61, 0.70/,
+    );
+  });
+
   it("places a series point by a list row and the header the list hangs from", () => {
     // A table flattened to a header sentence and one list item a row: the
     // horizon is the header's k-th number, the error the row's k-th.
