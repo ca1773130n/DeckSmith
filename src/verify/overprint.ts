@@ -400,9 +400,12 @@ export function wordsOnMarks(runs: readonly TextRun[], marks: Marks): WordOnMark
       const ny = Math.max(y0, Math.min(p.y, y1));
       return Math.hypot(nx - p.x, ny - p.y) < p.r;
     });
+    // A line under a dot is hidden by it: a key's number inside its dot on a curve.
+    const under = (q: { x: number; y: number }) =>
+      marks.points.some((p) => Math.hypot(q.x - p.x, q.y - p.y) < p.r);
     const line = point
       ? undefined
-      : marks.lines.find((q) => q.x > x0 && q.x < x1 && q.y > y0 && q.y < y1);
+      : marks.lines.find((q) => q.x > x0 && q.x < x1 && q.y > y0 && q.y < y1 && !under(q));
     const hit = point ?? line;
     if (hit) {
       seen.add(t.node);

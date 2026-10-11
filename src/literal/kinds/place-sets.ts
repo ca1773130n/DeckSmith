@@ -38,6 +38,12 @@ export interface ScopeLayout {
 }
 
 const GAP = 56;
+/**
+ * How far a part's push-in goes while the rest of its sentence is spoken: far
+ * enough to read as motion (1% of the frame at 480×270; 1.04 and 1.08 did not,
+ * r3 C s12), back to its size when the next part comes forward.
+ */
+const PUSH_SETS = 1.1;
 const RULE_Y = 8;
 const LABEL_LH = 54;
 const ITEM_LH = 54;
@@ -171,17 +177,22 @@ ${caption ? label("cap", caption, 0, L.captionY, SMALL, theme.muted) : ""}
         tl.fromTo(`c${k}-${i}`, { opacity: ITEM_IDLE }, { opacity: ITEM_IDLE, duration: 0.01 }, 0);
     }
     if (caption) tl.show("cap", 0.8);
+    const pushed: boolean[] = [];
     d.rings.forEach((ring, k) => {
       const t0 = Math.max(1.0, (at[k] as number) + 0.1);
       const t1 = (at[k + 1] as number | undefined) ?? end;
       tl.fromTo(`z${k}`, { opacity: IDLE }, { opacity: 1, duration: 0.6, ease: "power2.out" }, t0);
       if (k > 0) tl.fromTo(`z${k - 1}`, { opacity: 1 }, { opacity: 0.75, duration: 0.6 }, t0);
+      // The part before steps back to its own size as this one comes forward.
+      if (k > 0 && pushed[k - 1])
+        drift(tl, `zc${k - 1}`, t0, t0 + 0.6, REST, { x: 0, y: 0, scale: PUSH_SETS }, "0% 0%");
       const times = spread(t0 + 0.5, t1, ring.items.length, 0.6, 3.2, 1.0);
       // While the rest of its sentence is spoken, the camera leans in on the part: a slow
       // push-in, the only motion a short list has left once its items are all there.
       const last = (times[times.length - 1] as number) + 0.5;
       // From the part's top-left corner, so its first word never leaves the region.
-      drift(tl, `zc${k}`, last, t1 - 0.1, { x: 0, y: 0, scale: 1.04 }, REST, "0% 0%");
+      drift(tl, `zc${k}`, last, t1 - 0.1, { x: 0, y: 0, scale: PUSH_SETS }, REST, "0% 0%");
+      pushed[k] = t1 - 0.1 - last > 0.3;
       times.forEach((t, i) => {
         tl.fromTo(
           `c${k}-${i}`,

@@ -326,9 +326,14 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     // block in the middle of it. The cap is half a line: at a full line the three
     // bullets came apart into three unrelated sentences, which is worse than the
     // band it was spending — a list has to still read as one list.
+    // v2 spreads the list down the whole column, its last item at the foot: the
+    // fill gate measures the content's box at every hold (r3 C s6: 49%).
     const spread =
       !fig && list.length > 1
-        ? Math.min(itemSize * 0.5, Math.max(0, (contentH - stackH) / (list.length - 1)))
+        ? Math.min(
+            v2 ? Number.POSITIVE_INFINITY : itemSize * 0.5,
+            Math.max(0, (contentH - stackH) / (list.length - 1)),
+          )
         : 0;
     // v2 sets a list-only side from the top, under its heading: centred, the
     // slack fell between the heading rule and the first item, ~250px on ja s2

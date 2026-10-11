@@ -674,7 +674,9 @@ describe("a literal scene leans through a still sentence", () => {
     // Sentences 1-3 each lean (in, out); the 3.25s last one does not.
     expect(l).toHaveLength(6);
     expect(l.map(atOf)).toEqual([1.75, 5, 9.25, 12.15, 15.3, 18.575]);
-    expect(l[1]).toContain('"scale":1,');
+    // A drift, never a scale: a lean back drew 40px labels at 39.4px.
+    expect(l[1]).toContain('"y":0,');
+    expect(l.join("\n")).not.toContain("scale");
   });
 
   it("adds nothing where the kind keeps moving, or where nothing is spoken", () => {

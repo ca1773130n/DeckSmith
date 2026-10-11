@@ -361,9 +361,11 @@ describe("design: the switch", () => {
     // at 47.3s; after the walk the light walks the terms once more), the
     // emphasis walks the parts on later sentences, grids widen,
     // line-chart values and deltas sit off the line (s12 read at 100.8s), the
-    // stack probe moves left.
+    // stack probe moves left. Then split-compare spreads its lists down the
+    // column (s13 read at 109.65s) and bar-compare fades its bars in at their
+    // length with no counting (s10 at 83.45s): the brief bans both.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "bc6af80826503378757de896ca94b2f16ffcf9517be4b899fd1bb91b15b60da0",
+      "e9aa244d76632d0b0f91d18c0555f6c039842c448f72938d41556d8cf40b9cc2",
     );
   });
 

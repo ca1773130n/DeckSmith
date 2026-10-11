@@ -596,7 +596,9 @@ describe("split-compare under v2", () => {
       scene.html,
     );
     const divEnd = Number(div?.[1]);
-    expect(divEnd).toBeLessThan(H);
+    // v2 spreads each list down its column (the fill gate), so the lists, and the
+    // divider with them, may now reach the foot.
+    expect(divEnd).toBeLessThanOrEqual(H);
     // The lowest painted mark is no lower than the divider's end.
     const marks = extents(scene.html).filter((e) => !e.what.includes("line"));
     const lowest = Math.max(...marks.map((e) => e.y1));

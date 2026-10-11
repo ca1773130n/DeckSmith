@@ -75,8 +75,8 @@ type Shape = (typeof SHAPES)[number];
  * too many to name (> `NAMED_MAX`) or a name finds no free place, by a KEY —
  * `crossed` when the items are a few labels each measured under every group
  * (3 model sizes × 4 tasks: shape per label, colour per group, no words on the
- * plot), else `numbered` (the dot carries its number and a column beside the
- * plot reads number, name and values). A label is never drawn over a point, a
+ * plot), else `numbered` (each dot's number is placed beside it as a label is,
+ * and a key beside or under the plot reads number, name and values). A label is never drawn over a point, a
  * line or another word: r2 struck a point's label through with its own series
  * and printed 12 labels over each other on a theory-against-measured plane.
  */
@@ -494,7 +494,7 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     x: X(v[0] as number),
     y: two ? Y(v[1] as number) : lineY,
   }));
-  const R = mode === "numbered" ? 26 : 14;
+  const R = 14;
   taken.push(
     ...pos.map((q) => ({ x0: q.x - R - 4, y0: q.y - R - 4, x1: q.x + R + 4, y1: q.y + R + 4 })),
   );
@@ -533,20 +533,6 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     const fill = roleOf(it.group ?? "");
     if (mode === "crossed") marks.push(...markerPrims(shapeOf(it.label), px, py, R, fill, a));
     else marks.push({ p: "circle", cx: px, cy: py, r: R, fill, cam: true, at: a });
-    if (mode === "numbered") {
-      words.push({
-        p: "text",
-        x: px,
-        y: py - TYPE.label * 0.6,
-        size: TYPE.label,
-        role: "auto",
-        anchor: "middle",
-        text: String(i + 1),
-        cam: true,
-        at: a,
-      });
-      continue;
-    }
     if (mode === "crossed") continue;
     // One line when name and values fit on it; else the name on its own
     // line(s) and the values on one more, never broken: r1 wrapped "6.58 ·\n88.29".
@@ -556,9 +542,17 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     // series' labels fit beside their points (r2 b13's eight "name x·y" labels did not).
     const onSeries = !!d.connect && two && tinted && seriesGroups.has(it.group ?? "");
     const tuple = onSeries ? (it.values[1] as string) : valueText(it);
-    const one = onSeries ? tuple : tuple ? `${nameOf(it)}: ${tuple}` : nameOf(it);
+    // A numbered key's point carries only its number, placed as any label is.
+    const one =
+      mode === "numbered"
+        ? String(i + 1)
+        : onSeries
+          ? tuple
+          : tuple
+            ? `${nameOf(it)}: ${tuple}`
+            : nameOf(it);
     const lines =
-      c.measure(one, TYPE.label) <= maxW || !tuple
+      mode === "numbered" || c.measure(one, TYPE.label) <= maxW || !tuple
         ? [one]
         : [...wrapBy(nameOf(it), TYPE.label, maxW, c.measure), tuple];
     const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
@@ -574,7 +568,12 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
       strokes,
       two ? 0 : i,
     );
-    if (!spot) return null;
+    if (!spot) {
+      if (mode === "labels") return null;
+      throw new Error(
+        `place: the points are too close to number on this plane (no free place beside point ${i + 1}); give fewer items, or split the beat`,
+      );
+    }
     taken.push(spot.box);
     strokes.push(...spot.leader.flatMap((s) => segBoxes(s, 2)));
     for (const s of spot.leader)
@@ -738,7 +737,11 @@ export function placeLabel(
   // beside it, it sat over the gap between two dots and read as the other one's.
   // Beside, a label may also sit centred over or under its dot (clamped into the plot).
   const mid = Math.max(plot.x, Math.min(px - w / 2, plot.x + plot.w - w));
-  const xs = side === "beside" ? [px + 24, px - 24 - w, mid] : [px - w / 2, px + 24, px - 24 - w];
+  // Further out to either side as well, for a point in a cluster or on a line.
+  const xs =
+    side === "beside"
+      ? [px + 24, px - 24 - w, mid, px + 72, px - 72 - w, px + 132, px - 132 - w]
+      : [px - w / 2, px + 24, px - 24 - w];
   const ys: number[] = [];
   if (side === "beside") {
     for (let k = 0; k <= 12; k++)

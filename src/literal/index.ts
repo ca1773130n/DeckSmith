@@ -187,10 +187,11 @@ export function literalFragment(
 /** The shortest still stretch inside a sentence a literal scene leans through. */
 const LEAN_MIN_SECONDS = 4;
 /**
- * Back, not in: a scene's content runs to its region's edges, and the region clips.
- * Leaning in by 1.02 cut r2's lengths labels at the region's left edge (text_clipped).
+ * A drift of a few px, not a scale: leaning in by 1.02 cut r2's lengths labels
+ * at the region's edge (text_clipped), and leaning back by 0.985 drew 40px
+ * labels at 39.4px, under the floor (r3 C s8, apparent_type_floor).
  */
-const LEAN_SCALE = 0.985;
+const LEAN_Y = -6;
 
 /**
  * A scene's script with a slow lean of the whole scene through each still stretch
@@ -241,11 +242,11 @@ export function leanThroughStill(script: string, cues: readonly Cue[]): string {
       const t1 = round3(g1 - 0.15);
       if (t1 - t0 < LEAN_MIN_SECONDS) continue;
       const half = round3((t1 - t0 - 0.05) / 2);
-      const lean = JSON.stringify({ scale: LEAN_SCALE, transformOrigin: "50% 50%" });
-      const rest = JSON.stringify({ scale: 1, transformOrigin: "50% 50%" });
+      const lean = JSON.stringify({ y: LEAN_Y });
+      const rest = JSON.stringify({ y: 0 });
       out.push(
-        `tl.fromTo("#SCENEID-lit", ${rest}, ${JSON.stringify({ scale: LEAN_SCALE, transformOrigin: "50% 50%", duration: half, ease: "sine.inOut", immediateRender: false })}, ${t0});`,
-        `tl.fromTo("#SCENEID-lit", ${lean}, ${JSON.stringify({ scale: 1, transformOrigin: "50% 50%", duration: half, ease: "sine.inOut", immediateRender: false })}, ${round3(t0 + half + 0.05)});`,
+        `tl.fromTo("#SCENEID-lit", ${rest}, ${JSON.stringify({ y: LEAN_Y, duration: half, ease: "sine.inOut", immediateRender: false })}, ${t0});`,
+        `tl.fromTo("#SCENEID-lit", ${lean}, ${JSON.stringify({ y: 0, duration: half, ease: "sine.inOut", immediateRender: false })}, ${round3(t0 + half + 0.05)});`,
       );
     }
   });
@@ -356,6 +357,7 @@ export async function literalPass(
     narration,
     theme: input.theme,
     bespoke: placeholder,
+    design: "v2",
   });
   const cuesOf = new Map<string, Cue[]>();
   const durationOf = new Map<string, number>();

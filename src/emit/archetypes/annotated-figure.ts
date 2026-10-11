@@ -768,7 +768,18 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
   // room for are what `ok` reports, and a bigger picture is not worth a label
   // pushed off its stack. And only one that places every note classic placed:
   // a hold per note, so a different count would move the narration's stops.
-  const plan = grown?.ok && grown.boxes.length === classic.boxes.length ? grown : classic;
+  const chosen = grown?.ok && grown.boxes.length === classic.boxes.length ? grown : classic;
+  // v2, a figure across the stage: its labels' row goes to the stage's foot,
+  // the leaders reaching down to it, so the content spans the region the fill
+  // gate measures (r3 C s9: a 4.8:1 trace and its labels in the middle 66%).
+  const drop = v2 && under && !isPortrait(ctx.format) ? Math.max(0, budget - chosen.height) : 0;
+  const plan = drop
+    ? {
+        ...chosen,
+        height: chosen.height + drop,
+        boxes: chosen.boxes.map((b) => ({ ...b, top: b.top + drop, ruleY: b.ruleY + drop })),
+      }
+    : chosen;
   const stageH = plan.height;
   const plate: Box = {
     x: plan.img.x - PLATE,

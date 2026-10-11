@@ -1206,6 +1206,7 @@ export async function bespokePass(input: BespokeInput): Promise<BespokeResult> {
     narration,
     theme: input.theme,
     bespoke: placeholder,
+    design: "v2",
   });
   const windows = new Map<string, SceneWindow>();
   for (const w of sceneWindows(timing)) {
