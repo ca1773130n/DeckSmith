@@ -43,7 +43,7 @@ export function checkLanes(d: PriorWorkData): void {
   for (const l of d.lanes) {
     if (!l.from && !l.numbers.length)
       throw new Error(
-        `literal: prior-work lane "${l.family}" shows neither an earlier scene (\`from\`) nor the source's numbers; a learned method is shown only by what the source reports for it`,
+        `literal: prior-work lane "${l.family}" shows neither an earlier scene (\`from\`) nor the source's numbers; a learned method is shown only by what the source reports for it. Drop the lane, or leave \`literal\` null when the source reports nothing for these families`,
       );
     if (l.from && l.numbers.length)
       throw new Error(

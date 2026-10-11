@@ -1398,7 +1398,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      operate or evolve beat whose computed layer IS what the
                      family does: the family or members name that operation,
                      and the source names each member beside it. A learned
-                     family is shown only by its numbers.`,
+                     family is shown only by its numbers. EVERY lane needs one
+                     or the other: when the source only names the families
+                     (a related-work section with no numbers and no earlier
+                     scene), do not use prior-work — leave \`literal\` null.`,
     slots: {
       reported: {
         what: "over a numbers lane: these are the source's reported values (required with numbers)",

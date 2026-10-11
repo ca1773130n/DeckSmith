@@ -204,6 +204,11 @@ describe("detecting a source's parts from its headings", () => {
     expect(partOfHeading("Q1: What problem does this paper try to solve?")).toBe("intro");
     expect(partOfHeading("Q3: How does the paper solve this problem?")).toBe("method");
     expect(partOfHeading("Q5: What can be explored further?")).toBe("limits");
+    // The same template in Chinese (OneVL's source): "如何解决这一问题" is the method, not the problem.
+    expect(partOfHeading("Q2: 目前有哪些相关研究？")).toBe("prior-work");
+    expect(partOfHeading("Q3: 论文如何解决这一问题？")).toBe("method");
+    expect(partOfHeading("Q4: 论文进行了哪些实验？")).toBe("experiments");
+    expect(partOfHeading("Q5: 哪些方面可以进一步探索？")).toBe("limits");
     expect(partOfHeading("Related Work")).toBe("prior-work");
     expect(partOfHeading("Conclusion and Future Work")).toBe("summary");
     expect(partOfHeading("Cost")).toBeUndefined();
@@ -291,6 +296,19 @@ describe("coverageFindings", () => {
     expect(found).toContainEqual(
       expect.stringMatching(/b03-method is part "method" but cites only prior-work/),
     );
+  });
+
+  it("lets a beat of a part the source lacks cite what it sums up", () => {
+    const noSummary = sourceSchema.parse({
+      ...analysis,
+      sections: analysis.sections.filter((x) => partOfHeading(x.heading) !== "summary"),
+    });
+    const beats = covered();
+    beats[beats.length - 1] = beatOf("b08-summary", "summary", ["sec4"]);
+    const about = (src: typeof analysis) =>
+      coverageFindings(plan(beats), src).filter((f) => f.includes("b08-summary is part"));
+    expect(about(analysis)).toHaveLength(1);
+    expect(about(noSummary)).toEqual([]);
   });
 });
 

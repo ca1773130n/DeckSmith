@@ -79,16 +79,16 @@ const LEXICON: ReadonlyArray<readonly [BeatPart, RegExp]> = [
   ["summary", /summar|conclu|takeaway|요약|결론|まとめ|結論|总结|结论|總結/i],
   [
     "limits",
-    /limitation|\blimits?\b|weakness|future|further|open (question|problem)|한계|향후|탐구|후속|제약|限界|今後|局限|未来|未來|展望/i,
+    /limitation|\blimits?\b|weakness|future|further|open (question|problem)|한계|향후|탐구|후속|제약|限界|今後|局限|未来|未來|展望|进一步|進一步/i,
   ],
   [
     "prior-work",
-    /related work|prior work|previous work|literature|background|existing (work|method|approach)|관련 ?연구|선행 ?연구|기존 ?연구|관련 ?작업|関連研究|先行研究|相关工作|相關工作/i,
+    /related work|prior work|previous work|literature|background|existing (work|method|approach)|관련 ?연구|선행 ?연구|기존 ?연구|관련 ?작업|関連研究|先行研究|相关工作|相關工作|相关研究|相關研究/i,
   ],
   ["experiments", /experiment|evaluat|\bresults?\b|benchmark|실험|평가|実験|評価|实验|實驗|评估/i],
   [
     "method",
-    /method|approach|architecture|\bhow\b.*\b(solve|address|work)|proposed|방법|기법|어떻게|제안|手法|方法|提案|提出/i,
+    /method|approach|architecture|\bhow\b.*\b(solve|address|work)|proposed|방법|기법|어떻게|제안|手法|方法|提案|提出|如何/i,
   ],
   [
     "intro",
@@ -186,8 +186,11 @@ export function coverageFindings(storyboard: Storyboard, source: Source): string
   }
 
   // A beat labelled with a part says what it covers; its evidence must agree.
+  // Only for a part the source has: a deck's summary over a source with no
+  // summary section (`--genre paper` asks for one) can only cite what it sums up.
+  const has = new Set(parts.map((p) => p.part));
   for (const b of body) {
-    if (!b.part) continue;
+    if (!b.part || !has.has(b.part)) continue;
     const own = sectionsCited(b).filter((id) => partOf.has(id));
     if (own.length && !own.some((id) => partOf.get(id) === b.part))
       out.push(
