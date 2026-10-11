@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "../src/emit/kit.js";
 import { literalFragment } from "../src/literal/index.js";
-import { type Cue, type Layers, stillSpans, Tl } from "../src/literal/kit.js";
+import { type Cue, type Layers, pictureFill, stillSpans, Tl } from "../src/literal/kit.js";
 import type { LiteralKind } from "../src/types.js";
 import { slotsFor } from "./literal-fixtures.js";
 
@@ -358,4 +358,30 @@ describe("the deck kinds use their region", () => {
         ),
       );
   });
+});
+
+/**
+ * The least share of the region a step-by-step kind's pictures may cover at any hold. The
+ * backbone's U draws every map at its TRUE relative size — each level half the one above —
+ * so once it leaves its opening it holds 0.2–0.3 by construction; the floor keeps it there.
+ */
+const FILL_MIN = { "dark-channel": 0.3, crops: 0.3, backbone: 0.18 } as const;
+/** And in its first sentence: the first picture opens large, not in a corner (a square picture at the region's full height covers 0.44 of it). */
+const OPEN_MIN = 0.4;
+
+describe("the step-by-step kinds fill the frame at every hold, from the first", () => {
+  for (const kind of ["dark-channel", "crops", "backbone"] as const) {
+    it(`${kind}: pictures cover ≥ ${OPEN_MIN * 100}% in its first sentence and ≥ ${FILL_MIN[kind] * 100}% at every hold`, () => {
+      const k = DECK.find((d) => d.kind === kind) as (typeof DECK)[number];
+      const f = drawDeckKind(k);
+      // A hold: a second and a half into each sentence, and its middle.
+      const holds = k.cues.flatMap((c) => [c.t0 + 1.5, (c.t0 + c.t1) / 2]);
+      const fills = holds.map((t) => [t, pictureFill(f.markup, f.script, region, t)] as const);
+      const first = k.cues[0] as Cue;
+      const open = fills.filter(([t]) => t < first.t1);
+      for (const [t, v] of open) expect(v, `${kind} at ${t}s`).toBeGreaterThanOrEqual(OPEN_MIN);
+      for (const [t, v] of fills)
+        expect(v, `${kind} at ${t}s`).toBeGreaterThanOrEqual(FILL_MIN[kind]);
+    });
+  }
 });

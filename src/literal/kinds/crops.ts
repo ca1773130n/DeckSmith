@@ -3,7 +3,19 @@
  * picture, then gathered into one batch of the stated size.
  */
 import { join } from "node:path";
-import { even, img, type KindImpl, LAB_H, lab, num, panel, spread, stepStarts } from "../kind.js";
+import {
+  drift,
+  even,
+  img,
+  type KindImpl,
+  LAB_H,
+  lab,
+  num,
+  panel,
+  REST,
+  spread,
+  stepStarts,
+} from "../kind.js";
 import { cropOf, cropOrigins, nativeSize } from "../kinds-shared.js";
 import {
   AIRLIGHT,
@@ -11,6 +23,7 @@ import {
   haze,
   LABEL,
   label,
+  ON_PHOTO,
   px,
   type Rgb,
   r3,
@@ -113,9 +126,12 @@ export const cropsKind: KindImpl = {
     const f = L.files as Record<string, string>;
     const n = d.origins.length;
     const next = d.next ?? [];
+    // The picture takes the region's full height, its title ON it, and the batch the rest.
+    // Until the batch is gathered the picture stands alone, centred: no corner, no empty half.
     const right = 600;
-    const pw = even(Math.min(W - right - 60, (H - LAB_H) * (d.w / d.h)));
+    const pw = even(Math.min(W - right - 60, H * (d.w / d.h)));
     const ph = even((pw * d.h) / d.w);
+    const cx = r3((W - pw) / 2);
     const k = pw / d.w;
     const cs = r3(d.crop * k);
     const bx = pw + 60;
@@ -127,33 +143,42 @@ export const cropsKind: KindImpl = {
     );
     const slot = (i: number) =>
       [bx + (i % cols) * (tile + 24), LAB_H + Math.floor(i / cols) * (tile + 24)] as const;
-    const crops = d.origins
-      .map(([x, y], i) => {
+    // The crop boxes are drawn ON the picture (inside its panel), so they travel with it.
+    const boxes = d.origins
+      .map(
+        ([x, y], i) =>
+          `<div id="SCENEID-r${i}" style="position:absolute;left:${px(x * k)};top:${px(y * k)};width:${px(cs)};height:${px(cs)};border:4px solid ${theme.accent};box-sizing:border-box"></div>`,
+      )
+      .join("");
+    const tiles = d.origins
+      .map((_, i) => {
         const [sx, sy] = slot(i);
         const later = next
           .map((_, j) => img(`t${i}-n${j}`, href(f[`n${j}-${i}`] as string), 0, 0, tile, tile))
           .join("");
-        return `<div id="SCENEID-r${i}" style="position:absolute;left:${px(x * k)};top:${px(LAB_H + y * k)};width:${px(cs)};height:${px(cs)};border:4px solid ${theme.accent};box-sizing:border-box"></div>
-<div id="SCENEID-t${i}" class="lit-panel" style="left:${px(sx)};top:${px(sy)};width:${px(tile)};height:${px(tile)}">${img(`t${i}-i`, href(f[`c${i}`] as string), 0, 0, tile, tile)}${later}</div>`;
+        return `<div id="SCENEID-t${i}" class="lit-panel" style="left:${px(sx)};top:${px(sy)};width:${px(tile)};height:${px(tile)}">${img(`t${i}-i`, href(f[`c${i}`] as string), 0, 0, tile, tile)}${later}</div>`;
       })
       .join("\n");
     const markup = `<div id="SCENEID-lit">
-${label("l-pic", lab(K, spec, "picture"), 0, 0, LABEL, theme.fg)}
-${panel("pic", 0, LAB_H, pw, ph, img("pic-i", href(f.pic as string), 0, 0, pw, ph), "lit-dark")}
+${panel("pic", 0, 0, pw, ph, `<div id="SCENEID-pic-cam" style="position:absolute;left:0;top:0;width:${px(pw)};height:${px(ph)}">${img("pic-i", href(f.pic as string), 0, 0, pw, ph)}${boxes}</div>${label("l-pic", lab(K, spec, "picture"), 20, 14, LABEL, "", ON_PHOTO)}`, "lit-dark")}
 ${label("l-batch", lab(K, spec, "batchLabel"), bx, 0, LABEL, theme.fg)}
-${crops}
+${tiles}
 </div>`;
     const [s0, s1] = stepStarts(cues, 2) as [number, number];
     const end = cues[1]?.t1 ?? s1 + 8;
     const tl = new Tl();
-    tl.show("pic", 0.05, 0.5);
+    tl.fromTo("pic", { opacity: 0, x: cx }, { opacity: 1, x: cx, duration: 0.5 }, 0.05);
     tl.show("l-pic", 0.2);
-    // Step 1: random crops, at true scale on the picture, one after another over the sentence.
+    // Step 1: random crops, at true scale on the picture, one after another over the sentence,
+    // while the camera reads slowly across the picture they are cut from.
     const c0 = Math.max(0.8, s0 + 0.4);
     const at0 = spread(c0, s1, n, 0.6, 2.4);
     for (let i = 0; i < n; i++) tl.show(`r${i}`, at0[i] as number, 0.4);
-    // Step 2: the crops leave the picture and stack into one batch.
+    // Step 2: the picture makes room, and the crops leave it and stack into one batch.
     const b0 = Math.max(s1, (at0[n - 1] as number) + 0.6);
+    drift(tl, "pic-cam", 0.6, b0 - 1.0, { x: 0, y: 0, scale: 1.06 });
+    drift(tl, "pic-cam", b0 - 1.0, b0, REST, { x: 0, y: 0, scale: 1.06 });
+    tl.fromTo("pic", { x: cx }, { x: 0, duration: 0.9, ease: "power2.inOut" }, b0 - 0.9);
     tl.show("l-batch", b0);
     d.origins.forEach(([x, y], i) => {
       const at = b0 + 0.3 + i * 0.6;
@@ -163,7 +188,7 @@ ${crops}
         {
           opacity: 0,
           x: r3(x * k - sx + (cs - tile) / 2),
-          y: r3(LAB_H + y * k - sy + (cs - tile) / 2),
+          y: r3(y * k - sy + (cs - tile) / 2),
           scale: r3(cs / tile),
         },
         { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.8, ease: "power2.inOut" },

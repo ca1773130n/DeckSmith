@@ -362,6 +362,90 @@ export function stillSpans(script: string, from: number, to: number): Array<[num
   return out.filter(([a, b]) => b - a > 1e-6 && a < to);
 }
 
+/**
+ * The share of the region a scene's PICTURES cover at time `t`: every
+ * `lit-panel` (a picture, a computed map, a tile), placed by its markup and
+ * moved by the script's tweens as they stand at `t` (opacity, x, y, scale and
+ * the transform origin; a tween part-way through is interpolated linearly).
+ * A panel's first tween shows its "from" state from the scene's first frame,
+ * as GSAP renders it (`Tl.fromTo`). Rasterised on an 8px grid, clipped to the
+ * region. Pure, read off what ships; panels are taken at the scene's top level,
+ * so it is for kinds whose pictures are panels (the step-by-step kinds).
+ *
+ * r2 of the EM-SNN deck opened the dark channel on two small tiles in a corner
+ * with ~70% of the frame empty for 13s; the stillness test could not see it.
+ */
+export function pictureFill(
+  markup: string,
+  script: string,
+  region: { width: number; height: number },
+  t: number,
+): number {
+  const boxes = new Map<string, { x: number; y: number; w: number; h: number }>();
+  for (const m of markup.matchAll(
+    /<div id="SCENEID-([\w-]+)" class="lit-panel[^"]*" style="([^"]*)"/g,
+  )) {
+    const s = m[2] as string;
+    const n = (k: string) =>
+      Number(new RegExp(`(?:^|;)${k}:(-?[\\d.]+)px`).exec(s)?.[1] ?? Number.NaN);
+    const b = { x: n("left"), y: n("top"), w: n("width"), h: n("height") };
+    if (Object.values(b).every(Number.isFinite)) boxes.set(m[1] as string, b);
+  }
+  type Vars = Record<string, unknown>;
+  const tweens = new Map<string, Array<{ from: Vars; to: Vars; at: number }>>();
+  for (const line of script.split("\n")) {
+    const m = /^tl\.fromTo\("#SCENEID-([\w-]+)", (\{.*\}), (\{.*\}), (-?\d+(?:\.\d+)?)\);$/.exec(
+      line.trim(),
+    );
+    if (!m || !boxes.has(m[1] as string)) continue;
+    const list = tweens.get(m[1] as string) ?? [];
+    list.push({
+      from: JSON.parse(m[2] as string),
+      to: JSON.parse(m[3] as string),
+      at: Number(m[4]),
+    });
+    tweens.set(m[1] as string, list);
+  }
+  const G = 8;
+  const cols = Math.ceil(region.width / G);
+  const rows = Math.ceil(region.height / G);
+  const cover = new Uint8Array(cols * rows);
+  for (const [id, b] of boxes) {
+    const st: Vars = { opacity: 1, x: 0, y: 0, scale: 1, transformOrigin: "50% 50%" };
+    const list = tweens.get(id) ?? [];
+    list.forEach((tw, i) => {
+      const dur = typeof tw.to.duration === "number" ? tw.to.duration : 0.5;
+      if (tw.at > t) {
+        if (i === 0) Object.assign(st, tw.from);
+        return;
+      }
+      const p = dur > 0 ? Math.min(1, (t - tw.at) / dur) : 1;
+      for (const k of new Set([...Object.keys(tw.from), ...Object.keys(tw.to)])) {
+        const a = tw.from[k] ?? st[k];
+        const z = tw.to[k] ?? a;
+        st[k] = typeof a === "number" && typeof z === "number" ? a + (z - a) * p : p < 1 ? a : z;
+      }
+    });
+    if (!((st.opacity as number) > 0.05)) continue;
+    const s = st.scale as number;
+    const [ox, oy] = String(st.transformOrigin)
+      .split(/\s+/)
+      .map((v, j) =>
+        v.endsWith("%")
+          ? (Number.parseFloat(v) / 100) * (j ? b.h : b.w)
+          : Number.parseFloat(v) || 0,
+      );
+    const x0 = b.x + (ox as number) * (1 - s) + (st.x as number);
+    const y0 = b.y + (oy as number) * (1 - s) + (st.y as number);
+    const c0 = Math.max(0, Math.floor(x0 / G));
+    const c1 = Math.min(cols, Math.ceil((x0 + b.w * s) / G));
+    const r0 = Math.max(0, Math.floor(y0 / G));
+    const r1 = Math.min(rows, Math.ceil((y0 + b.h * s) / G));
+    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) cover[r * cols + c] = 1;
+  }
+  return cover.reduce((a, v) => a + v, 0) / cover.length;
+}
+
 /* --------------------------------------------------------------------- slots */
 
 /**

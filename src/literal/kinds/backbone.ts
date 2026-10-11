@@ -271,9 +271,23 @@ ${depth}
 </div>`;
     const [s0, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
     const tl = new Tl();
-    tl.show("in", 0.05, 0.5);
-    tl.show("l-in", 0.2);
-    tl.show("l-fixed", 0.6);
+    // The first sentence fills the frame: the input and its 3×3 features open side by side,
+    // as large as the region holds two 3:2 pictures; when the encoder starts they take their
+    // places at the top of the U. One uniform scale (origin top-left) and a shift each, so the
+    // pictures keep their aspect; a title above a picture travels with its corner.
+    const SA = Math.min((W - gap) / 2 / full, (H - LAB_H) / fullH);
+    const ax = (W - (2 * full * SA + gap)) / 2;
+    const ay = LAB_H + (H - LAB_H - fullH * SA) / 2;
+    const inA = { x: r3(ax - (X[0] as number)), y: r3(ay - yIn) };
+    const m0A = { x: r3(ax + full * SA + gap - (X[0] as number)), y: r3(ay - (Y[0] as number)) };
+    const big = (p: { x: number; y: number }) => ({ ...p, scale: r3(SA), transformOrigin: "0 0" });
+    const home = { x: 0, y: 0, scale: 1, transformOrigin: "0 0" };
+    const land = Math.max(s0 + 3, s1 - 0.4);
+    tl.fromTo("in", { opacity: 0, ...big(inA) }, { opacity: 1, ...big(inA), duration: 0.5 }, 0.05);
+    tl.fromTo("l-in", { opacity: 0, ...inA }, { opacity: 1, ...inA, duration: 0.6 }, 0.2);
+    tl.fromTo("in", big(inA), { ...home, duration: 0.9, ease: "power2.inOut" }, land);
+    tl.fromTo("l-in", inA, { x: 0, y: 0, duration: 0.9, ease: "power2.inOut" }, land);
+    tl.show("l-fixed", land + 0.9);
     tl.show("flow", 0.05, 0.01);
     for (let i = 0; i <= 7; i++)
       tl.fromTo(`a${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
@@ -297,12 +311,14 @@ ${depth}
     const end = cues[3]?.t1 ?? s3 + 8;
     // Step 1: a 3×3 filter turns the input into shallow features — swept across the picture
     // for the length of its sentence, the input beside it under a slow look.
-    tl.show("a0", s0 + 0.4, 0.4);
     const m0 = s0 + 0.6;
-    const m0d = Math.max(2.4, Math.min(5.5, s1 - m0 - 0.6));
-    tl.show("m0", m0, 0.3);
+    const m0d = Math.max(2.4, Math.min(5.5, land - m0 - 0.3));
+    tl.fromTo("m0", { opacity: 0, ...big(m0A) }, { opacity: 1, ...big(m0A), duration: 0.3 }, m0);
     tl.fromTo("m0-w", { width: 0 }, { width: full, duration: m0d, ease: "none" }, m0);
-    tl.show("l0", s0 + 1.3);
+    tl.fromTo("l0", { opacity: 0, ...m0A }, { opacity: 1, ...m0A, duration: 0.6 }, s0 + 1.3);
+    tl.fromTo("m0", big(m0A), { ...home, duration: 0.9, ease: "power2.inOut" }, land);
+    tl.fromTo("l0", m0A, { x: 0, y: 0, duration: 0.9, ease: "power2.inOut" }, land);
+    tl.show("a0", land + 0.9, 0.4);
     // Step 2: down, scale by scale — each map is the one before, pooled to half and spiked —
     // one level per part of the sentence.
     spread(s1 + 0.3, s2, 3, 0.8, 2.2).forEach((at, j) => {

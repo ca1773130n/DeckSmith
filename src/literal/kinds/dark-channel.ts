@@ -194,38 +194,89 @@ ${label("l-truth", lab(K, spec, "truth", t), qx, legendY, SMALL, theme.fg)}
 ${label("l-est", lab(K, spec, "estimate"), qx, legendY + 50, SMALL, theme.accent)}
 ${fShare.html}${fPrem.html}${fPremV.html}
 </div>`;
-    const [s0, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
+    const [, s1, s2, s3] = stepStarts(cues, 4) as [number, number, number, number];
     const end = cues[3]?.t1 ?? s3 + 8;
     const tl = new Tl();
-    // Step 1: the classical prior is applied to the hazy input — the camera reads across it.
-    tl.show("p-hazy", 0.05, 0.5);
-    tl.show("l-hazy", 0.2);
-    tl.show("l-dark", Math.max(0.6, s0 + 0.6));
-    tl.show("p-dark", Math.max(0.6, s0 + 0.6), 0.4);
-    drift(tl, "p-hazy-cam", Math.max(1.2, s0 + 1.0), s1 - 0.1, {
-      x: -pw * 0.06,
-      y: 0,
-      scale: 1.14,
+    // The frame is full from the first: the hazy input opens alone, as large as the region
+    // holds it; on the dark channel's sentence it makes room and the two stand side by side,
+    // large; on the transmission's they settle into the grid the last two steps fill. Each
+    // tile keeps its 3:2, so every move is one uniform scale (origin top-left) and a shift;
+    // the words on a tile travel with its corner and keep their size.
+    const SA = Math.min(W / pw, H / ph);
+    const A = { x: (W - pw * SA) / 2, y: (H - ph * SA) / 2, s: SA };
+    const SB = Math.min((W - gap) / 2 / pw, H / ph);
+    const bx = (W - (2 * pw * SB + gap)) / 2;
+    const by = (H - ph * SB) / 2;
+    const B = { x: bx, y: by, s: SB };
+    const Bd = { x: bx + pw * SB + gap - x2, y: by, s: SB };
+    const pose = (p: { x: number; y: number; s: number }) => ({
+      x: r3(p.x),
+      y: r3(p.y),
+      scale: r3(p.s),
+      transformOrigin: "0 0",
     });
+    const shift = (p: { x: number; y: number }) => ({ x: r3(p.x), y: r3(p.y) });
+    const move = (
+      id: string,
+      from: Record<string, unknown>,
+      to: Record<string, unknown>,
+      t: number,
+    ) => tl.fromTo(id, from, { ...to, duration: 0.9, ease: "power2.inOut" }, t);
+    const home = { x: 0, y: 0, scale: 1, transformOrigin: "0 0" };
+    // Step 1: the classical prior is applied to the hazy input — the camera reads across it.
+    tl.fromTo(
+      "p-hazy",
+      { opacity: 0, ...pose(A) },
+      { opacity: 1, ...pose(A), duration: 0.5 },
+      0.05,
+    );
+    tl.fromTo(
+      "l-hazy",
+      { opacity: 0, ...shift(A) },
+      { opacity: 1, ...shift(A), duration: 0.6 },
+      0.2,
+    );
+    const b0 = Math.max(1.6, s1 - 0.4);
+    drift(tl, "p-hazy-cam", 0.6, b0 - 0.1, { x: -pw * 0.06, y: 0, scale: 1.14 });
+    move("p-hazy", pose(A), pose(B), b0);
+    move("l-hazy", shift(A), shift(B), b0);
+    tl.fromTo(
+      "p-dark",
+      { opacity: 0, ...pose(Bd) },
+      { opacity: 1, ...pose(Bd), duration: 0.4 },
+      b0 + 0.5,
+    );
+    tl.fromTo(
+      "l-dark",
+      { opacity: 0, ...shift(Bd) },
+      { opacity: 1, ...shift(Bd), duration: 0.6 },
+      b0 + 0.6,
+    );
     // Step 2: the dark channel, computed patch by patch, sweeps across the input it is computed
     // from — for the length of its sentence.
-    const sweep = Math.max(2.4, Math.min(6, s2 - s1 - 1.0));
-    const w0 = Math.max(1.2, s1 + 0.2);
+    const sweep = Math.max(2.4, Math.min(6, s2 - b0 - 1.6));
+    const w0 = b0 + 0.9;
     tl.fromTo("dark-w", { width: 0 }, { width: pw, duration: sweep, ease: "none" }, w0);
     tl.fromTo("dark-edge", { x: 0 }, { x: pw - 4, duration: sweep, ease: "none" }, w0);
     tl.hide("dark-edge", w0 + sweep, 0.3);
     drift(tl, "p-hazy-cam", w0, w0 + sweep, REST, { x: -pw * 0.06, y: 0, scale: 1.14 });
-    // Step 3: transmission from the dark channel; along one line it is checked against the truth.
-    tl.show("l-trans", s2);
-    tl.show("p-trans", s2, 0.8);
-    tl.fromTo("scan", { opacity: 0 }, { opacity: 1, duration: 0.4 }, s2 + 1.0);
-    tl.show("l-plot", s2 + 1.0);
-    tl.show("plot", s2 + 1.0, 0.5);
-    tl.show("l-truth", s2 + 1.2);
-    tl.show("l-est", s2 + 1.6);
-    tl.fromTo("est", { opacity: 0 }, { opacity: 1, duration: 0.8 }, s2 + 1.6);
-    tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, s2 + 2.6);
-    tl.show("l-miss", s2 + 2.8);
+    // Step 3: the pair settles into the grid; transmission from the dark channel, and along
+    // one line it is checked against the truth.
+    const c0 = Math.max(w0 + sweep + 0.3, s2 - 0.3);
+    move("p-hazy", pose(B), home, c0);
+    move("l-hazy", shift(B), { x: 0, y: 0 }, c0);
+    move("p-dark", pose(Bd), home, c0);
+    move("l-dark", shift(Bd), { x: 0, y: 0 }, c0);
+    tl.show("l-trans", c0 + 0.6);
+    tl.show("p-trans", c0 + 0.6, 0.8);
+    tl.fromTo("scan", { opacity: 0 }, { opacity: 1, duration: 0.4 }, c0 + 1.4);
+    tl.show("l-plot", c0 + 1.4);
+    tl.show("plot", c0 + 1.4, 0.5);
+    tl.show("l-truth", c0 + 1.6);
+    tl.show("l-est", c0 + 2.0);
+    tl.fromTo("est", { opacity: 0 }, { opacity: 1, duration: 0.8 }, c0 + 2.0);
+    tl.fromTo("miss", { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "sine.inOut" }, c0 + 3.0);
+    tl.show("l-miss", c0 + 3.2);
     // Step 4: the recovered picture — plausible to the eye — sweeps over the hazy one, and,
     // measured, how much of its transmission was wrong and what the prior assumed. (Its colour
     // error is NOT larger where the transmission missed on every picture: measured on the r2
