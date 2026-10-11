@@ -488,11 +488,35 @@ export function stagedFragment(
     tl.show(`f${i}`, t0, 0.5);
     if (i > 0) tl.hide(`f${i - 1}`, t0 + 0.5, 0.3);
     const K = Math.max(0, ...s.reveals.map((r) => r.at));
-    const times = K ? spread(t0 + 0.6, t1, K, 0.5, 2.2, 0.6) : [];
-    let last = t0 + 0.5;
+    // The sentences this frame is on: its own, and for the last frame of a verb with
+    // fewer frames than sentences, every one after it. Its steps are shared out over
+    // them in order, so a part arrives while it is spoken, not in a burst at the start
+    // and then a still frame under the rest (r3 C s16: four curves and four groups in
+    // the first 16s of 35s, then 7.8s with under 1% of the picture changing).
+    const bounds = [
+      t0,
+      ...(i === n - 1 && cues.length > n ? cues.slice(n).map((c) => c.t0) : []),
+      t1,
+    ];
+    const S = bounds.length - 1;
+    const spanOf = (step: number) =>
+      S === 1 ? 0 : Math.min(S - 1, Math.floor(((step - 1) * S) / K));
+    const times: number[] = [];
+    const nexts: number[] = [];
+    for (let j = 0; j < S; j++) {
+      const steps = Array.from({ length: K }, (_, q) => q + 1).filter((q) => spanOf(q) === j);
+      const u1 = bounds[j + 1] as number;
+      const ts = spread((bounds[j] as number) + (j ? 0.1 : 0.6), u1, steps.length, 0.5, 2.2, 0.6);
+      steps.forEach((q, k) => {
+        times[q - 1] = ts[k] as number;
+        nexts[q - 1] = (ts[k + 1] as number | undefined) ?? u1 - 0.4;
+      });
+    }
+    const last = bounds.slice(0, -1).map((u, j) => (j ? u : t0 + 0.5));
     for (const r of s.reveals) {
       const t = times[r.at - 1] as number;
-      const next = (times[r.at] as number | undefined) ?? t1 - 0.4;
+      const next = nexts[r.at - 1] as number;
+      const j = spanOf(r.at);
       if (r.wipe !== undefined) {
         const dur = r3(Math.max(0.8, Math.min(2.6, next - t)));
         tl.fromTo(r.id, { attr: { width: 0 } }, { attr: { width: 0 }, duration: 0.01 }, 0);
@@ -502,30 +526,45 @@ export function stagedFragment(
           { attr: { width: r.wipe }, duration: dur, ease: "sine.inOut" },
           t,
         );
-        last = Math.max(last, t + dur);
+        last[j] = Math.max(last[j] as number, t + dur);
       } else {
         const o = (frames[i] as Frame).preview ? PREVIEW : 0;
         tl.fromTo(r.id, { opacity: o }, { opacity: o, duration: 0.01 }, 0);
         tl.fromTo(r.id, { opacity: o }, { opacity: 1, duration: 0.5, ease: "power2.out" }, t);
-        last = Math.max(last, t + 0.5);
+        last[j] = Math.max(last[j] as number, t + 0.5);
       }
     }
     if (!s.cam)
       throw new Error(
         `literal: ${kind} frame ${i} has no material for the camera (no \`cam\` primitive)`,
       );
-    if (t1 - 0.05 - last > 0.3) {
-      // A push-in toward the material's centre of interest: the frame's own `focus`, else its middle.
-      const focus = (frames[i] as Frame & { focus?: { x: number; y: number } }).focus;
-      const fx = focus ? focus.x - s.cam.x : s.cam.w / 2;
-      const fy = focus ? focus.y - s.cam.y : s.cam.h / 2;
-      const ox = `${r3((100 * fx) / Math.max(1, s.cam.w))}% ${r3((100 * fy) / Math.max(1, s.cam.h))}%`;
+    // A push-in toward the material's centre of interest: the frame's own `focus`, else its middle.
+    const focus = (frames[i] as Frame & { focus?: { x: number; y: number } }).focus;
+    const fx = focus ? focus.x - s.cam.x : s.cam.w / 2;
+    const fy = focus ? focus.y - s.cam.y : s.cam.h / 2;
+    const ox = `${r3((100 * fx) / Math.max(1, s.cam.w))}% ${r3((100 * fy) / Math.max(1, s.cam.h))}%`;
+    // After each sentence's parts are out the camera pushes in while it is spoken, and is
+    // back at rest before the next sentence: a hold is the frame as drawn, never mid-push
+    // (r3 C: four planes' tick labels pushed onto their axis names at the hold).
+    for (let j = 0; j < S; j++) {
+      const u1 = bounds[j + 1] as number;
+      const more = j < S - 1;
+      const stop = more ? u1 - 0.85 : u1 - 0.05;
+      const from = last[j] as number;
+      if (!(stop - from > 0.3)) continue;
       tl.fromTo(
         `f${i}-cam`,
         { scale: 1, transformOrigin: ox },
-        { scale: PUSH, transformOrigin: ox, duration: r3(t1 - 0.05 - last), ease: "sine.inOut" },
-        last,
+        { scale: PUSH, transformOrigin: ox, duration: r3(stop - from), ease: "sine.inOut" },
+        from,
       );
+      if (more)
+        tl.fromTo(
+          `f${i}-cam`,
+          { scale: PUSH, transformOrigin: ox },
+          { scale: 1, transformOrigin: ox, duration: 0.6, ease: "sine.inOut" },
+          r3(u1 - 0.8),
+        );
     }
   });
   return {

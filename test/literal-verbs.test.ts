@@ -1590,6 +1590,63 @@ describe("what each verb computes", () => {
     expect(curves).toHaveLength(2);
   });
 
+  it("place: a group's curve comes with its points, each group on its own sentence", () => {
+    const lit = literalSchema.parse({
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "α", lowerIsBetter: false },
+        { name: "speed", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "0.6", values: ["0.6", "1.96"], group: "γ=2" },
+        { label: "0.8", values: ["0.8", "2.44"], group: "γ=2" },
+        { label: "0.8", values: ["0.8", "3.69"], group: "γ=5" },
+      ],
+      curves: [
+        { label: "γ=2", expr: "(1 - α^(γ+1)) / (1 - α)", x: "α", fixed: params({ γ: "2" }) },
+        { label: "γ=5", expr: "(1 - α^(γ+1)) / (1 - α)", x: "α", fixed: params({ γ: "5" }) },
+      ],
+      reveal: "groups",
+      labels: [],
+    }) as Extract<Literal, { kind: "place" }>;
+    const r = runVerb(points as VerbRun<"place">, {
+      lit,
+      labels: {},
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+    const prims = r.frames[0]?.prims ?? [];
+    const curveAt = prims.filter((p) => p.p === "path" && p.wipe).map((p) => p.at);
+    const dotAt = [...new Set(prims.filter((p) => p.p === "circle" && p.at).map((p) => p.at))];
+    expect(curveAt).toEqual(dotAt);
+    // Two sentences, 20s each: γ=5's curve is drawn on the second, not in the first seconds.
+    const cues: Cue[] = [
+      { t0: 0.95, t1: 20 },
+      { t0: 20.1, t1: 40 },
+    ];
+    const frag = stagedFragment(
+      "place",
+      { files: {}, data: { frames: r.frames, paints: {}, vars: r.vars } },
+      region_,
+      cues,
+      { labels: {}, data: lit },
+      theme,
+      (x) => x,
+    );
+    const k = prims.findIndex((p) => p.p === "path" && p.wipe && p.at === 2);
+    const wipe = new RegExp(
+      `"#SCENEID-f0-w${k}", \\{"attr":\\{"width":0\\}\\}, \\{"attr":\\{"width":[1-9][\\d.]*\\},.*, ([\\d.]+)\\);`,
+    );
+    expect(Number(wipe.exec(frag.script)?.[1])).toBeGreaterThanOrEqual(20.1);
+    const still = stillSpans(frag.script, 1.95, 39.5).filter(([a, b]) => b - a > STILL_MAX);
+    expect(still).toEqual([]);
+  });
+
   it("region crops leave their pieces for a later stream", () => {
     const d = draw(FIXTURES.find((f) => f.name === "training crops") as Fixture);
     expect(d.r.material?.tiles).toHaveLength(4);

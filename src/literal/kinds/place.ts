@@ -471,9 +471,16 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     });
     strokes.push(...segBoxes(seg, 3));
   }
+  const byGroup = d.reveal === "groups";
+  // A curve named as a group is that group's: drawn on the group's step, with its points,
+  // so the curve comes when its points are spoken. Other curves come first, one step each.
+  const curveGroup = (label: string) => (byGroup ? groups.indexOf(label) : -1);
+  const own = curves.filter((cv) => curveGroup(cv.label) < 0).length;
   let at = 0;
   curves.forEach((cv, k) => {
-    at = Math.min(12, at + 1);
+    const g = curveGroup(cv.label);
+    if (g < 0) at = Math.min(12, at + 1);
+    const step = g < 0 ? at : Math.min(12, own + g + 1);
     const pts = cv.pts
       .flatMap(([x, y]) => [X(x), Y(y)])
       .map((v, i) => (i % 2 ? Math.max(plot.y, Math.min(plot.y + plot.h, v)) : v));
@@ -483,13 +490,12 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
       role: curveRole(cv.label, k),
       width: 5,
       cam: true,
-      at,
+      at: step,
       wipe: true,
     });
     strokes.push(...segBoxes(pts, 5));
   });
   const at0 = at;
-  const byGroup = d.reveal === "groups";
   const pos = vals.map((v) => ({
     x: X(v[0] as number),
     y: two ? Y(v[1] as number) : lineY,
