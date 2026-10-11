@@ -101,7 +101,8 @@ const analysis = sourceSchema.parse({
 const sec = (id: string) => ({ kind: "section", id });
 /** Three shapes in turn, by beat number, so no plan here trips the variety rule. */
 const SHAPES = [
-  { archetype: "kinetic", params: { headline: "k", phrases: [{ text: "a" }, { text: "b" }] } },
+  // Not kinetic: a deck may carry one (KINETIC_MAX), and this rotates.
+  { archetype: "stack", params: { headline: "k", layers: [{ label: "a" }, { label: "b" }] } },
   { archetype: "hero-number", params: { headline: "h", value: "4", label: "x" } },
   { archetype: "callout", params: { headline: "c", panels: [{ label: "p", lines: ["l"] }] } },
 ];
@@ -1186,8 +1187,9 @@ describe("what the planner is shown", () => {
 describe("codexPlanner coverage repair", () => {
   const body = (beats: unknown[]) => JSON.stringify({ sourceId: "emsnn", title: "EM-SNN", beats });
   const missing = covered().filter((b) => b.id !== "b02-prior");
-  // Variety is not what this tests: a short deck under no picture rules.
-  const prefs = prefsSchema.parse({ slides: 5 });
+  // Variety is not what this tests: a short deck under no picture rules, at
+  // the length it comes back.
+  const prefs = prefsSchema.parse({ slides: 8 });
 
   it("sends a plan missing a part back once, naming it, and keeps a repair that adds it", async () => {
     const prompts: string[] = [];

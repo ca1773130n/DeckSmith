@@ -11,6 +11,7 @@ import {
   MAX_ALTERNATION,
   panelsAllowed,
   scenesRequired,
+  sizeFindings,
   stagesRequired,
   varietyFindings,
 } from "../src/plan/variety.js";
@@ -175,5 +176,32 @@ describe("varietyFindings", () => {
     redrawn[9] = "kinetic";
     redrawn[10] = "hero-number";
     expect(varietyFindings(deck(...redrawn), on)).toEqual([]);
+  });
+});
+
+describe("one kinetic a deck, and a plan no longer than asked", () => {
+  it("refuses a second kinetic", () => {
+    expect(varietyFindings(deck("title", "kinetic", "pipeline", "kinetic"), off)).toEqual([
+      expect.stringMatching(/2 beats are `kinetic` \(b2, b4\); at most 1/),
+    ]);
+    expect(varietyFindings(deck("title", "kinetic", "pipeline"), off)).toEqual([]);
+  });
+
+  it("refuses a plan over 1.3x the target, and a setup beat before its results", () => {
+    // r1: 36 beats against 16.
+    const long = deck(...Array.from({ length: 21 }, (_, i) => (i % 2 ? "pipeline" : "stage")));
+    expect(sizeFindings(long, 16)).toEqual([expect.stringMatching(/21 beats .* at most 20/)]);
+    expect(sizeFindings(long, 16 * 2)).toEqual([]);
+    const pair = {
+      beats: [
+        { id: "b05-navsim-metrics", archetype: "callout", params: {} },
+        { id: "b06-navsim-results", archetype: "place", params: {} },
+        { id: "b07-deployment-setup", archetype: "callout", params: {} },
+        { id: "b08-ablation-results", archetype: "place", params: {} },
+      ],
+    } as unknown as Storyboard;
+    expect(sizeFindings(pair, 4)).toEqual([
+      expect.stringMatching(/b05-navsim-metrics only sets up b06-navsim-results/),
+    ]);
   });
 });

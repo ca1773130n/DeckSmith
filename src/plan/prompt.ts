@@ -28,10 +28,12 @@ import { paperArcRequested, requiredRoles } from "./arc.js";
 import { PART_NAMES, sourceParts } from "./coverage.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 import {
+  KINETIC_MAX,
   MAX_ALTERNATION,
   PANEL_SHARE,
   panelsAllowed,
   SCENE_SHARE,
+  SLIDES_OVER,
   STAGE_EVERY,
   STAGE_MIN_BEATS,
   scenesRequired,
@@ -289,7 +291,8 @@ DESCRIBING ARCHETYPES — the fallbacks
                  word in each struck through by a highlight. The tell: ONE
                  STRONG CLAIM WITH NO SHAPE — a thesis, a turn in the
                  argument, the sentence the viewer must leave with — where a
-                 panel of bullets is what would otherwise be drawn. Split the
+                 panel of bullets is what would otherwise be drawn. At most
+                 ${KINETIC_MAX} a deck. Split the
                  claim into \`phrases\` where a speaker would breathe, each at
                  most about 30 characters; \`key\` is the one word or short
                  run of words that carries its phrase, copied verbatim from
@@ -1067,8 +1070,9 @@ FORMAT     This is a CONFERENCE FAST-FORWARD TALK — the one-minute teaser an a
 `
 }`
 }
-LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR — not a ceiling, and not a target to
-           come close to. LOOK FOR THEM IN THE SOURCE'S OWN SUBSTANCE: its prose,
+LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR, and ${Math.floor(prefs.slides * SLIDES_OVER)} is the CEILING: a
+           plan of more is sent back to be merged. A setup beat that only lists
+           what the next beat measures is part of that next beat. LOOK FOR THEM IN THE SOURCE'S OWN SUBSTANCE: its prose,
            and the figures, tables and equations its authors thought worth
            drawing. A plan that comes back with fewer beats has usually stopped
            looking rather than run out, and it is reported as having missed the

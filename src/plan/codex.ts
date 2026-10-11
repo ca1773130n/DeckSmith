@@ -25,7 +25,7 @@ import { paperArcRequested } from "./arc.js";
 import { coverageFindings, literalFindings, sourceParts } from "./coverage.js";
 import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
-import { varietyFindings } from "./variety.js";
+import { sizeFindings, varietyFindings } from "./variety.js";
 
 /** Planning a long source is minutes of work, not seconds. */
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -278,6 +278,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     const first = await ask(prompt);
     const takeaways = !!bespokeFor(prefs, designFor(prefs));
     const findings = (plan: Storyboard): Findings => ({
+      size: sizeFindings(plan, prefs.slides),
       variety: varietyFindings(plan, prefs.images, prefs.design),
       coverage: [
         ...coverageFindings(plan, source),
@@ -285,7 +286,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       ],
     });
     const broken = findings(first);
-    const all = [...broken.variety, ...broken.coverage];
+    const all = [...broken.size, ...broken.variety, ...broken.coverage];
     if (all.length === 0) return first;
     opts.onRepair?.(all);
     const second = await ask(repairPrompt(prompt, first, broken));
@@ -294,8 +295,10 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     // 12-beat plan with no stage came back as 4 beats and passed (review,
     // 2026-10-09). The prompt asks for every beat; this holds it to that.
     const after = findings(second);
+    // Unless the plan was too long: then merging beats IS the repair.
     const still = [
-      ...(second.beats.length < first.beats.length
+      ...after.size,
+      ...(second.beats.length < first.beats.length && broken.size.length === 0
         ? [
             `the repair returned ${second.beats.length} beats for a plan of ${first.beats.length}; a repair changes shapes and may not drop beats.`,
           ]
@@ -325,6 +328,8 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
  */
 /** What a plan broke, by the rule it broke: each group gets its own repair advice. */
 interface Findings {
+  /** Too many beats (src/plan/variety.ts `sizeFindings`): the one group whose repair drops beats. */
+  size: string[];
   variety: string[];
   coverage: string[];
 }
@@ -353,10 +358,23 @@ each citing the section it covers, and by correcting the fields named. Keep
 every other beat as it is.
 `
     : "";
+  const size = broken.size.length
+    ? `
+YOUR PREVIOUS STORYBOARD, BELOW, IS TOO LONG:
+${list(broken.size)}
+
+Fix these by MERGING beats that make one point: fold a setup beat into the
+results it introduces, and join neighbours that say one thing. Keep every
+section covered and every other rule above.
+`
+    : "";
   return `${prompt}
-${variety}${coverage}
-Return the whole storyboard again with these fixed. Never drop or merge beats:
-a repair with fewer beats than the plan below is refused.
+${size}${variety}${coverage}
+Return the whole storyboard again with these fixed. ${
+    broken.size.length
+      ? "Merge only as the TOO LONG list asks; drop nothing else."
+      : "Never drop or merge beats: a repair with fewer beats than the plan below is refused."
+  }
 
 ${JSON.stringify(plan)}`;
 }

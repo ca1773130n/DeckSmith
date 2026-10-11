@@ -57,6 +57,51 @@ export const PANEL_ARCHETYPES: ReadonlySet<Archetype> = new Set<Archetype>([
 /** At most this share of a picture deck's beats are panels: five of fourteen. */
 export const PANEL_SHARE = 0.36;
 
+/**
+ * At most this many `kinetic` beats a deck. r1 of the literal verbs run had
+ * seven in one deck: two lines of type in the left third of a blank field, 75%
+ * empty and still for 13-15s each. One thesis is a kinetic; seven are a deck
+ * with nothing to show.
+ */
+export const KINETIC_MAX = 1;
+
+/** A plan may come back at most this many times the beats asked for. */
+export const SLIDES_OVER = 1.3;
+
+/**
+ * Where a plan is too LONG, as sentences — a separate group from the variety
+ * rules because its repair drops beats, which a variety repair may not.
+ *
+ * Over `SLIDES_OVER` × `slides`: r1 came back with 36 beats against 16, and
+ * 638s. And a setup beat whose next beat is its results — "navsim-metrics"
+ * then "navsim-results", seven times in one deck — is one point said twice:
+ * the metrics belong in the results' caption.
+ */
+export function sizeFindings(storyboard: Storyboard, slides: number): string[] {
+  const beats = storyboard.beats;
+  const out: string[] = [];
+  const cap = Math.floor(slides * SLIDES_OVER);
+  if (beats.length > cap)
+    out.push(
+      `${beats.length} beats against a target of ${slides}; at most ${cap} may come back. Merge beats that make one point until the deck has at most ${cap}.`,
+    );
+  const stem = (id: string, suffix: RegExp) => id.replace(/^b\d+-/, "").replace(suffix, "");
+  for (let i = 0; i + 1 < beats.length; i++) {
+    const a = beats[i] as Beat;
+    const b = beats[i + 1] as Beat;
+    const SETUP = /-(?:setup|metrics?)$/;
+    const RESULTS = /-results?$/;
+    if (!SETUP.test(a.id) || !RESULTS.test(b.id) || a.literal) continue;
+    const sa = stem(a.id, SETUP);
+    const sb = stem(b.id, RESULTS);
+    if (sa === sb || sb.startsWith(sa) || sa.startsWith(sb))
+      out.push(
+        `${a.id} only sets up ${b.id}, the beat after it. Merge them: say what is measured in ${b.id}'s caption and narration, and drop ${a.id}.`,
+      );
+  }
+  return out;
+}
+
 /** How many panel beats a deck of `beats` may carry, given whether it may ask for pictures. */
 export function panelsAllowed(beats: number, images: Prefs["images"]): number {
   if (!images.enabled || beats < STAGE_MIN_BEATS) return Number.POSITIVE_INFINITY;
@@ -163,14 +208,19 @@ export function varietyFindings(
   const pictured = beats.filter((b) => isScene(b, design)).length;
   if (pictured < scenes) {
     out.push(
-      `${beats.length} beats carry ${pictured} scene(s); at least ${scenes} must be scenes. Set a number the source reports as a \`hero-number\` and a single strong claim as \`kinetic\`, or give the pipeline, split-compare, callout and bar-compare beats a \`backdrop\` with an \`illustration\` brief — a scene that fits the point, calm where the panels sit.`,
+      `${beats.length} beats carry ${pictured} scene(s); at least ${scenes} must be scenes. Set a number the source reports as a \`hero-number\` and the one thesis as \`kinetic\` (at most ${KINETIC_MAX}), or give the pipeline, split-compare, callout and bar-compare beats a \`backdrop\` with an \`illustration\` brief — a scene that fits the point, calm where the panels sit.`,
     );
   }
+  const kinetic = beats.filter((b) => b.archetype === "kinetic");
+  if (kinetic.length > KINETIC_MAX)
+    out.push(
+      `${kinetic.length} beats are \`kinetic\` (${kinetic.map((b) => b.id).join(", ")}); at most ${KINETIC_MAX} may be. Keep the one thesis; draw the rest as what they show — a verb, a chart, a figure, a stage.`,
+    );
   const panelCap = panelsAllowed(beats.length, images);
   const panels = beats.filter((b) => PANEL_ARCHETYPES.has(b.archetype));
   if (panels.length > panelCap) {
     out.push(
-      `${panels.length} of ${beats.length} beats are panels (${panels.map((b) => `${b.id} \`${b.archetype}\``).join(", ")}); at most ${panelCap} may be. Redraw the rest: a number the source reports is a \`hero-number\`, a single strong claim is \`kinetic\`, a trend is a \`line-chart\`, magnitudes are \`bar-compare\`, a turn in the argument is a \`stage\`.`,
+      `${panels.length} of ${beats.length} beats are panels (${panels.map((b) => `${b.id} \`${b.archetype}\``).join(", ")}); at most ${panelCap} may be. Redraw the rest: a number the source reports is a \`hero-number\`, the one thesis is \`kinetic\` (at most ${KINETIC_MAX}), a trend is a \`line-chart\`, magnitudes are \`bar-compare\`, a turn in the argument is a \`stage\`.`,
     );
   }
   for (let i = 1; i < stages.length; i++) {
