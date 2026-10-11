@@ -761,6 +761,8 @@ const isInt = (s: string) => !/\./.test(s);
  * one passage; every variable takes two values or more; and where two checks
  * or more sit in one passage (a flattened table), EVERY row of it at their
  * period, shaped like them, passes too — a plan cannot pick the rows that fit.
+ * When the checks' rows also print a fixed parameter, every row printing THAT
+ * value: the other rows are another curve's.
  */
 export function formulaProblems(
   expr: string,
@@ -833,8 +835,28 @@ export function formulaProblems(
         break;
       }
     if (!P) continue;
+    // A fixed parameter printed in the checks' own rows, at one offset from each: the
+    // curve is that parameter's, so only the rows printing the same value are its rows.
+    // Measured on arXiv 2211.17192's Table 1, (α, γ, ops, speed) rows: a curve for
+    // α = 0.8 was refused for not fitting the α = 0.6, 0.7 and 0.9 rows.
+    const near = (v: number, w: number) => Math.abs(v - w) <= 1e-9 * Math.max(1, Math.abs(w));
+    const keyed = fixed.flatMap((f) => {
+      const w = Number(f.value);
+      const offs = cs.map((c) => {
+        const s0 = c.pos[0] as number;
+        let best: number | undefined;
+        for (let q = Math.max(0, s0 - P + 1); q < Math.min(t.length, s0 + P); q++)
+          if (!c.pos.includes(q) && near((t[q] as { v: number }).v, w))
+            if (best === undefined || Math.abs(q - s0) < Math.abs(best)) best = q - s0;
+        return best;
+      });
+      const o = offs[0];
+      return o !== undefined && offs.every((x) => x === o) ? [{ o, w }] : [];
+    });
     const names_ = first.check.inputs.map((i) => i.name);
     const test = (s0: number) => {
+      if (keyed.some(({ o, w }) => !near((t[s0 + o] as { v: number } | undefined)?.v ?? NaN, w)))
+        return;
       const row = off.map((o) => t[s0 + o] as { v: number; s: string });
       const check = {
         inputs: names_.map((n, q) => ({ name: n, value: (row[q] as { s: string }).s })),

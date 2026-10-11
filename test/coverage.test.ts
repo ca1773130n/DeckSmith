@@ -1255,6 +1255,43 @@ describe("a formula is grounded by every row of the table its checks cite", () =
     ).toEqual([]);
   });
 
+  it("a curve at a fixed α is grounded by the rows at that α, and still refused by a wrong one", () => {
+    const g = (gamma: string, out: string) => ({
+      inputs: [{ name: "γ", value: gamma }],
+      output: out,
+    });
+    const at = (a: string) => [{ name: "α", value: a }];
+    // α = 0.8 rows: (2, 2.44) and (5, 3.69); the 0.6, 0.7 and 0.9 rows are other curves.
+    expect(
+      formulaProblems(
+        "(1 - α^(γ+1)) / (1 - α)",
+        [g("2", "2.44"), g("5", "3.69")],
+        at("0.8"),
+        "",
+        ps,
+      ),
+    ).toEqual([]);
+    expect(
+      formulaProblems(
+        "(1 - α^(γ+1)) / (1 - α)",
+        [g("2", "2.71"), g("10", "6.86")],
+        at("0.9"),
+        "",
+        ps,
+      ),
+    ).toEqual([]);
+    // A wrong exponent still fails its own rows.
+    expect(
+      formulaProblems(
+        "(1 - α^γ) / (1 - α)",
+        [g("2", "2.44"), g("5", "3.69")],
+        at("0.8"),
+        "",
+        ps,
+      ).join("\n"),
+    ).toMatch(/check 1/);
+  });
+
   it("checks printed nowhere together are refused", () => {
     expect(
       formulaProblems(E1, [row("0.6", "2", "1.96"), row("0.7", "2", "2.19")], [], "", ps).join(
