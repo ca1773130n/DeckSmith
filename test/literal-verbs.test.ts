@@ -1062,7 +1062,8 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
         expect(long, JSON.stringify(long)).toEqual([]);
       });
       it("fills its region: the form's floor at every step", () => {
-        const floor = floorOf(formOf(d.lit));
+        // A plane named by a key gives the key's column of words part of its width.
+        const floor = d.r.data.mode === "numbered" ? 0.3 : floorOf(formOf(d.lit));
         for (const fr of d.r.frames)
           expect(frameFill(fr, region_), `${fr.id}`).toBeGreaterThanOrEqual(floor);
       });
@@ -1090,6 +1091,38 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
                 a.x0 < b.x1 - 2 && b.x0 < a.x1 - 2 && a.y0 < b.y1 - 2 && b.y0 < a.y1 - 2,
                 `${fr.id}: "${a.t}" over "${b.t}"`,
               ).toBe(false);
+        }
+      });
+      it("no label lies on a point or a line (a place's words)", () => {
+        if (d.lit.kind !== "place") return;
+        for (const fr of d.r.frames) {
+          const words = fr.prims.flatMap((p) => {
+            if (p.p !== "text" || !p.text) return [];
+            const w = measure(p.text, p.size);
+            const x0 = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+            return [{ t: p.text, x0: x0 + 2, y0: p.y + 4, x1: x0 + w - 2, y1: p.y + p.size * 1.1 }];
+          });
+          const hits = (x: number, y: number) =>
+            words.filter((b) => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1).map((b) => b.t);
+          for (const p of fr.prims) {
+            if (p.p === "circle")
+              for (const [dx, dy] of [[0, 0], [p.r, 0], [-p.r, 0], [0, p.r], [0, -p.r]] as const)
+                expect(hits(p.cx + dx, p.cy + dy), `${fr.id}: a point under a word`).toEqual(
+                  // A key's number sits inside its own dot.
+                  hits(p.cx + dx, p.cy + dy).filter((t) => /^\d+$/.test(t)),
+                );
+            const pts =
+              p.p === "line" ? [p.x1, p.y1, p.x2, p.y2] : p.p === "path" && !p.closed ? p.pts : [];
+            for (let i = 0; i + 3 < pts.length; i += 2) {
+              const [ax, ay, bx, by] = pts.slice(i, i + 4) as [number, number, number, number];
+              const n = Math.ceil(Math.hypot(bx - ax, by - ay) / 6);
+              for (let k = 1; k < n; k++)
+                expect(
+                  hits(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n),
+                  `${fr.id}: a line through a word`,
+                ).toEqual([]);
+            }
+          }
         }
       });
       it("every word stays inside the region", () => {
@@ -1382,7 +1415,7 @@ describe("what each verb refuses", () => {
         },
       } as never).r.frames[0]?.prims ?? [];
     const texts = prims.flatMap((p) => (p.p === "text" && p.text ? [p.text] : []));
-    expect(texts).toContain("task A · temp 0 3.4");
+    expect(texts).toContain("task A · temp 0: 3.4");
     expect(texts.some((t) => t.includes("small"))).toBe(false);
     // No legend dot: every circle is a point.
     expect(prims.filter((p) => p.p === "circle")).toHaveLength(3);

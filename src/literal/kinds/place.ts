@@ -23,7 +23,7 @@ import type { Literal } from "../../types.js";
 import { evaluate, parseFormula } from "../formula.js";
 import { type KindImpl, type KindSpec, lab } from "../kind.js";
 import type { Cue, Layers } from "../kit.js";
-import type { Frame, MechanismResult, Prim, Region } from "./common.js";
+import type { Frame, MechanismResult, Prim, Region, Role } from "./common.js";
 import { TYPE, wrapBy } from "./common.js";
 import { combosForm } from "./place-combos.js";
 import { lengthsForm } from "./place-lengths.js";
@@ -60,6 +60,25 @@ const NEEDS: Record<string, readonly string[]> = {
 /** Points, inset for the camera's push (`withPushRoom`). */
 export const points = (c: Ctx): MechanismResult => withPushRoom(pointsIn)(c);
 
+/** A plane names each point beside it up to this many; past it, a key (`KEYED`). */
+export const NAMED_MAX = 8;
+
+/** The marker shapes a crossed key tells its labels apart by, in order. */
+const SHAPES = ["circle", "square", "triangle", "diamond"] as const;
+type Shape = (typeof SHAPES)[number];
+
+/**
+ * How the points are named: each beside its dot (`labels`); or, when they are
+ * too many to name (> `NAMED_MAX`) or a name finds no free place, by a KEY —
+ * `crossed` when the items are a few labels each measured under every group
+ * (3 model sizes × 4 tasks: shape per label, colour per group, no words on the
+ * plot), else `numbered` (the dot carries its number and a column beside the
+ * plot reads number, name and values). A label is never drawn over a point, a
+ * line or another word: r2 struck a point's label through with its own series
+ * and printed 12 labels over each other on a theory-against-measured plane.
+ */
+type Mode = "labels" | "crossed" | "numbered";
+
 function pointsIn(c: Ctx): MechanismResult {
   const d = c.lit;
   const two = d.form === "plane";
@@ -76,43 +95,52 @@ function pointsIn(c: Ctx): MechanismResult {
     throw new Error(`place draws 2–16 items, got ${d.items.length}`);
   if (d.curves.length && !two) throw new Error("place draws curves on a plane only");
   if (d.curves.length > 6) throw new Error("place draws at most 6 curves");
-  const vals = d.items.map((it) => {
+  for (const it of d.items)
     if (it.values.length !== nAxes)
       throw new Error(`item "${it.label}" gives ${it.values.length} values for ${nAxes} axis(es)`);
-    return it.values.map((v) => numberIn(v, `item "${it.label}"`));
-  });
-  const { width: W, height: H } = c.region;
   const groups = [...new Set(d.items.map((it) => it.group ?? ""))];
   if (groups.length > 4) throw new Error(`place colours at most 4 groups, got ${groups.length}`);
-  const roles = ["a", "b", "c", "d"] as const;
-  const roleOf = (g: string) => roles[groups.indexOf(g)] ?? "a";
-  // The legend above the plot, right to left by measured words, in as many
-  // rows as it needs: beside the strip's axis name or the plane's, then the full
-  // width. Each row past the first moves the plot down by one.
-  const nameW = (k: number) => c.measure((d.axes[k] as PlaceLit["axes"][number]).name, TYPE.label);
-  // Items that share one label differ only by group: the group names the
-  // point and there is no legend. r1 labelled four points with one model name and put
-  // the real distinction, and the axis title, in a two-row legend.
-  const byName = groups.every(Boolean) && new Set(d.items.map((it) => it.label)).size === 1;
-  const nameOf = (it: PlaceLit["items"][number]) => (byName ? (it.group as string) : it.label);
   if (d.diagonal && (!two || d.axes[0]?.lowerIsBetter !== d.axes[1]?.lowerIsBetter))
     throw new Error("place `diagonal` needs a plane whose two axes agree on lowerIsBetter");
   if (d.diagonal && !!d.axes[0]?.log !== !!d.axes[1]?.log)
     throw new Error("place `diagonal` needs both axes linear or both logarithmic");
-  const legend = legendOf(
-    !byName && groups.length > 1 && groups.every(Boolean) ? groups : [],
-    two ? 24 + nameW(1) + 48 : 24,
-    two ? W - 24 : W - 24 - nameW(0) - 48,
-    { left: 24, right: W - 24 },
-    roleOf,
-    c.measure,
-  );
-  const top = 64 + Math.max(0, legend.rows - 1) * LEGEND_ROW;
-  const plot = two
-    ? { x: 24, y: top, w: W - 48, h: H - top - 64 }
-    : { x: 24, y: top, w: W - 48, h: H - top - 24 };
-  // Set once the y axis's ticks are known (`ticksOf`), before anything is placed.
-  let yTickW = 0;
+  const labels = [...new Set(d.items.map((it) => it.label))];
+  const crossed =
+    groups.length >= 2 &&
+    groups.every(Boolean) &&
+    labels.length >= 2 &&
+    labels.length <= SHAPES.length &&
+    new Set(d.items.map((it) => `${it.label}\u0000${it.group}`)).size === d.items.length &&
+    labels.every((l) => d.items.filter((it) => it.label === l).length >= 2);
+  const keyed: Mode = crossed ? "crossed" : "numbered";
+  if (d.items.length > NAMED_MAX) return layoutPoints(c, keyed) as MechanismResult;
+  return layoutPoints(c, "labels") ?? (layoutPoints(c, keyed) as MechanismResult);
+}
+
+/** The scene in one naming mode; null when a label finds no free place (`labels` only). */
+function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
+  const d = c.lit;
+  const two = d.form === "plane";
+  const vals = d.items.map((it) => it.values.map((v) => numberIn(v, `item "${it.label}"`)));
+  const { width: W, height: H } = c.region;
+  const groups = [...new Set(d.items.map((it) => it.group ?? ""))];
+  const roles = ["a", "b", "c", "d"] as const;
+  const roleOf = (g: string) => roles[groups.indexOf(g)] ?? "a";
+  const labelsSeen = [...new Set(d.items.map((it) => it.label))];
+  const shapeOf = (label: string): Shape => SHAPES[labelsSeen.indexOf(label)] ?? "circle";
+  const nameW = (k: number) => c.measure((d.axes[k] as PlaceLit["axes"][number]).name, TYPE.label);
+  const nameH = TYPE.label * 1.2;
+  // Items that share one label differ only by group: the group names the
+  // point and there is no legend. r1 labelled four points with one model name and put
+  // the real distinction, and the axis title, in a two-row legend.
+  const byName = groups.every(Boolean) && labelsSeen.length === 1;
+  const nameOf = (it: PlaceLit["items"][number]) => (byName ? (it.group as string) : it.label);
+  const ax0 = d.axes[0] as PlaceLit["axes"][number];
+  const ax1 = d.axes[1];
+  const betterWord = c.labels.better?.trim();
+  const xBetter = !!betterWord && ax0.lowerIsBetter;
+  const yBetter = two && !!betterWord && !!ax1?.lowerIsBetter;
+  const betterW = betterWord ? c.measure(`${betterWord} →`, TYPE.label) : 0;
   const tr = (k: number) => {
     const a = d.axes[k] as PlaceLit["axes"][number];
     return (v: number) => {
@@ -128,18 +156,11 @@ function pointsIn(c: Ctx): MechanismResult {
   const curves = d.curves.map((cv) => {
     const ast = parseFormula(cv.expr);
     const fixed = paramRecord(cv.fixed, { params: {} }, `curve "${cv.label}"`, true);
-    const lo = Math.min(
-      xlo,
-      ...cv.checks.flatMap((ck) =>
-        ck.inputs.filter((i) => i.name === cv.x).map((i) => Number(i.value)),
-      ),
+    const at = cv.checks.flatMap((ck) =>
+      ck.inputs.filter((i) => i.name === cv.x).map((i) => Number(i.value)),
     );
-    const hi = Math.max(
-      xhi,
-      ...cv.checks.flatMap((ck) =>
-        ck.inputs.filter((i) => i.name === cv.x).map((i) => Number(i.value)),
-      ),
-    );
+    const lo = Math.min(xlo, ...at);
+    const hi = Math.max(xhi, ...at);
     const pts: Array<[number, number]> = [];
     for (let i = 0; i <= 80; i++) {
       const x = lo + ((hi - lo) * i) / 80;
@@ -171,13 +192,61 @@ function pointsIn(c: Ctx): MechanismResult {
   }
   // Ticks: 3–6 round values across each axis's drawn range. Scale marks, not
   // data — without them r1's planes had positions nobody could read.
-  const xTicks = ticksOf(rx, !!ax0Of(d).log);
-  const yTicks = two ? ticksOf(ry, !!d.axes[1]?.log) : [];
-  if (two && yTicks.length) {
-    yTickW = Math.max(...yTicks.map((t) => c.measure(t.text, TYPE.label))) + 20;
-    plot.x += yTickW;
-    plot.w -= yTickW;
-  }
+  const xTicks = ticksOf(rx, !!ax0.log);
+  const yTicks = two ? ticksOf(ry, !!ax1?.log) : [];
+  const yTickW =
+    two && yTicks.length ? Math.max(...yTicks.map((t) => c.measure(t.text, TYPE.label))) + 20 : 0;
+  // A curve is named in the legend, in its colour, unless a group of that name already is.
+  // Unnamed points are the rows a curve's checks come from: the first curve takes their colour.
+  const curveRole = (label: string, k: number) =>
+    groups.includes(label)
+      ? roleOf(label)
+      : (roles[((groups.every((g) => !g) ? 0 : groups.length) + k) % 4] ?? "a");
+  const entries: LegendEntry[] = [
+    ...(!byName && groups.length > 1 && groups.every(Boolean)
+      ? groups.map((g) => ({ name: g, role: roleOf(g), shape: "circle" as const }))
+      : []),
+    ...curves.flatMap((cv, k) =>
+      groups.includes(cv.label)
+        ? []
+        : [{ name: cv.label, role: curveRole(cv.label, k), shape: "line" as const }],
+    ),
+    ...(mode === "crossed"
+      ? labelsSeen.map((l) => ({ name: l, role: "muted" as const, shape: shapeOf(l) }))
+      : []),
+  ];
+  // The top row: the y axis's name and its "better" (a plane), or the strip's
+  // name and its "better" at the right; the legend in what is left, in as many
+  // rows as it needs. Every word of it is outside the plot.
+  const yNameX = 24 + yTickW;
+  const legend = legendOf(
+    entries,
+    two ? yNameX + nameW(1) + 48 + (yBetter ? betterW + 32 : 0) : 24,
+    two ? W - 24 : W - 24 - nameW(0) - 48 - (xBetter ? betterW + 32 : 0),
+    { left: 24, right: W - 24 },
+    c.measure,
+  );
+  const top = 64 + Math.max(0, legend.rows - 1) * LEGEND_ROW;
+  // A numbered key is a column beside the plot: number, name and values.
+  const keyLines =
+    mode === "numbered" ? d.items.map((it, i) => `${i + 1}  ${nameOf(it)}: ${valueText(it)}`) : [];
+  const keyW = keyLines.length
+    ? Math.max(...keyLines.map((l) => c.measure(l, TYPE.label))) + 32
+    : 0;
+  const KEY_LH = 52;
+  if (keyLines.length && keyLines.length * KEY_LH > H - top)
+    throw new Error(
+      `place: ${d.items.length} points are too many to name in a key beside the plot (${Math.floor((H - top) / KEY_LH)} fit); split the beat or give fewer items`,
+    );
+  if (keyW > W * 0.45)
+    throw new Error(
+      `place: the key's longest line is ${Math.ceil(keyW)}px, over 45% of the scene; shorten the item names`,
+    );
+  // A plane's x-axis name has its own row under the tick values, so no tick
+  // is ever dropped for it (r2 lost its 4s tick under "预测时域").
+  const plot = two
+    ? { x: 24 + yTickW, y: top, w: W - 48 - yTickW - keyW, h: H - top - 64 - nameH - 8 }
+    : { x: 24, y: top, w: W - 48 - keyW, h: H - top - 24 };
   const better = (k: number) => !(d.axes[k] as PlaceLit["axes"][number]).lowerIsBetter;
   const X = (v: number) => {
     const t = (tr(0)(v) - rx[0]) / (rx[1] - rx[0]);
@@ -187,28 +256,31 @@ function pointsIn(c: Ctx): MechanismResult {
     const t = (tr(1)(v) - ry[0]) / (ry[1] - ry[0]);
     return plot.y + plot.h * (better(1) ? 1 - t : t);
   };
+  const lineY = two ? plot.y + plot.h : plot.y + plot.h / 2;
   const prims: Prim[] = [];
-  // The axes: lines and their names; ticks follow, once the names are placed.
-  const ax0 = d.axes[0] as PlaceLit["axes"][number];
+  // What a label may not cover: words and points (`taken`), and lines (`strokes`). A leader
+  // may cross a line, never a word or a point.
+  const taken: Box[] = [...legend.boxes];
+  const strokes: Box[] = [];
+  // The axes: lines and their names, outside the plot.
+  prims.push({
+    p: "rect",
+    x: plot.x,
+    y: plot.y,
+    w: plot.w,
+    h: plot.h,
+    fill: "panel",
+    opacity: 0.5,
+    cam: true,
+  });
   if (two) {
-    const ax1 = d.axes[1] as PlaceLit["axes"][number];
     prims.push(
-      {
-        p: "rect",
-        x: plot.x,
-        y: plot.y,
-        w: plot.w,
-        h: plot.h,
-        fill: "panel",
-        opacity: 0.5,
-        cam: true,
-      },
       {
         p: "line",
         x1: plot.x,
-        y1: plot.y + plot.h,
+        y1: lineY,
         x2: plot.x + plot.w,
-        y2: plot.y + plot.h,
+        y2: lineY,
         role: "rule",
         width: 3,
         arrow: true,
@@ -217,7 +289,7 @@ function pointsIn(c: Ctx): MechanismResult {
       {
         p: "line",
         x1: plot.x,
-        y1: plot.y + plot.h,
+        y1: lineY,
         x2: plot.x,
         y2: plot.y,
         role: "rule",
@@ -225,10 +297,13 @@ function pointsIn(c: Ctx): MechanismResult {
         arrow: true,
         cam: true,
       },
+    );
+    const xNameY = lineY + 14 + nameH + 8;
+    prims.push(
       {
         p: "text",
         x: plot.x + plot.w,
-        y: plot.y + plot.h + 12,
+        y: xNameY,
         size: TYPE.label,
         role: "muted",
         anchor: "end",
@@ -236,33 +311,54 @@ function pointsIn(c: Ctx): MechanismResult {
       },
       {
         p: "text",
-        x: plot.x,
+        x: yNameX,
         y: 8,
         size: TYPE.label,
         role: "muted",
         anchor: "start",
-        text: ax1.name,
+        text: (ax1 as PlaceLit["axes"][number]).name,
       },
     );
+    taken.push(
+      { x0: plot.x + plot.w - nameW(0), y0: xNameY, x1: plot.x + plot.w, y1: xNameY + nameH },
+      { x0: yNameX, y0: 8, x1: yNameX + nameW(1), y1: 8 + nameH },
+    );
+    // Where lower is better the axis runs the other way, which the ticks show;
+    // the slot's word for "better" says it beside the axis's name, outside the plot.
+    if (xBetter) {
+      const x1 = plot.x + plot.w - nameW(0) - 32;
+      prims.push({
+        p: "text",
+        x: x1,
+        y: xNameY,
+        size: TYPE.label,
+        role: "accent",
+        anchor: "end",
+        text: `${betterWord} →`,
+      });
+      taken.push({ x0: x1 - betterW, y0: xNameY, x1, y1: xNameY + nameH });
+    }
+    if (yBetter) {
+      const x0 = yNameX + nameW(1) + 32;
+      prims.push({
+        p: "text",
+        x: x0,
+        y: 8,
+        size: TYPE.label,
+        role: "accent",
+        anchor: "start",
+        text: `↑ ${betterWord}`,
+      });
+      taken.push({ x0, y0: 8, x1: x0 + betterW, y1: 8 + nameH });
+    }
   } else {
-    const y = plot.y + plot.h / 2;
     prims.push(
-      {
-        p: "rect",
-        x: plot.x,
-        y: plot.y,
-        w: plot.w,
-        h: plot.h,
-        fill: "panel",
-        opacity: 0.5,
-        cam: true,
-      },
       {
         p: "line",
         x1: plot.x,
-        y1: y,
+        y1: lineY,
         x2: plot.x + plot.w,
-        y2: y,
+        y2: lineY,
         role: "rule",
         width: 4,
         arrow: true,
@@ -278,25 +374,31 @@ function pointsIn(c: Ctx): MechanismResult {
         text: ax0.name,
       },
     );
+    taken.push({ x0: plot.x + plot.w - nameW(0), y0: 8, x1: plot.x + plot.w, y1: 8 + nameH });
+    if (xBetter) {
+      const x1 = plot.x + plot.w - nameW(0) - 32;
+      prims.push({
+        p: "text",
+        x: x1,
+        y: 8,
+        size: TYPE.label,
+        role: "accent",
+        anchor: "end",
+        text: `${betterWord} →`,
+      });
+      taken.push({ x0: x1 - betterW, y0: 8, x1, y1: 8 + nameH });
+    }
   }
-  // The axis names' boxes (src/literal/kinds/stage.ts draws a text's top at its y).
-  const nameH = TYPE.label * 1.2;
-  const tickBoxes: Box[] = [];
-  const x0Name = plot.x + plot.w - c.measure(ax0.name, TYPE.label);
-  const lineY = two ? plot.y + plot.h : plot.y + plot.h / 2;
+  strokes.push(...segBoxes([plot.x, lineY, plot.x + plot.w, lineY], 3));
+  if (two) strokes.push(...segBoxes([plot.x, lineY, plot.x, plot.y], 3));
+  // Every tick the range has, each with its value: never dropped for a name.
   const unX = (v: number) => (ax0.log ? 10 ** v : v);
   for (const t of xTicks) {
     const x = X(unX(t.v));
     const w = c.measure(t.text, TYPE.label);
-    const box = { x0: x - w / 2, y0: lineY + 14, x1: x + w / 2, y1: lineY + 14 + nameH };
-    // A tick under the strip's own name, or under the plane's x-axis name, is dropped.
-    const nameBox = two
-      ? { x0: x0Name - 16, y0: lineY + 12, x1: plot.x + plot.w, y1: lineY + 12 + nameH }
-      : undefined;
     // Inside the region, which clips: r1's last tick printed as "3.!".
-    if (box.x0 < 0 || box.x1 > W) continue;
-    if (nameBox && area(box, nameBox) > 0) continue;
-    tickBoxes.push(box);
+    if (x - w / 2 < 0 || x + w / 2 > W) continue;
+    taken.push({ x0: x - w / 2, y0: lineY + 14, x1: x + w / 2, y1: lineY + 14 + nameH });
     prims.push(
       { p: "line", x1: x, y1: lineY - 8, x2: x, y2: lineY + 8, role: "rule", width: 3, cam: true },
       {
@@ -312,18 +414,12 @@ function pointsIn(c: Ctx): MechanismResult {
     );
   }
   if (two) {
-    const ax1 = d.axes[1] as PlaceLit["axes"][number];
-    const unY = (v: number) => (ax1.log ? 10 ** v : v);
+    const unY = (v: number) => (ax1?.log ? 10 ** v : v);
     for (const t of yTicks) {
       const y = Y(unY(t.v));
-      if (y < plot.y + nameH || y > plot.y + plot.h - 4) continue;
+      if (y < plot.y + nameH / 2 || y > plot.y + plot.h - 4) continue;
       const w = c.measure(t.text, TYPE.label);
-      tickBoxes.push({
-        x0: plot.x - 12 - w,
-        y0: y - nameH / 2,
-        x1: plot.x - 12,
-        y1: y + nameH / 2,
-      });
+      taken.push({ x0: plot.x - 12 - w, y0: y - nameH / 2, x1: plot.x - 12, y1: y + nameH / 2 });
       prims.push(
         {
           p: "line",
@@ -348,85 +444,25 @@ function pointsIn(c: Ctx): MechanismResult {
       );
     }
   }
-  // Where lower is better the axis runs the other way, which the ticks show;
-  // the slot's word for "better" says it at the arrowhead.
-  const betterWord = c.labels.better?.trim();
-  const betterBoxes: Box[] = [];
-  if (betterWord) {
-    const w = c.measure(`${betterWord} →`, TYPE.label);
-    if (ax0.lowerIsBetter) {
-      const y0 = two ? plot.y + plot.h - nameH - 10 : lineY - nameH - 14;
-      betterBoxes.push({ x0: plot.x + plot.w - w, y0, x1: plot.x + plot.w, y1: y0 + nameH });
-      prims.push({
-        p: "text",
-        x: plot.x + plot.w - 8,
-        y: y0,
-        size: TYPE.label,
-        role: "accent",
-        anchor: "end",
-        text: `${betterWord} →`,
-      });
-    }
-    const ax1 = d.axes[1];
-    if (two && ax1?.lowerIsBetter) {
-      const x0 = plot.x + 16;
-      const y0 = plot.y + 4;
-      betterBoxes.push({ x0, y0, x1: x0 + w, y1: y0 + nameH });
-      prims.push({
-        p: "text",
-        x: x0,
-        y: y0,
-        size: TYPE.label,
-        role: "accent",
-        anchor: "start",
-        text: `↑ ${betterWord}`,
-      });
-    }
-  }
   if (d.diagonal) {
     const lo = Math.max(rx[0], ry[0]);
     const hi = Math.min(rx[1], ry[1]);
     const un = (v: number) => (ax0.log ? 10 ** v : v);
+    const seg = [X(un(lo)), Y(un(lo)), X(un(hi)), Y(un(hi))];
     prims.push({
       p: "line",
-      x1: X(un(lo)),
-      y1: Y(un(lo)),
-      x2: X(un(hi)),
-      y2: Y(un(hi)),
+      x1: seg[0] as number,
+      y1: seg[1] as number,
+      x2: seg[2] as number,
+      y2: seg[3] as number,
       role: "muted",
       width: 3,
       dash: true,
       cam: true,
     });
+    strokes.push(...segBoxes(seg, 3));
   }
-  const axisBoxes: Box[] = two
-    ? [
-        {
-          x0: plot.x + plot.w - c.measure(ax0.name, TYPE.label),
-          y0: plot.y + plot.h + 12,
-          x1: plot.x + plot.w,
-          y1: plot.y + plot.h + 12 + nameH,
-        },
-        {
-          x0: plot.x,
-          y0: 8,
-          x1: plot.x + c.measure((d.axes[1] as PlaceLit["axes"][number]).name, TYPE.label),
-          y1: 8 + nameH,
-        },
-      ]
-    : [
-        {
-          x0: plot.x + plot.w - c.measure(ax0.name, TYPE.label),
-          y0: 8,
-          x1: plot.x + plot.w,
-          y1: 8 + nameH,
-        },
-      ];
-  const curveNames: Box[] = [];
   let at = 0;
-  // A curve takes the colour of the group it is named after, so its points and its line agree.
-  const curveRole = (label: string, k: number) =>
-    groups.includes(label) ? roleOf(label) : (roles[(groups.length + k) % 4] ?? "a");
   curves.forEach((cv, k) => {
     at = Math.min(12, at + 1);
     const pts = cv.pts
@@ -441,108 +477,31 @@ function pointsIn(c: Ctx): MechanismResult {
       at,
       wipe: true,
     });
-    // Named at its left end, unless a group of that name already says it in the legend.
-    if (!groups.includes(cv.label)) {
-      const x0 = (pts[0] as number) + 8;
-      const y0 = (pts[1] as number) - 52;
-      curveNames.push({ x0, y0, x1: x0 + c.measure(cv.label, TYPE.label), y1: y0 + nameH });
-      prims.push({
-        p: "text",
-        x: x0,
-        y: y0,
-        size: TYPE.label,
-        role: curveRole(cv.label, k),
-        anchor: "start",
-        text: cv.label,
-        at,
-        cam: true,
-      });
-    }
+    strokes.push(...segBoxes(pts, 5));
   });
-  // The points, with their words beside them. Every label is a box that may not
-  // cover another label, any point, the legend or an axis name, and stays inside
-  // the plot: tried right then left of its point, then stepped away from it.
-  const LH = 47;
   const at0 = at;
+  const byGroup = d.reveal === "groups";
   const pos = vals.map((v) => ({
     x: X(v[0] as number),
-    y: two ? Y(v[1] as number) : plot.y + plot.h / 2,
+    y: two ? Y(v[1] as number) : lineY,
   }));
-  const taken: Box[] = [
-    ...pos.map((q) => ({ x0: q.x - 18, y0: q.y - 18, x1: q.x + 18, y1: q.y + 18 })),
-    ...legend.boxes,
-    ...axisBoxes,
-    ...curveNames,
-    ...tickBoxes,
-    ...betterBoxes,
-  ];
-  const byGroup = d.reveal === "groups";
-  d.items.forEach((it, i) => {
-    const { x: px, y: py } = pos[i] as { x: number; y: number };
-    const g = groups.indexOf(it.group ?? "");
-    const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
-    // One line when name and values fit on it; else the name on its own
-    // line(s) and the values on one more, never broken: r1 wrapped "6.58 ·\n88.29".
-    const maxW = Math.min(520, plot.w / 2);
-    const tuple = it.values.join(" · ");
-    const one = `${nameOf(it)} ${tuple}`;
-    const lines =
-      c.measure(one, TYPE.label) <= maxW
-        ? [one]
-        : [...wrapBy(nameOf(it), TYPE.label, maxW, c.measure), tuple];
-    const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
-    const h = (lines.length - 1) * LH + TYPE.label * 1.2;
-    const box = labelBox(px, py, w, h, two ? "beside" : i % 2 ? "below" : "above", plot, taken);
-    taken.push(box);
-    // A label more than LEADER_PX from its dot is tied to it by a line.
-    const nx = Math.max(box.x0, Math.min(px, box.x1));
-    const ny = Math.max(box.y0, Math.min(py, box.y1));
-    if (Math.hypot(nx - px, ny - py) > LEADER_PX)
-      prims.push({
-        p: "line",
-        x1: px,
-        y1: py,
-        x2: nx,
-        y2: ny,
-        role: "muted",
-        width: 2,
-        cam: true,
-        at: a,
-      });
-    prims.push({
-      p: "circle",
-      cx: px,
-      cy: py,
-      r: 14,
-      fill: roleOf(it.group ?? ""),
-      cam: true,
-      at: a,
-    });
-    // The name in its dot's colour when the colours tell groups apart.
-    const tinted = groups.length > 1 && groups.every(Boolean);
-    for (const [j, t] of lines.entries())
-      prims.push({
-        p: "text",
-        x: box.x0,
-        y: box.y0 + j * LH,
-        size: TYPE.label,
-        role:
-          tinted && (lines.length === 1 || j < lines.length - 1) ? roleOf(it.group ?? "") : "fg",
-        anchor: "start",
-        text: t,
-        cam: true,
-        at: a,
-      });
-  });
+  const R = mode === "numbered" ? 26 : 14;
+  taken.push(
+    ...pos.map((q) => ({ x0: q.x - R - 4, y0: q.y - R - 4, x1: q.x + R + 4, y1: q.y + R + 4 })),
+  );
+  // A series: the source's rows over steps, joined. Its line is an obstacle to every label.
+  const series: Prim[] = [];
+  const seriesGroups = new Set<string>();
   if (d.connect)
     groups.forEach((g, k) => {
       const pts = d.items
-        .map((it, i) => ({ it, v: vals[i] as number[] }))
+        .map((it, i) => ({ it, q: pos[i] as { x: number; y: number }, v: vals[i] as number[] }))
         .filter((e) => (e.it.group ?? "") === g)
         .sort((p, q) => (p.v[0] as number) - (q.v[0] as number))
-        .flatMap((e) => [X(e.v[0] as number), two ? Y(e.v[1] as number) : plot.y + plot.h / 2]);
-      if (pts.length >= 4)
-        prims.splice(two ? 5 : 3, 0, {
+        .flatMap((e) => [e.q.x, e.q.y]);
+      if (pts.length >= 4) {
+        seriesGroups.add(g);
+        series.push({
           p: "path",
           pts,
           role: roleOf(g),
@@ -551,9 +510,158 @@ function pointsIn(c: Ctx): MechanismResult {
           at: Math.min(12, at + (byGroup ? k + 1 : 1)),
           wipe: true,
         });
+        strokes.push(...segBoxes(pts, 4));
+      }
     });
+  prims.push(...series);
+  const marks: Prim[] = [];
+  const words: Prim[] = [];
+  const tinted = groups.length > 1 && groups.every(Boolean);
+  for (const [i, it] of d.items.entries()) {
+    const { x: px, y: py } = pos[i] as { x: number; y: number };
+    const g = groups.indexOf(it.group ?? "");
+    const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
+    const fill = roleOf(it.group ?? "");
+    if (mode === "crossed") marks.push(...markerPrims(shapeOf(it.label), px, py, R, fill, a));
+    else marks.push({ p: "circle", cx: px, cy: py, r: R, fill, cam: true, at: a });
+    if (mode === "numbered") {
+      words.push({
+        p: "text",
+        x: px,
+        y: py - TYPE.label * 0.6,
+        size: TYPE.label,
+        role: "auto",
+        anchor: "middle",
+        text: String(i + 1),
+        cam: true,
+        at: a,
+      });
+      continue;
+    }
+    if (mode === "crossed") continue;
+    // One line when name and values fit on it; else the name on its own
+    // line(s) and the values on one more, never broken: r1 wrapped "6.58 ·\n88.29".
+    const maxW = Math.min(520, plot.w / 2);
+    // A point on a joined series says only its height: the legend names the
+    // series in its colour and the x axis's ticks give the step, so two close
+    // series' labels fit beside their points (r2 b13's eight "name x·y" labels did not).
+    const onSeries = !!d.connect && two && tinted && seriesGroups.has(it.group ?? "");
+    const tuple = onSeries ? (it.values[1] as string) : valueText(it);
+    const one = onSeries ? tuple : tuple ? `${nameOf(it)}: ${tuple}` : nameOf(it);
+    const lines =
+      c.measure(one, TYPE.label) <= maxW || !tuple
+        ? [one]
+        : [...wrapBy(nameOf(it), TYPE.label, maxW, c.measure), tuple];
+    const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
+    const h = (lines.length - 1) * LH + TYPE.label * 1.2;
+    const spot = placeLabel(
+      px,
+      py,
+      w,
+      h,
+      two ? "beside" : i % 2 ? "below" : "above",
+      plot,
+      taken,
+      strokes,
+      two ? 0 : i,
+    );
+    if (!spot) return null;
+    taken.push(spot.box);
+    strokes.push(...spot.leader.flatMap((s) => segBoxes(s, 2)));
+    for (const s of spot.leader)
+      words.push({
+        p: "line",
+        x1: s[0] as number,
+        y1: s[1] as number,
+        x2: s[2] as number,
+        y2: s[3] as number,
+        role: "muted",
+        width: 2,
+        cam: true,
+        at: a,
+      });
+    // The name in its dot's colour when the colours tell groups apart.
+    for (const [j, t] of lines.entries())
+      words.push({
+        p: "text",
+        x: spot.box.x0,
+        y: spot.box.y0 + j * LH,
+        size: TYPE.label,
+        role: tinted && (lines.length === 1 || j < lines.length - 1) ? fill : "fg",
+        anchor: "start",
+        text: t,
+        cam: true,
+        at: a,
+      });
+  }
+  // Leaders under the dots, dots under the words.
+  prims.push(
+    ...words.filter((p) => p.p === "line"),
+    ...marks,
+    ...words.filter((p) => p.p !== "line"),
+  );
+  if (mode === "numbered") {
+    const x0 = plot.x + plot.w + 32;
+    const y0 = top + Math.max(0, (H - top - keyLines.length * KEY_LH) / 2);
+    keyLines.forEach((t, i) => {
+      const it = d.items[i] as PlaceLit["items"][number];
+      const g = groups.indexOf(it.group ?? "");
+      const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
+      prims.push({
+        p: "text",
+        x: x0,
+        y: y0 + i * KEY_LH,
+        size: TYPE.label,
+        role: tinted ? roleOf(it.group ?? "") : "fg",
+        anchor: "start",
+        text: t,
+        at: a,
+      });
+    });
+  }
   prims.push(...legend.prims);
-  return { rasters: {}, frames: [{ id: "place", prims, vars: {} }], data: {}, vars: {} };
+  return {
+    rasters: {},
+    frames: [{ id: "place", prims, vars: {}, preview: true }],
+    data: { mode },
+    vars: {},
+  };
+
+  /** An item's values as printed: the ones its name does not already state ("α=0.9" is not printed "α=0.9 0.9 · 2.71"). */
+  function valueText(it: PlaceLit["items"][number]): string {
+    const name = nameOf(it);
+    return it.values
+      .filter((v) => {
+        const t = v.trim();
+        return !new RegExp(`(?:^|[=:\\s])${escapeRe(t)}$`).test(name.trim());
+      })
+      .join(" · ");
+  }
+}
+
+/** `s` as a literal pattern. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A key mark: the label's shape in its group's colour. */
+function markerPrims(
+  shape: Shape,
+  x: number,
+  y: number,
+  r: number,
+  fill: Role,
+  at: number,
+): Prim[] {
+  const s = r * 1.1;
+  if (shape === "circle") return [{ p: "circle", cx: x, cy: y, r, fill, cam: true, at }];
+  if (shape === "square")
+    return [
+      { p: "rect", x: x - s * 0.9, y: y - s * 0.9, w: 1.8 * s, h: 1.8 * s, fill, cam: true, at },
+    ];
+  const pts =
+    shape === "triangle"
+      ? [x, y - s * 1.15, x + s * 1.1, y + s * 0.8, x - s * 1.1, y + s * 0.8]
+      : [x, y - s * 1.2, x + s * 1.2, y, x, y + s * 1.2, x - s * 1.2, y];
+  return [{ p: "path", pts, closed: true, fill, role: fill, width: 1, cam: true, at }];
 }
 
 interface Box {
@@ -567,14 +675,43 @@ const area = (a: Box, b: Box) =>
   Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) *
   Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
 
+/** A polyline (x0, y0, x1, y1, …) as small boxes every 10px along it, `w` px thick: an obstacle to a label. */
+export function segBoxes(pts: readonly number[], w: number): Box[] {
+  const out: Box[] = [];
+  const h = w / 2 + 3;
+  for (let i = 0; i + 3 < pts.length; i += 2) {
+    const [x0, y0, x1, y1] = [pts[i], pts[i + 1], pts[i + 2], pts[i + 3]] as number[];
+    const n = Math.max(
+      1,
+      Math.ceil(Math.hypot((x1 as number) - (x0 as number), (y1 as number) - (y0 as number)) / 10),
+    );
+    for (let k = 0; k <= n; k++) {
+      const x = (x0 as number) + (((x1 as number) - (x0 as number)) * k) / n;
+      const y = (y0 as number) + (((y1 as number) - (y0 as number)) * k) / n;
+      out.push({ x0: x - h, y0: y - h, x1: x + h, y1: y + h });
+    }
+  }
+  return out;
+}
+
+/** Text lines are this far apart, px. */
+const LH = 47;
+
 /**
- * Where a point's label goes: the first box, nearest first, that covers nothing
- * taken and stays inside the plot — beside the point (a plane) or on its side
- * of the line (a strip), right of it then left, stepping 48px away each try.
- * When none is free the least-covering box is used, and the overprint gate
- * (src/verify) names it: a crowded plot fails loudly rather than vanishing.
+ * Where a point's label goes, and the leader that ties it to its dot when it
+ * sits more than `LEADER_PX` away: the first box, nearest first, inside the
+ * plot, that covers no word, point or line (`taken`, `strokes`) AND whose
+ * leader crosses no word or point.
+ * Null when there is none: the caller names the points by a key instead of
+ * drawing a word over a point, a line or another word.
+ *
+ * A plane tries beside the point, right then left, stepping 48px up and down.
+ * A strip tries its own side of the line first (`side`), then the other, at
+ * every level from the line out to the plot's edge — starting from level
+ * `spreadFrom` (the item's index), so a short strip's labels use the height
+ * rather than all hugging the axis.
  */
-export function labelBox(
+export function placeLabel(
   px: number,
   py: number,
   w: number,
@@ -582,21 +719,28 @@ export function labelBox(
   side: "beside" | "above" | "below",
   plot: { x: number; y: number; w: number; h: number },
   taken: readonly Box[],
-): Box {
+  strokes: readonly Box[],
+  spreadFrom = 0,
+): { box: Box; leader: number[][] } | null {
   // On a strip a label is centred over (or under) its own dot first: set
   // beside it, it sat over the gap between two dots and read as the other one's.
-  const xs = side === "beside" ? [px + 24, px - 24 - w] : [px - w / 2, px + 24, px - 24 - w];
+  // Beside, a label may also sit centred over or under its dot (clamped into the plot).
+  const mid = Math.max(plot.x, Math.min(px - w / 2, plot.x + plot.w - w));
+  const xs = side === "beside" ? [px + 24, px - 24 - w, mid] : [px - w / 2, px + 24, px - 24 - w];
   const ys: number[] = [];
-  for (let k = 0; k <= 12; k++) {
-    if (side === "beside")
+  if (side === "beside") {
+    for (let k = 0; k <= 12; k++)
       ys.push(...(k ? [py - h / 2 - 48 * k, py - h / 2 + 48 * k] : [py - h / 2]));
-    else {
-      const near = side === "above" ? py - 28 - h - 48 * k : py + 28 + 48 * k;
-      const far = side === "above" ? py + 28 + 48 * k : py - 28 - h - 48 * k;
-      ys.push(near, far);
-    }
+  } else {
+    const levels = Math.max(1, Math.floor((plot.h / 2 - 28 - h) / 48));
+    const order = [
+      ...Array.from({ length: levels + 1 }, (_, k) => (k + spreadFrom) % (levels + 1)),
+    ];
+    const near = (k: number) => (side === "above" ? py - 28 - h - 48 * k : py + 72 + 48 * k);
+    const far = (k: number) => (side === "above" ? py + 72 + 48 * k : py - 28 - h - 48 * k);
+    for (const k of order) ys.push(near(k));
+    for (const k of order) ys.push(far(k));
   }
-  let best: { box: Box; cost: number } | undefined;
   for (const y0 of ys)
     for (const x0 of xs) {
       const box = { x0, y0, x1: x0 + w, y1: y0 + h };
@@ -607,28 +751,32 @@ export function labelBox(
         box.y1 > plot.y + plot.h
       )
         continue;
-      const overlap = taken.reduce((s, t) => s + area(box, t), 0);
-      if (!overlap) return box;
-      // Covering decides; between boxes that cover the same, the nearer wins,
-      // or the fallback is any box at all (r1: a label 150px from its dot). A
-      // far one gets a leader line.
+      if (taken.some((t) => area(box, t) > 0) || strokes.some((t) => area(box, t) > 0)) continue;
       const nx = Math.max(box.x0, Math.min(px, box.x1));
       const ny = Math.max(box.y0, Math.min(py, box.y1));
-      const cost = overlap + 0.01 * Math.hypot(nx - px, ny - py);
-      if (!best || cost < best.cost) best = { box, cost };
+      const leader = Math.hypot(nx - px, ny - py) > LEADER_PX ? [[px, py, nx, ny]] : [];
+      // The leader leaves the dot from its rim and must not cross anything but its own dot.
+      const rim = leader.map(([ax, ay, bx, by]) => {
+        const len =
+          Math.hypot((bx as number) - (ax as number), (by as number) - (ay as number)) || 1;
+        const u = 30 / len;
+        return [
+          (ax as number) + ((bx as number) - (ax as number)) * u,
+          (ay as number) + ((by as number) - (ay as number)) * u,
+          bx as number,
+          by as number,
+        ];
+      });
+      if (rim.some((s) => segBoxes(s, 2).some((b) => taken.some((t) => area(b, t) > 0)))) continue;
+      return { box, leader };
     }
-  if (best) return best.box;
-  const x0 = Math.min(Math.max(plot.x, px + 24), plot.x + plot.w - w);
-  const y0 = Math.min(Math.max(plot.y, py - h / 2), plot.y + plot.h - h);
-  return { x0, y0, x1: x0 + w, y1: y0 + h };
+  return null;
 }
 
 const LEGEND_ROW = 56;
 
 /** Past this many px from its dot, a label is joined to it by a leader line. */
 export const LEADER_PX = 60;
-
-const ax0Of = (d: PlaceLit) => d.axes[0] as PlaceLit["axes"][number];
 
 /**
  * 3–6 round tick values inside `[lo, hi]` (an axis's drawn range, in log10 on a
@@ -659,19 +807,25 @@ export function ticksOf(
   return out;
 }
 
+/** One legend entry: a group's colour, a curve's line, or a key's shape. */
+interface LegendEntry {
+  name: string;
+  role: "a" | "b" | "c" | "d" | "muted";
+  shape: Shape | "line";
+}
+
 /**
- * The legend: one dot and name per group, laid right to left by measured width
- * from `right`, the first row stopping at `left`; a group that does not fit
- * starts the next row down, across `full`. Four groups beside a strip's axis
+ * The legend: one swatch and name per entry, laid right to left by measured
+ * width from `right`, the first row stopping at `left`; an entry that does not
+ * fit starts the next row down, across `full`. Four groups beside a strip's axis
  * name ran 110px off the left of the frame on one row, clipped by the scene's
  * own box where no gate saw it.
  */
 function legendOf(
-  groups: readonly string[],
+  entries: readonly LegendEntry[],
   left: number,
   right: number,
   full: { left: number; right: number },
-  roleOf: (g: string) => Extract<Prim, { p: "circle" }>["fill"],
   measure: Ctx["measure"],
 ): { prims: Prim[]; boxes: Box[]; rows: number } {
   const prims: Prim[] = [];
@@ -679,23 +833,44 @@ function legendOf(
   let row = 0;
   let x1 = right;
   let lo = left;
-  for (const g of [...groups].reverse()) {
-    const w = measure(g, TYPE.label) + 34;
-    if (x1 - w < lo && x1 !== (row ? full.right : right)) {
+  let kind: string | undefined;
+  for (const e of [...entries].reverse()) {
+    const w = measure(e.name, TYPE.label) + 34;
+    // A key's shapes and the groups' colours are two legends: each starts its own row.
+    const k = e.role === "muted" ? "shape" : "colour";
+    const change = kind !== undefined && k !== kind;
+    kind = k;
+    if ((change || x1 - w < lo) && x1 !== (row ? full.right : right)) {
       row++;
       x1 = full.right;
       lo = full.left;
     }
     const x0 = x1 - w;
     const y = 8 + row * LEGEND_ROW;
-    prims.push(
-      { p: "circle", cx: x0 + 12, cy: y + 22, r: 12, fill: roleOf(g) },
-      { p: "text", x: x0 + 34, y, size: TYPE.label, role: "fg", anchor: "start", text: g },
-    );
+    const fill = e.role === "muted" ? "muted" : e.role;
+    if (e.shape === "line")
+      prims.push({ p: "line", x1: x0, y1: y + 24, x2: x0 + 24, y2: y + 24, role: fill, width: 5 });
+    else
+      prims.push(
+        ...markerPrims(e.shape, x0 + 12, y + 24, 11, fill, 0).map((p) => ({
+          ...p,
+          at: undefined,
+          cam: undefined,
+        })),
+      );
+    prims.push({
+      p: "text",
+      x: x0 + 34,
+      y,
+      size: TYPE.label,
+      role: "fg",
+      anchor: "start",
+      text: e.name,
+    });
     boxes.push({ x0, y0: y, x1, y1: y + TYPE.label * 1.2 });
     x1 = x0 - 48;
   }
-  return { prims, boxes, rows: groups.length ? row + 1 : 0 };
+  return { prims, boxes, rows: entries.length ? row + 1 : 0 };
 }
 
 const pointsKind = verbKind("place", points, { pictureSide: 0 });
