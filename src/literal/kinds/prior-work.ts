@@ -12,7 +12,18 @@
  * out (`gap`), all the plan's words in the deck's language.
  */
 import { join } from "node:path";
-import { drift, even, img, type KindImpl, lab, panel, spread, stepStarts, wrap } from "../kind.js";
+import {
+  drift,
+  even,
+  img,
+  type KindImpl,
+  lab,
+  panel,
+  REST,
+  spread,
+  stepStarts,
+  wrap,
+} from "../kind.js";
 import { dcp } from "../kinds-shared.js";
 import {
   AIRLIGHT,
@@ -292,7 +303,8 @@ ${caption ? label("cap", caption, 0, H - 46, SMALL, theme.muted) : ""}
           tl.fromTo(`n${k}-${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
         });
         // What is measured, then the source's value for it.
-        spread(t0 + 0.5, t1, lane.numbers.length, 0.6, 4.5, 1.6).forEach((t, i) => {
+        const times = spread(t0 + 0.5, t1, lane.numbers.length, 0.6, 4.5, 1.6);
+        times.forEach((t, i) => {
           tl.fromTo(
             `n${k}-${i}`,
             { opacity: 0, y: 12 },
@@ -301,6 +313,10 @@ ${caption ? label("cap", caption, 0, H - 46, SMALL, theme.muted) : ""}
           );
           tl.fromTo(`nv${k}-${i}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, t + 1.2);
         });
+        // While the rest of its sentence is spoken, the camera leans in on the numbers (r3 of
+        // the pure-planner deck stood still for 8s on a lane of one number).
+        const last = (times[times.length - 1] as number) + 1.7;
+        drift(tl, `v${k}`, last, t1 - 0.1, { x: 0, y: 0, scale: 1.05 }, REST, "0% 0%");
       }
     });
     return { markup, css: baseCss(theme), script: tl.script };

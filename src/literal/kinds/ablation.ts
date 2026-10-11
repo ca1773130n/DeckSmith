@@ -12,7 +12,7 @@
  * source by the truth gate. The empty cells are the point of the scene, not a
  * placeholder: they are what the next experiment would fill.
  */
-import { type KindImpl, lab, spread, stepStarts, widthOf, wrap } from "../kind.js";
+import { drift, type KindImpl, lab, spread, stepStarts, widthOf, wrap } from "../kind.js";
 import { baseCss, LABEL, label, px, SMALL, Tl } from "../kit.js";
 
 export interface AblationData {
@@ -193,7 +193,7 @@ export const ablationKind: KindImpl = {
         return `<div id="SCENEID-o${i}" style="position:absolute;left:${px(x)};top:${px(H - 64)};width:${px(w)};height:64px;border:3px dashed ${theme.muted};border-radius:32px;box-sizing:border-box">${label(`ot${i}`, t, 19, (58 - SMALL * 1.15) / 2, SMALL, theme.fg)}</div>`;
       })
       .join("\n");
-    const markup = `<div id="SCENEID-lit">
+    const markup = `<div id="SCENEID-lit"><div id="SCENEID-acam" style="position:absolute;left:0;top:0;width:100%;height:100%">
 ${heads}${rowHeads}
 ${cells}
 ${mark}
@@ -201,7 +201,7 @@ ${reported}
 ${titles}
 ${settings}
 ${others}
-</div>`;
+</div></div>`;
     // Steps: the grid on the first sentence — the reported square, its result, then the holes
     // and what they mean; then the settings and the proposals, in order, over the sentences
     // that follow — each sentence takes its share, each item its moment in it.
@@ -210,6 +210,24 @@ ${others}
     const at = stepStarts(cues, 1 + rest);
     const end = cues[cues.length - 1]?.t1 ?? (at[rest] as number) + 6;
     const tl = new Tl();
+    // Once a sentence's items are all there, the camera leans in, or back out, over what is
+    // left of it, from the top-left so nothing leaves the region: a list has no picture to
+    // move, and r3 of the pure-planner deck stood still here for 6–7s a sentence.
+    let lean = 1;
+    const tail = (from: number, to: number) => {
+      if (to - from < 1.5) return;
+      const next = lean === 1 ? 1.03 : 1;
+      drift(
+        tl,
+        "acam",
+        from,
+        to,
+        { x: 0, y: 0, scale: next },
+        { x: 0, y: 0, scale: lean },
+        "0% 0%",
+      );
+      lean = next;
+    };
     {
       const t0 = Math.max(0.8, (at[0] as number) + 0.1);
       const t1 = (at[1] as number | undefined) ?? end;
@@ -231,7 +249,9 @@ ${others}
         ...order.slice(1).map((i) => `cell${i}`),
         ...(holes ? ["miss"] : []),
       ];
-      spread(t0 + 0.2, t1, ids.length, 0.5, 1.8, 1.2).forEach((t, k) => {
+      const times = spread(t0 + 0.2, t1, ids.length, 0.5, 1.8, 1.2);
+      tail((times[times.length - 1] as number) + 0.6, t1 - 0.1);
+      times.forEach((t, k) => {
         const id = ids[k] as string;
         if (id.startsWith("cell"))
           tl.fromTo(
@@ -251,7 +271,9 @@ ${others}
       const mine = share(k);
       if (k === 0 && d.settings.length)
         for (let i = 0; i < sTitle.length; i++) tl.show(`sh${i}`, t0, 0.5);
-      spread(t0 + 0.4, t1, mine.length, 0.5, 3.6, 1.6).forEach((t, j) => {
+      const times = spread(t0 + 0.4, t1, mine.length, 0.5, 3.6, 1.6);
+      if (times.length) tail((times[times.length - 1] as number) + 1.8, t1 - 0.1);
+      times.forEach((t, j) => {
         const id = mine[j] as string;
         // A setting in two beats: what was fixed, then the one value it was tested at.
         if (id.startsWith("s")) {
