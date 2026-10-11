@@ -238,8 +238,12 @@ describe("design: the switch", () => {
     // Then the seek_order gate: s6's two swell take-backs gain
     // `immediateRender: false` (the only diff), so a cold seek before the walk
     // no longer shows a swollen term.
+    // Then the two KaTeX scenes gain one statement each flagging the nodes inside
+    // KaTeX's lap overlays `data-layout-allow-overlap` (`lapSetup`); removing
+    // those two statements gives back the previous pin byte for byte. An
+    // attribute, so nothing paints differently.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "7bfd2dde14af43433e28c0a97d9a5bcb690b4f02722461a8a6ce47908434e4b0",
+      "7e187891107cd53e52ac8b9c0deb16db22e75524a24064b58903810843f7097c",
     );
   });
 
