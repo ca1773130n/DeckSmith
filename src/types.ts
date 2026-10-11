@@ -1357,7 +1357,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      lowerIsBetter}, settings {name, values [{ours, best,
                      rival}]}) — a strip for one metric, a plane for two.
                      \`measure\` length: reported quantities as lengths to scale
-                     (\`lengths\`: groups {label, unit, items}, tile). \`form\`
+                     (\`lengths\`: groups {label, unit, items}, tile — copies of
+                     the shortest laid along the longest with their quotient,
+                     only where the source states that ratio). \`form\`
                      combos: experiments not run as empty cells (\`combos\`:
                      components, reported {with, result}, settings {name,
                      value}, others). \`form\` sets: what was and was not

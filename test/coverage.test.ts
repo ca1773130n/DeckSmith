@@ -791,6 +791,37 @@ describe("literalFindings", () => {
     expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/says/);
   });
 
+  it("counts a tiled group's quotient as a number on screen", () => {
+    // r1: "35 ÷ 20 = 1.75", a ratio the paper never discusses.
+    const beats = covered();
+    const lengths = (tile: boolean) =>
+      beatOf("b05-results", "experiments", ["sec7"], {
+        literal: {
+          kind: "place",
+          form: "strip",
+          measure: "length",
+          lengths: {
+            groups: [
+              {
+                label: "복잡도",
+                unit: "mJ",
+                items: [
+                  { label: "SFRDP-Net", value: "175.21" },
+                  { label: "파라미터", value: "5.08" },
+                ],
+              },
+            ],
+            tile,
+          },
+          labels: [],
+        },
+      });
+    beats[5] = lengths(true);
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(/says "34.49"/);
+    beats[5] = lengths(false);
+    expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/34.49/);
+  });
+
   it("refuses a slot the kind does not have and a required one missing", () => {
     const beats = covered();
     beats[3] = beatOf("b03-method", "method", ["sec4"], {

@@ -2,7 +2,7 @@
  * scale — reported quantities as lengths to scale, no growth.
  */
 import { type KindImpl, LAB_H, lab, spread, stepStarts, widthOf } from "../kind.js";
-import { tiles } from "../kinds-shared.js";
+import { tileRatio, tiles } from "../kinds-shared.js";
 import { baseCss, LABEL, label, px, r3, SMALL, Tl } from "../kit.js";
 
 interface ScaleData {
@@ -72,7 +72,7 @@ export const lengthsForm: KindImpl = {
           parts.push(
             `<div id="SCENEID-u${gi}-${k}" style="position:absolute;left:${px(barX + k * unit)};top:${px(yy)};width:${px(unit - 6)};height:${px(barH * 0.7)};border:4px solid ${tones[1] as string};box-sizing:border-box;border-radius:4px"></div>`,
           );
-        const ratio = `${g.items[vals.indexOf(max)]?.value} ÷ ${g.items[vals.indexOf(min)]?.value} = ${(max / min).toFixed(2)}`;
+        const ratio = tileRatio(g.items) as string;
         parts.push(label(`r${gi}`, ratio, barX, yy + barH * 0.7 + 10, SMALL, theme.muted));
       } else if (g.items.length >= 2 && max > min) {
         // Too close to tile: the smallest length, outlined, is laid OVER the largest — what is

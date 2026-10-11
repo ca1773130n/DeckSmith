@@ -36,6 +36,7 @@ import { checkPasses, GREEK, normalizeExpr, parseFormula, printed } from "../lit
 import { tokenChips } from "../literal/kinds/flow.js";
 import { placeForm } from "../literal/kinds/place.js";
 import { leavesPicture } from "../literal/kinds/recap.js";
+import { tileRatio } from "../literal/kinds-shared.js";
 import type {
   Beat,
   BeatPart,
@@ -403,6 +404,8 @@ function literalTexts(lit: Literal): string[] {
           g.label,
           g.unit,
           ...g.items.flatMap((it) => [it.label, it.value]),
+          // A tiled group prints its quotient: a number on screen like any other.
+          ...(lit.lengths?.tile ? [tileRatio(g.items) ?? ""] : []),
         ]) ?? []),
         ...(lit.combos
           ? [
