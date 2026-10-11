@@ -193,6 +193,19 @@ describe("inkBelow", () => {
     expect(inkBelow(frame, 40)).toBeCloseTo(0.01, 6);
   });
 
+  it("measures against the bare ground when given one, not the frame's modal colour", async () => {
+    // A full-bleed picture (a stage beat) makes the PICTURE the mode: here 80%
+    // of the frame is grass and the bottom 20 rows are the empty deck ground.
+    // Against the mode that clean strip is all ink; against the ground, none.
+    const frame = await frameOf([80, 160, 80], [11, 13, 16], [0, 80, 100, 20]);
+    const ground = await frameOf([11, 13, 16], [11, 13, 16], [0, 0, 0, 0]);
+    expect(inkBelow(frame, 80)).toBeCloseTo(0.2, 6);
+    expect(inkBelow(frame, 80, ground)).toBe(0);
+    // And a real stroke in the strip still counts against the ground.
+    const inked = await frameOf([11, 13, 16], [232, 234, 237], [0, 90, 100, 10]);
+    expect(inkBelow(inked, 80, ground)).toBeCloseTo(0.1, 6);
+  });
+
   it("ignores everything above the band, which is how the caption is excluded", async () => {
     const frame = await frameOf([11, 13, 16], [232, 234, 237], [0, 0, 100, 20]);
     expect(inkBelow(frame, 0)).toBeCloseTo(0.2, 6);

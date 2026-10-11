@@ -52,7 +52,14 @@ import {
   pendingIllustrations,
 } from "./plan/refs.js";
 import type { Cut } from "./plan/select.js";
-import { designFor, loadPrefs, type PrefFlags, type Prefs, prefsFromFlags } from "./prefs.js";
+import {
+  bespokeFor,
+  designFor,
+  flagsFromOptions,
+  loadPrefs,
+  type Prefs,
+  prefsFromFlags,
+} from "./prefs.js";
 import { captureFrames } from "./render/capture.js";
 import { render, type SubtitleMode } from "./render/render.js";
 import { planTiming, TIMING_FILE } from "./render/timing.js";
@@ -65,6 +72,7 @@ import {
   type Beat,
   bandReserve,
   canvasWarnings,
+  type Design,
   FORMATS,
   type Format,
   MAX_EDGE,
@@ -213,17 +221,19 @@ function lookFlags(cmd: Command): Command {
 }
 
 /**
- * `--bespoke`: a few mechanism beats per deck drawn by a Codex-written scene
- * (src/bespoke/). `--design v2` only, and off unless asked for.
+ * Bespoke scenes: under `--design v2`, every beat drawn by a Codex-written
+ * scene (src/bespoke/), the archetype only where one fails its gates. On by
+ * default under v2; `--no-bespoke` keeps every archetype.
  */
 function bespokeFlags(cmd: Command): Command {
   return cmd
     .option(
       "--bespoke",
-      "v2: generated scenes for 4-6 mechanism beats (Codex; falls back per beat)",
+      "v2: generated scenes for every beat (the v2 default; falls back per beat)",
     )
-    .option("--bespoke-calls <n>", "hard cap on Codex calls for this deck (default 12; 2 per beat)")
-    .option("--bespoke-seconds <s>", "hard cap on the bespoke pass's wall time (default 1800)")
+    .option("--no-bespoke", "v2: keep every beat's archetype — no Codex calls")
+    .option("--bespoke-calls <n>", "hard cap on scene calls for this deck (default 40; 2 per beat)")
+    .option("--bespoke-seconds <s>", "hard cap on the bespoke pass's wall time (default 3600)")
     .option("--bespoke-model <id>", "codex exec --model for the scenes (default: the account's)")
     .option("--bespoke-cli <path>", "the Codex CLI to run (default: codex on PATH)")
     .option(
@@ -260,51 +270,6 @@ function imageFlags(cmd: Command): Command {
       "--image-max <n>",
       "most pictures drawn through the chain; the rest are the tool's SVG",
     );
-}
-
-/**
- * Commander gives a plain `--flag` `undefined` until it is passed, which is
- * exactly the "unstated" that `prefsFromFlags` needs — except for `--no-x`,
- * which defaults to `true` and would therefore outrank the config file on every
- * run. So the negation is read as a negation and nothing else. `--images` is
- * the other one read by hand: it is a boolean, and the loop below only knows
- * strings.
- */
-function flags(o: Record<string, unknown>): PrefFlags {
-  const patch: PrefFlags = {};
-  for (const key of [
-    "slides",
-    "lang",
-    "tone",
-    "density",
-    "genre",
-    "duration",
-    "narrationDensity",
-    "theme",
-    "design",
-    "packSeed",
-    "speed",
-    "voice",
-    "rate",
-    "pitch",
-    "imageProvider",
-    "imageModel",
-    "imageStyle",
-    "imageMax",
-    "bespokeCalls",
-    "bespokeSeconds",
-    "bespokeModel",
-    "bespokeCli",
-    "bespokeCache",
-    "bespokeArt",
-  ] as const) {
-    const value = o[key];
-    if (value !== undefined) patch[key] = value as string;
-  }
-  if (o.subtitles === false) patch.subtitles = false;
-  if (o.images === true) patch.images = true;
-  if (o.bespoke === true) patch.bespoke = true;
-  return patch;
 }
 
 /**
@@ -493,12 +458,18 @@ imageFlags(
   // The source goes in as well, and this is the one verb that can pass it: a
   // beat count nobody stated is a question about how much the document has to
   // say, and `slidesFor` cannot answer it from a clock alone.
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
+  const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
   step("plan: this takes a few minutes");
-  const planned = await codexPlanner(source, { prefs });
+  const planned = await codexPlanner(source, {
+    prefs,
+    onRepair: (broken) => {
+      step("plan: the first plan broke the variety rule, asking Codex to repair it —");
+      for (const m of broken) step(`plan:   ${m}`);
+    },
+  });
   const storyboard: Storyboard = {
     ...planned,
     lang: prefs.lang,
@@ -588,7 +559,7 @@ imageFlags(
   assertRefsResolve(storyboard, source, { pending: "allow" });
   // Running the verb is asking for pictures: `--images` is implied, so the
   // config file's `false` cannot make it a no-op.
-  const prefs = await loadPrefs(prefsFromFlags({ ...flags(o), images: true }));
+  const prefs = await loadPrefs(prefsFromFlags({ ...flagsFromOptions(o), images: true }));
 
   const briefs = pendingIllustrations(storyboard).length;
   if (briefs === 0) {
@@ -645,7 +616,7 @@ voiceFlags(
     pickFormat(String(o.format), o.width as string, o.height as string),
     o.reserveCaptions === true,
   );
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)));
+  const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)));
   // The words already exist and are in the storyboard's language; asking for a
   // voice in another one would read them with the wrong mouth.
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: storyboard.lang };
@@ -746,7 +717,7 @@ bespokeFlags(
     // derived from what the document contains, so preferences resolved without
     // it fall back to the schema's flat default and `scanBeatCount` then measures
     // this plan against a floor nobody ever asked for.
-    const prefs = await loadPrefs(prefsFromFlags(flags(o)), process.cwd(), source);
+    const prefs = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
     // The storyboard records the theme it was planned under; `--theme` or a
     // config file restates it. Language is not overridable here — it describes
     // the copy that is already written, not a wish. Under `--design v2` a pack
@@ -1138,7 +1109,7 @@ voiceFlags(
   assertRefsResolve(storyboard, source);
   if (o.bake && o.link) throw new Error("Choose --bake or --link, not both.");
 
-  const chosen = await loadPrefs(prefsFromFlags(flags(o)));
+  const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)));
   // A pack records what the deck actually is, so the artifacts win over a
   // default: reopening it a year later must rebuild the same deck.
   const prefs: Prefs = {
@@ -1403,8 +1374,9 @@ function wrapScript(text: string, width: number): string[] {
  * guess.
  */
 /**
- * `build --bespoke`, or nothing. Says why when it does nothing, because a flag
- * that was asked for and silently ignored looks exactly like a flag that works.
+ * The bespoke pass — on by default under v2 (`bespokeFor`) — or nothing. Says
+ * why when it does nothing, because a pass that was expected and silently
+ * skipped looks exactly like one that ran and drew nothing.
  */
 async function runBespoke(
   prefs: Prefs,
@@ -1419,15 +1391,16 @@ async function runBespoke(
     assetsFrom: string;
   },
 ): Promise<BespokeResult | undefined> {
-  const want = prefs.bespoke;
-  if (!want?.enabled) return undefined;
-  if (deck.design !== "v2") {
-    step("build: --bespoke needs --design v2, so every beat keeps its archetype");
+  const on = bespokeFor(prefs, deck.design as Design);
+  if (!on) {
+    if (prefs.bespoke?.enabled === true)
+      step("build: --bespoke needs --design v2, so every beat keeps its archetype");
     return undefined;
   }
+  const want = on.prefs;
   if (!deck.narration) {
     step(
-      "build: --bespoke needs narration — its cues are the keyframes — so every beat keeps its archetype",
+      "build: bespoke scenes need narration — its cues are the keyframes — so every beat keeps its archetype",
     );
     return undefined;
   }

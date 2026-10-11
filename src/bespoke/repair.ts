@@ -19,12 +19,16 @@
  *  - A DIMMED END (`end_dimmed`): the elements dimming parts the scene had lit
  *    are tweened back to opacity 1 just before the scene ends.
  *  - A CAMERA LEFT ZOOMED (`camera_end`): the camera is tweened home.
+ *  - DIMMED WORDS (`dim_text`): a literal opacity under `TEXT_ALPHA_MIN` (but
+ *    not 0: hidden is not dim) in a tween or set whose targets hold text is
+ *    raised to it (`liftText`). Shapes in the same target are raised with it.
  *
  * Every repair is appended as ordinary contract code (a `tl.to` with literal
  * vars at a literal second, or a wrapper `<g>`), goes through `checkFragment`
  * like a model's, and is gated again before it is used. Deterministic: the same
  * geometry gives the same bytes, so a repaired scene caches like any other.
  */
+import { type Node, parse } from "acorn";
 import type { Geo, Layout } from "../verify/scenes.js";
 import { type Fragment, SID_TOKEN } from "./contract.js";
 import { untangle } from "./untangle.js";
@@ -37,6 +41,8 @@ export const REPAIRABLE = new Set([
   "svg_text_overprint",
   "end_dimmed",
   "camera_end",
+  // Words dimmed under 3:1: their dimming opacity lifted to `TEXT_ALPHA_MIN` (`liftText`).
+  "dim_text",
   // Two tweens on one property over overlapping time (src/bespoke/untangle.ts).
   "seek_order",
 ]);
@@ -135,8 +141,8 @@ export function solveNudges(frames: readonly Geo[]): { moves: Move[]; unresolved
       if (mi === li || (L.u !== null && M.u === L.u)) return;
       const [mx, my] = off(fi, M.u);
       const [ix, iy] = overlapOf(box, shifted(M.b, mx, my));
-      if (strict ? ix > 4 && iy > 4 : ix > -LABEL_GAP && iy > -LABEL_GAP)
-        out.push({ kind: "label", other: mi });
+      const g = strict ? -4 : LABEL_GAP;
+      if (ix > -g && iy > -g) out.push({ kind: "label", other: mi });
     });
     const inset = strict ? 4 : -STROKE_GAP;
     for (const [px, py, pu] of f.points) {
@@ -467,8 +473,10 @@ export function settleAt(duration: number, lastCueStart: number): number {
 
 /**
  * Bring the elements dimming lit parts back to full strength at `at`. Targets
- * are the probe's `tag:index[#id]`, ids in the probe deck's form (`sid-…`);
- * an element without an id gets one (`SCENEID-lit<k>`).
+ * are the probe's `tag:index[#id]@opacity`, ids in the probe deck's form
+ * (`sid-…`); an element without an id gets one (`SCENEID-lit<k>`). The opacity
+ * each holds is its tween's from state (every tween is a fromTo); a target
+ * without one is left alone.
  */
 export function relight(
   f: Fragment,
@@ -477,12 +485,19 @@ export function relight(
   sid: string,
 ): Fragment {
   let markup = f.markup;
-  const selectors: string[] = [];
-  const unnamed: Array<{ address: string; k: number }> = [];
-  targets.forEach((t, k) => {
+  const selectors: Array<{ sel: string; op: number }> = [];
+  const unnamed: Array<{ address: string; k: number; op: number }> = [];
+  targets.forEach((target, k) => {
+    const [t = "", o] = target.split("@");
+    const op = Number(o);
+    if (o === undefined || !Number.isFinite(op)) return;
     const id = t.split("#")[1];
-    if (id) selectors.push(`#${id.startsWith(`${sid}-`) ? SID_TOKEN + id.slice(sid.length) : id}`);
-    else unnamed.push({ address: t, k });
+    if (id)
+      selectors.push({
+        sel: `#${id.startsWith(`${sid}-`) ? SID_TOKEN + id.slice(sid.length) : id}`,
+        op,
+      });
+    else unnamed.push({ address: t, k, op });
   });
   // Ids are injected from the last start tag back, so earlier positions hold.
   const spots = unnamed
@@ -494,44 +509,193 @@ export function relight(
     const head = markup.slice(open.start, open.end);
     const named = head.replace(/^<\s*([A-Za-z][\w:.-]*)/, `$& id="${SID_TOKEN}-lit${s.k}"`);
     markup = markup.slice(0, open.start) + named + markup.slice(open.end);
-    selectors.push(`#${SID_TOKEN}-lit${s.k}`);
+    selectors.push({ sel: `#${SID_TOKEN}-lit${s.k}`, op: s.op });
   }
   if (!selectors.length) return f;
-  const list = [...new Set(selectors)].sort().map((s) => JSON.stringify(s));
+  // One fromTo per opacity they are dimmed to, from that opacity.
+  const byOp = new Map<number, Set<string>>();
+  for (const { sel, op } of selectors) byOp.set(op, (byOp.get(op) ?? new Set()).add(sel));
+  const tweens = [...byOp.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(
+      ([op, sels]) =>
+        `tl.fromTo([${[...sels]
+          .sort()
+          .map((x) => JSON.stringify(x))
+          .join(
+            ", ",
+          )}], { opacity: ${op} }, { opacity: 1, duration: 0.5, ease: "power2.out", immediateRender: false }, ${at});`,
+    );
   return {
     ...f,
     markup,
     script: `${f.script}
 // End-state repair (the shell's, not the model's): the last cue ends with what the scene lit at full strength.
-tl.to([${list.join(", ")}], { opacity: 1, duration: 0.5, ease: "power2.out" }, ${at});`,
+${tweens.join("\n")}`,
   };
 }
 
 /** Send the camera home at `at`: the shell's wrapper, or the svg's viewBox. */
 export function homeCamera(f: Fragment, camOff: string, at: number): Fragment {
-  if (/-cam at /.test(camOff))
+  // The probe says where the camera is ("#sN-cam at scale S, x X, y Y", or
+  // "#sN-svg viewBox X Y W H"), so the move home is a fromTo from there.
+  const m = /-cam at scale (-?[\d.]+), x (-?[\d.]+), y (-?[\d.]+)/.exec(camOff);
+  if (m)
     return {
       ...f,
       script: `${f.script}
 // End-state repair: the camera returns to the whole scene before it ends.
-tl.to("#${SID_TOKEN}-cam", { scale: 1, x: 0, y: 0, duration: 0.8, ease: "power3.inOut" }, ${at});`,
+tl.fromTo("#${SID_TOKEN}-cam", { scale: ${m[1]}, x: ${m[2]}, y: ${m[3]} }, { scale: 1, x: 0, y: 0, duration: 0.8, ease: "power3.inOut", immediateRender: false }, ${at});`,
     };
+  const from = /-svg viewBox (-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+)/.exec(camOff)?.[1];
   const svg = /<svg\b[^>]*\bid\s*=\s*["']SCENEID-svg["'][^>]*>/i.exec(f.markup)?.[0] ?? "";
   const w = /\swidth\s*=\s*["']?([\d.]+)/.exec(svg)?.[1];
   const h = /\sheight\s*=\s*["']?([\d.]+)/.exec(svg)?.[1];
-  if (!w || !h) return f;
+  if (!from || !w || !h) return f;
   return {
     ...f,
     script: `${f.script}
 // End-state repair: the camera returns to the whole scene before it ends.
-tl.to("#${SID_TOKEN}-svg", { attr: { viewBox: "0 0 ${w} ${h}" }, duration: 0.8, ease: "power3.inOut" }, ${at});`,
+tl.fromTo("#${SID_TOKEN}-svg", { attr: { viewBox: "${from}" } }, { attr: { viewBox: "0 0 ${w} ${h}" }, duration: 0.8, ease: "power3.inOut", immediateRender: false }, ${at});`,
   };
 }
 
 /** What a repair did, for the report. */
+/**
+ * The lowest opacity a word is dimmed to: dark ink at 0.6 over a pale ground
+ * is ~4:1, a pack tone ~3:1 (the `dim_text` floor). The prompt asks for it.
+ */
+export const TEXT_ALPHA_MIN = 0.6;
+
+type AnyNode = Node & Record<string, unknown>;
+
+/** The ids in `markup` whose element is, or holds, words (an SVG <text>, or text of its own). */
+export function textHolders(markup: string): Set<string> {
+  const out = new Set<string>();
+  const stack: Array<{ name: string; id?: string }> = [];
+  const mark = () => {
+    for (const f of stack) if (f.id) out.add(f.id);
+  };
+  for (const m of markup.matchAll(/<(\/?)\s*([A-Za-z][\w:.-]*)([^>]*?)(\/?)>|([^<]+)/g)) {
+    if (m[5] !== undefined) {
+      const top = stack[stack.length - 1]?.name;
+      if (m[5].trim() && top !== "style" && top !== "script") mark();
+      continue;
+    }
+    const name = (m[2] ?? "").toLowerCase();
+    if (m[1] === "/") {
+      const at = stack.map((f) => f.name).lastIndexOf(name);
+      if (at >= 0) stack.length = at;
+      continue;
+    }
+    const id = /(?:^|\s)id\s*=\s*["']([^"']+)["']/.exec(m[3] ?? "")?.[1];
+    if (m[4] === "/") continue;
+    stack.push({ name, ...(id ? { id } : {}) });
+    if (name === "text" || name === "foreignobject") mark();
+  }
+  return out;
+}
+
+/**
+ * `dim_text`'s repair: every literal `opacity`/`autoAlpha` in (0, TEXT_ALPHA_MIN)
+ * in a `tl.*`/`gsap.set` whose targets — `#id` selectors, literally or through a
+ * top-level variable — include an element holding words, raised to
+ * TEXT_ALPHA_MIN. Undefined when there is nothing it can read to lift.
+ */
+export function liftText(f: Fragment): { fragment: Fragment; lifted: number } | undefined {
+  const words = textHolders(f.markup);
+  let program: AnyNode;
+  try {
+    program = parse(f.script, {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      allowReturnOutsideFunction: true,
+    }) as unknown as AnyNode;
+  } catch {
+    return undefined;
+  }
+  const str = (n: AnyNode | undefined) =>
+    n?.type === "Literal" && typeof n.value === "string" ? n.value : undefined;
+  const names = new Map<string, string[]>();
+  for (const st of program.body as AnyNode[]) {
+    if (st.type !== "VariableDeclaration") continue;
+    for (const d of st.declarations as AnyNode[]) {
+      const id = d.id as AnyNode;
+      const init = d.init as AnyNode | undefined;
+      if (id.type !== "Identifier" || !init) continue;
+      if (str(init) !== undefined) names.set(id.name as string, [str(init) as string]);
+      else if (init.type === "ArrayExpression")
+        names.set(
+          id.name as string,
+          (init.elements as AnyNode[]).map(str).filter((x): x is string => x !== undefined),
+        );
+    }
+  }
+  const selectors = (t: AnyNode | undefined): string[] => {
+    if (!t) return [];
+    if (str(t) !== undefined) return [str(t) as string];
+    if (t.type === "Identifier") return names.get(t.name as string) ?? [];
+    if (t.type === "ArrayExpression") return (t.elements as AnyNode[]).flatMap(selectors);
+    return [];
+  };
+  const holdsWords = (t: AnyNode | undefined) =>
+    selectors(t)
+      .flatMap((sel) => sel.split(","))
+      .some((sel) => {
+        const id = /^\s*#([\w-]+)\s*$/.exec(sel)?.[1];
+        return id !== undefined && words.has(id);
+      });
+  const edits: Array<[number, number]> = [];
+  const visit = (n: unknown): void => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) {
+      for (const x of n) visit(x);
+      return;
+    }
+    const node = n as AnyNode;
+    if (node.type === "CallExpression") {
+      const callee = node.callee as AnyNode;
+      const obj = callee.type === "MemberExpression" ? (callee.object as AnyNode).name : undefined;
+      const method =
+        callee.type === "MemberExpression" ? (callee.property as AnyNode).name : undefined;
+      const args = node.arguments as AnyNode[];
+      if ((obj === "tl" || (obj === "gsap" && method === "set")) && holdsWords(args[0])) {
+        const varsList = method === "fromTo" ? [args[1], args[2]] : [args[1]];
+        for (const vars of varsList) {
+          if (vars?.type !== "ObjectExpression") continue;
+          for (const p of vars.properties as AnyNode[]) {
+            if (p.type !== "Property" || p.computed) continue;
+            const k = p.key as AnyNode;
+            const key = k.type === "Identifier" ? k.name : k.value;
+            const v = p.value as AnyNode;
+            if (
+              (key === "opacity" || key === "autoAlpha") &&
+              v.type === "Literal" &&
+              typeof v.value === "number" &&
+              v.value > 0 &&
+              v.value < TEXT_ALPHA_MIN
+            )
+              edits.push([v.start, v.end]);
+          }
+        }
+      }
+    }
+    for (const [k, v] of Object.entries(node))
+      if (k !== "type" && v && typeof v === "object") visit(v);
+  };
+  visit(program.body);
+  if (!edits.length) return undefined;
+  let script = f.script;
+  for (const [a, b] of edits.sort((x, y) => y[0] - x[0]))
+    script = `${script.slice(0, a)}${TEXT_ALPHA_MIN}${script.slice(b)}`;
+  return { fragment: { ...f, script }, lifted: edits.length };
+}
+
 export interface RepairNote {
   /** Overlapping tweens on one property were untangled (`seek_order`). */
   untangled?: boolean;
+  /** Dimming opacities on words raised to `TEXT_ALPHA_MIN` (`dim_text`). */
+  lifted?: number;
   moved: number;
   /** Plates grown to hold their text (`fitPlates`). */
   grown?: number;
@@ -580,6 +744,12 @@ export function repairScene(
     if (!script) return undefined;
     out = { ...out, script };
     note.untangled = true;
+  }
+  if (rules.includes("dim_text")) {
+    const lifted = liftText(out);
+    if (!lifted) return undefined;
+    out = lifted.fragment;
+    note.lifted = lifted.lifted;
   }
   const end = layout.find((l) => l.key === "end");
   const at = settleAt(scene.duration, scene.lastCueStart);

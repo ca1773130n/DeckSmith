@@ -142,6 +142,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { BrokenFrame } from "../emit/animate-runtime.js";
 import { DECK_PAGE } from "../emit/composition.js";
 import { FIT_FILE } from "../emit/fit.js";
 import { UNFIT_ATTR } from "../emit/tex.js";
@@ -430,8 +431,8 @@ function background(frame: Frame): [number, number, number] {
  * bounding box, and it does not ask the DOM whether an element is visible; both
  * of those have been wrong in this project inside the last week.
  */
-export function inkBelow(frame: Frame, bandTopPx: number): number {
-  return inkIn(frame, { top: bandTopPx, left: 0, bottom: frame.height });
+export function inkBelow(frame: Frame, bandTopPx: number, plate?: Frame | null): number {
+  return inkIn(frame, { top: bandTopPx, left: 0, bottom: frame.height }, plate);
 }
 
 /**
@@ -685,6 +686,31 @@ export function gradeUnfit(rows: readonly Unfit[]): Finding[] {
 }
 
 /**
+ * Run IN THE PAGE: every mounted animate piece drawn at each of its own frames
+ * (`sweep`, src/emit/animate-runtime.ts). Empty on a deck with no piece, whose
+ * page never loads the runtime.
+ */
+export function collectBrokenPieces(): BrokenFrame[] {
+  const w = window as unknown as { DSAnimate?: { sweep?: () => BrokenFrame[] } };
+  return w.DSAnimate?.sweep?.() ?? [];
+}
+
+/**
+ * An error per piece that throws at ANY of its frames. A drawing error is a
+ * page error only where `hyperframes check` happens to seek, and on a long deck
+ * it samples coarsely enough to miss a throw confined to a short window — which
+ * `render` then draws half-painted and exits 0 over.
+ */
+export function gradePieces(rows: readonly BrokenFrame[]): Finding[] {
+  return rows.map((r) => ({
+    severity: "error",
+    gate: "fidelity",
+    rule: "piece_error",
+    message: `piece "${r.id}" throws at ${r.frames.length} of its frames (${r.frames[0]}–${r.frames.at(-1)}): ${r.message}`,
+  }));
+}
+
+/**
  * Seek every declared stop and count the ink below its caption.
  *
  * Never throws for an environmental reason: a machine that cannot open a browser
@@ -734,19 +760,31 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       timeout: opts.timeoutMs ?? 60_000,
     });
     const unfit = await page.evaluate(collectUnfit, UNFIT_ATTR);
+    // Before any stop is seeked: the sweep draws on a scratch canvas, so the
+    // frames measured below are untouched by it.
+    const brokenPieces = await page.evaluate(collectBrokenPieces);
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
     const apparent: ApparentStop[] = [];
     const fills: FillRow[] = [];
     // v2 only — a classic deck is not graded for fill, so it pays no extra
     // capture: the bare background, once, for the fill gate's ink test.
-    let plate: Awaited<ReturnType<typeof decodePng>> | null = null;
-    if (manifest) {
+    //
+    // A deck that reserves a caption strip pays for the same capture, for the
+    // reserve test alone. The strip is SUPPOSED to be the bare ground, and the
+    // frame's modal colour is not that once a `stage` beat covers the frame
+    // with a picture: on a full-bleed garden at 9:16 the mode was the grass,
+    // so an empty strip of deck background read as 15.7% ink — the whole band.
+    let ground: Awaited<ReturnType<typeof decodePng>> | null = null;
+    if (manifest || reserve > 0) {
       await deck.seek(stops[0]?.t ?? 0);
       await page.evaluate(hideScenes, true);
-      plate = await decodePng(await deck.shoot());
+      ground = await decodePng(await deck.shoot());
       await page.evaluate(hideScenes, false);
     }
+    // The body-ink and fill tests keep their v2-only plate: a classic deck
+    // with a reserve is measured there exactly as it was.
+    const plate = manifest ? ground : null;
     for (const stop of stops) {
       await deck.seek(stop.t);
       const region = await page.evaluate(bodyRegion, stop.sid, CAPTION, FALLBACK_BAND_TOP * height);
@@ -784,7 +822,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         // collision regressing costs no extra capture, no extra seek and no
         // extra browser. That matters — a gate with its own capture is a gate
         // someone turns off.
-        ...(reserve > 0 ? { reserveInk: inkBelow(frame, height - reserve) } : {}),
+        ...(reserve > 0 ? { reserveInk: inkBelow(frame, height - reserve, ground) } : {}),
       });
     }
     // A second pass between the stops, for the apparent floor only. No screenshot
@@ -804,6 +842,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...gradeOverprint(collided),
         ...gradeApparent(apparent),
         ...gradeUnfit(unfit),
+        ...gradePieces(brokenPieces),
         ...gradeFill(fills, manifest),
       ],
       elapsedMs: Date.now() - started,

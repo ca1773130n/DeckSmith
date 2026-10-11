@@ -83,7 +83,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { parseReport, toolFingerprint } from "./score.mjs";
-import { CELLS, deckBeat, LEVELS } from "./sweep-perturbations.mjs";
+import { CELLS, deckBeat, LEVELS, PIECE_AUTHOR } from "./sweep-perturbations.mjs";
 
 const run = promisify(execFile);
 
@@ -329,7 +329,14 @@ async function buildLevel(level, opts, onCell) {
   const dir = join(CACHE, "decks", `level-${level}`);
   await rm(dir, { recursive: true, force: true });
   await mkdir(join(dir, "assets"), { recursive: true });
-  for (const fig of source.figures) await cp(join(ASSETS, fig.src), join(dir, "assets", fig.src));
+  // A piece is the one figure demo/assets does not hold: its author file is
+  // written from the corpus (`PIECE_AUTHOR`), and `build` assembles it.
+  for (const fig of source.figures) {
+    const to = join(dir, "assets", fig.src);
+    await mkdir(dirname(to), { recursive: true });
+    if (fig.kind === "piece") await writeFile(to, PIECE_AUTHOR);
+    else await cp(join(ASSETS, fig.src), to);
+  }
   const srcPath = join(dir, "source.json");
   await writeFile(srcPath, JSON.stringify(source));
 

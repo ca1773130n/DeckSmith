@@ -10,11 +10,22 @@
  * defence against the failure mode that actually happens: a plausible-looking
  * `figureId` that exists in no source.
  */
+import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
 import { repairTex } from "../emit/tex.js";
-import type { Prefs } from "../prefs.js";
+import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import { prefsSchema, type Source } from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
+import {
+  MAX_ALTERNATION,
+  PANEL_SHARE,
+  panelsAllowed,
+  SCENE_SHARE,
+  STAGE_EVERY,
+  STAGE_MIN_BEATS,
+  scenesRequired,
+  stagesRequired,
+} from "./variety.js";
 
 /**
  * How many sentences each archetype wants, because it is how many stops it has.
@@ -43,7 +54,7 @@ export const REVEALS: Record<string, string> = {
   "data-table": "one per highlighted row, plus 1",
   // "long enough" is not a hedge: below the emitter's own floor the comparison
   // is dropped and the chart stops twice becoming a chart that stops once. See
-  // the line-chart entry under THE THIRTEEN ARCHETYPES for what that costs.
+  // the line-chart entry under THE SIXTEEN ARCHETYPES for what that costs.
   "line-chart": "1, or 2 when compare is given and the beat is long enough for it",
   callout: "one per panel",
   pipeline: "one per stage",
@@ -52,6 +63,9 @@ export const REVEALS: Record<string, string> = {
   "bar-compare": "2, however many bars there are",
   stack: "one per layer",
   "split-compare": "2, one per side",
+  stage: "1",
+  "hero-number": "1",
+  kinetic: "one per phrase",
 };
 
 const REVEAL_COUNTS = Object.entries(REVEALS)
@@ -96,10 +110,11 @@ A beat is one idea, one visual, one hold. It carries:
              beat immediately before it. See RULE 11. Leave it off unless the
              source itself puts one inside the other.
 
-THE THIRTEEN ARCHETYPES
+THE SIXTEEN ARCHETYPES
 
-Nine of them DRAW: they build a vector graphic out of the source's own content
-and reveal it stage by stage, so the viewer watches the idea assemble. Four only
+Eleven of them DRAW: nine build a vector graphic out of the source's own content
+and reveal it stage by stage, so the viewer watches the idea assemble, one
+gives a picture the whole screen, and one gives a number the whole screen. Five only
 describe. The drawing ones are the default. The describing ones are what you
 fall back to when a point genuinely has no shape.
 
@@ -213,7 +228,63 @@ DRAWING ARCHETYPES — reach here first
                  the slide is still there, but the point about the baseline is
                  gone.
 
+  stage          One figure filling the whole frame, edge to edge — no plate,
+                 no border, no side column — with the words, if any, set over
+                 it. The tell: A VISUAL THAT SHOULD OWN THE SCREEN — a product
+                 UI, a scene, a photograph, an animation. The picture is cropped
+                 to the frame's shape, so it must survive losing its edges: a
+                 paper figure with panels, axes or labels near its border is
+                 claim-figure or annotated-figure, never this.
+                 \`placement\` is where the words go: "bottom-left", "top-left",
+                 "center", "right", or "none" for the picture alone.
+                 \`headline\` is always written — under "none" it labels the
+                 slide without being drawn — and \`line\` is one optional short
+                 sentence under it. Keep both short: up to three headline lines
+                 and two lines of \`line\` fit. In a wide frame "right" has the
+                 narrowest column (a headline of about 45 characters keeps it)
+                 and "center" the widest; words too long for their column take
+                 a wider one and cover more of the picture, and only words that
+                 will not fit across the whole frame are refused, never shrunk.
+                 In a tall frame every placement spans the full width, and
+                 "right" only aligns the words to the right.
+
+  hero-number    One number filling the frame, its digits rolling into place
+                 like a counter, with what it measures and the sentence it
+                 says under it. The tell: ONE FIGURE IS THE POINT — a cost cut,
+                 a speedup, a score, a ratio the source reports and the beat
+                 exists to land. \`value\` is the figure exactly as the source
+                 prints it ("43.63", "1/4", "75.1%"), at most about eight
+                 characters; \`unit\` is set small beside it ("mJ", "ms").
+                 \`label\` names the quantity, in two to five words.
+                 \`compare\` is the number it is read against — the baseline,
+                 the before — with its own short \`label\` ("SFRDP-Net"); when
+                 both are plain numbers in the one unit they are drawn as two
+                 bars to one scale, the baseline first (or, when the two are
+                 within 15%, as the baseline and the signed difference).
+                 \`headline\` is one sentence of up to two lines saying what
+                 THIS number means, and claims nothing the screen does not
+                 show: a headline that says "both metrics" over one PSNR
+                 figure is contradicted by its own slide. A claim over two
+                 metrics is one hero-number per metric, or a bar-compare or
+                 data-table that shows both. Several named things measured in
+                 one unit is bar-compare; one number that is the point is
+                 this. The number must be in the source, and \`evidence\`
+                 cites where.
+
 DESCRIBING ARCHETYPES — the fallbacks
+
+  kinetic        A claim set as moving type over a full-bleed field: two to
+                 four short phrases, each arriving with its own move, one key
+                 word in each struck through by a highlight. The tell: ONE
+                 STRONG CLAIM WITH NO SHAPE — a thesis, a turn in the
+                 argument, the sentence the viewer must leave with — where a
+                 panel of bullets is what would otherwise be drawn. Split the
+                 claim into \`phrases\` where a speaker would breathe, each at
+                 most about 30 characters; \`key\` is the one word or short
+                 run of words that carries its phrase, copied verbatim from
+                 it. \`headline\` labels the slide and is not drawn. Give it
+                 about two seconds per phrase in \`seconds\`. Not for lists,
+                 steps or comparisons: those have shapes.
 
   title          One headline, with \`eyebrow\` above it and \`sub\` beneath. The
                  tell: THE DECK OPENING, or a genuine change of subject partway
@@ -275,8 +346,8 @@ RULES
 1. Ask what the beat DRAWS before you ask what it says. Read the point, find its
    shape — a sequence, a field, a magnitude, a stack, a contrast, a figure worth
    pointing into — and pick the archetype that draws that shape. Only when a point
-   honestly has no shape does it become a title, a claim-figure, a data-table or a
-   callout. A deck of headlines and bullet panels is a failure even if every
+   honestly has no shape does it become a title, a kinetic claim, a claim-figure,
+   a data-table or a callout. A deck of headlines and bullet panels is a failure even if every
    sentence in it is true; it is what every other slide generator already makes.
    Most beats in a good deck draw something.
 
@@ -288,7 +359,19 @@ RULES
    single archetype took nineteen of them, and the deck it produced looks, slide
    after slide, exactly like every other deck this planner has ever written.
    Reaching for the same shape twice running is the reliable sign that the point
-   was not read — it is the last thing that worked, reused.
+   was not read — it is the last thing that worked, reused. The same holds for
+   where the words sit: a deck with more than one stage gives each a different
+   \`placement\` where it can, so the text does not land in one corner slide after
+   slide.
+
+   AND DO NOT ALTERNATE. Two shapes taking turns — split-compare, pipeline,
+   split-compare, pipeline — is one layout with a second skin, and it is the
+   failure this rule was rewritten for: a fourteen-beat deck that alternated two
+   card layouts for nine slides running, with every pair different and every
+   slide looking like the last but one. No two beats in a row share an
+   archetype, and no run alternating two archetypes is longer than
+   ${MAX_ALTERNATION} beats. Both are checked when the plan comes back, and a plan
+   that breaks either is sent back.
 
 2. Every id you write — in params and in evidence — must appear in the inventory
    below. A dangling id fails the build. If no figure fits the point, choose a
@@ -583,7 +666,7 @@ ${REVEAL_COUNTS}`
  * eleven below it, which several tests slice by index.
  *
  * The wording avoids three live tripwires: no "The tell:" (a test counts
- * thirteen, one per archetype), no "what was measured" (a test pins exactly one,
+ * fourteen, one per archetype), no "what was measured" (a test pins exactly one,
  * and RULE 6 owns it), and it is emitted AFTER the first "RULES" heading, which
  * another test uses to slice the archetype catalogue.
  */
@@ -634,15 +717,21 @@ already has is not worth a slide of its own here.`
 `;
 }
 
-function illustrations(images: Prefs["images"]): string {
+function illustrations(images: Prefs["images"], design?: Prefs["design"]): string {
+  // In v2 an un-pictured bar-compare stands on the field too (V2_FIELD_ARCHETYPES).
+  const fielded =
+    design === "v2" ? "hero-number, kinetic or bar-compare" : "hero-number or kinetic";
   return `
 
 ILLUSTRATIONS
 
-A claim-figure, or either side of a split-compare, may carry
+A claim-figure, a stage, or either side of a split-compare may carry
 \`illustration: { prompt, caption }\` INSTEAD of \`figureId\` when no figure in
 the inventory fits the point — including when the inventory has no figures at
-all. A picture is generated from the brief after planning and shown where the
+all. A stage is the way to give a point a whole-screen picture when the
+inventory has only plots and diagrams: its brief describes a wide scene that
+can lose its edges, with nothing that matters near the border, and its caption
+is not drawn — the headline and line are what the audience reads. A picture is generated from the brief after planning and shown where the
 figure would have been. This is the one exception to RULE 2: a brief cites
 nothing, so it can never dangle.
 
@@ -658,23 +747,73 @@ nothing, so it can never dangle.
   - Write \`figureId\` OR \`illustration\`, never both. A figure in the
     inventory always wins over a brief for one.
   - At most ${images.max} pictures in the whole deck; a split-compare with two
-    briefs spends two. Past that, find the point's shape and draw it.`;
+    briefs spends two, and a backdrop spends one. Past that, find the point's
+    shape and draw it.
+
+BACKDROPS: A DIAGRAM DRAWN OVER A SCENE. A pipeline, split-compare, callout,
+bar-compare, hero-number or kinetic beat may carry
+\`backdrop: { illustration: { prompt, caption } }\`. The
+picture covers the whole frame behind the diagram, darkened, and the boxes,
+panels and bars are drawn over it as dark glass — the diagram keeps its shape
+and its words, and the slide becomes a scene instead of cards on a plain
+ground. A ${fielded} beat WITHOUT a backdrop is still a scene: it
+fills the frame with a deep field of the deck's colours, and spends no picture.
+Use them: a deck of ${STAGE_MIN_BEATS} beats or more has at least ${Math.round(SCENE_SHARE * 100)}% of its beats as
+scenes (a stage, a picture on a split-compare side, a backdrop, a ${fielded}
+beat — NOT a claim-figure or annotated-figure, which sit on the plain ground; a
+${2 * STAGE_EVERY + 6}-beat deck, ${scenesRequired(2 * STAGE_EVERY + 6, images)}), within the picture cap.
+
+  - The brief is the WORLD the beat's point happens in, specific to that point:
+    the hazy coastline a dehazing step clears, the server hall a power figure is
+    paid in, the neuron that does or does not fire. Never a generic texture,
+    never the diagram itself drawn again.
+  - The diagram sits across the middle of the frame, so the brief keeps that
+    region CALM — open sky, water, mist, a soft-focus field, low detail and low
+    contrast — and puts the interest at the edges and corners. Say so in the
+    prompt ("the centre left open and quiet").
+  - Same rules as every brief: a scene, never text, labels, numbers or charts.
+    The caption is alt text; nothing reads it aloud.
+  - Leave \`backdrop\` off a split-compare whose sides carry pictures, and never
+    point a backdrop at an inventory figure: a figure is shown, not wallpapered.
+
+PANELS ARE THE EXCEPTION. A pipeline, split-compare, callout, stack or
+data-table draws boxes, cards or rows of them, and a backdrop puts them in a
+scene without making them anything else. A deck of ${STAGE_MIN_BEATS} beats or more carries at
+most ${Math.round(PANEL_SHARE * 100)}% of them (a ${2 * STAGE_EVERY + 6}-beat deck, ${panelsAllowed(2 * STAGE_EVERY + 6, images)}). Every number the source
+reports that a beat exists to land is a \`hero-number\`; every strong claim with
+no shape is \`kinetic\`; a trend is a line-chart; a turn in the argument is a
+stage. A plan with more panels than this is sent back.
+
+STAGES ARE REQUIRED, not merely allowed. A deck of ${STAGE_MIN_BEATS} beats or more
+carries at least one \`stage\` beat for every ${STAGE_EVERY} beats (a ${2 * STAGE_EVERY + 2}-beat deck,
+${stagesRequired(2 * STAGE_EVERY + 2, images)}), and never more than the picture cap above. When the inventory has
+no figure that can own the frame — no figures at all, or only plots — those
+stages carry \`illustration\` briefs: the scene the point is about, full-bleed,
+with the headline set over it. Spend them where the deck would otherwise be
+cards in a row: the problem in the world before the method, the setting a
+result matters in, the turn between two halves. A stage's picture shows what
+its headline says: a beat whose point is a result — scores, a comparison
+across datasets, a qualitative improvement — is a hero-number, a bar-compare,
+a data-table or a figure from the source, never a stage over a scenic picture
+that shows none of it. Give consecutive stages different \`placement\`s. A plan with fewer stages than this is sent back.`;
 }
 
 /**
- * `--bespoke` only. The planner may mark the beats a generated scene would
- * explain best; src/bespoke/select.ts weighs the mark, it does not obey it.
+ * Shown whenever the build will draw bespoke scenes (`bespokeFor`: v2, unless
+ * `--no-bespoke`). The planner may mark beats; src/bespoke/select.ts weighs a
+ * `true` and obeys a `false`.
  */
 const BESPOKE_HINT = `
 
 BESPOKE SCENES
 
-Set \`bespoke: true\` on the four to six beats that explain a MECHANISM — a
-process that runs, an equation whose terms act, a curve that moves, a
-comparison that is a distance — and that the narration talks over for a while.
-Those beats get a custom animation drawn for them; everything else keeps its
-archetype. Set \`bespoke: false\` on a beat whose archetype must stay (a real
-figure the viewer must see). Leave it null otherwise.`;
+Every beat gets a custom animated scene drawn for it; its archetype is only the
+fallback when that scene fails its checks. Set \`bespoke: false\` on a beat whose
+archetype must stay (a real figure the viewer must see, a table that must be
+read row by row). Set \`bespoke: true\` on the beats that explain a MECHANISM —
+a process that runs, an equation whose terms act, a curve that moves, a
+comparison that is a distance: when the call budget cannot pay for every beat,
+those are drawn first. Leave it null otherwise.`;
 
 /**
  * The rules, then the preferences the person asking for the deck chose. They go
@@ -689,7 +828,7 @@ export function systemPrompt(prefs: Prefs): string {
   // what it can be is honest, which is why the LENGTH block below now says the
   // budget is restruck on whatever comes back.
   const plan = durationPlan(prefs);
-  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images) : ""}${prefs.bespoke?.enabled ? BESPOKE_HINT : ""}
+  return `${rules(cadenceFor(prefs, plan))}${paperArcRequested(prefs) ? paperArc(prefs.slides) : ""}${prefs.images.enabled ? illustrations(prefs.images, prefs.design) : ""}${bespokeFor(prefs, designFor(prefs)) ? BESPOKE_HINT : ""}
 
 PREFERENCES — chosen by the person who asked for this deck.
 ${
@@ -802,7 +941,7 @@ export function renderSource(source: Source): string {
 
   out.push("", "== FIGURES ==");
   if (!source.figures.length) {
-    out.push("(none — no annotated-figure or claim-figure beat is possible)");
+    out.push("(none — no annotated-figure, claim-figure or stage beat is possible)");
   } else {
     const n = source.figures.length;
     // The count as a fact, said once. What to DO about a figure is RULE 2's job;
@@ -841,10 +980,16 @@ export function renderSource(source: Source): string {
       // MARKED WHERE THE ID IS. The model scans this list for something to cite,
       // and a fact that changes whether the beat can be spent belongs on the
       // line it stops at rather than under it. An image's line is unchanged.
+      // A PIECE is an animation only claim-figure and stage can draw; every other figure
+      // archetype refuses it, so the line says so where the id is — and so are
+      // the two things `build` refuses a planned beat for: a beat shorter than
+      // the piece plays (`pieceBeatSeconds`), and a second piece in one deck.
       const size =
         f.kind === "clip"
           ? `CLIP ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`}`
-          : `${f.width}x${f.height}`;
+          : f.kind === "piece"
+            ? `ANIMATION ${f.width}x${f.height}${f.seconds === undefined ? "" : `, ${Math.round(f.seconds * 10) / 10}s`} — claim-figure or stage only${f.seconds === undefined ? "" : `, in a beat of at least ${pieceBeatSeconds(f.seconds)} seconds`}; a deck shows one animation`
+            : `${f.width}x${f.height}`;
       out.push("", `[figure ${f.id}] ${size} — ${f.caption}`);
       // The video we do not hold. Said next to the id because it is the one
       // property of this figure that no later line can repair: the beat can

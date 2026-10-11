@@ -5,7 +5,7 @@
 // consumer without one. esbuild directly rather than a build framework — there
 // is no fifth case coming.
 import { execFileSync } from "node:child_process";
-import { access, copyFile, rename, rm } from "node:fs/promises";
+import { access, copyFile, cp, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 
@@ -97,6 +97,21 @@ await build({
   minify: true,
 });
 
+// The animate piece's runtime and plugin, same shape and for the same reason as
+// the morph's. And the vendored animate kit it runs, copied — not bundled —
+// because src/build/piece.ts reads it as TEXT, from `./animate/` beside the
+// bundle, to assemble each piece's script. LICENSE and NOTICE travel with it.
+await build({
+  ...shared,
+  entryPoints: ["src/emit/animate-runtime.ts"],
+  outfile: "dist/ds-animate.js",
+  platform: "browser",
+  target: "es2022",
+  format: "iife",
+  minify: true,
+});
+await cp("src/build/animate", "dist/animate", { recursive: true });
+
 // Declarations. tsconfig.json is noEmit and includes test/ — it exists to gate,
 // not to build — so override it on the command line rather than fork a second
 // config that would drift from it. Because test/ is in the input set, tsc puts
@@ -150,6 +165,9 @@ const promised = {
   main,
   types,
   "ds-morph": "dist/ds-morph.js",
+  "ds-animate": "dist/ds-animate.js",
+  "animate-kit": "dist/animate/core.js",
+  "animate-license": "dist/animate/LICENSE",
   "deck-runtime": "dist/deck-runtime.js",
   "deck-player": "dist/deck-player.js",
   "deck-player-element": "dist/deck-player-element.js",

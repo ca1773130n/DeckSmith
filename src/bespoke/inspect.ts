@@ -27,6 +27,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import { decodePng, type Frame } from "../verify/fidelity.js";
 
 /** A subject's box as a share of the picture: x, y, w, h in 0..1. */
@@ -296,7 +297,7 @@ for path in CommandLine.arguments.dropFirst() {
 }
 `;
 
-function exec(bin: string, args: string[], timeoutMs: number): Promise<string> {
+export function exec(bin: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, out) =>
       err ? reject(err) : resolve(out),
@@ -308,15 +309,15 @@ function exec(bin: string, args: string[], timeoutMs: number): Promise<string> {
 const compiling = new Map<string, Promise<string>>();
 
 /**
- * The compiled helper, `<dir>/ocr-<hash of its source>`, compiled on first use
- * (MEASURED ~25s once; then ~0.5s a picture). Rejects with the reason when this
- * machine cannot build it — no macOS, no Swift toolchain.
+ * A compiled Swift helper, `<dir>/<name>-<hash of its source>`, compiled on
+ * first use (MEASURED ~25s once; then ~0.5s a picture). Rejects with the
+ * reason when this machine cannot build it — no macOS, no Swift toolchain.
  */
-function ocrBinary(dir: string): Promise<string> {
+export function swiftBinary(name: string, source: string, dir: string): Promise<string> {
   if (process.platform !== "darwin")
-    return Promise.reject(new Error("no text reader off macOS (Vision)"));
-  const hash = createHash("sha256").update(OCR_SWIFT).digest("hex").slice(0, 12);
-  const bin = join(dir, `ocr-${hash}`);
+    return Promise.reject(new Error(`no ${name} helper off macOS (Vision)`));
+  const hash = createHash("sha256").update(source).digest("hex").slice(0, 12);
+  const bin = join(dir, `${name}-${hash}`);
   let p = compiling.get(bin);
   if (!p) {
     p = (async () => {
@@ -330,7 +331,7 @@ function ocrBinary(dir: string): Promise<string> {
       await mkdir(dir, { recursive: true });
       const tmp = `${bin}.${process.pid}.tmp`;
       const src = `${tmp}.swift`;
-      await writeFile(src, OCR_SWIFT);
+      await writeFile(src, source);
       await exec("swiftc", ["-O", src, "-o", tmp], 300_000);
       await rename(tmp, bin);
       return bin;
@@ -340,6 +341,10 @@ function ocrBinary(dir: string): Promise<string> {
     p.catch(() => compiling.delete(bin));
   }
   return p;
+}
+
+function ocrBinary(dir: string): Promise<string> {
+  return swiftBinary("ocr", OCR_SWIFT, dir);
 }
 
 /** The writing in a picture; rejects (with why) when nothing here can read it. */
@@ -358,16 +363,39 @@ export interface Inspection {
   /** Writing found, or null when no reader was available (`unread` says why). */
   text: string[] | null;
   unread?: string;
+  /** The picture has a transparent ground (a subjects layer for a backdrop). */
+  cutout?: boolean;
+  /** The flattened copy the reader read, when the picture is a cutout. */
+  flatFile?: string;
 }
 
+/**
+ * Inspect a drawn picture. A subjects layer drawn on a transparent ground
+ * (round 5) is inspected as it will be seen against the pack's ground: laid
+ * on `ground` first, and the text reader reads that flattened copy, written
+ * beside `file` as `<file>.flat.png` (Vision reads a transparent pixel as
+ * black, which would hide dark writing).
+ */
 export async function inspectPicture(
   bytes: Buffer,
   file: string,
   toolDir: string,
+  ground?: readonly [number, number, number],
 ): Promise<Inspection> {
-  const frame = await decodePng(bytes);
-  const ground = groundOf(frame);
-  const base = { subjects: subjectBoxes(frame, ground), flat: flatness(frame, ground) };
+  const raw = await decodePng(bytes);
+  const cutout = raw.channels === 4 && transparentShare(raw) > 0.05;
+  const frame = cutout ? flattenOn(raw, ground ?? [255, 255, 255]) : raw;
+  if (cutout) {
+    file = `${file}.flat.png`;
+    await writeFile(file, encodePng(frame));
+  }
+  const groundRgb: [number, number, number] =
+    cutout && ground ? [ground[0], ground[1], ground[2]] : groundOf(frame);
+  const base = {
+    subjects: subjectBoxes(frame, groundRgb),
+    flat: flatness(frame, groundRgb),
+    ...(cutout ? { cutout: true, flatFile: file } : {}),
+  };
   try {
     const read = await readText(file, toolDir);
     return { ...base, text: read.filter(isWriting).map((t) => t.s) };
@@ -378,4 +406,127 @@ export async function inspectPicture(
       unread: (err instanceof Error ? err.message : String(err)).split("\n")[0]?.slice(0, 200),
     };
   }
+}
+
+/* ------------------------------------------------------- layers and pixels */
+
+/** "#rrggbb" (or "#rgb") as RGB; mid grey for anything else. */
+export function hexRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [128, 128, 128];
+  const h =
+    (m[1] as string).length === 3
+      ? [...(m[1] as string)].map((c) => c + c).join("")
+      : (m[1] as string);
+  return [0, 2, 4].map((i) => Number.parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+}
+
+/** Share of an RGBA picture's pixels that are (nearly) transparent, sampled. */
+export function transparentShare(f: Frame): number {
+  if (f.channels !== 4) return 0;
+  let n = 0;
+  let clear = 0;
+  for (let i = 3; i < f.pixels.length; i += 4 * 7) {
+    n++;
+    if ((f.pixels[i] as number) < 16) clear++;
+  }
+  return n ? clear / n : 0;
+}
+
+/** An RGBA picture laid over a flat ground, as RGB. */
+export function flattenOn(f: Frame, ground: readonly number[]): Frame {
+  if (f.channels !== 4) return f;
+  const out = new Uint8Array(f.width * f.height * 3);
+  for (let i = 0, j = 0; i < f.pixels.length; i += 4, j += 3) {
+    const a = (f.pixels[i + 3] as number) / 255;
+    for (let k = 0; k < 3; k++)
+      out[j + k] = Math.round((f.pixels[i + k] as number) * a + (ground[k] as number) * (1 - a));
+  }
+  return { width: f.width, height: f.height, channels: 3, pixels: out };
+}
+
+/** A minimal PNG encoder (8-bit RGB or RGBA, filter 0): the repository decodes PNGs, and the text reader needs one written. */
+export function encodePng(f: Frame): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(td) >>> 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(f.width, 0);
+  ihdr.writeUInt32BE(f.height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = f.channels === 4 ? 6 : 2;
+  const stride = f.width * f.channels;
+  const raw = Buffer.alloc((stride + 1) * f.height);
+  for (let y = 0; y < f.height; y++)
+    Buffer.from(f.pixels.buffer, f.pixels.byteOffset + y * stride, stride).copy(
+      raw,
+      y * (stride + 1) + 1,
+    );
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw, { level: 6 })),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/* -------------------------------------------------------------- repetition */
+
+/**
+ * The Swift helper for REPETITION across a deck's pictures: Vision's image
+ * feature print (`VNGenerateImageFeaturePrintRequest`), a learned embedding of
+ * what a picture shows, local and free. Prints one JSON line per file with the
+ * print as a float array. Two pictures of the same friendly robot sit close
+ * whatever their colours; two different scenes sit far apart (calibration in
+ * `SIMILAR_MAX`).
+ */
+export const PRINT_SWIFT = `import Foundation
+import Vision
+import ImageIO
+for path in CommandLine.arguments.dropFirst() {
+  guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+        let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+    print("{\\"error\\":\\"unreadable\\"}"); continue
+  }
+  let req = VNGenerateImageFeaturePrintRequest()
+  try? VNImageRequestHandler(cgImage: img, options: [:]).perform([req])
+  guard let o = req.results?.first as? VNFeaturePrintObservation else {
+    print("{\\"error\\":\\"no print\\"}"); continue
+  }
+  var v = [Float](repeating: 0, count: o.elementCount)
+  o.data.withUnsafeBytes { raw in
+    let p = raw.bindMemory(to: Float.self)
+    for i in 0..<min(o.elementCount, p.count) { v[i] = p[i] }
+  }
+  let data = try! JSONSerialization.data(withJSONObject: ["v": v.map { Double($0) }])
+  print(String(data: data, encoding: .utf8)!)
+}
+`;
+
+/** Each picture's feature print; rejects when this machine has no Vision. */
+export async function featurePrints(pngs: readonly string[], toolDir: string): Promise<number[][]> {
+  if (!pngs.length) return [];
+  const bin = await swiftBinary("print", PRINT_SWIFT, toolDir);
+  const out = await exec(bin, [...pngs], 120_000);
+  return out
+    .trim()
+    .split("\n")
+    .map((l) => {
+      const j = JSON.parse(l) as { v?: number[]; error?: string };
+      if (!j.v) throw new Error(`no feature print: ${j.error ?? "?"}`);
+      return j.v;
+    });
+}
+
+/** Vision's distance between two prints (Euclidean, as `computeDistance`). */
+export function printDistance(a: readonly number[], b: readonly number[]): number {
+  let s = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++)
+    s += ((a[i] as number) - (b[i] as number)) ** 2;
+  return Math.round(Math.sqrt(s) * 1000) / 1000;
 }

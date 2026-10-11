@@ -26,15 +26,14 @@
  *    this module) all still agree. Emphasis lives strictly inside a hold window
  *    and is back at rest before the window closes, so every frame a gate
  *    captures at a hold is the frame v0.8.0 would have captured there.
- * 4. Up, never down. Emphasis grows a part (`LIFT`) and never shrinks one: the
- *    type floor reads declared sizes, so a part scaled below 1 at a hold would
- *    pass at a size it is not drawn at.
+ * 4. Nothing is scaled. Emphasis is light (`glow`), so the type floor's declared
+ *    sizes are the drawn ones at every hold.
  *
  * INTERFACE, for the other v2 tracks (player, fit, style, layout):
  *
- * - `planMotion(seed, beats)` → which entrance verb each scene uses, which seam
- *   joins each pair, and the order emphasis kinds are tried in. A style pack
- *   that wants to bias the grammar should filter `ENTRANCES`/`SEAMS` before
+ * - `planMotion(seed, beats)` → which entrance verb each scene uses (a fade),
+ *   which seam joins each pair, and the order emphasis kinds are tried in. A
+ *   style pack that wants to bias the grammar should filter `SEAMS` before
  *   calling it rather than post-edit its answer, so the no-repeat rules still
  *   hold.
  * - `restyleEntrance(scene, sid, verb)` rewrites an emitted scene's own
@@ -50,31 +49,25 @@
 import type { Archetype, BeatRole } from "../types.js";
 import { ARCHETYPE_FAMILY } from "../types.js";
 import { handoffStatement } from "./camera.js";
-import { fromTo, LIFT, type Scene, type Tween, type Vars } from "./kit.js";
+import { fromTo, type Scene, type Tween, type Vars } from "./kit.js";
 
 /* ------------------------------------------------------------- vocabulary */
 
 /**
- * How a scene's parts arrive. Six, so the no-repeat rule always has at least
- * four to choose from after excluding the previous scene's verb and a capped
- * `rise`.
+ * How a scene's parts arrive: ONE verb, a quiet opacity fade, in place.
  *
- * | verb  | what moves                                   | ease          |
- * |-------|----------------------------------------------|---------------|
- * | rise  | fade up from below (v0.8.0's, kept, capped)  | power3.out    |
- * | slide | in from the reading side                     | expo.out      |
- * | snap  | scale up from 0.9 with a small overshoot     | back.out(1.7) |
- * | focus | out of a blur (HTML) / short rise (SVG)      | circ.out      |
- * | wipe  | clip-path opens left to right (HTML)         | power4.inOut  |
- * | mask  | clip-path opens bottom-up while rising (HTML)| power4.out    |
- *
- * `focus`, `wipe` and `mask` touch `filter`/`clip-path`, which are only applied
- * to HTML elements this module can SEE are HTML (an id whose tag it read in the
- * scene's markup). An SVG part or a class selector gets the verb's transform
- * fallback instead, because clip-path on an SVG child clips against a reference
- * box nobody measured.
+ * There were six — rise, slide, snap (a pop from 0.9 with overshoot), focus
+ * (out of a blur), wipe and mask (clip-path sweeps) — hashed per scene so no
+ * two adjacent scenes arrived alike. The founder's verdict on the result
+ * (2026-10-10): "graphic animation by animated UI elements is old-fashioned".
+ * Plates, chips, cards and labels sliding, popping or being swept in WERE the
+ * motion, and that is the thing he named. So a v2 archetype's parts now simply
+ * appear, and what moves is the picture: the backdrop's drift and the camera
+ * (src/emit/backdrop.ts, src/emit/camera.ts), the seams between scenes, and
+ * things inside a figure that are its content (a probe travelling a curve, a
+ * pulse travelling a pipeline). Those are not entrances and are never touched.
  */
-export const ENTRANCES = ["rise", "slide", "snap", "focus", "wipe", "mask"] as const;
+export const ENTRANCES = ["fade"] as const;
 export type Entrance = (typeof ENTRANCES)[number];
 
 /**
@@ -86,28 +79,38 @@ export type Entrance = (typeof ENTRANCES)[number];
  * | dissolve | opacity → 0, power2.in (v0.8.0)  | —                      |
  * | push     | xPercent 0 → −4, opacity → 0     | xPercent 4 → 0         |
  * | lift     | yPercent 0 → −4, opacity → 0     | yPercent 4 → 0         |
- * | wipe     | clip-path closes left to right   | —                      |
  * | zoom     | scale 1 → 1.04, opacity → 0      | scale 0.96 → 1         |
+ *
+ * There was a fifth, `wipe`: a clip-path closing left to right. It was cut
+ * (2026-10-10) because a hard edge sweeping a whole slide is a graphic, not a
+ * picture: at 4fps the r3 deck showed it as half a robot and a lone chip on an
+ * empty slide (s4→s5), a bare blue rectangle (s8→s9). Every seam left is a
+ * fade the eye reads as a cut or a camera move.
+ *
+ * Each seam also clears the outgoing scene's TYPE first (`chromeOut`), so two
+ * headlines are never on screen together.
  *
  * 4% is under the scene's own padding at every format (110px of 1920 is 5.7%,
  * 84px of 1080 is 7.8%), so a mid-seam frame never puts content off the canvas
  * for the layout gate's grid samples to find.
  */
-export const SEAMS = ["dissolve", "push", "lift", "wipe", "zoom"] as const;
+export const SEAMS = ["dissolve", "push", "lift", "zoom"] as const;
 export type Seam = (typeof SEAMS)[number] | "dive";
 
-/** What moves while the narrator talks about a part: grow, glow, underline. */
-export const EMPHASES = ["pulse", "glow", "underline"] as const;
+/**
+ * What moves while the narrator talks about a part: light, and only light. A
+ * `pulse` (the part scaled up and back) and an `underline` (a rule faded in
+ * under it) were the other two, and both are a UI element doing a move — the
+ * thing the founder called old-fashioned (2026-10-10). A glow is the part being
+ * lit, which is something a picture does.
+ */
+export const EMPHASES = ["glow"] as const;
 export type Emphasis = (typeof EMPHASES)[number];
 
 /** Every ease this module writes. A test pins that nothing else appears. */
 export const MOTION_EASES = [
   "power3.out",
   "expo.out",
-  "back.out(1.7)",
-  "circ.out",
-  "power4.inOut",
-  "power4.out",
   "power2.in",
   "power2.inOut",
   "sine.out",
@@ -147,23 +150,15 @@ export interface MotionPlan {
 }
 
 /**
- * At most this share of a deck's scenes open with `rise`, the one verb that
- * reads as v0.8.0's stock fade-up. The plan's target is "modal entrance ≤ 40%".
- */
-export const RISE_SHARE = 0.25;
-
-/**
  * The deck's motion, decided once for the whole storyboard.
  *
- * ENTRANCES: each beat hashes into the verbs still allowed to it — never the
- * previous beat's, and `rise` only while under `RISE_SHARE`. Hash-then-filter
- * rather than a rotation so two decks with the same archetype sequence still
- * move differently, which is the cross-deck sameness the critic flagged.
+ * ENTRANCES: every beat fades (`ENTRANCES`). Variety between scenes is the
+ * seams' and the pictures' job now, not the parts'.
  *
  * SEAMS are chosen by the RELATION between the two beats first, then varied:
  * same family (two quantity beats) → `push`, a lateral continuation; a role
  * boundary (`background` → `limitations`) → `zoom`, a chapter break; into or
- * out of a title → `lift`; any other family change → `wipe`; into the closing
+ * out of a title → `lift`; any other family change → `zoom` or `dissolve`; into the closing
  * beat → `dissolve`. A seam that would repeat the previous one is replaced by a
  * hashed pick from the rest. Then, for a deck of 10+ beats with fewer than three
  * kinds, the earliest replaceable seams are rotated through the missing kinds.
@@ -171,16 +166,7 @@ export const RISE_SHARE = 0.25;
  */
 export function planMotion(seed: string, beats: readonly MotionBeat[]): MotionPlan {
   const n = beats.length;
-  const entrances: Entrance[] = [];
-  const riseCap = Math.floor(n * RISE_SHARE);
-  let rises = 0;
-  for (const [i, beat] of beats.entries()) {
-    const prev = entrances[i - 1];
-    const allowed = ENTRANCES.filter((v) => v !== prev && (v !== "rise" || rises < riseCap));
-    const pick = allowed[fnv1a(`${seed}|enter|${beat.id}|${i}`) % allowed.length] as Entrance;
-    if (pick === "rise") rises++;
-    entrances.push(pick);
-  }
+  const entrances: Entrance[] = beats.map(() => "fade");
 
   const seams: Seam[] = [];
   for (let i = 0; i + 1 < n; i++) {
@@ -198,8 +184,8 @@ export function planMotion(seed: string, beats: readonly MotionBeat[]): MotionPl
     else {
       // A change of family is the common case (most adjacent pairs), so a single
       // answer for it would make that seam the deck's modal one. Hashed among the
-      // three that read as "a new kind of thing" rather than a continuation.
-      const turn = ["wipe", "zoom", "dissolve"] as const;
+      // two that read as "a new kind of thing" rather than a continuation.
+      const turn = ["zoom", "dissolve"] as const;
       want = turn[fnv1a(`${seed}|turn|${b.id}|${i}`) % turn.length] as Seam;
     }
     const prev = seams[i - 1];
@@ -211,10 +197,7 @@ export function planMotion(seed: string, beats: readonly MotionBeat[]): MotionPl
   }
   if (n >= 10) ensureSeamKinds(seams, 3);
 
-  const emphases = beats.map((beat, i) => {
-    const start = fnv1a(`${seed}|emph|${beat.id}|${i}`) % EMPHASES.length;
-    return EMPHASES.map((_, k) => EMPHASES[(start + k) % EMPHASES.length] as Emphasis);
-  });
+  const emphases = beats.map((): Emphasis[] => [...EMPHASES]);
   return { entrances, seams, emphases };
 }
 
@@ -241,50 +224,24 @@ export function ensureSeamKinds(seams: Seam[], want: number): void {
 
 /* ------------------------------------------------------------- entrances */
 
-const ENTRANCE_KEYS = new Set(["opacity", "x", "y", "scale", "svgOrigin", "transformOrigin"]);
-const HTML_TAGS = new Set([
-  "div",
-  "p",
-  "h1",
-  "h2",
-  "h3",
-  "span",
-  "li",
-  "ul",
-  "ol",
-  "figure",
-  "figcaption",
-  "img",
-  "section",
-  "blockquote",
-  "table",
-]);
+/** Every transform an entrance may have arrived with; a fade keeps none of them. */
+const TRAVEL = ["x", "y", "scale", "scaleX", "scaleY", "svgOrigin", "transformOrigin"] as const;
+const ENTRANCE_KEYS = new Set<string>(["opacity", ...TRAVEL]);
 
 /**
  * A tween this module may restyle: an opacity 0 → 1 reveal whose `from` only
- * moves opacity and position/scale, rendered immediately (the element's own
- * first appearance). Dims, restores, draw-ons, pulses and anything with
- * `immediateRender: false` are someone else's and stay exactly as emitted.
+ * moves opacity and position/scale. Dims, restores, draw-ons and colour turns
+ * are someone else's and stay exactly as emitted.
+ *
+ * `immediateRender: false` reveals COUNT. They used to be skipped as "someone
+ * else's", and they are mostly a panel's lines or a card's words staggering in
+ * after their card — the same sliding-in the founder objected to, one level
+ * down. A fade only removes keys, so it cannot become a second writer of
+ * anything the tween did not already write.
  */
 export function isEntrance(t: Tween): boolean {
   if (t.from.opacity !== 0 || t.to.opacity !== 1) return false;
-  if (t.to.immediateRender === false) return false;
   return Object.keys(t.from).every((k) => ENTRANCE_KEYS.has(k));
-}
-
-/** The tag of the element an `#id` selector names in this markup, if it is one. */
-export function tagOf(html: string, target: string): string | undefined {
-  const m = /^#([\w-]+)$/.exec(target.trim());
-  if (!m) return undefined;
-  const re = new RegExp(`<([a-zA-Z][\\w-]*)\\b[^>]*\\bid="${m[1]}"`);
-  return re.exec(html)?.[1]?.toLowerCase();
-}
-
-/** HTML we can see: an id whose tag we read, or the `words()` spans (`… .w`). */
-function isHtml(html: string, target: string): boolean {
-  if (/\s\.w$/.test(target.trim())) return true;
-  const tag = tagOf(html, target);
-  return tag !== undefined && HTML_TAGS.has(tag);
 }
 
 function without(v: Vars, keys: readonly string[]): Record<string, Vars[string]> {
@@ -300,6 +257,7 @@ const num = (v: unknown, d = 0): number => (typeof v === "number" ? v : d);
  * untouched (rule 3 at the top), so this cannot move a hold or the voice.
  */
 export function restyleEntrance(scene: Scene, sid: string, verb: Entrance): Scene {
+  if (scene.ownEntrances) return scene;
   const tl = scene.tl.map((t) => {
     if (!isEntrance(t)) return t;
     const mine = targetsOf(t);
@@ -309,19 +267,21 @@ export function restyleEntrance(scene: Scene, sid: string, verb: Entrance): Scen
     // its meaning; leave it exactly as drawn.
     if (others.some((o) => o.to.opacity === 0)) return t;
     const chrome = t.target === `#${sid}-e` || t.target === `#${sid}-h`;
-    if (chrome) return clearOfSeam(revoice(t, verb, true));
-    const out = revoice(t, verb, isHtml(scene.html, t.target));
-    // Never become a second writer of a property another tween on this part
-    // already drives (the pulse's `x` travel, a later `lift`'s scale): that is
-    // `overlapping_gsap_tweens`, and a jump at the seam between the two. Such a
-    // part keeps its own path and takes only the verb's ease.
-    const written = new Set(others.flatMap((o) => Object.keys(o.to)));
-    const introduced = Object.keys(out.from).filter((k) => !(k in t.from));
-    if (introduced.some((k) => written.has(k))) {
-      return { ...t, to: { ...t.to, ease: VERB_EASE[verb] } };
-    }
-    return out;
+    return chrome ? clearOfSeam(revoice(t, verb)) : revoice(t, verb);
   });
+  return { ...scene, tl };
+}
+
+/**
+ * `restyleEntrance` for the CHROME alone: the eyebrow and headline the shell
+ * draws around a bespoke scene with the stock `chromeIn` (src/bespoke/scene.ts).
+ * The scene's own tweens are its author's and are left exactly as written; the
+ * chrome is ours, and unrestyled it slid up from y:14/22 starting at 0.15s,
+ * straight over the outgoing scene's headline (r3, s13→s14).
+ */
+export function restyleChrome(scene: Scene, sid: string, verb: Entrance): Scene {
+  const chrome = (t: Tween) => t.target === `#${sid}-e` || t.target === `#${sid}-h`;
+  const tl = scene.tl.map((t) => (chrome(t) && isEntrance(t) ? clearOfSeam(revoice(t, verb)) : t));
   return { ...scene, tl };
 }
 
@@ -348,78 +308,19 @@ function clearOfSeam(t: Tween): Tween {
 
 /** Each verb's ease — also what a part that cannot take the verb's path still gets. */
 const VERB_EASE: Readonly<Record<Entrance, string>> = {
-  rise: "power3.out",
-  slide: "expo.out",
-  snap: "back.out(1.7)",
-  focus: "circ.out",
-  wipe: "power4.inOut",
-  mask: "power4.out",
+  fade: "sine.out",
 };
 
-/** One entrance tween in `verb`. `html`: the target is an element we know is HTML. */
-function revoice(t: Tween, verb: Entrance, html: boolean): Tween {
-  const origin = t.from.svgOrigin !== undefined || t.from.transformOrigin !== undefined;
-  const keep = without(t.from, ["x", "y", "scale"]);
-  const to = without(t.to, ["x", "y", "scale", "ease"]);
-  const ox = num(t.from.x);
-  const oy = num(t.from.y);
-  const travel = Math.max(Math.abs(ox), Math.abs(oy), 16);
-  // Only properties the original moved come back to rest in `to`, plus the
-  // ones this verb adds. A `to` naming a property its `from` does not would
-  // be a second writer of that property for no reason.
-  const rest = (props: Vars): Vars => ({ ...to, ...props });
-  switch (verb) {
-    case "rise":
-      return { ...t, from: { ...keep, y: oy || 22 }, to: rest({ y: 0, ease: "power3.out" }) };
-    case "slide": {
-      // Keep a part's own side (split-compare's right column enters from the
-      // right); everything else comes from the reading side.
-      const dir = ox > 0 ? 1 : -1;
-      const dx = Math.min(72, Math.round(travel * 2));
-      return { ...t, from: { ...keep, x: dir * dx }, to: rest({ x: 0, ease: "expo.out" }) };
-    }
-    case "snap":
-      if (html || origin) {
-        const s = Math.min(num(t.from.scale, 1), 0.9);
-        return {
-          ...t,
-          from: { ...keep, scale: s },
-          to: rest({ scale: 1, ease: "back.out(1.7)" }),
-        };
-      }
-      return { ...t, from: { ...keep, y: 16 }, to: rest({ y: 0, ease: "back.out(1.7)" }) };
-    case "focus":
-      if (html && /^#[\w-]+$/.test(t.target)) {
-        return {
-          ...t,
-          from: { ...keep, filter: "blur(12px)" },
-          to: rest({ filter: "blur(0px)", ease: "circ.out" }),
-        };
-      }
-      return {
-        ...t,
-        from: { ...keep, y: Math.round(travel / 2) },
-        to: rest({ y: 0, ease: "circ.out" }),
-      };
-    case "wipe":
-      if (html && /^#[\w-]+$/.test(t.target)) {
-        return {
-          ...t,
-          from: { ...keep, clipPath: "inset(0% 100% 0% 0%)" },
-          to: rest({ clipPath: "inset(0% 0% 0% 0%)", ease: "power4.inOut" }),
-        };
-      }
-      return { ...t, from: { ...keep, x: -20 }, to: rest({ x: 0, ease: "power4.inOut" }) };
-    case "mask":
-      if (html && /^#[\w-]+$/.test(t.target)) {
-        return {
-          ...t,
-          from: { ...keep, y: 28, clipPath: "inset(100% 0% 0% 0%)" },
-          to: rest({ y: 0, clipPath: "inset(0% 0% 0% 0%)", ease: "power4.out" }),
-        };
-      }
-      return { ...t, from: { ...keep, y: 28 }, to: rest({ y: 0, ease: "power4.out" }) };
-  }
+/**
+ * One entrance tween in `verb`: the same opacity reveal at the same time and
+ * length, with no travel, no scale and no overshoot.
+ */
+function revoice(t: Tween, verb: Entrance): Tween {
+  return {
+    ...t,
+    from: without(t.from, TRAVEL),
+    to: { ...without(t.to, [...TRAVEL, "ease"]), ease: VERB_EASE[verb] },
+  };
 }
 
 /* ------------------------------------------------------------------ seams */
@@ -452,21 +353,43 @@ export function seamOut(
       return [fromTo(root, { opacity: 1, yPercent: 0 }, { opacity: 0, yPercent: -4, ...done }, t0)];
     case "zoom":
       return [fromTo(root, { opacity: 1, scale: 1 }, { opacity: 0, scale: 1.04, ...done }, t0)];
-    case "wipe":
-      return [
-        fromTo(
-          root,
-          { clipPath: "inset(0% 0% 0% 0%)" },
-          {
-            clipPath: "inset(0% 0% 0% 100%)",
-            duration: d,
-            ease: "power2.inOut",
-            immediateRender: false,
-          },
-          t0,
-        ),
-      ];
   }
+}
+
+/**
+ * The share of a handoff the outgoing scene's TYPE takes to fade out. Its
+ * eyebrow and headline are gone by `CHROME_OUT * over` (0.16s of 0.4), well
+ * before the incoming chrome may start at `SEAM_CLEAR` (0.3), so the two
+ * headlines never share a frame. The picture keeps the whole `over` to
+ * dissolve under the next scene.
+ *
+ * WHY. The root fade alone left the outgoing headline at 23-75% while the
+ * incoming one came up at the same place: r3's s12→s13 and s13→s14 seams
+ * showed both headlines and both eyebrows overprinted for about two frames at
+ * 4fps. `power2.in` on the root holds the old type high exactly when the new
+ * type arrives, so no ease on the root alone can fix it.
+ */
+export const CHROME_OUT = 0.4;
+
+/**
+ * The outgoing half of a seam for the scene's own type: `#sid-e` and
+ * `#sid-h`, whichever of them `html` draws (a title-less scene draws no
+ * eyebrow, and a tween on an absent id is a GSAP warning). `immediateRender:
+ * false`, so it never paints at build time over the chrome's own entrance.
+ */
+export function chromeOut(sid: string, html: string, at: number, over: number): Tween[] {
+  const d = r3(over * CHROME_OUT);
+  if (d <= 0) return [];
+  return ["e", "h"]
+    .filter((p) => html.includes(`id="${sid}-${p}"`))
+    .map((p) =>
+      fromTo(
+        `#${sid}-${p}`,
+        { opacity: 1 },
+        { opacity: 0, duration: d, ease: "sine.inOut", immediateRender: false },
+        r3(at),
+      ),
+    );
 }
 
 /**
@@ -591,7 +514,6 @@ function free(
 /** The tween-level shape of one emphasis on `target` at `t`, or undefined if it does not fit. */
 function emphasisTweens(
   kind: Emphasis,
-  scene: Scene,
   tl: readonly Tween[],
   target: string,
   t: number,
@@ -602,31 +524,6 @@ function emphasisTweens(
   const at = r3(t);
   const quiet = { immediateRender: false };
   switch (kind) {
-    case "pulse": {
-      // SVG needs the origin its entrance named, in BOTH halves (kit.ts `lift`).
-      const entrance = tl.find((x) => targetsOf(x).includes(target) && isEntrance(x));
-      const origin: Vars =
-        entrance?.from.svgOrigin !== undefined ? { svgOrigin: entrance.from.svgOrigin } : {};
-      const svg = !isHtml(scene.html, target);
-      if (svg && origin.svgOrigin === undefined) return undefined;
-      if (!free(tl, target, "scale", 1, t, t1)) return undefined;
-      return {
-        tl: [
-          fromTo(
-            target,
-            { scale: 1, ...origin },
-            { scale: LIFT, ...origin, duration: EMPH_UP, ease: "sine.out", ...quiet },
-            at,
-          ),
-          fromTo(
-            target,
-            { scale: LIFT, ...origin },
-            { scale: 1, ...origin, duration: EMPH_DOWN, ease: "sine.inOut", ...quiet },
-            down,
-          ),
-        ],
-      };
-    }
     case "glow": {
       const off = rgba(accent, 0);
       const on = rgba(accent, 0.85);
@@ -645,37 +542,6 @@ function emphasisTweens(
             target,
             { filter: shadow(18, on) },
             { filter: shadow(0, off), duration: EMPH_DOWN, ease: "sine.inOut", ...quiet },
-            down,
-          ),
-        ],
-      };
-    }
-    case "underline": {
-      // A leaf HTML text element only: text-decoration does not reach into
-      // inline-block children, so on a word-split headline it would draw nothing.
-      const id = /^#([\w-]+)$/.exec(target)?.[1];
-      if (!id || !isHtml(scene.html, target)) return undefined;
-      const leaf = new RegExp(`\\bid="${id}"[^>]*>[^<]+</`).test(scene.html);
-      if (!leaf) return undefined;
-      const off = rgba(accent, 0);
-      const on = rgba(accent, 1);
-      if (!off || !on) return undefined;
-      if (!free(tl, target, "textDecorationColor", undefined, t, t1)) return undefined;
-      return {
-        // Invisible at rest: the line exists in every frame, transparent, so the
-        // tween only ever changes its colour and nothing reflows.
-        css: `${target}{text-decoration-line:underline;text-decoration-color:${off};text-decoration-thickness:.08em;text-underline-offset:.18em}`,
-        tl: [
-          fromTo(
-            target,
-            { textDecorationColor: off },
-            { textDecorationColor: on, duration: EMPH_UP, ease: "power2.inOut", ...quiet },
-            at,
-          ),
-          fromTo(
-            target,
-            { textDecorationColor: on },
-            { textDecorationColor: off, duration: EMPH_DOWN, ease: "sine.inOut", ...quiet },
             down,
           ),
         ],
@@ -752,7 +618,7 @@ export function emphasize(
       if (!room) continue;
       for (let q = 0; q < opts.kinds.length && !placed; q++) {
         const kind = opts.kinds[(turn + q) % opts.kinds.length] as Emphasis;
-        const got = emphasisTweens(kind, scene, tl, subject, b, opts.accent);
+        const got = emphasisTweens(kind, tl, subject, b, opts.accent);
         if (!got) continue;
         tl = [...tl, ...got.tl];
         if (got.css) css.push(got.css);

@@ -28,10 +28,12 @@
  * whoever reads the error instead of being buried in this file.
  */
 import type { Table } from "../../types.js";
+import { isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, esc, mathy, PAD_Y, spotlighter } from "../kit.js";
 import { faceOf, MIN_FONT, textWidth } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   BODY_SIZE,
   bodyBudget,
@@ -181,7 +183,9 @@ export const dataTable: Emitter<"data-table"> = (beat, ctx) => {
     return total + Math.max(head, ...body);
   }, 0);
   const channels = 2 * CELL_PAD * table.columns.length;
-  const cell = Math.max(MIN_FONT, Math.min(CELL_MAX, Math.floor((box - channels) / units)));
+  // v2: cells are body lines on the confirmed scale (`TYPE_SCALE`, 44px at most).
+  const cellMax = isV2(ctx) ? TYPE_SCALE.body : CELL_MAX;
+  const cell = Math.max(MIN_FONT, Math.min(cellMax, Math.floor((box - channels) / units)));
 
   // AND THE WIDTH IS REFUSED THE WAY THE HEIGHT IS, a few lines down.
   //

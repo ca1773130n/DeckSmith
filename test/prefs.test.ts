@@ -2,8 +2,15 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { schemaFor } from "../src/plan/codex.js";
 import { systemPrompt } from "../src/plan/prompt.js";
-import { CONFIG_FILE, loadPrefs, prefsFromFlags } from "../src/prefs.js";
+import {
+  bespokeFor,
+  CONFIG_FILE,
+  flagsFromOptions,
+  loadPrefs,
+  prefsFromFlags,
+} from "../src/prefs.js";
 import { prefsSchema, type Source } from "../src/types.js";
 
 const roots: string[] = [];
@@ -169,6 +176,62 @@ describe("prefsFromFlags", () => {
     expect((await loadPrefs({}, root)).design).toBeUndefined();
     expect((await loadPrefs(prefsFromFlags({ design: "v2" }), root)).design).toBe("v2");
     await expect(loadPrefs(prefsFromFlags({ design: "v3" }), root)).rejects.toThrow(/design/);
+  });
+});
+
+describe("bespokeFor", () => {
+  it("is on under v2 by default, off with --no-bespoke, and never under classic", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-bespokefor-"));
+    try {
+      const plain = await loadPrefs({}, dir);
+      expect(plain.bespoke).toBeUndefined(); // no defaulted block: manifests keep their bytes
+      const on = bespokeFor(plain, "v2");
+      expect(on?.prefs).toMatchObject({ maxCalls: 40, concurrency: 2, callSeconds: 600, art: 6 });
+      expect(bespokeFor(plain, "classic")).toBeUndefined();
+      const off = await loadPrefs(prefsFromFlags({ bespoke: false }), dir);
+      expect(bespokeFor(off, "v2")).toBeUndefined();
+      const asked = await loadPrefs(prefsFromFlags({ bespoke: true, bespokeCalls: 8 }), dir);
+      expect(bespokeFor(asked, "v2")).toMatchObject({ prefs: { maxCalls: 8 } });
+      expect(bespokeFor(asked, "classic")).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("flagsFromOptions", () => {
+  it("reads --no-bespoke as off, --bespoke as on, and neither as unstated", async () => {
+    // Commander: `--no-bespoke` sets bespoke=false; neither flag leaves it undefined.
+    expect(flagsFromOptions({ bespoke: false })).toEqual({ bespoke: false });
+    expect(flagsFromOptions({ bespoke: true })).toEqual({ bespoke: true });
+    expect(flagsFromOptions({})).toEqual({});
+    const dir = await mkdtemp(join(tmpdir(), "decksmith-flags-"));
+    try {
+      const off = await loadPrefs(prefsFromFlags(flagsFromOptions({ bespoke: false })), dir);
+      expect(bespokeFor(off, "v2")).toBeUndefined();
+      const unstated = await loadPrefs(prefsFromFlags(flagsFromOptions({})), dir);
+      expect(bespokeFor(unstated, "v2")).toBeDefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the planner under the v2 bespoke default", () => {
+  it("is shown the bespoke field and today's hint under v2, and neither under classic or --no-bespoke", () => {
+    const v2 = prefsSchema.parse({ design: "v2" });
+    const prompt = systemPrompt(v2);
+    expect(prompt).toContain("BESPOKE SCENES");
+    expect(prompt).toMatch(/Every beat gets a custom animated scene/);
+    expect(prompt).not.toMatch(/four to six beats/);
+    expect(JSON.stringify(schemaFor(v2))).toContain('"bespoke"');
+    for (const p of [
+      prefsSchema.parse({}),
+      prefsSchema.parse({ design: "v2", bespoke: { enabled: false } }),
+    ]) {
+      expect(systemPrompt(p)).not.toContain("BESPOKE SCENES");
+      expect(JSON.stringify(schemaFor(p))).not.toContain('"bespoke"');
+    }
   });
 });
 

@@ -17,10 +17,12 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { backdropOf } from "../emit/backdrop.js";
 import type { Prefs } from "../prefs.js";
 import { imageSize } from "../source/assets.js";
 import {
   type Figure,
+  GENERATED_FIGURE_PREFIX,
   type Illustration,
   type Source,
   type Storyboard,
@@ -66,6 +68,8 @@ interface Slot {
   beatId: string;
   figureId: string;
   aspect: ImageAspect;
+  /** Covers the frame (a stage, a backdrop) rather than sitting on a plate. */
+  bleed: boolean;
   brief: Illustration;
   /** Writes the id into the beat once the figure exists. */
   assign: (figureId: string) => void;
@@ -120,6 +124,7 @@ export async function illustrate(
       prompt: slot.brief.prompt,
       style: images.style,
       aspect: slot.aspect,
+      ...(slot.bleed ? { bleed: true } : {}),
       ...(images.model === undefined ? {} : { model: images.model }),
     };
     const live = rungs.filter((p) => !dropped.has(p.id));
@@ -177,14 +182,34 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
   const done = (id: string | undefined) => id !== undefined && known.has(id);
   const out: Slot[] = [];
   for (const beat of storyboard.beats) {
-    if (beat.archetype === "claim-figure") {
+    // A backdrop first: it is the scene the beat is set in, and the picture a
+    // reader sees first. Landscape, because it covers the frame.
+    const bd = backdropOf(beat);
+    if (bd?.illustration && !done(bd.figureId)) {
+      const brief = bd.illustration;
+      out.push({
+        label: `${beat.id} backdrop`,
+        beatId: beat.id,
+        figureId: `${GENERATED_FIGURE_PREFIX}${beat.id}-bd`,
+        aspect: "landscape",
+        bleed: true,
+        brief,
+        assign: (id) => {
+          bd.figureId = id;
+        },
+      });
+    }
+    if (beat.archetype === "claim-figure" || beat.archetype === "stage") {
+      // Landscape for a stage too: the format is not known here, and a stage
+      // cover-fits whatever it is given, warning when the crop is hard.
       const p = beat.params;
       if (p.illustration && !done(p.figureId)) {
         out.push({
           label: beat.id,
           beatId: beat.id,
-          figureId: `gen-${beat.id}`,
+          figureId: `${GENERATED_FIGURE_PREFIX}${beat.id}`,
           aspect: "landscape",
+          bleed: beat.archetype === "stage",
           brief: p.illustration,
           assign: (id) => {
             p.figureId = id;
@@ -198,8 +223,9 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
           out.push({
             label: `${beat.id} ${side}`,
             beatId: beat.id,
-            figureId: `gen-${beat.id}-${side}`,
+            figureId: `${GENERATED_FIGURE_PREFIX}${beat.id}-${side}`,
             aspect: "square",
+            bleed: false,
             brief: s.illustration,
             assign: (id) => {
               s.figureId = id;
@@ -215,7 +241,12 @@ function slots(storyboard: Storyboard, known: ReadonlySet<string>): Slot[] {
 /** Everything that changes the picture. `v1` so the shape can move without a stale hit. */
 function cacheKey(providerId: string, req: ImageRequest): string {
   return createHash("sha256")
-    .update(["v1", providerId, req.model ?? "", req.aspect, req.style, req.prompt].join("\n"))
+    .update(
+      // `bleed` only when set, so every plate's key — and file — is the one it had.
+      ["v1", providerId, req.model ?? "", req.aspect, req.style, req.prompt]
+        .concat(req.bleed ? ["bleed"] : [])
+        .join("\n"),
+    )
     .digest("hex");
 }
 

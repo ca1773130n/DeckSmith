@@ -55,8 +55,9 @@ export async function fetchFigures(
     // A CLIP IS NOT AN IMAGE. It carries the video's own dimensions, measured
     // off the file by whoever harvested it, and its first bytes are an `ftyp`
     // box that `imageSize` is right to refuse — so it passes through untouched
-    // instead of being dropped here as a figure that could not be read.
-    if (figure.kind === "clip") {
+    // instead of being dropped here as a figure that could not be read. A PIECE
+    // is not one either: its src is a script, hand-written beside source.json.
+    if (figure.kind !== "image") {
       figures.push(figure);
       continue;
     }

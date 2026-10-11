@@ -158,6 +158,21 @@ export function designFor(prefs: Pick<Prefs, "design">, recorded?: Design): Desi
   return prefs.design ?? recorded ?? "classic";
 }
 
+/**
+ * The bespoke pass a build runs, with every default filled in, or undefined.
+ * ON BY DEFAULT UNDER V2: every beat is drawn by a generated scene and the
+ * archetype is only its fallback. `--no-bespoke` (`"bespoke": {"enabled":
+ * false}`) turns it off; classic never runs it, so a classic deck keeps its
+ * bytes.
+ */
+export function bespokeFor(
+  prefs: Pick<Prefs, "bespoke">,
+  design: Design,
+): { prefs: NonNullable<Prefs["bespoke"]> } | undefined {
+  if (prefs.bespoke?.enabled === false || design !== "v2") return undefined;
+  return { prefs: prefsSchema.shape.bespoke.unwrap().parse(prefs.bespoke ?? {}) };
+}
+
 /** The flag surface the CLI exposes. Every one optional: absent means unstated. */
 export interface PrefFlags {
   slides?: string | number;
@@ -185,7 +200,7 @@ export interface PrefFlags {
   imageModel?: string;
   imageStyle?: string;
   imageMax?: string | number;
-  /** `--bespoke`: generated scenes for a few mechanism beats (v2 only). */
+  /** `--bespoke` / `--no-bespoke`: generated scenes for every beat (v2 only; on by default there). */
   bespoke?: boolean;
   bespokeCalls?: string | number;
   bespokeSeconds?: string | number;
@@ -193,6 +208,51 @@ export interface PrefFlags {
   bespokeCli?: string;
   bespokeCache?: string;
   bespokeArt?: string | number;
+}
+
+/**
+ * Commander gives a plain `--flag` `undefined` until it is passed, which is
+ * exactly the "unstated" that `prefsFromFlags` needs — except for `--no-x`,
+ * which defaults to `true` and would therefore outrank the config file on every
+ * run. So the negation is read as a negation and nothing else. `--images` is
+ * the other one read by hand: it is a boolean, and the loop below only knows
+ * strings.
+ */
+export function flagsFromOptions(o: Record<string, unknown>): PrefFlags {
+  const patch: PrefFlags = {};
+  for (const key of [
+    "slides",
+    "lang",
+    "tone",
+    "density",
+    "genre",
+    "duration",
+    "narrationDensity",
+    "theme",
+    "design",
+    "packSeed",
+    "speed",
+    "voice",
+    "rate",
+    "pitch",
+    "imageProvider",
+    "imageModel",
+    "imageStyle",
+    "imageMax",
+    "bespokeCalls",
+    "bespokeSeconds",
+    "bespokeModel",
+    "bespokeCli",
+    "bespokeCache",
+    "bespokeArt",
+  ] as const) {
+    const value = o[key];
+    if (value !== undefined) patch[key] = value as string;
+  }
+  if (o.subtitles === false) patch.subtitles = false;
+  if (o.images === true) patch.images = true;
+  if (o.bespoke !== undefined) patch.bespoke = o.bespoke === true;
+  return patch;
 }
 
 /* ------------------------------------------------------------------ internals */

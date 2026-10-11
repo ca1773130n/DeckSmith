@@ -3,7 +3,10 @@
  * `experiments/hf-thinksr`, the fail case a deck deliberately broken with an
  * oversized headline and near-invisible body text. Both were captured from 0.7.71.
  */
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   FORMATS,
@@ -16,6 +19,7 @@ import {
 import { profilesFor, readCanvas, scanBudget } from "../src/verify/budget.js";
 import { check, parseCheckReport, sampleTimes } from "../src/verify/check.js";
 import {
+  readAssetScripts,
   scanBeatCount,
   scanDeterminism,
   scanDiagrammatic,
@@ -24,6 +28,7 @@ import {
   scanNarrationLead,
   scanRepeatedObject,
   scanUnusedFigures,
+  verify,
 } from "../src/verify/index.js";
 import {
   collectSvgTextRuns,
@@ -213,6 +218,19 @@ describe("parseCheckReport", () => {
           "Invalid HyperFrame contract: Font family used without @font-face declaration: noto sans kr. These are not in the auto-resolved font list.",
       },
     ]);
+  });
+
+  it("accepts a backdrop's negative z-index, and only a backdrop's", () => {
+    const report = (selector: string) =>
+      PASS.replace('"composition_file_too_large"', '"negative_z_index"').replace(
+        '"selector": "[data-composition-id]"',
+        `"selector": "${selector}"`,
+      );
+    const [bd] = parseCheckReport(report("#s1 .bd-m,#s1 .bd-sc"), PASS_STDERR).findings;
+    expect(bd).toMatchObject({ severity: "info", rule: "negative_z_index" });
+    expect(bd?.message).toMatch(/accepted: a backdrop/);
+    const [other] = parseCheckReport(report("#s1 .glow"), PASS_STDERR).findings;
+    expect(other).toMatchObject({ severity: "warning", rule: "negative_z_index" });
   });
 
   it("labels each finding with the gate that produced it and where it happened", () => {
@@ -640,6 +658,79 @@ describe("scanDeterminism", () => {
       ),
     ).toEqual([]);
   });
+
+  /**
+   * An animate piece is the one file in a deck holding code an AUTHOR wrote,
+   * and it is a script under `assets/`, not a composition — so `verify` reads
+   * those too (`readAssetScripts`), or the scan is blind exactly where it is
+   * most needed. Only scripts: a figure or a font is not code.
+   */
+  it("reads the scripts under assets/, where an animate piece lives", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "verify-assets-"));
+    mkdirSync(join(dir, "assets", "pieces"), { recursive: true });
+    writeFileSync(
+      join(dir, "assets", "pieces", "loop.js"),
+      "const a = 1;\nconst jitter = Math.random();\n",
+    );
+    writeFileSync(join(dir, "assets", "figure.svg"), "<svg>Math.random()</svg>");
+    writeFileSync(join(dir, "index.html"), "<p>Math.random()</p>");
+
+    const scripts = await readAssetScripts(dir);
+    expect(scripts.map(([file]) => file)).toEqual([join("assets", "pieces", "loop.js")]);
+    expect(scripts.flatMap(([file, text]) => scanDeterminism(text, file))).toEqual([
+      {
+        severity: "error",
+        gate: "determinism",
+        rule: "math_random",
+        message:
+          "assets/pieces/loop.js:2 calls `Math.random(` at render time, so two renders of this deck will not be identical.",
+      },
+    ]);
+  });
+
+  /**
+   * A piece pasted with animate's player loop reads no clock literal, and still
+   * draws on wall-clock time between seeks. The vendored kit schedules nothing
+   * (test/wiring.test.ts scans it), so these patterns cost a piece nothing.
+   */
+  it("refuses a timer, a frame callback and an image load: a clock of the piece's own", () => {
+    const piece = [
+      "let f = 0;",
+      "function loop() { renderFrame(f++ / 30, cv); requestAnimationFrame(loop); }",
+      "setInterval(() => renderFrame(f++ / 30, cv), 33);",
+      "const ASSETS = { moon: new Image() };",
+    ].join("\n");
+
+    expect(
+      scanDeterminism(piece, "assets/p.js").map((f) => [f.rule, f.message.split(" at render")[0]]),
+    ).toEqual([
+      ["wall_clock", "assets/p.js:2 calls `requestAnimationFrame(`"],
+      ["wall_clock", "assets/p.js:3 calls `setInterval(`"],
+      ["async_load", "assets/p.js:4 calls `new Image(`"],
+    ]);
+    expect(scanDeterminism("setTimeout(next, 0);", "assets/p.js")[0]?.rule).toBe("wall_clock");
+  });
+
+  /**
+   * THE WIRING, not the scan: `verify` itself must read `assets/`. `check` is
+   * given 1ms so it times out at once — its own verdict is not what is asserted.
+   */
+  it("fails verify on a Math.random in a piece's script", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "verify-wired-"));
+    mkdirSync(join(dir, "assets", "pieces"), { recursive: true });
+    writeFileSync(join(dir, "assets", "pieces", "loop.js"), "const jitter = Math.random();\n");
+    writeFileSync(join(dir, "index.html"), "<p>a deck</p>");
+
+    const verdict = await verify(dir, { fidelity: false, timeoutMs: 1 });
+
+    expect(verdict.passed).toBe(false);
+    expect(verdict.findings.filter((f) => f.gate === "determinism")).toEqual([
+      expect.objectContaining({
+        rule: "math_random",
+        message: expect.stringContaining("assets/pieces/loop.js:1 calls `Math.random(`"),
+      }),
+    ]);
+  });
 });
 
 /** Minimal valid params per archetype — enough to satisfy the schema, no more. */
@@ -885,6 +976,17 @@ describe("scanUnusedFigures", () => {
           evidence: [{ kind: "figure", id: "fig2" }],
         }),
         source(["fig1", "Figure 1 — The architecture."], ["fig2", "Figure 2 — The error maps."]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not count a picture illustrate drew as one the authors left out", () => {
+    // A backdrop cites nothing by design, so gen-b02-bd is never "cited" — and
+    // the old message called it a figure "the authors drew".
+    expect(
+      scanUnusedFigures(
+        deck(shows("b01", "fig1")),
+        source(["fig1", "Figure 1 — The architecture."], ["gen-b02-bd", "A misty coast"]),
       ),
     ).toEqual([]);
   });

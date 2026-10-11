@@ -457,7 +457,7 @@ describe("prefsSchema.images", () => {
       enabled: false,
       provider: "codex",
       style: "flat vector illustration",
-      max: 4,
+      max: 10,
     });
   });
 

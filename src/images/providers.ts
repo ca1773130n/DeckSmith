@@ -39,6 +39,12 @@ export interface ImageRequest {
   style: string;
   aspect: ImageAspect;
   /**
+   * The picture covers the frame — a stage or a backdrop — rather than sitting
+   * on a plate. Absent means a plate, which is every request made before this
+   * existed, so their prompts and cache keys do not move.
+   */
+  bleed?: boolean;
+  /**
    * `images.model`, for the separate backend only; the Codex and tool rungs
    * ignore it. Carried on the request rather than baked into the provider
    * because the provider is resolved from the environment before any
@@ -87,7 +93,14 @@ const ORIENTATION: Readonly<Record<ImageAspect, string>> = {
 
 /** What every generator is asked for, in words. The style is a phrase, not a sentence. */
 function picturePrompt(req: ImageRequest): string {
-  return `${req.prompt.replace(/[.\s]+$/, "")}. ${req.style}, ${ORIENTATION[req.aspect]}, on a plain white background, no text.`;
+  // A plate's picture sits on white; a full-bleed one IS the frame. Asked for
+  // "on a plain white background", the 2026-10-09 ko backdrops came back as
+  // cut-out rooms floating in white margins, which the cover fit then showed
+  // as grey bands above and below the scene.
+  const ground = req.bleed
+    ? "a full-bleed scene that runs off every edge, with no border, frame, vignette or white margin"
+    : "on a plain white background";
+  return `${req.prompt.replace(/[.\s]+$/, "")}. ${req.style}, ${ORIENTATION[req.aspect]}, ${ground}, no text.`;
 }
 
 /**

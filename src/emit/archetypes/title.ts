@@ -11,7 +11,7 @@ import type { Emitter, Theme, Tween, Vars } from "../kit.js";
 import { contentH, contentW, esc, fromTo, staggerFor, wordAtoms, words } from "../kit.js";
 import { displayFace, type Face, faceOf, textWidth, typeOf, wrap } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
-import { em, lineBox } from "../type.js";
+import { em, lineBox, v2Text } from "../type.js";
 
 /**
  * Whether this format's content box is taller than it is wide.
@@ -515,7 +515,7 @@ export const title: Emitter<"title"> = (beat, ctx) => {
       ".bighead .w{display:inline-block}",
       // The rule is the sub's, not the headline's: it reads as the deck's spine
       // rather than as an underline someone drew under the title.
-      `.sub{font-size:48px;line-height:1.5;color:${theme.muted};margin-top:44px;padding-top:36px;max-width:1500px;border-top:3px solid ${theme.rule}}`,
+      `.sub{font-size:${v2Text(v2, 48)}px;line-height:1.5;color:${theme.muted};margin-top:44px;padding-top:36px;max-width:1500px;border-top:3px solid ${theme.rule}}`,
       // The headline is the slide. Its entrance owns `opacity` and `y`, so the
       // ambient breath takes the one property left.
       ambient(sid, "-t", BREATHE),

@@ -78,6 +78,50 @@ export function stackFor(body: LatinFace, display: LatinFace): string {
   return `${names.map((n) => `"${n}"`).join(", ")}, system-ui, sans-serif`;
 }
 
+/**
+ * THE V2 TYPE SCALE in px at 1920x1080 — the founder's, confirmed 2026-10-10,
+ * after "the fonts are too large": a 56px headline, 40-44px body and labels, a
+ * 40px kicker. No 160-560px hero numeral and no 64px+ kinetic type; the
+ * narration and its subtitles carry the words, so what is ON the slide is
+ * minimal and quiet.
+ *
+ * One table, read by every v2 emitter (the chrome through `TYPES` below, each
+ * archetype through `v2Text`), by src/bespoke's prompt, labels and gates, and —
+ * restated, because that file may import nothing from here — by the burned
+ * caption in src/types.ts, so a size cannot be lowered in one place and left
+ * large in another. Never under `floor`: AGENTS.md invariant 5. Classic never
+ * reads it — `--design classic` is still the complete rollback.
+ */
+export const TYPE_SCALE = {
+  /** The line that says the slide: headline, title slide, a hero statement. */
+  headline: 56,
+  /** Body copy and the largest a label is set: labels run `label`..`body`. */
+  body: 44,
+  /** The smallest a label is set; with `body`, the 40-44px label band. */
+  label: 40,
+  /** Eyebrow / kicker. */
+  kicker: 40,
+  /** A burned subtitle (src/types.ts `captionFontSize` restates it). */
+  caption: 40,
+  /** Never under this (invariant 5). */
+  floor: 40,
+  /**
+   * The largest a display equation is asked at. Not the headline's 56: KaTeX
+   * sets a sub- or superscript at 0.7em, and at 64 that is 44.8px — on the body
+   * scale, clear of the floor. Classic asked up to 108; v2 grew it to 140.
+   */
+  math: 64,
+} as const;
+
+/**
+ * A text size as v2 sets it: `px` held inside `[floor, cap]`. Classic passes
+ * through untouched. `cap` defaults to body/label size; a role that IS the
+ * headline passes `TYPE_SCALE.headline`.
+ */
+export function v2Text(v2: boolean, px: number, cap: number = TYPE_SCALE.body): number {
+  return v2 ? Math.max(TYPE_SCALE.floor, Math.min(px, cap)) : px;
+}
+
 /** Today's chrome, exactly. `title.ts` exported these numbers before specs existed. */
 export const CLASSIC_TYPE: TypeSpec = {
   key: "classic",
@@ -117,11 +161,14 @@ function spec(
  * - `grotesk-plex`: Space Grotesk headline over a Plex body.
  * - `plex-serif`: a Plex headline over a serif body, the inverse of `serif-inter`.
  *
- * HEIGHT. A one-line eyebrow plus a one-line headline costs at most classic's
- * 146px in every spec, so a pack's bigger type comes out of its leading and
- * gaps rather than out of the body's room. Measured why: `serif` at 44/70 cost
- * a real deck a six-bar chart (`costsNothing` in themes/pick.ts now refuses
- * such a pack, but a pack that rarely needs refusing is the better pack).
+ * SIZE IS NOT A VOICE ANY MORE. Every spec sets the eyebrow at `TYPE_SCALE.kicker`
+ * and the headline — the title slide's included — at `TYPE_SCALE.headline`; the
+ * pairs differ in face, weight, tracking, case and leading. They used to differ
+ * in size too (60-70px headlines, 144-168px titles), and the founder's verdict
+ * on those was "the fonts are too large".
+ *
+ * HEIGHT. A one-line eyebrow plus a one-line headline costs well under classic's
+ * 146px in every spec, so nothing here takes room from the body.
  *
  * FLOORS. Every eyebrow is at least 40px (invariant 5). Title tracking is never
  * positive: `fitText` measures untracked, so only a tightening is free.
@@ -129,7 +176,7 @@ function spec(
 export const TYPES: Readonly<Record<string, TypeSpec>> = {
   "grotesk-inter": spec("grotesk-inter", "inter", "space-grotesk", {
     eyebrow: {
-      size: 40,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.2,
       upper: true,
@@ -137,12 +184,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 24,
       color: "accent",
     },
-    headline: { size: 70, weight: 700, tracking: -0.03, lh: 1.06 },
-    title: { lo: 96, hi: 168, weight: 700, tracking: -0.04 },
+    headline: { size: TYPE_SCALE.headline, weight: 700, tracking: -0.03, lh: 1.06 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 700, tracking: -0.04 },
   }),
   plex: spec("plex", "ibm-plex-sans", "ibm-plex-sans", {
     eyebrow: {
-      size: 40,
+      size: TYPE_SCALE.kicker,
       weight: 500,
       tracking: 0.22,
       upper: true,
@@ -150,12 +197,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 20,
       color: "accent",
     },
-    headline: { size: 60, weight: 600, tracking: -0.005, lh: 1.16 },
-    title: { lo: 84, hi: 144, weight: 600, tracking: -0.015 },
+    headline: { size: TYPE_SCALE.headline, weight: 600, tracking: -0.005, lh: 1.16 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 600, tracking: -0.015 },
   }),
   "serif-inter": spec("serif-inter", "inter", "source-serif-4", {
     eyebrow: {
-      size: 40,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.16,
       upper: true,
@@ -163,12 +210,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 20,
       color: "accent",
     },
-    headline: { size: 68, weight: 600, tracking: -0.01, lh: 1.12 },
-    title: { lo: 92, hi: 160, weight: 600, tracking: -0.02 },
+    headline: { size: TYPE_SCALE.headline, weight: 600, tracking: -0.01, lh: 1.12 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 600, tracking: -0.02 },
   }),
   serif: spec("serif", "source-serif-4", "source-serif-4", {
     eyebrow: {
-      size: 42,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.01,
       upper: false,
@@ -176,12 +223,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 18,
       color: "accent",
     },
-    headline: { size: 68, weight: 700, tracking: -0.012, lh: 1.08 },
-    title: { lo: 96, hi: 164, weight: 700, tracking: -0.02 },
+    headline: { size: TYPE_SCALE.headline, weight: 700, tracking: -0.012, lh: 1.08 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 700, tracking: -0.02 },
   }),
   "grotesk-plex": spec("grotesk-plex", "ibm-plex-sans", "space-grotesk", {
     eyebrow: {
-      size: 40,
+      size: TYPE_SCALE.kicker,
       weight: 600,
       tracking: 0.12,
       upper: true,
@@ -189,12 +236,12 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 22,
       color: "accent",
     },
-    headline: { size: 66, weight: 700, tracking: -0.025, lh: 1.1 },
-    title: { lo: 92, hi: 160, weight: 700, tracking: -0.035 },
+    headline: { size: TYPE_SCALE.headline, weight: 700, tracking: -0.025, lh: 1.1 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 700, tracking: -0.035 },
   }),
   "plex-serif": spec("plex-serif", "source-serif-4", "ibm-plex-sans", {
     eyebrow: {
-      size: 40,
+      size: TYPE_SCALE.kicker,
       weight: 500,
       tracking: 0.18,
       upper: true,
@@ -202,8 +249,8 @@ export const TYPES: Readonly<Record<string, TypeSpec>> = {
       gap: 22,
       color: "muted",
     },
-    headline: { size: 62, weight: 600, tracking: -0.01, lh: 1.15 },
-    title: { lo: 88, hi: 148, weight: 600, tracking: -0.02 },
+    headline: { size: TYPE_SCALE.headline, weight: 600, tracking: -0.01, lh: 1.15 },
+    title: { lo: TYPE_SCALE.headline, hi: TYPE_SCALE.headline, weight: 600, tracking: -0.02 },
   }),
 };
 

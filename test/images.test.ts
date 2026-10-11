@@ -26,7 +26,7 @@ import {
   toolSvg,
 } from "../src/images/providers.js";
 import type { RunnerArgs } from "../src/plan/codex.js";
-import { assertRefsResolve } from "../src/plan/refs.js";
+import { assertRefsResolve, hasIllustrations } from "../src/plan/refs.js";
 import { prefsSchema, type Storyboard, sourceSchema, storyboardSchema } from "../src/types.js";
 
 /* ---------------------------------------------------------------- Fixtures */
@@ -108,6 +108,18 @@ describe("openaiImages", () => {
     expect(call?.init?.signal).toBeInstanceOf(AbortSignal);
     expect(out).toMatchObject({ mime: "image/png", width: 1536, height: 1024 });
     expect(out.bytes.equals(png(1536, 1024))).toBe(true);
+  });
+
+  it("asks a full-bleed picture to run off every edge instead of sitting on white", async () => {
+    // ko e2e, 2026-10-09: backdrops asked for "on a plain white background"
+    // came back as rooms cut out on white, shown as grey bands at cover fit.
+    const { fetch, calls } = fakeFetch(() =>
+      json(200, { data: [{ b64_json: png(1, 1).toString("base64") }] }),
+    );
+    await openaiImages({ apiKey: "k", fetch }).generate({ ...req, bleed: true });
+    const { prompt } = JSON.parse(String(calls[0]?.init?.body)) as { prompt: string };
+    expect(prompt).toContain("runs off every edge");
+    expect(prompt).not.toContain("white background");
   });
 
   it("sizes by aspect, trims a trailing period, and lets the request's model beat the configured one", async () => {
@@ -586,6 +598,53 @@ describe("illustrate", () => {
     expect(source.figures).toHaveLength(1);
   });
 
+  /**
+   * A STAGE TAKES A BRIEF TOO. Without it a paper whose figures are all plots
+   * had no legal way to a full-bleed slide; the planner could ask for a picture
+   * only for a claim-figure or a split-compare, so every slide kept the
+   * headline-over-body layout.
+   */
+  it("draws a stage's brief and points the stage at it, which then builds", async () => {
+    const staged = storyboardSchema.parse({
+      sourceId: "paper",
+      title: "A paper",
+      beats: [
+        {
+          id: "b1",
+          intent: "i",
+          archetype: "stage",
+          params: {
+            headline: "A whole field of it",
+            placement: "bottom-left",
+            illustration: brief("a wide valley of wind turbines at dawn"),
+          },
+        },
+      ],
+    });
+    const a = fake("a");
+    const out = await illustrate(staged, source, {
+      prefs: prefs(),
+      assetsDir: await dir(),
+      chain: [a.provider],
+    });
+    expect(a.calls).toEqual([
+      {
+        prompt: "a wide valley of wind turbines at dawn",
+        style: "flat vector illustration",
+        aspect: "landscape",
+        // A stage covers the frame, so it is not asked to sit on white.
+        bleed: true,
+      },
+    ]);
+    const beat = out.storyboard.beats[0];
+    expect(beat?.archetype === "stage" ? beat.params.figureId : undefined).toBe("gen-b1");
+    expect(() => assertRefsResolve(staged, source)).toThrow(
+      /b1" params\.figureId: asks for an illustration that has not been generated/,
+    );
+    expect(() => assertRefsResolve(out.storyboard, out.source)).not.toThrow();
+    expect(hasIllustrations(out.storyboard, out.source)).toBe(true);
+  });
+
   it("is idempotent: a second run finds every slot done and asks no provider", async () => {
     const assetsDir = await dir();
     const first = await illustrate(pending, source, {
@@ -640,6 +699,46 @@ describe("illustrate", () => {
     const src = (o: typeof flat) => o.source.figures.find((f) => f.id === "gen-b1")?.src;
     expect(src(flat)).not.toBe(src(cut));
     expect(await readdir(assetsDir)).toHaveLength(6);
+  });
+
+  /**
+   * A plate is a cut-out on white; a stage or a backdrop must run off every
+   * edge. Same prompt, same aspect, same rung — if `bleed` were not in the key,
+   * the stage would be served the plate from disk: the grey bands 6ff7762 fixed.
+   */
+  it("keys a full-bleed picture apart from a plate of the same prompt", async () => {
+    const assetsDir = await dir();
+    const one = (archetype: "claim-figure" | "stage") =>
+      storyboardSchema.parse({
+        sourceId: "paper",
+        title: "A paper",
+        beats: [
+          {
+            id: "b1",
+            intent: "i",
+            archetype,
+            params:
+              archetype === "stage"
+                ? { headline: "H", placement: "bottom-left", illustration: brief("a fjord") }
+                : { headline: "H", claim: "C", illustration: brief("a fjord") },
+          },
+        ],
+      });
+    const plate = await illustrate(one("claim-figure"), source, {
+      prefs: prefs(),
+      assetsDir,
+      chain: [fake("a").provider],
+    });
+    const again = fake("a");
+    const bled = await illustrate(one("stage"), source, {
+      prefs: prefs(),
+      assetsDir,
+      chain: [again.provider],
+    });
+    expect(again.calls).toEqual([expect.objectContaining({ prompt: "a fjord", bleed: true })]);
+    expect(bled.illustrated.map((i) => i.cached)).toEqual([false]);
+    const src = (o: typeof plate) => o.source.figures.find((f) => f.id === "gen-b1")?.src;
+    expect(src(bled)).not.toBe(src(plate));
   });
 
   it("drops a rung after its first failure, says so once, and carries on down", async () => {
@@ -743,5 +842,69 @@ describe("illustrate", () => {
     const mine = out.source.figures.filter((f) => f.id === "gen-b1");
     expect(mine).toHaveLength(1);
     expect(mine[0]).toMatchObject({ width: 1536, height: 1024 });
+  });
+});
+
+describe("illustrate: backdrops", () => {
+  const withBackdrop = storyboardSchema.parse({
+    sourceId: "paper",
+    title: "A paper",
+    beats: [
+      {
+        id: "b1",
+        intent: "i",
+        archetype: "pipeline",
+        params: {
+          headline: "H",
+          stages: [{ label: "A" }, { label: "B" }],
+          backdrop: { illustration: brief("a misty valley at dawn") },
+        },
+      },
+      {
+        id: "b2",
+        intent: "i",
+        archetype: "callout",
+        params: {
+          headline: "H",
+          panels: [{ label: "L", lines: ["x"] }],
+          backdrop: { figureId: "fig-real" },
+        },
+      },
+    ],
+  });
+
+  it("draws a pending backdrop as a landscape gen-<beat>-bd figure, and leaves a real one alone", async () => {
+    const a = fake("a");
+    // Pending until drawn: build refuses it by name, the planner may write it.
+    expect(() => assertRefsResolve(withBackdrop, source)).toThrow(/params\.backdrop\.figureId/);
+    expect(() => assertRefsResolve(withBackdrop, source, { pending: "allow" })).not.toThrow();
+
+    const out = await illustrate(withBackdrop, source, {
+      prefs: prefs(),
+      assetsDir: await dir(),
+      chain: [a.provider],
+    });
+    expect(a.calls).toEqual([
+      {
+        prompt: "a misty valley at dawn",
+        style: "flat vector illustration",
+        aspect: "landscape",
+        bleed: true,
+      },
+    ]);
+    const b1 = out.storyboard.beats[0];
+    expect(b1?.archetype === "pipeline" && b1.params.backdrop?.figureId).toBe("gen-b1-bd");
+    expect(out.source.figures.map((f) => f.id)).toEqual(["fig-real", "gen-b1-bd"]);
+    expect(() => assertRefsResolve(out.storyboard, out.source)).not.toThrow();
+    expect(hasIllustrations(out.storyboard, out.source)).toBe(true);
+  });
+
+  it("refuses a backdrop that names a figure the source does not have", () => {
+    const bad = structuredClone(withBackdrop);
+    const b2 = bad.beats[1];
+    if (b2?.archetype === "callout") b2.params.backdrop = { figureId: "nope" };
+    expect(() => assertRefsResolve(bad, source, { pending: "allow" })).toThrow(
+      /params\.backdrop\.figureId: no figure "nope"/,
+    );
   });
 });

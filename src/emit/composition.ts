@@ -49,10 +49,12 @@ import type { FitManifest } from "./fit.js";
 import { emitIsland, type SlideInput } from "./island.js";
 import { type EmitContext, esc, type Scene, TEX_MARK, type Tween, tweenText } from "./kit.js";
 import {
+  chromeOut,
   emphasize,
   type HoldWindow,
   type MotionPlan,
   planMotion,
+  restyleChrome,
   restyleEntrance,
   seamIn,
   seamOut,
@@ -118,6 +120,8 @@ const DRAWSVG_SRC = "./vendor/DrawSVGPlugin.min.js";
 const PLUGINS: Readonly<Record<string, { src: string; global: string }>> = {
   dsMorph: { src: "./vendor/ds-morph.js", global: "DSMorphPlugin" },
   morphSVG: { src: "./vendor/MorphSVGPlugin.min.js", global: "MorphSVGPlugin" },
+  // An animate piece's runtime (src/emit/animate-runtime.ts), on the same terms.
+  dsAnimate: { src: "./vendor/ds-animate.js", global: "DSAnimatePlugin" },
 };
 const KATEX_JS = "./vendor/katex.min.js";
 const KATEX_CSS = "./katex/katex.min.css";
@@ -546,10 +550,16 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // which re-emits without it.
     const emitted = emitScene(beat, ctx);
     // A bespoke scene's entrance is its own; restyling it would rewrite tweens
-    // the shell did not author. Its chrome keeps the stock `chromeIn`.
+    // the shell did not author. Its CHROME is the shell's stock `chromeIn`, so
+    // that alone is restyled — clear of the seam, like every archetype's.
     const bespoke = opts.bespoke?.[beat.id] !== undefined;
+    const verb = motion?.entrances[i] ?? "fade";
     const { scene } = stageScene(
-      motion && !bespoke ? restyleEntrance(emitted, sid, motion.entrances[i] ?? "rise") : emitted,
+      !motion
+        ? emitted
+        : bespoke
+          ? restyleChrome(emitted, sid, verb)
+          : restyleEntrance(emitted, sid, verb),
       speed,
     );
     const seconds = beatSeconds(beat.seconds * speed, scene, segments);
@@ -581,6 +591,8 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
   // with no builders to await would move bytes in every deck we have shipped.
   let builds = false;
   const plugins = new Set<string>();
+  // The beat that drew this deck's animate piece, if one has. See ONE PIECE below.
+  let piece: { beat: string; figure: string } | undefined;
   cuts.forEach((cut, i) => {
     const { beat, sid, dive, inside, duration, start } = cut;
     if (cut.segments?.length) spoken[sid] = cut.segments;
@@ -619,7 +631,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
       const seam = motion?.seams[i];
       const out: Tween[] =
         seam && seam !== "dive"
-          ? seamOut(seam, sid, duration, over)
+          ? [...seamOut(seam, sid, duration, over), ...chromeOut(sid, scene.html, duration, over)]
           : [handoffStatement(sid, duration, over)];
       scene = { ...scene, tl: [...scene.tl, ...out] };
     }
@@ -646,6 +658,25 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
         );
       }
       plugins.add(p);
+    }
+    // ONE PIECE PER DECK, refused here rather than drawn wrong. The vendored
+    // morph.js is unpatched (src/build/animate/NOTICE): it writes
+    // `window.renderFrame` and `window.anchorAt`, so a second piece on the page
+    // would share those globals with the first. Two pieces have never been
+    // rendered together; lifting this means patching morph.js and doing that.
+    const fig =
+      beat.archetype === "claim-figure" || beat.archetype === "stage"
+        ? source.figures.find((f) => f.id === beat.params.figureId)
+        : undefined;
+    if (fig?.kind === "piece") {
+      if (piece) {
+        throw new Error(
+          `${beat.archetype} ${beat.id}: figure "${fig.id}" is a second animate piece in this deck — ` +
+            `${piece.beat} already draws "${piece.figure}", and a deck holds one piece. ` +
+            "Point one of these beats at a still, or split the deck",
+        );
+      }
+      piece = { beat: beat.id, figure: fig.id };
     }
     scenes.push(
       sceneHtml(
@@ -1361,12 +1392,12 @@ interface VideoEmbed {
  * The player-page video this beat draws, in the form a frame can load — or
  * nothing, which is the answer for every beat in almost every deck.
  *
- * `claim-figure` is the only archetype that draws a clip at all: every other one
- * refuses a `kind: "clip"` figure by name (see src/emit/archetypes). And a clip
- * carries `href` exactly when its bytes were unavailable — src/types.ts calls it
- * "Absent for a clip we hold the file for" — so this is precisely the case where
- * `claim-figure` emits the poster and nothing else. A clip we HOLD is already a
- * `<video>` in the composition and needs no third party.
+ * `claim-figure` and `stage` are the archetypes that draw a clip — both through
+ * `plate()`; every other one refuses a `kind: "clip"` figure by name (see
+ * src/emit/archetypes). And a clip carries `href` exactly when its bytes were
+ * unavailable — src/types.ts calls it "Absent for a clip we hold the file for" —
+ * so this is precisely the case where either emits the poster and nothing else.
+ * A clip we HOLD is already a `<video>` in the composition and needs no third party.
  *
  * Asking `embedUrl` here rather than storing an embed URL on the figure keeps
  * `Source` a description of the document: the host table is one thing, in
@@ -1374,7 +1405,7 @@ interface VideoEmbed {
  * way a source written after does.
  */
 function playerEmbed(beat: Beat, source: Source): VideoEmbed | undefined {
-  if (beat.archetype !== "claim-figure") return undefined;
+  if (beat.archetype !== "claim-figure" && beat.archetype !== "stage") return undefined;
   const fig = source.figures.find((f) => f.id === beat.params.figureId);
   if (fig?.kind !== "clip" || fig.href === undefined) return undefined;
   const url = embedUrl(fig.href);

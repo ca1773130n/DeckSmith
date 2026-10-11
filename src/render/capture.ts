@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { PIECE_ATTR } from "../emit/animate-runtime.js";
 
 /**
  * The browser `render` already uses — which, until 2026-09-11, this did not find.
@@ -190,6 +191,13 @@ export interface DeckPage {
   shoot(): Promise<Buffer>;
   /** For callers that need to read the DOM at a stop, as `fidelity` does. */
   page: Page;
+  /**
+   * Every uncaught error the page has raised since it opened, in order. The
+   * runtime swallows a throw inside a seek, so this is the only place an
+   * animate piece's drawing error (`reportError`) surfaces: without it a seek
+   * resolves over a stale or half-painted canvas.
+   */
+  errors: string[];
   close(): Promise<void>;
 }
 
@@ -244,6 +252,8 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
 
   try {
     const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (err) => errors.push(err instanceof Error ? err.message : String(err)));
     // The runtime bundle is minified with esbuild's `__name` helper, which is not
     // defined when the bundle is injected instead of served. Same guard the
     // renderer installs.
@@ -283,13 +293,19 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
     // renderer will never produce. Refuse instead. It is deliberately narrow: a
     // deck with no canvas is unaffected, so a machine that cannot do GL can
     // still look at every DOM deck in the repository.
-    const canvas = await page.evaluate(() => {
-      const el = document.querySelector("canvas");
+    //
+    // A PIECE'S CANVAS IS EXEMPT (`PIECE_ATTR`): it is 2D by construction and
+    // draws the same without GL. Refusing it was a false positive that `frames`
+    // reported and `verify`/`build` turned into a `not_measured` WARNING — the
+    // whole fidelity gate skipped, PASS printed (the spike's Q4). Every other
+    // canvas is still refused, because nothing says which context it wants.
+    const canvas = await page.evaluate((exempt) => {
+      const el = document.querySelector(`canvas:not([${exempt}])`);
       if (!el) return { present: false, gl: true };
       const probe = document.createElement("canvas");
       const gl = !!(probe.getContext("webgl2") ?? probe.getContext("webgl"));
       return { present: true, gl };
-    });
+    }, PIECE_ATTR);
     if (canvas.present && !canvas.gl) {
       throw new Error(
         `this deck draws on a <canvas> and ${chrome.path} cannot create a WebGL ` +
@@ -305,6 +321,7 @@ export async function openDeck(dir: string, opts: OpenOptions = {}): Promise<Dec
       width,
       height,
       page,
+      errors,
       seek: (t) => page.evaluate(renderSeek, t),
       shoot: async () => {
         const shot = await cdp.send("Page.captureScreenshot", {
@@ -370,6 +387,15 @@ export async function captureFrames(
     for (const [i, raw] of times.entries()) {
       const t = Math.round(raw * 1000) / 1000;
       await deck.seek(t);
+      // LOUD, not a plausible PNG: a frame the page threw drawing is stale or
+      // half-painted, and looking at frames is what this project tells people
+      // to do. Any error since the page opened counts — one at load leaves a
+      // scene with no timeline.
+      if (deck.errors.length > 0) {
+        throw new Error(
+          `frames: the deck raised an error by ${t}s, so this frame is not what it would draw: ${deck.errors.join(" | ")}`,
+        );
+      }
       const png = await deck.shoot();
       const path = join(outDir, frameName(i, t, times.length));
       await writeFile(path, png);

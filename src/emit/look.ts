@@ -98,6 +98,29 @@ export function signature(archetype: Archetype, look?: Look): string {
 }
 
 /**
+ * Whether an archetype has chrome a look places. A `stage` sets its words over
+ * the picture where its own `placement` param says, so the `top` in its classic
+ * look is not on the slide: counted as top chrome, every stage inflated
+ * `modalChrome` and charged the beat after two of them for a "third top in a
+ * row" nobody could see.
+ */
+export function chromeless(archetype: Archetype): boolean {
+  // The full-bleed two draw their own words where their own layout says, as a
+  // stage does: a number with its sentence under it, phrases down a stair.
+  return archetype === "stage" || archetype === "hero-number" || archetype === "kinetic";
+}
+
+/**
+ * `signature`, for a beat. A stage's is where its words sit — the one thing
+ * that tells two stages apart at a glance — rather than the `top` its look
+ * carries, which every stage shares.
+ */
+export function beatSignature(beat: Beat, look?: Look): string {
+  if (beat.archetype !== "stage") return signature(beat.archetype, look);
+  return `stage:${(look ?? classicLook("stage")).variant}@${beat.params.placement}`;
+}
+
+/**
  * Whether the canvas is wide enough to set a headline in a column beside the
  * body. 16:9 only in practice: at 1:1 the rail would be 292px and a 64px
  * headline would set three words a line.
@@ -118,6 +141,10 @@ export function railable(format: Format): boolean {
 export function candidates(beat: Beat, format: Format): Look[] {
   const a = beat.archetype;
   const classic = classicLook(a);
+  // A stage has no chrome to move: its words sit over the picture where its own
+  // `placement` param says. A `foot` look would draw the same slide under a
+  // second signature, which is what the sameness metrics must not be told.
+  if (a === "stage") return [classic];
   if (!railable(format)) return [classic, { ...classic, placement: "foot" }];
   switch (a) {
     case "split-compare":
@@ -387,7 +414,9 @@ function asideFor(
   for (const ref of input.evidence ?? []) {
     if (ref.kind !== "figure" || drawn.has(ref.id)) continue;
     const fig = ctx.source.figures.find((f) => f.id === ref.id);
-    if (!fig || fig.kind === "clip" || fig.width <= 0 || fig.height <= 0) continue;
+    // An aside is an `<img>`: only an image can be one. A clip would be its
+    // video file, and a piece its script — both draw nothing.
+    if (fig?.kind !== "image" || fig.width <= 0 || fig.height <= 0) continue;
     const inner = railW - 2 * ASIDE_PAD;
     const cap = Math.floor(
       Math.min(room - 2 * ASIDE_PAD, (0.3 * railW * contentH(ctx.format)) / inner),

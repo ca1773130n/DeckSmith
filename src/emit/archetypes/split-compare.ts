@@ -45,6 +45,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   chromeCss,
   chromeIn,
@@ -139,6 +140,14 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
           `use claim-figure, which plays it, or point this side at the clip's poster as a figure of its own`,
       );
     }
+    // A PIECE IS A SCRIPT, and an `<image>` pointed at a script draws nothing,
+    // sized and captioned as though it were there — the clip's failure exactly.
+    if (fig.kind === "piece") {
+      throw new Error(
+        `split-compare ${beat.id}: the ${NAME[i]} figure "${fig.id}" is an animate piece, and a side draws a still <image> — ` +
+          "use claim-figure or stage, which play it",
+      );
+    }
     return fig;
   });
   sides.forEach((side, i) => {
@@ -189,43 +198,61 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
   const sideY = (i: number) => (tall ? (lanes[i]?.x ?? 0) : 0);
   const mid = tall ? H / 2 : W / 2;
 
-  // The labels are the one thing that can collide with the divider, so solve the
-  // size against the half-width rather than picking one and hoping. `textWidth`
-  // is linear in size, so the largest that clears the gutter is a division. At
-  // the floor a label wraps instead of shrinking — two readable lines beat one
-  // unreadable one. Measured at the DECK's face rather than the label's own
-  // characters: a CJK bundle sets an all-ASCII label in Noto Sans too, and
-  // charging that as Inter solves a size the drawn label then overruns — into
-  // the gutter this division exists to keep clear.
-  const labelSize = Math.max(
-    MIN_FONT,
-    Math.floor(
-      Math.min(LABEL_MAX, ...sides.map((s) => pw / textWidth(s.label, 1, 700, 0, false, face))),
-    ),
+  const itemW = pw - INDENT;
+  const form = theme.forms?.list ?? "tick";
+  // A CARD REACHES PAST ITS TEXT. `listMark` pads each card by up to 0.3 of the
+  // size above and below its lines, so the last card ends that far under the
+  // list's measured height. Charged here, or the last card is cut flat by the
+  // svg's bottom edge: the 2026-10-09 ko deck's b08 (rows, chalk) drew its
+  // third card to 830.5 in an 820px svg, a `container_overflow` that shipped.
+  const tail = (size: number) => (form === "card" ? size * 0.3 : 0);
+  // v2 sets headings and items on the confirmed scale (`TYPE_SCALE`): 44px at
+  // most, never grown. They used to grow by `GROWTH` to fill the region (90px
+  // headings, 60px items), which is the "fonts are too large" the founder named.
+  const v2 = isV2(ctx);
+  const items = v2 ? ITEM_SIZES.filter((size) => size <= TYPE_SCALE.body) : ITEM_SIZES;
+  /** The headings at the largest size up to `cap` that clears the gutter, and one item size under them. */
+  const solve = (cap: number) => {
+    // The labels are the one thing that can collide with the divider, so solve the
+    // size against the half-width rather than picking one and hoping. `textWidth`
+    // is linear in size, so the largest that clears the gutter is a division. At
+    // the floor a label wraps instead of shrinking — two readable lines beat one
+    // unreadable one. Measured at the DECK's face rather than the label's own
+    // characters: a CJK bundle sets an all-ASCII label in Noto Sans too, and
+    // charging that as Inter solves a size the drawn label then overruns — into
+    // the gutter this division exists to keep clear.
+    const labelSize = Math.max(
+      MIN_FONT,
+      Math.floor(
+        Math.min(cap, ...sides.map((s) => pw / textWidth(s.label, 1, 700, 0, false, face))),
+      ),
+    );
+    const labelLh = labelSize * 1.25;
+    const bandH =
+      Math.max(...sides.map((s) => wrap(s.label, labelSize, pw, 700, 0, face).length)) * labelLh;
+    const hairY = bandH + 20;
+    const contentY = hairY + 36;
+    const contentH = sideH - contentY;
+    // One size for every list on the slide. Two panels set at different sizes reads
+    // as one of them mattering more, which is a claim this archetype must not make
+    // on its own initiative.
+    const fits = (size: number) =>
+      sides.every((side, i) => {
+        const list = listHeight(side.lines ?? [], size, itemW, face);
+        const fig = figs[i] ? MIN_FIG + (list > 0 ? STACK_GAP : 0) : 0;
+        return list + fig + (list > 0 ? tail(size) : 0) <= contentH;
+      });
+    const itemSize = items.find(fits);
+    return { labelSize, labelLh, hairY, contentY, contentH, itemSize };
+  };
+  const { labelSize, labelLh, hairY, contentY, contentH, itemSize } = solve(
+    v2 ? TYPE_SCALE.body : LABEL_MAX,
   );
-  const labelLh = labelSize * 1.25;
-  const bandH =
-    Math.max(...sides.map((s) => wrap(s.label, labelSize, pw, 700, 0, face).length)) * labelLh;
-  const hairY = bandH + 20;
-  const contentY = hairY + 36;
-  const contentH = sideH - contentY;
-
-  // One size for every list on the slide. Two panels set at different sizes reads
-  // as one of them mattering more, which is a claim this archetype must not make
-  // on its own initiative.
-  const fits = (size: number) =>
-    sides.every((side, i) => {
-      const list = listHeight(side.lines ?? [], size, pw - INDENT, face);
-      const fig = figs[i] ? MIN_FIG + (list > 0 ? STACK_GAP : 0) : 0;
-      return list + fig <= contentH;
-    });
-  const itemSize = ITEM_SIZES.find(fits);
   if (itemSize === undefined) {
     throw new Error(
       `split-compare ${beat.id}: the panels do not fit beside each other at the ${MIN_FONT}px floor — shorten the lines or split the beat`,
     );
   }
-  const itemW = pw - INDENT;
 
   // Displayed image height per side, then matched when both sides are figures.
   // Matching can only ever shrink one of them, so the narrower box still holds.
@@ -237,6 +264,8 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     return Math.min(boxH - 2 * PAD, ((pw - 2 * PAD) * fig.height) / fig.width);
   });
   const matched = figs[0] && figs[1] ? Math.min(...natural) : undefined;
+  /** The lowest painted pixel of either side, in svg px: what v2 reports as ink. */
+  let contentBottom = 0;
 
   const groups = sides.map((side, i) => {
     const tone = tones[i] ?? theme.accent;
@@ -291,7 +320,8 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     const cardH = fig ? imgH + 2 * PAD : 0;
     const list = side.lines ?? [];
     const listH = listHeight(list, itemSize, itemW, face);
-    const stackH = cardH + listH + (cardH > 0 && listH > 0 ? STACK_GAP : 0);
+    const stackH =
+      cardH + listH + (cardH > 0 && listH > 0 ? STACK_GAP : 0) + (listH > 0 ? tail(itemSize) : 0);
     // A list-only side loosens down its column rather than sitting as a tight
     // block in the middle of it. The cap is half a line: at a full line the three
     // bullets came apart into three unrelated sentences, which is worse than the
@@ -316,13 +346,16 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
         }),
         image(fig, { x: cardX + PAD, y: y + PAD, w: imgW, h: imgH }),
       );
+      contentBottom = Math.max(contentBottom, y + cardH);
       y += cardH + (listH > 0 ? STACK_GAP : 0);
     }
 
-    const form = theme.forms?.list ?? "tick";
     for (const [n, item] of list.entries()) {
       const h = itemHeight(item, itemSize, itemW, face);
       const gap = itemSize * ITEM_GAP + spread;
+      // `listMark`'s card pad, the one place a mark reaches below its text.
+      const below = form === "card" ? Math.min(gap * 0.45, itemSize * 0.3) : 0;
+      contentBottom = Math.max(contentBottom, y + h + below);
       // A tick rather than a dot: it carries the side's tone at the height of the
       // first line, so a list reads as belonging to its half at a glance. A v2
       // pack may mark its items its own way (`Theme.forms.list`), all in the same
@@ -353,6 +386,12 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     return `<g id="${sid}-side${i}">${parts.join("")}</g>`;
   });
 
+  const HIGHLIGHT = 180;
+  // v2: the divider runs as far as the comparison does, not to the floor of a
+  // region the lists never reach. Drawn to H it was the slide's lowest ink, so
+  // the extent the fill gate measures read ~0.95 over a column half empty
+  // (review, 2026-10-09: b04 at "0.951" with its rows ending at y≈425 of 698).
+  const divEnd = tall || !v2 ? H : Math.min(H, Math.max(contentBottom, hairY + HIGHLIGHT));
   const divider = tall
     ? `<g id="${sid}-div">${line(
         { x: 0, y: mid },
@@ -364,7 +403,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
         line({ x: 0, y: mid }, { x: W * 0.32, y: mid }, { stroke: theme.muted, "stroke-width": 3 })
       }</g>`
     : `<g id="${sid}-div">` +
-      line({ x: mid, y: 0 }, { x: mid, y: H }, { stroke: theme.rule, "stroke-width": 2 }) +
+      line({ x: mid, y: 0 }, { x: mid, y: divEnd }, { stroke: theme.rule, "stroke-width": 2 }) +
       // The stretch the labels stand on is weighted, so the device reads as a header
       // rule that continues downwards rather than a hairline someone forgot to stop.
       line({ x: mid, y: 0 }, { x: mid, y: hairY }, { stroke: theme.muted, "stroke-width": 3 }) +
@@ -380,7 +419,6 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
    * form of that sentence. Drawn at the divider's start and moved by `travel`,
    * whose route is RELATIVE for the reason `pipeline` records at length.
    */
-  const HIGHLIGHT = 180;
   const highlight = tall
     ? line(
         { x: 0, y: mid },
@@ -395,7 +433,7 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
 
   const note = p.note ? `\n<div class="sc-note" id="${sid}-note">${esc(p.note)}</div>` : "";
   const html = F.compose(
-    `<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + highlight)}</div>${note}`,
+    `<div class="sc-body">${svg(`${sid}-sc`, W, H, divider + groups.join("") + (isV2(ctx) ? "" : highlight))}</div>${note}`,
   );
 
   const at = [1.15, 2.05];
@@ -458,30 +496,33 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
       // The comparison exists once both halves are there, so the divider runs
       // exactly then: it is the only element on the slide that belongs to
       // neither side.
-      const span = (tall ? W : H) - HIGHLIGHT;
-      tl.push(
-        tween(`#${sid}-divhi`, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t),
-        ...travel(
-          `#${sid}-divhi`,
-          tall
-            ? [
-                { x: 0, y: 0 },
-                { x: span, y: 0 },
-              ]
-            : [
-                { x: 0, y: 0 },
-                { x: 0, y: span },
-              ],
-          t,
-          0.9,
-        ),
-        tween(
-          `#${sid}-divhi`,
-          { opacity: 1 },
-          { opacity: 0, duration: 0.3, immediateRender: false },
-          t + 0.9,
-        ),
-      );
+      const span = (tall ? W : divEnd) - HIGHLIGHT;
+      // v2 sweeps no highlight down the divider: a light running along a rule
+      // is UI-element motion (founder, 2026-10-10). The divider just is.
+      if (!isV2(ctx))
+        tl.push(
+          tween(`#${sid}-divhi`, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t),
+          ...travel(
+            `#${sid}-divhi`,
+            tall
+              ? [
+                  { x: 0, y: 0 },
+                  { x: span, y: 0 },
+                ]
+              : [
+                  { x: 0, y: 0 },
+                  { x: 0, y: span },
+                ],
+            t,
+            0.9,
+          ),
+          tween(
+            `#${sid}-divhi`,
+            { opacity: 1 },
+            { opacity: 0, duration: 0.3, immediateRender: false },
+            t + 0.9,
+          ),
+        );
     }
     holds.push(t + 0.8);
   });
@@ -502,13 +543,16 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     html,
     tl,
     holds: holdsWithin(holds, beat.seconds),
-    // Already laid out into the whole body budget — the panels and the divider
-    // run its full height, and the note takes the rest — so v2 only REPORTS:
-    // everything under `.sc-body`'s 34px margin is painted extent.
-    ...(isV2(ctx)
+    // v2 REPORTS what it painted: the lower of the divider's end and the
+    // lowest side, from the svg's top. A note sits at the foot of the region,
+    // under the svg, so with one the extent runs to the region's bottom. It
+    // used to report `region - 34` whatever the lists drew, which is how a half
+    // empty column read as FULL to the build and to the Director's fit score.
+    ...(v2
       ? (() => {
           const region = F.budget(0, 0, 0);
-          return { fit: fitOf(region - 34, region) };
+          const ink = p.note ? region - 34 : Math.max(contentBottom, tall ? mid : divEnd);
+          return { fit: fitOf(ink, region) };
         })()
       : {}),
     css: [

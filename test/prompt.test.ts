@@ -11,6 +11,12 @@ import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { ink } from "../src/emit/themes/index.js";
 import { REVEALS, renderSource, systemPrompt } from "../src/plan/prompt.js";
+import {
+  MAX_ALTERNATION,
+  panelsAllowed,
+  STAGE_EVERY,
+  STAGE_MIN_BEATS,
+} from "../src/plan/variety.js";
 import type { Beat, Format, Source } from "../src/types.js";
 import { beatSchema, FORMATS, prefsSchema } from "../src/types.js";
 
@@ -182,6 +188,32 @@ const CASES: [string, unknown, number][] = [
     },
     2,
   ],
+  // One stop whatever the placement: after the words have landed, or after the
+  // picture has when there are none.
+  ["stage", { headline: "H", figureId: "fig", placement: "bottom-left", line: "l" }, 1],
+  ["stage", { headline: "H", figureId: "fig", placement: "none" }, 1],
+  // One stop, after the headline, with or without the bars.
+  [
+    "hero-number",
+    {
+      headline: "H",
+      value: "43.63",
+      unit: "mJ",
+      label: "L",
+      compare: { value: "175.21", label: "B" },
+    },
+    1,
+  ],
+  ["hero-number", { headline: "H", value: "1/4", label: "L" }, 1],
+  // One per phrase, struck or not.
+  [
+    "kinetic",
+    {
+      headline: "H",
+      phrases: [{ text: "one", key: "one" }, { text: "two" }, { text: "three", key: "three" }],
+    },
+    3,
+  ],
 ];
 
 describe("the prompt's reveal counts", () => {
@@ -260,6 +292,20 @@ describe("the prompt's reveal counts", () => {
     expect(text).toContain(`${cap(describing.length)} only\ndescribe`);
   });
 
+  it("says when a stage is the shape, and extends RULE 1's variety to its placement", () => {
+    const text = systemPrompt(prefsSchema.parse({}));
+    expect(text).toContain("A VISUAL THAT SHOULD OWN THE SCREEN");
+    // Inside RULE 1, not a second rule about variety: one statement per constraint.
+    const rule1 = text.slice(text.indexOf("AND VARY THE SHAPE"), text.indexOf("\n2. "));
+    expect(rule1).toMatch(/more than one stage gives each a different\s+`placement`/);
+    // What the emitter does with long words, not what it used to: a column that
+    // widens, and a "right" that is only narrow where the frame is wide.
+    const entry = text.slice(text.indexOf("  stage   "), text.indexOf("DESCRIBING ARCHETYPES"));
+    expect(entry).toMatch(/words too long for their column take\s+a wider one/);
+    expect(entry).toMatch(/In a tall frame every placement spans the full width/);
+    expect(entry).not.toMatch(/a longer one is refused/);
+  });
+
   it("puts the table in the prompt the planner actually receives", () => {
     const text = systemPrompt(prefsSchema.parse({}));
     for (const archetype of Object.keys(REVEALS)) expect(text).toContain(archetype);
@@ -310,6 +356,29 @@ describe("the figure inventory", () => {
     expect(text).toContain("[figure fig-arch] 1373x381 — Figure 2 — One tick.");
   });
 
+  it("marks an animate piece where its id is, as claim-figure's and stage's alone", () => {
+    // Every other figure archetype refuses a piece by name; the line the model
+    // scans for something to cite is where it learns that, not the refusal.
+    const text = renderSource(
+      paper([
+        {
+          ...arch,
+          id: "fig-loop",
+          kind: "piece",
+          src: "loop.js",
+          width: 1920,
+          height: 1080,
+          seconds: 6,
+        },
+      ]),
+    );
+    // And what `build` refuses a planned beat for: shorter than 1 + 6 + 0.3s,
+    // or a second piece in the deck. The default beat is 7s, which is too short.
+    expect(text).toContain(
+      "[figure fig-loop] ANIMATION 1920x1080, 6s — claim-figure or stage only, in a beat of at least 7.3 seconds; a deck shows one animation — Figure 2 — One tick.",
+    );
+  });
+
   it("names the section a figure sits under, by id and by heading", () => {
     const text = renderSource(paper([{ ...arch, sectionId: "sec2" }]));
     expect(text).toContain("1 figure in this document.");
@@ -336,7 +405,7 @@ describe("the figure inventory", () => {
   it("still tells a figure-less source that no figure beat is possible", () => {
     // The line the ILLUSTRATIONS block below is the one exception to.
     const text = renderSource(paper([]));
-    expect(text).toContain("(none — no annotated-figure or claim-figure beat is possible)");
+    expect(text).toContain("(none — no annotated-figure, claim-figure or stage beat is possible)");
     expect(text).not.toContain("figures in this document");
   });
 });
@@ -400,11 +469,60 @@ describe("the prompt's illustrations block", () => {
     expect(on).toMatch(/At most 3 pictures/);
     expect(on).toContain("illustration: { prompt, caption }");
     // The two slots that can carry one, and the case the inventory line denies.
-    expect(on).toMatch(/claim-figure, or either side of a split-compare/);
+    expect(on).toMatch(/claim-figure, a stage, or either side of a split-compare/);
     expect(on).toMatch(/no figures at\s+all/);
     // A picture is a scene, never something to read; and it is never evidence.
     expect(on).toMatch(/text, labels, numbers, charts or diagrams/);
     expect(on).toMatch(/not evidence/);
+  });
+
+  // An invitation was measured to produce zero pictures; the block now states a
+  // minimum, from the same constants the plan is checked against.
+  it("requires stages at the checked rate, not merely allows them", () => {
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(on).toContain("STAGES ARE REQUIRED");
+    expect(on).toMatch(
+      new RegExp(
+        `A deck of ${STAGE_MIN_BEATS} beats or more\\s+carries at least one \`stage\` beat for every ${STAGE_EVERY} beats`,
+      ),
+    );
+    expect(on).toMatch(/a 10-beat deck,\s+2\)/);
+    expect(on).toMatch(/consecutive stages\s+different `placement`s/);
+  });
+
+  // Round 2 of the ko e2e: two hero-numbers said "both quality metrics" over one
+  // PSNR figure, and two stages laid "four splits" and "structure and colour
+  // improve" over scenic pictures that showed neither.
+  it("holds a headline to what its screen shows, and a stage's picture to its headline", () => {
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(on).toMatch(/claims nothing the screen does not\s+show/);
+    expect(on).toMatch(/A claim over two\s+metrics is one hero-number per metric/);
+    expect(on).toMatch(/A stage's picture shows what\s+its headline says/);
+    expect(on).toMatch(/never a stage over a scenic picture\s+that shows none of it/);
+  });
+
+  // In v2 an un-pictured bar-compare stands on the field, so it counts as a
+  // scene there and only there; a figure card never does.
+  it("names the field archetypes as scenes for the design the deck is built in", () => {
+    const v2 = systemPrompt(prefsSchema.parse({ images: { enabled: true }, design: "v2" }));
+    const classic = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(v2).toMatch(/A hero-number, kinetic or bar-compare beat WITHOUT a backdrop/);
+    expect(classic).toMatch(/A hero-number or kinetic beat WITHOUT a backdrop/);
+    expect(classic).toMatch(
+      /NOT a claim-figure or annotated-figure, which sit on the plain ground/,
+    );
+  });
+
+  // Round 1's ten scenes in fourteen were nine panels over pictures; the cap
+  // is stated from the number the plan is checked against, and numbers and
+  // claims are named as scenes that spend no picture.
+  it("caps panels at the checked number and names what to draw instead", () => {
+    const images = prefsSchema.parse({ images: { enabled: true } }).images;
+    const on = systemPrompt(prefsSchema.parse({ images: { enabled: true } }));
+    expect(on).toContain("PANELS ARE THE EXCEPTION");
+    expect(on).toMatch(new RegExp(`a 14-beat deck, ${panelsAllowed(14, images)}\\)`));
+    expect(on).toMatch(/hero-number or kinetic beat WITHOUT a backdrop is still a scene/);
+    expect(systemPrompt(prefsSchema.parse({}))).not.toContain("PANELS ARE THE EXCEPTION");
   });
 });
 
@@ -493,5 +611,13 @@ describe("the archetype catalogue", () => {
   it("forbids reaching for the same shape twice running", () => {
     expect(text).toMatch(/Do not use the same archetype for two beats in a row/);
     expect(text).toMatch(/take the family this deck has\s+not used yet/);
+  });
+
+  // The number the planner is told is the number `varietyFindings` holds it to.
+  it("forbids an A/B/A/B run past the checked length, and says it is checked", () => {
+    expect(text).toMatch(
+      new RegExp(`no run alternating two archetypes is longer than\\s+${MAX_ALTERNATION} beats`),
+    );
+    expect(text).toMatch(/a plan\s+that breaks either is sent back/);
   });
 });

@@ -43,7 +43,7 @@
  * planner, no TTS and no ffmpeg.
  */
 import type { Prefs } from "../prefs.js";
-import type { Source } from "../types.js";
+import { isGeneratedFigure, type Source } from "../types.js";
 
 /**
  * Characters of text per second of speech.
@@ -726,7 +726,12 @@ export const SUPPLY_RANGE = { min: 0.5, max: 1.5 } as const;
  */
 export function sourcePoints(source: Source): number {
   const prose = source.sections.reduce((n, s) => n + s.text.length, 0);
-  const exhibits = source.figures.length + source.tables.length + source.equations.length;
+  // Figures `illustrate` drew are not the document's. Counted, they made a
+  // source grow as it was illustrated: the 2026-10-09 ko deck was planned at 14
+  // beats, gained three pictures, and `build` — which resolves the same default
+  // from the illustrated source.json — warned that 16 had been asked for.
+  const own = source.figures.filter((f) => !isGeneratedFigure(f.id)).length;
+  const exhibits = own + source.tables.length + source.equations.length;
   return prose / PROSE_CHARS_PER_BEAT + exhibits;
 }
 

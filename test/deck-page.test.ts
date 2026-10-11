@@ -764,7 +764,9 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
       ]);
     // One build with the flag; and the SAME deck built classic and then
     // repacked, which is how every deck already on a CDN gets the v2 player.
-    await build(join(dir, "v2"), ["--design", "v2"]);
+    // `--no-bespoke`: v2 now draws every narrated beat with Codex by default,
+    // and this test is about the page, not about generated scenes.
+    await build(join(dir, "v2"), ["--design", "v2", "--no-bespoke"]);
     await build(join(dir, "classic"), []);
     await run(process.execPath, [cli, "repack", join(dir, "classic")]);
     // The demo under v2, pinned to a pack whose Director picks foot and rail
@@ -784,6 +786,7 @@ describe.skipIf(chrome === null)("the v2 player, in the renderer's own browser",
       "--no-fidelity",
       "--design",
       "v2",
+      "--no-bespoke",
       "--theme",
       "signal",
     ]);

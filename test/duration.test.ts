@@ -724,6 +724,28 @@ describe("slidesFor", () => {
     expect(sourcePoints(oneSection)).toBe(6);
   });
 
+  it("does not count the pictures `illustrate` drew as the document's", () => {
+    // ko deck, 2026-10-09: planned at 14 from a figure-less source, then
+    // illustrated with three `gen-*` figures, and `build` — resolving the same
+    // default from the illustrated source.json — warned that 16 were asked for.
+    const drawn: Source = {
+      ...note,
+      figures: [
+        ...note.figures,
+        ...["gen-b02", "gen-b04-left", "gen-b07"].map((id) => ({
+          id,
+          kind: "image" as const,
+          src: `${id}.png`,
+          caption: "c",
+          width: 10,
+          height: 10,
+        })),
+      ],
+    };
+    expect(sourcePoints(drawn)).toBe(sourcePoints(note));
+    expect(slidesFor(prefs(), drawn)).toBe(slidesFor(prefs(), note));
+  });
+
   it("was flat at twelve across the whole middle of the range, and is not now", () => {
     // The defect, stated as a test: the clock alone gives one answer for every
     // document, and it is the same answer for four durations running.

@@ -225,7 +225,44 @@ export const PERTURBATIONS = {
       note: "The body states a different gain from the table.",
     })),
   },
+  // A PIECE on the same archetype: the `<canvas data-ds-piece>`, its plate cap
+  // and the `dsAnimate` hold, which no demo figure exercises. Varied by aspect,
+  // because the plate's fit and mode (wide / beside / tall) are what a piece
+  // shares with every other claim-figure. `b13`, not `b11-…`: a cell's beat id
+  // is its first three characters, and two `b11` beats would share one deck.
+  "b13-claim-figure-piece": {
+    axis: "piece aspect",
+    levels: [
+      [1920, 1080],
+      [1080, 1080],
+      [1080, 1920],
+    ].map(([width, height]) => ({
+      eyebrow: "Animated",
+      headline: HEADLINES[1],
+      claim: "Reconstruction improves.",
+      width,
+      height,
+    })),
+  },
 };
+
+/**
+ * The piece `b13-claim-figure-piece` draws: README's "Animated pieces" example.
+ * A figure's pixels come from demo/assets, which holds no piece, so
+ * `scripts/sweep.mjs` writes this file beside the source instead of copying it.
+ */
+export const PIECE_SRC = "pieces/sweep.js";
+export const PIECE_AUTHOR = `const ERA_BG = ['#cfe2ee'];
+function pieceCam(era, t) { return null; }
+function sceneSky() {
+  cut(rect(-30, -30, W + 60, H + 60, 0), PAL.sky, { key: 'bg', shadow: false, tear: 0, shade: false });
+  const k = EZ.io(seg(TT, 0, DURATION));
+  cut(ellipsePts(LX(0.12 + 0.76 * k), LY(0.55 - 0.38 * Math.sin(Math.PI * k)), 110 * UNIT, 110 * UNIT, 0, 30), PAL.yellow, { key: 'sun' });
+}
+const BRIDGES = [];
+const ERA_LIST = [[0, DURATION, () => sceneSky()]];
+const SHOTS = [['sky', 0, 0.0, DURATION, 'sky']];
+`;
 
 /** Every (beat, level) pair, flattened and in a fixed order. */
 export const CELLS = Object.entries(PERTURBATIONS).flatMap(([beatId, spec]) =>
@@ -243,7 +280,8 @@ export const LEVELS = Math.max(...Object.values(PERTURBATIONS).map((s) => s.leve
  * refers to the SOURCE by id instead, so for those three archetypes the inline
  * data is injected into a copy of the source under a fresh id. The two figures
  * are the demo's own, by id, because a figure's pixels are not a thing this file
- * can perturb.
+ * can perturb. The piece is the exception: the demo has none, so its figure is
+ * injected too, and its script is `PIECE_AUTHOR`.
  *
  * `src` is mutated on purpose: one source copy per level-deck accumulates every
  * table and equation that deck needs.
@@ -271,6 +309,20 @@ export function deckBeat(cell, src, core) {
     }
     case "b11-claim-figure":
       return beat("claim-figure", { ...props, figureId: "fig-progress" });
+    case "b13-claim-figure-piece": {
+      // One piece per deck is the limit, and this is the only cell with one.
+      const { width, height, ...rest } = props;
+      src.figures.push({
+        id: "fig-piece",
+        kind: "piece",
+        src: PIECE_SRC,
+        width,
+        height,
+        seconds: 4,
+        caption: "A sun crossing the sky",
+      });
+      return beat("claim-figure", { ...rest, figureId: "fig-piece" });
+    }
     default:
       return beat(beatId.replace(/^b\d+-/, ""), props);
   }

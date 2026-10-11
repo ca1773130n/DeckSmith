@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import { emitDeck } from "../src/emit/composition.js";
 import type { Scene } from "../src/emit/kit.js";
-import { signature } from "../src/emit/look.js";
+import { beatSignature, signature } from "../src/emit/look.js";
 import { ink } from "../src/emit/themes/ink.js";
 import { direct, fnv1a, summarize } from "../src/plan/direct.js";
 import { prefsFromFlags } from "../src/prefs.js";
@@ -58,9 +58,103 @@ describe("direct", () => {
     expect(new Set(d.beats.map((b) => b.signature)).size).toBeGreaterThanOrEqual(3);
   });
 
-  it("moves the chrome off the top of most slides", () => {
+  /**
+   * A STAGE HAS NO CHROME. Its look's `top` is a default no slide shows, and
+   * counting it charged the beat after two stages a samePlacement penalty for
+   * a run of top headlines that was not there, pushing it off its classic
+   * layout for no visual reason. So the beat after two stages is directed
+   * exactly as if they were not there, and the summary counts no stage as top.
+   */
+  it("directs the beat after two stages as if no chrome came before it", () => {
+    const stageOf = (id: string, placement: "bottom-left" | "right"): Beat =>
+      ({
+        id,
+        archetype: "stage",
+        intent: "Show it.",
+        evidence: [],
+        weight: 0.8,
+        seconds: 6,
+        params: { headline: "The model", figureId: "fig-compare", placement },
+      }) as Beat;
+    const stages = [stageOf("st1", "bottom-left"), stageOf("st2", "right")];
+    const drawn = demo.beats.filter((b) => b.archetype !== "title" && b.archetype !== "stage");
+    // Under a pack that leans to top chrome, where a phantom run of two tops
+    // decides the pick: counted, it moved 6 of these 14 beats off the top.
+    const leaning = { ...opts, theme: { ...ink, forms: { affinity: { placement: { top: 1 } } } } };
+    const moved = drawn.filter(
+      (b) =>
+        beatSignature(b, direct([...stages, b], leaning).looks[2]) !==
+        beatSignature(b, direct([b], leaning).looks[0]),
+    );
+    expect(moved.map((b) => b.id)).toEqual([]);
+
+    const d = direct(stages, opts);
+    expect(d.summary.modalChrome).toBe(0);
+    // Two stages with their words in different places are two looks, not one.
+    expect(d.beats.map((b) => b.signature)).toEqual([
+      "stage:classic@bottom-left",
+      "stage:classic@right",
+    ]);
+    expect(d.summary.distinct).toBe(2);
+  });
+
+  it("gives hero-number and kinetic no chrome either: they set their own words", () => {
+    const full: Beat[] = [
+      {
+        id: "hn1",
+        archetype: "hero-number",
+        intent: "Land it.",
+        evidence: [],
+        weight: 0.8,
+        seconds: 8,
+        params: { headline: "A quarter of the energy", value: "43.63", unit: "mJ", label: "ours" },
+      },
+      {
+        id: "kn1",
+        archetype: "kinetic",
+        intent: "Say it.",
+        evidence: [],
+        weight: 0.8,
+        seconds: 8,
+        params: {
+          headline: "Spikes stay sparse",
+          phrases: [{ text: "Haze lowers contrast", key: "contrast" }, { text: "edges fade" }],
+        },
+      },
+    ] as Beat[];
+    const leaning = { ...opts, theme: { ...ink, forms: { affinity: { placement: { top: 1 } } } } };
+    expect(direct(full, leaning).summary.modalChrome).toBe(0);
+    const drawn = demo.beats.filter((b) => b.archetype !== "title" && b.archetype !== "stage");
+    const moved = drawn.filter(
+      (b) =>
+        beatSignature(b, direct([...full, b], leaning).looks[2]) !==
+        beatSignature(b, direct([b], leaning).looks[0]),
+    );
+    expect(moved.map((b) => b.id)).toEqual([]);
+  });
+
+  it("keeps the chrome off the top of all but about half the slides", () => {
     // The 92.7% mode the founder called "always the same" is chrome on top.
-    expect(direct(demo.beats, opts).summary.modalChrome).toBeLessThanOrEqual(0.5);
+    // 0.5 until 2026-10-09; 8 of 15 since a beat may no longer repeat the
+    // previous beat's placement: two of the demo's foot/foot pairs now move to
+    // the top, the only other place their archetypes offer. Alternating is the
+    // less "same" deck of the two.
+    expect(direct(demo.beats, opts).summary.modalChrome).toBeLessThanOrEqual(8 / 15);
+  });
+
+  it("never sets two neighbours' chrome in the same place when it can move it", () => {
+    // ko deck review, 2026-10-09: foot under a rule on b09 then b10, b13 then
+    // b14. Only `top` repeats in the demo, and only where an archetype has no
+    // other look (annotated-figure, grid, stack, data-table, line-chart).
+    const d = direct(demo.beats, opts).beats;
+    for (let i = 1; i < d.length; i++) {
+      const [a, b] = [d[i - 1], d[i]];
+      if (a?.placement === b?.placement)
+        expect(`${a?.beat}/${b?.beat}@${b?.placement}`).toMatch(/@top$/);
+    }
+    expect(
+      d.filter((b, i) => i > 0 && b.placement === "foot" && d[i - 1]?.placement === "foot"),
+    ).toEqual([]);
   });
 
   it("gives two papers with the same beats different decks", () => {
@@ -148,8 +242,10 @@ describe("direct", () => {
   });
 
   it("prefers the look that fills its body", () => {
-    // Two bars: rows draw a thin band, two columns leave the plot empty, and a
-    // versus sets the two values as the slide's figures.
+    // Two bars: two columns leave the plot empty. A versus (two 56px figures
+    // since 2026-10-10; they were 96-200px and won this outright) and the rows
+    // (bars grown into the region) now fill about alike, so the seed's taste
+    // decides between those two — and never picks the empty columns.
     const twoBars = {
       id: "b1",
       archetype: "bar-compare",
@@ -168,7 +264,9 @@ describe("direct", () => {
     } as Beat;
     // Over many papers, not one: one seed's taste could land on columns by luck.
     for (let k = 0; k < 12; k++) {
-      expect(direct([twoBars], { ...opts, seed: `paper-${k}` }).beats[0]?.variant).toBe("versus");
+      expect(["bars", "versus"]).toContain(
+        direct([twoBars], { ...opts, seed: `paper-${k}` }).beats[0]?.variant,
+      );
     }
   });
 });
@@ -235,15 +333,30 @@ describe("design: the switch", () => {
     // rows of s14's table share its height and no row is lifted out of line.
     // Then s9's claim stops growing into its strip figure's classic height, so
     // the foot look keeps the figure at 1383x384 (classic draws it 1373x381).
-    // Then the seek_order gate: s6's two swell take-backs gain
+    // Then the 2026-10-09 ko-deck round, re-pinned after reading the demo's
+    // hold frames: no beat repeats the previous beat's placement (s3 row@foot
+    // → row@top, s14 panels@foot → rows@top), split-compare s13 grows its list
+    // and stops its divider at the lists, callout panels centre their content
+    // with balanced lines, and the stage headline is balanced.
+    // Then round 3 of that review: s10's bar-compare stands on the field in
+    // glass (read at its last hold, 83.45s), with dim below the lifted tones.
+    // Then, merged from main, the seek_order gate: s6's two swell take-backs gain
     // `immediateRender: false` (the only diff), so a cold seek before the walk
     // no longer shows a swollen term.
-    // Then the two KaTeX scenes gain one statement each flagging the nodes inside
-    // KaTeX's lap overlays `data-layout-allow-overlap` (`lapSetup`); removing
-    // those two statements gives back the previous pin byte for byte. An
-    // attribute, so nothing paints differently.
+    // Then the founder's type scale and quiet motion (2026-10-10), re-pinned
+    // after reading all 46 hold frames of the v2 demo: headline 56, kicker 40,
+    // labels and body 40-44, display equations at most 64; entrances are
+    // opacity fades, no panel or slab lifts, no divider sweep, glow-only emphasis.
+    // Then the seams of r3's review (2026-10-10), the only diff being seam
+    // tweens: no `wipe` (s2, s7, s11 lose their clip sweep, so the hash picks
+    // re-roll s9-s15's seams), and every seam fades the outgoing eyebrow and
+    // headline out in 0.16s, before the incoming chrome starts at 0.3.
+    // Then, merged from main (#120), the two KaTeX scenes gain one statement each
+    // flagging the nodes inside KaTeX's lap overlays `data-layout-allow-overlap`
+    // (`lapSetup`); removing those two statements gives back the previous pin
+    // byte for byte. An attribute, so nothing paints differently.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "7e187891107cd53e52ac8b9c0deb16db22e75524a24064b58903810843f7097c",
+      "93257ef71638ca044977bd7aa3cbc5ff28b3b06f39c455663ee75e72166ccda8",
     );
   });
 

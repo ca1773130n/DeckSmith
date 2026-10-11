@@ -6,6 +6,7 @@
  * acceptance is something a real generated scene (spike, 2026-10-07) did.
  */
 import { describe, expect, it } from "vitest";
+import { cardRow } from "../src/bespoke/cards.js";
 import {
   checkCss,
   checkFragment,
@@ -33,15 +34,15 @@ const GOOD: Fragment = {
     var dots = root.querySelectorAll("#SCENEID .dot");
     gsap.set("#SCENEID-wire", { drawSVG: "0% 0%" });
     gsap.set(["#SCENEID-lab", "#SCENEID-eq"], { opacity: 0 });
-    tl.to("#SCENEID-lab", { opacity: 1, duration: 0.5, ease: "power2.out" }, 1.2);
+    tl.fromTo("#SCENEID-lab", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, 1.2);
     tl.fromTo("#SCENEID-wire", { drawSVG: "0% 0%" }, { drawSVG: "0% 100%", duration: 1.4, immediateRender: false }, 2.0);
     for (var i = 0; i < 3; i++) {
-      tl.to("#SCENEID-dot" + i, { attr: { cx: 400 + i * 120 }, duration: 0.8, repeat: 2 }, 3 + i * 0.3);
+      tl.fromTo("#SCENEID-dot" + i, { attr: { cx: 300 } }, { attr: { cx: 400 + i * 120 }, duration: 0.8, repeat: 2 }, 3 + i * 0.3);
     }
     var tones = { a: "#5ec8f2", b: "#f7c948" };
     var k = "a";
-    tl.to("#SCENEID-box", { fill: tones[k], duration: 0.4 }, 4);
-    tl.to("#SCENEID-eq", { opacity: 1, y: Math.round(Math.sin(0.5) * 10), duration: 0.6 }, 5.5);
+    tl.fromTo("#SCENEID-box", { fill: tones.b }, { fill: tones[k], duration: 0.4 }, 4);
+    tl.fromTo("#SCENEID-eq", { opacity: 0, y: 0 }, { opacity: 1, y: Math.round(Math.sin(0.5) * 10), duration: 0.6 }, 5.5);
     var pts = [0, 1, 2].map(function (j) { return [100 + j * 50, 300 - j * 20].join(","); }).join(" ");
     tl.set("#SCENEID-poly", { attr: { points: pts } }, 6);
   `,
@@ -88,26 +89,42 @@ describe("the script allowlist", () => {
     ["timers", `setTimeout(function () {}, 10);`, "script_name"],
     ["clock", `var t = Date.now();`, "script_name"],
     ["random", `var r = Math.random();`, "script_random"],
-    ["gsap random string", `tl.to("#SCENEID-a", { x: "random(0, 100)" }, 1);`, "script_random"],
+    [
+      "gsap random string",
+      `tl.fromTo("#SCENEID-a", { x: 0 }, { x: "random(0, 100)" }, 1);`,
+      "script_random",
+    ],
     [
       "a callback",
-      `tl.to("#SCENEID-a", { x: 1, onUpdate: function () {} }, 1);`,
+      `tl.fromTo("#SCENEID-a", { x: 0 }, { x: 1, onUpdate: function () {} }, 1);`,
       "script_callback",
     ],
     [
       "a function value",
-      `tl.to("#SCENEID-a", { x: function () { return 1; } }, 1);`,
+      `tl.fromTo("#SCENEID-a", { x: 1 }, { x: function () { return 1; }, immediateRender: false }, 1);`,
       "script_callback",
     ],
     ["tl.call", `tl.call(function () {}, [], 1);`, "script_api"],
     ["gsap.to off the timeline", `gsap.to("#SCENEID-a", { x: 1 });`, "script_api"],
     ["gsap.from", `gsap.from("#SCENEID-a", { x: 1 });`, "script_api"],
-    ["no position", `tl.to("#SCENEID-a", { x: 1 });`, "script_position"],
-    ["relative position", `tl.to("#SCENEID-a", { x: 1 }, "+=1");`, "script_position"],
-    ["vars by reference", `var v = { x: 1 }; tl.to("#SCENEID-a", v, 1);`, "script_vars"],
-    ["unscoped target", `tl.to(".dot", { x: 1 }, 1);`, "script_scope"],
+    ["no position", `tl.fromTo("#SCENEID-a", { x: 0 }, { x: 1 });`, "script_position"],
+    [
+      "relative position",
+      `tl.fromTo("#SCENEID-a", { x: 1 }, { x: 1, immediateRender: false }, "+=1");`,
+      "script_position",
+    ],
+    [
+      "vars by reference",
+      `var v = { x: 1 }; tl.fromTo("#SCENEID-a", { x: 0 }, v, 1);`,
+      "script_vars",
+    ],
+    ["unscoped target", `tl.fromTo(".dot", { x: 0 }, { x: 1 }, 1);`, "script_scope"],
     ["unscoped query", `root.querySelector("body");`, "script_scope"],
-    ["infinite repeat", `tl.to("#SCENEID-a", { x: 1, repeat: -1 }, 1);`, "script_repeat"],
+    [
+      "infinite repeat",
+      `tl.fromTo("#SCENEID-a", { x: 1 }, { x: 1, repeat: -1, immediateRender: false }, 1);`,
+      "script_repeat",
+    ],
     ["new", `var a = new Array(3);`, "script_node"],
     ["this", `var g = this;`, "script_node"],
     ["while", `while (true) {}`, "script_node"],
@@ -125,7 +142,7 @@ describe("the script allowlist", () => {
     ["writing a shell object", `gsap.foo = 1;`, "script_api"],
     ["a stored callback", `var o = {}; o.f = function () {};`, "script_callback"],
     ["layout reads", `var b = root.querySelector("#SCENEID-a").getBBox();`, "script_name"],
-    ["syntax", `tl.to(`, "script_syntax"],
+    ["syntax", `tl.fromTo(`, "script_syntax"],
   ];
   for (const [what, script, rule] of refused) {
     it(`refuses ${what}`, () => {
@@ -248,20 +265,34 @@ describe("cue groups (semantic grouping)", () => {
 
 describe("morphSVG", () => {
   it("morphs to the scene's own path or to path data, never to another scene's", () => {
-    expect(checkScript(`tl.to("#SCENEID-a", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`)).toEqual(
-      [],
-    );
     expect(
-      checkScript(`tl.to("#SCENEID-a", { morphSVG: "M0 0 L10 10", duration: 1 }, 2);`),
+      checkScript(
+        `tl.fromTo("#SCENEID-a", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
+      ),
     ).toEqual([]);
     expect(
-      checkScript(`tl.to("#SCENEID-a", { morphSVG: { shape: "#SCENEID-b" }, duration: 1 }, 2);`),
+      checkScript(
+        `tl.fromTo("#SCENEID-a", { morphSVG: "#SCENEID-b" }, { morphSVG: "M0 0 L10 10", duration: 1, immediateRender: false }, 2);`,
+      ),
     ).toEqual([]);
     expect(
-      rules(checkScript(`tl.to("#SCENEID-a", { morphSVG: "#s3-logo", duration: 1 }, 2);`)),
+      checkScript(
+        `tl.fromTo("#SCENEID-a", { morphSVG: "M0 0 L10 10" }, { morphSVG: { shape: "#SCENEID-b" }, duration: 1, immediateRender: false }, 2);`,
+      ),
+    ).toEqual([]);
+    expect(
+      rules(
+        checkScript(
+          `tl.fromTo("#SCENEID-a", { morphSVG: { shape: "#SCENEID-b" } }, { morphSVG: "#s3-logo", duration: 1, immediateRender: false }, 2);`,
+        ),
+      ),
     ).toContain("script_scope");
     expect(
-      rules(checkScript(`var t = "#s3"; tl.to("#SCENEID-a", { morphSVG: t, duration: 1 }, 2);`)),
+      rules(
+        checkScript(
+          `var t = "#s3"; tl.fromTo("#SCENEID-a", { morphSVG: "#s3-logo" }, { morphSVG: t, duration: 1, immediateRender: false }, 2);`,
+        ),
+      ),
     ).toContain("script_morph");
   });
 });
@@ -269,13 +300,13 @@ describe("morphSVG", () => {
 describe("motion kinds", () => {
   it("reads the verbs a timeline asks for off its tweens", () => {
     const kinds = motionKinds(`
-      tl.to("#SCENEID-svg", { attr: { viewBox: "0 0 10 10" }, duration: 1 }, 1);
-      tl.to("#SCENEID-n", { textContent: 83, snap: { textContent: 1 }, duration: 1 }, 2);
-      tl.to("#SCENEID-a", { morphSVG: "#SCENEID-b", duration: 1 }, 3);
-      tl.to("#SCENEID-p", { x: 100, y: 20, duration: 1, repeat: 3 }, 4);
-      tl.to("#SCENEID-q", { opacity: 0.3, duration: 1 }, 5);
-      tl.to(["#SCENEID-r", "#SCENEID-s"], { scale: 1, stagger: 0.1, duration: 1 }, 6);
-      tl.to("#SCENEID-w", { drawSVG: "0% 100%", duration: 1 }, 7);
+      tl.fromTo("#SCENEID-svg", { attr: { viewBox: "0 0 20 20" } }, { attr: { viewBox: "0 0 10 10" }, duration: 1 }, 1);
+      tl.fromTo("#SCENEID-n", { textContent: 0 }, { textContent: 83, snap: { textContent: 1 }, duration: 1 }, 2);
+      tl.fromTo("#SCENEID-a", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 3);
+      tl.fromTo("#SCENEID-p", { x: 0, y: 0 }, { x: 100, y: 20, duration: 1, repeat: 3 }, 4);
+      tl.fromTo("#SCENEID-q", { opacity: 1 }, { opacity: 0.3, duration: 1 }, 5);
+      tl.fromTo(["#SCENEID-r", "#SCENEID-s"], { scale: 1 }, { scale: 1, stagger: 0.1, duration: 1 }, 6);
+      tl.fromTo("#SCENEID-w", { drawSVG: "0% 100%" }, { drawSVG: "0% 100%", duration: 1 }, 7);
     `);
     expect(kinds).toEqual([
       "draw",
@@ -287,7 +318,9 @@ describe("motion kinds", () => {
       "scale",
       "focus",
     ]);
-    expect(motionKinds(`tl.to("#SCENEID-a", { opacity: 1, duration: 1 }, 1);`)).toEqual([]);
+    expect(
+      motionKinds(`tl.fromTo("#SCENEID-a", { opacity: 1 }, { opacity: 1, duration: 1 }, 1);`),
+    ).toEqual([]);
     expect(motionKinds("not js (")).toEqual([]);
   });
 });
@@ -296,27 +329,23 @@ describe("an illustrated scene's staging (round 4)", () => {
   const STAGED: Fragment = {
     markup: `<svg id="SCENEID-svg" width="1700" height="700"><image id="SCENEID-p" data-art="1"/><g id="SCENEID-a" data-cue="1" data-subject="1"><text id="SCENEID-t1">cup</text></g><g id="SCENEID-b" data-cue="2" data-subject="2"><text id="SCENEID-t2">arm</text></g></svg>`,
     css: "",
-    script: `tl.to("#SCENEID-a", { opacity: 1, duration: 0.4 }, 1);`,
+    script: `tl.fromTo("#SCENEID-a", { opacity: 1 }, { opacity: 1, duration: 0.4 }, 1);`,
     shots: [
       { cue: 2, at: 0, subject: 1 },
       { cue: 3, at: 0.2, subject: 2 },
     ],
-    labels: [
-      { subject: 1, text: "cup" },
-      { subject: 2, text: "arm" },
-    ],
   };
-  const ctx = { art: true, subjects: 3, cues: 4, labelFits: (t: string) => t.length <= 12 };
+  const ctx = { art: true, subjects: 3, cues: 4 };
   const rules = (f: Fragment) => checkFragment(f, ctx).map((x) => x.rule);
 
-  it("passes a scene that names its shots and labels its subjects", () => {
+  it("passes a scene that names its shots (round 6: no labels asked for)", () => {
     expect(checkFragment(STAGED, ctx)).toEqual([]);
   });
 
   it("refuses a script that moves the shell's camera", () => {
     const moved = {
       ...STAGED,
-      script: `${STAGED.script}\ntl.to("#SCENEID-cam", { scale: 1.3, duration: 1 }, 4);`,
+      script: `${STAGED.script}\ntl.fromTo("#SCENEID-cam", { scale: 1 }, { scale: 1.3, duration: 1 }, 4);`,
     };
     expect(rules(moved)).toEqual(["script_camera"]);
   });
@@ -347,32 +376,7 @@ describe("an illustrated scene's staging (round 4)", () => {
     ).toEqual(["shots"]);
   });
 
-  it("asks the scene to NAME the subjects (the shell places the names), and refuses names that do not fit", () => {
-    // Round 3's row of plates: words drawn by the scene, none given to the shell.
-    expect(rules({ ...STAGED, labels: [] })).toEqual(["labels"]);
-    expect(rules({ ...STAGED, labels: [{ subject: 1, text: "cup" }] })).toEqual(["labels"]);
-    // A second name for one subject is dropped by the shell, not refused.
-    expect(
-      rules({ ...STAGED, labels: [...(STAGED.labels ?? []), { subject: 2, text: "again" }] }),
-    ).toEqual([]);
-    expect(
-      rules({
-        ...STAGED,
-        labels: [
-          { subject: 1, text: "a very long label indeed" },
-          { subject: 2, text: "arm" },
-        ],
-      }),
-    ).toEqual(["labels"]);
-    expect(
-      rules({
-        ...STAGED,
-        labels: [
-          { subject: 1, text: "cup" },
-          { subject: 7, text: "x" },
-        ],
-      }),
-    ).toEqual(["labels"]);
+  it("refuses a scene's own label group that names no subject of the picture", () => {
     // A scene's own label group must name a real subject.
     const wrong = {
       ...STAGED,
@@ -383,5 +387,198 @@ describe("an illustrated scene's staging (round 4)", () => {
 
   it("asks nothing of a scene with no subjects", () => {
     expect(checkFragment({ ...STAGED, shots: [] }, { art: true })).toEqual([]);
+  });
+});
+
+describe("card_row: cards, panels or tiles as the main visual", () => {
+  const box = { width: 1700, height: 600 };
+  const card = (x: number, y: number, w = 360, h = 300) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="#222"/>`;
+  const svg = (inner: string) =>
+    `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600">${inner}</svg>`;
+
+  it("flags a row of alike cards, a column of panels and a grid of tiles", () => {
+    expect(
+      cardRow(svg(card(40, 150) + card(460, 150) + card(880, 150) + card(1300, 150)), box),
+    ).toMatch(/a row of 4 alike rectangles/);
+    const column = svg([0, 1, 2].map((i) => card(600, 20 + i * 190, 500, 160)).join(""));
+    expect(cardRow(column, box)).toMatch(/column of 3/);
+    const grid = svg(card(100, 40) + card(600, 40) + card(100, 320, 380, 260) + card(600, 320));
+    expect(cardRow(grid, box)).toMatch(/grid of 4|row of/);
+  });
+
+  it("follows the groups that place the cards", () => {
+    const placed = svg(
+      [0, 1, 2]
+        .map(
+          (i) => `<g transform="translate(${60 + i * 540} 140)"><g>${card(0, 0, 400, 320)}</g></g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(placed, box)).toMatch(/row of 3/);
+    // Scaled down to chips, the same three are a legend, not the main visual.
+    const small = svg(`<g transform="scale(0.2)">${card(0, 0) + card(500, 0) + card(1000, 0)}</g>`);
+    expect(cardRow(small, box)).toBeUndefined();
+  });
+
+  it("passes a scene built from its content: a ground, a clip rect, a few unlike shapes, small plates", () => {
+    const scene = svg(
+      `<defs><clipPath id="SCENEID-reveal">${card(0, 0) + card(400, 0) + card(800, 0)}</clipPath></defs>` +
+        `<rect x="0" y="0" width="1700" height="600" fill="#111"/>` +
+        `<path d="M0 300 L1700 300" stroke="#fff"/>` +
+        `<rect x="100" y="60" width="150" height="70" rx="12"/><rect x="600" y="60" width="150" height="70" rx="12"/><rect x="1100" y="60" width="150" height="70" rx="12"/>` +
+        card(200, 200, 700, 300) +
+        card(1000, 250, 300, 120),
+    );
+    expect(cardRow(scene, box)).toBeUndefined();
+    // Two cards are a comparison, not a template row.
+    expect(cardRow(svg(card(100, 150, 600, 300) + card(900, 150, 600, 300)), box)).toBeUndefined();
+  });
+
+  it("counts a card drawn twice in one place (a fill and its outline) once", () => {
+    const twice = (x: number) =>
+      card(x, 150, 600, 300) +
+      `<rect x="${x}" y="150" width="600" height="300" rx="24" fill="none" stroke="#fff"/>`;
+    expect(cardRow(svg(twice(100) + twice(900)), box)).toBeUndefined();
+  });
+
+  it("sees cards placed by a nested <svg>, a rotate(0) or an axis-aligned matrix", () => {
+    const nested = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<svg x="${60 + i * 540}" y="140" width="400" height="320">${card(0, 0, 400, 320)}</svg>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(nested, box)).toMatch(/row of 3/);
+    // A nested viewBox scales what it holds: 4000 units drawn into 400px.
+    const zoomed = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<svg x="${60 + i * 540}" y="140" width="400" height="320" viewBox="0 0 4000 3200">${card(0, 0, 4000, 3200)}</svg>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(zoomed, box)).toMatch(/row of 3/);
+    const rotated = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<g transform="translate(${60 + i * 540} 140) rotate(0)">${card(0, 0, 400, 320)}</g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(rotated, box)).toMatch(/row of 3/);
+    const matrix = svg(
+      [0, 1, 2]
+        .map(
+          (i) => `<g transform="matrix(1 0 0 1 ${60 + i * 540} 140)">${card(0, 0, 400, 320)}</g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(matrix, box)).toMatch(/row of 3/);
+    // A real rotation is not read: no claim either way.
+    const turned = svg(
+      [0, 1, 2]
+        .map(
+          (i) =>
+            `<g transform="translate(${60 + i * 540} 140) rotate(30)">${card(0, 0, 400, 320)}</g>`,
+        )
+        .join(""),
+    );
+    expect(cardRow(turned, box)).toBeUndefined();
+  });
+
+  it("sees <div> cards placed in px, inline or by their #id rule, and not an unpainted wrapper", () => {
+    const div = (i: number, style = "") =>
+      `<div id="SCENEID-c${i}" style="position:absolute;left:${60 + i * 540}px;top:140px;width:400px;height:320px;${style}"></div>`;
+    const inline = `<div id="SCENEID-row">${[0, 1, 2].map((i) => div(i, "background:#223;border-radius:24px")).join("")}</div>`;
+    expect(cardRow(inline, box)).toMatch(/row of 3/);
+    // Unpainted, the same boxes are layout, not cards.
+    expect(cardRow(`<div>${[0, 1, 2].map((i) => div(i)).join("")}</div>`, box)).toBeUndefined();
+    const byRule = `<div>${[0, 1, 2].map((i) => `<div id="SCENEID-k${i}"></div>`).join("")}</div>`;
+    const css = [0, 1, 2]
+      .map(
+        (i) =>
+          `#SCENEID-k${i} { position: absolute; left: ${60 + i * 540}px; top: 140px; width: 400px; height: 320px; background-color: #223; }`,
+      )
+      .join("\n");
+    expect(cardRow(byRule, box, css)).toMatch(/row of 3/);
+    expect(cardRow(byRule, box)).toBeUndefined();
+  });
+});
+
+describe("every tween is a fromTo (AGENTS.md invariant 2)", () => {
+  const rules = (script: string) => checkScript(script).map((x) => x.rule);
+  it("refuses tl.to and tl.from", () => {
+    expect(rules(`tl.to("#SCENEID-a", { x: 1, duration: 1 }, 1);`)).toEqual(["script_fromto"]);
+    expect(rules(`tl.from("#SCENEID-a", { x: 1, duration: 1 }, 1);`)).toEqual(["script_fromto"]);
+  });
+  it("refuses a fromTo whose from state misses a property it moves, or that rides keyframes", () => {
+    expect(rules(`tl.fromTo("#SCENEID-a", { x: 0 }, { x: 1, y: 2, duration: 1 }, 1);`)).toEqual([
+      "script_fromto",
+    ]);
+    expect(
+      rules(`tl.fromTo("#SCENEID-a", { attr: { cx: 0 } }, { attr: { cx: 1, cy: 2 } }, 1);`),
+    ).toEqual(["script_fromto"]);
+    expect(
+      rules(`tl.fromTo("#SCENEID-a", { x: 0 }, { keyframes: [{ x: 1 }, { x: 2 }] }, 1);`),
+    ).toContain("script_fromto");
+  });
+  it("passes a fromTo that names every start, its settings left out", () => {
+    expect(
+      rules(
+        `tl.fromTo("#SCENEID-a", { x: 0, attr: { cx: 3 } }, { x: 1, attr: { cx: 4 }, duration: 1, ease: "none", stagger: 0.1, immediateRender: false }, 1);`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("quiet type (round 6)", () => {
+  const svg = (inner: string) =>
+    `<svg id="SCENEID-svg" width="1920" height="1080"><g id="SCENEID-a" data-cue="1">${inner}</g><g id="SCENEID-b" data-cue="2"></g></svg>`;
+  const rules = (markup: string, css = "") =>
+    checkFragment({ markup, css, script: "" }).map((x) => x.rule);
+
+  it("refuses a font-size over the 56px headline, in markup or css, and keeps the 40px floor", () => {
+    expect(rules(svg('<text id="SCENEID-t" font-size="44">a</text>'))).toEqual([]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="56">a</text>'))).toEqual([]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="64">a</text>'))).toEqual(["type_scale"]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="120">a</text>'))).toEqual(["type_scale"]);
+    expect(rules(svg('<text id="SCENEID-t" font-size="36">a</text>'))).toEqual([
+      "markup_type_floor",
+    ]);
+    expect(rules(svg(""), "#SCENEID-t{font-size:88px}")).toEqual(["type_scale"]);
+  });
+
+  it("asks a scene on a picture for no cue groups: it may add nothing at all", () => {
+    const empty = {
+      markup: '<svg id="SCENEID-svg" width="1920" height="1080"></svg>',
+      css: "",
+      script: "",
+    };
+    expect(checkFragment(empty).map((x) => x.rule)).toContain("markup_cue");
+    expect(
+      checkFragment(
+        {
+          ...empty,
+          shots: [
+            { cue: 1, at: 0.5, subject: 1 },
+            { cue: 2, at: 0, subject: 2 },
+          ],
+        },
+        { art: true, subjects: 3, cues: 3 },
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the shell's round-6 ids out of a scene's hands", () => {
+    for (const id of ["fx", "light", "plate", "plane1", "subj2", "plate-soft"])
+      expect(rules(svg(`<circle id="SCENEID-${id}" r="4"/>`))).toContain("markup_id");
+    // A scene's own "sN"/"dN" ids stay its own (the references use them).
+    for (const id of ["s1", "d2"])
+      expect(rules(svg(`<circle id="SCENEID-${id}" r="4"/>`))).not.toContain("markup_id");
   });
 });

@@ -6,22 +6,38 @@
  * The runner and the gate are injected (`BespokeInput.run`, `.gate`), so every
  * branch of the pipeline is driven here with canned replies and canned verdicts.
  */
+
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { artPrompt } from "../src/bespoke/art.js";
 import { cacheKey, canonical, type KeyInput, SceneCache } from "../src/bespoke/cache.js";
+import { CARDS_VERSION } from "../src/bespoke/cards.js";
 import type { Fragment } from "../src/bespoke/contract.js";
 import {
+  assignDevices,
   Budget,
   bespokePass,
+  deadlineAdmit,
+  deviceName,
+  GATE_STAMP,
   type GateFn,
   type GateResult,
+  isUiDevice,
+  lanes,
+  pictureFloor,
   rubricProbe,
 } from "../src/bespoke/pipeline.js";
+import {
+  critiquePrompt,
+  type DeviceBeat,
+  devicePrompt,
+  generatePrompt,
+} from "../src/bespoke/prompt.js";
 import { bespokeHolds } from "../src/bespoke/scene.js";
-import { selectBespoke, target } from "../src/bespoke/select.js";
+import { selectBespoke } from "../src/bespoke/select.js";
 import { emitScene } from "../src/emit/archetypes/index.js";
 import {
   BESPOKE_CSP,
@@ -41,6 +57,7 @@ import {
   sourceSchema,
   storyboardSchema,
 } from "../src/types.js";
+import { asBuilt } from "./fixtures/build.js";
 
 const repo = (p: string) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 const demo = storyboardSchema.parse(
@@ -82,83 +99,95 @@ const SCENE: Fragment = {
   markup: `<svg id="SCENEID-svg" width="1700" height="600" viewBox="0 0 1700 600"><g id="SCENEID-a" data-cue="1"><circle id="SCENEID-dot" cx="100" cy="300" r="30" fill="#f7c948"/></g><g id="SCENEID-b" data-cue="2"></g></svg>`,
   css: "#SCENEID-svg { overflow: visible; }",
   script: `gsap.set("#SCENEID-dot", { attr: { cx: 100 } });
-tl.to("#SCENEID-dot", { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
+tl.fromTo("#SCENEID-dot", { attr: { cx: 100 } }, { attr: { cx: 1500 }, duration: 4, repeat: 3, yoyo: true }, 1);`,
 };
 
 /* ----------------------------------------------------------------- selection */
 
 describe("selection", () => {
-  it("is deterministic, picks mechanisms, and never a title or a callout", () => {
+  it("picks every narrated beat — title, callout and table too — in deck order", () => {
     const a = selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats });
-    const b = selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats });
-    expect(a).toEqual(b);
-    expect(a.picked.length).toBe(target(demo.beats.length));
-    const kinds = new Map(demo.beats.map((x) => [x.id, x.archetype]));
-    for (const p of a.picked)
-      expect(["title", "callout", "data-table"]).not.toContain(kinds.get(p.beatId));
+    expect(a).toEqual(
+      selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats }),
+    );
+    const camera = new Set(
+      demo.beats.flatMap((b, i) =>
+        b.inside !== undefined ? [b.id, demo.beats[i - 1]?.id as string] : [],
+      ),
+    );
+    expect(a.picked.map((p) => p.beatId)).toEqual(
+      demo.beats.filter((b) => !camera.has(b.id)).map((b) => b.id),
+    );
+    const kinds = new Set(
+      a.picked.map((p) => demo.beats.find((b) => b.id === p.beatId)?.archetype),
+    );
+    for (const k of ["title", "callout"])
+      if (demo.beats.some((b) => b.archetype === k)) expect(kinds).toContain(k);
     expect(a.picked.length + a.skipped.length).toBe(demo.beats.length);
   });
 
-  it("aims for a third of the deck, held to four to six", () => {
-    expect(target(6)).toBe(4);
-    expect(target(15)).toBe(5);
-    expect(target(40)).toBe(6);
-  });
-
-  it("refuses a beat with no narration, and one a camera moves through", () => {
+  it("refuses a beat with no narration cue, and one a camera moves through", () => {
     const silent = selectBespoke(demo.beats, { seed: "x", narration: {} });
     expect(silent.picked).toEqual([]);
-    expect(silent.skipped.some((s) => /no narration/.test(s.reason))).toBe(true);
+    expect(silent.skipped.some((s) => /no narration cue/.test(s.reason))).toBe(true);
 
     const camera = demo.beats.findIndex((b) => b.inside !== undefined);
     if (camera > 0) {
-      const sel = selectBespoke(demo.beats, {
+      const ids = selectBespoke(demo.beats, {
         seed: demo.sourceId,
         narration: narration.beats,
-        max: 40,
-        min: 40,
-      });
-      const ids = sel.picked.map((p) => p.beatId);
+      }).picked.map((p) => p.beatId);
       expect(ids).not.toContain(demo.beats[camera]?.id);
       expect(ids).not.toContain(demo.beats[camera - 1]?.id);
     }
   });
 
-  it("obeys the planner's false and favours its true", () => {
-    const candidate = selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats })
-      .picked[0]?.beatId as string;
-    const vetoed = demo.beats.map((b) =>
-      b.id === candidate ? ({ ...b, bespoke: false } as Beat) : b,
+  it("draws a beat with a single cue (a title, a closing line): one cue is enough to key a scene to", () => {
+    const first = demo.beats[0]?.id as string;
+    const one = {
+      ...narration.beats,
+      [first]: (narration.beats[first] ?? []).slice(0, 1).map((g) => ({
+        ...g,
+        cues: g.cues.slice(0, 1),
+      })),
+    };
+    const ids = selectBespoke(demo.beats, { seed: demo.sourceId, narration: one }).picked.map(
+      (p) => p.beatId,
     );
-    expect(
-      selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats }).picked.map(
-        (p) => p.beatId,
-      ),
-    ).not.toContain(candidate);
-
-    const loser = selectBespoke(demo.beats, {
-      seed: demo.sourceId,
-      narration: narration.beats,
-    }).skipped.find((s) => s.reason.startsWith("scored"))?.beatId;
-    if (loser) {
-      const hinted = demo.beats.map((b) =>
-        b.id === loser ? ({ ...b, bespoke: true } as Beat) : b,
-      );
-      expect(
-        selectBespoke(hinted, { seed: demo.sourceId, narration: narration.beats }).picked.map(
-          (p) => p.beatId,
-        ),
-      ).toContain(loser);
-    }
+    expect(ids).toContain(first);
   });
 
-  it("lowers its count to what the call cap can pay for", () => {
+  it("obeys the planner's false on a beat that shows a figure or table", () => {
+    const shows = demo.beats.find((b) => b.evidence.some((e) => e.kind === "figure"))?.id as string;
+    const vetoed = demo.beats.map((b) => (b.id === shows ? ({ ...b, bespoke: false } as Beat) : b));
+    const sel = selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats });
+    expect(sel.picked.map((p) => p.beatId)).not.toContain(shows);
+    expect(sel.skipped.find((s) => s.beatId === shows)?.reason).toMatch(/bespoke:false/);
+  });
+
+  it("draws a beat the planner marked false when it cites no figure or table (r3's b12 row plates)", () => {
+    const bare = demo.beats.find((b) => b.evidence.length === 0 && b.archetype !== "title")
+      ?.id as string;
+    const vetoed = demo.beats.map((b) => (b.id === bare ? ({ ...b, bespoke: false } as Beat) : b));
+    const sel = selectBespoke(vetoed, { seed: demo.sourceId, narration: narration.beats });
+    const pick = sel.picked.find((p) => p.beatId === bare);
+    expect(pick).toBeDefined();
+    expect(pick?.why.join(" ")).toMatch(/planner's false not kept/);
+  });
+
+  it("when the call cap cannot pay for every beat, draws the most mechanical, in deck order", () => {
     const sel = selectBespoke(demo.beats, {
       seed: demo.sourceId,
       narration: narration.beats,
       max: 2,
     });
-    expect(sel.picked.length).toBe(2);
+    expect(sel.picked).toHaveLength(2);
+    const kinds = sel.picked.map((p) => demo.beats.find((b) => b.id === p.beatId)?.archetype);
+    for (const k of kinds) expect(["title", "callout"]).not.toContain(k);
+    const order = demo.beats.map((b) => b.id);
+    const at = sel.picked.map((p) => order.indexOf(p.beatId));
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(sel.skipped.some((s) => /call cap pays for 2/.test(s.reason))).toBe(true);
   });
 });
 
@@ -269,6 +298,31 @@ describe("emitting a bespoke scene", () => {
     expect(BESPOKE_CSP).not.toContain("unsafe-eval");
   });
 
+  it("restyles only the shell's chrome around it: a fade clear of the seam, no slide-up", () => {
+    // r3 (2026-10-10): the stock chromeIn slid the headline up from y:22 at
+    // 0.3s and the eyebrow from y:14 at 0.15s, over the outgoing headline.
+    const deck = emitComposition(demo, source, deck16, { design: "v2", narration, bespoke });
+    const sid = /id="(s\d+)-dot"/.exec(deck)?.[1] as string;
+    const chrome = [
+      ...deck.matchAll(
+        new RegExp(
+          `tl\\.fromTo\\("#${sid}-[eh]", (\\{[^}]*\\}), (\\{[^}]*\\}), ([\\d.]+)\\);`,
+          "g",
+        ),
+      ),
+    ];
+    expect(chrome.length).toBeGreaterThan(0);
+    for (const m of chrome) {
+      expect(m[1]).not.toMatch(/\by:/);
+      expect(Number(m[3])).toBeGreaterThanOrEqual(0.3);
+    }
+    // The scene's own tweens are its author's, untouched.
+    expect(deck).toContain(`"#${sid}-dot"`);
+    // And every scene that hands off on a seam clears its type first.
+    const outs = [...deck.matchAll(/tl\.fromTo\("#(s\d+)-h", \{ opacity: 1 \}, \{ opacity: 0,/g)];
+    expect(outs.length).toBeGreaterThan(0);
+  });
+
   it("writes stops the timing manifest and the island agree on", () => {
     const deck = emitDeck(demo, source, deck16, "", { design: "v2", narration, bespoke });
     const timing = planTiming({
@@ -329,10 +383,19 @@ describe("the bespoke pass", () => {
   function fake(reply: (args: RunnerArgs, n: number) => Fragment | Error) {
     const calls: RunnerArgs[] = [];
     const run = async (args: RunnerArgs) => {
+      // The deck's one device call is answered with nothing: every beat takes
+      // the rule catalogue's device, and the scene calls are what is counted.
+      if (args.schemaPath.endsWith("devices.schema.json")) {
+        await writeFile(args.outPath, JSON.stringify({ beats: [] }));
+        return;
+      }
       calls.push(args);
       const r = reply(args, calls.length);
       if (r instanceof Error) throw r;
-      await writeFile(args.outPath, JSON.stringify({ review: "", plan: "p", ...r }));
+      await writeFile(
+        args.outPath,
+        JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, r) }),
+      );
       args.onUsage?.(1000);
     };
     return { calls, run };
@@ -343,6 +406,7 @@ describe("the bespoke pass", () => {
     enabled: true,
     maxCalls: 12,
     maxSeconds: 1800,
+    callSeconds: 600,
     concurrency: 2,
     effort: "medium" as const,
     art: 0,
@@ -363,9 +427,13 @@ describe("the bespoke pass", () => {
 
   it("draws the picks, two calls each, and a rebuild costs nothing", async () => {
     const { calls, run } = fake(() => SCENE);
-    const first = await bespokePass({ ...input({ run }), prefs: prefs() });
+    const first = await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 40 }) });
     const n = Object.keys(first.map).length;
-    expect(n).toBe(target(demo.beats.length));
+    // Every eligible beat, not a handful of mechanisms.
+    expect(n).toBe(
+      selectBespoke(demo.beats, { seed: demo.sourceId, narration: narration.beats }).picked.length,
+    );
+    expect(n).toBeGreaterThan(6);
     expect(calls.length).toBe(2 * n);
     expect(first.report.tokens).toBe(2000 * n);
     expect(calls.some((c) => c.prompt.includes("UNTRUSTED DATA"))).toBe(true);
@@ -378,12 +446,268 @@ describe("the bespoke pass", () => {
     };
     const second = await bespokePass({
       ...input({ run: again.run, gate: counting }),
-      prefs: prefs(),
+      prefs: prefs({ maxCalls: 40 }),
     });
     expect(again.calls.length).toBe(0);
     expect(rounds).toEqual(["final"]);
     expect(Object.keys(second.map)).toEqual(Object.keys(first.map));
     expect(second.report.scenes.every((s) => s.from === "cache")).toBe(true);
+  });
+
+  it("names every scene's device before the first draft, and gives each only its own", async () => {
+    const { calls, run } = fake(() => SCENE);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs() });
+    const drafts = calls.filter((c) => c.outPath.endsWith(".draft.json"));
+    expect(drafts.length).toBeGreaterThan(1);
+    const devices = r.report.scenes.map((sc) => sc.device);
+    expect(new Set(devices).size).toBe(devices.length);
+    for (const sc of r.report.scenes) {
+      const prompt = drafts.find((c) => c.outPath.endsWith(`${sc.beat}.draft.json`))?.prompt ?? "";
+      expect(prompt).toContain(`THE VISUAL DEVICE: "${sc.device}"`);
+      // No other scene's device: that list re-keyed every scene after an edited beat.
+      for (const other of devices.filter((d) => d !== sc.device))
+        expect(prompt).not.toContain(`"${other}"`);
+    }
+    expect(r.report.devices?.from).toBe("codex");
+  });
+
+  it("re-draws only the beat whose device changed; the device and its idea are in the scene's key", async () => {
+    // Device answers by beat id; `rename` changes one beat's name, `reidea` another's idea.
+    const answering = (rename?: string, reidea?: string) => {
+      const calls: RunnerArgs[] = [];
+      const run = async (args: RunnerArgs) => {
+        if (args.schemaPath.endsWith("devices.schema.json")) {
+          const ids = [...args.prompt.matchAll(/id=(\S+)/g)].map((m) => m[1] as string);
+          await writeFile(
+            args.outPath,
+            JSON.stringify({
+              beats: ids.map((id) => ({
+                id,
+                device: `${id}-device${id === rename ? "-new" : ""}`,
+                illustrate: false,
+                idea: `${id} idea${id === reidea ? " anew" : ""}`,
+              })),
+            }),
+          );
+          return;
+        }
+        calls.push(args);
+        await writeFile(
+          args.outPath,
+          JSON.stringify({ review: "", plan: "p", ...asBuilt(args.prompt, SCENE) }),
+        );
+      };
+      return { calls, run };
+    };
+    const a = answering();
+    const first = await bespokePass({ ...input({ run: a.run }), prefs: prefs({ maxCalls: 40 }) });
+    const drawn = Object.keys(first.map);
+    expect(drawn.length).toBeGreaterThan(3);
+    const draft = a.calls.find((c) => c.outPath.endsWith(`${drawn[1]}.draft.json`));
+    expect(draft?.prompt).toContain(`${drawn[1]} idea`);
+    // Forget the decided devices; the next answer renames one beat and re-ideas another.
+    await rm(join(cacheDir, "devices"), { recursive: true, force: true });
+    const [renamed, reideaed] = [drawn[1] as string, drawn[3] as string];
+    const b = answering(renamed, reideaed);
+    const second = await bespokePass({ ...input({ run: b.run }), prefs: prefs({ maxCalls: 40 }) });
+    const redrawn = new Set(b.calls.map((c) => c.outPath.split("/").pop()?.split(".")[0]));
+    expect([...redrawn].sort()).toEqual([renamed, reideaed].sort());
+    for (const sc of second.report.scenes)
+      if (sc.beat !== renamed && sc.beat !== reideaed) expect(sc.from).toBe("cache");
+  });
+
+  it("sends a card-row scene back once, keeps the redraw, and falls back if the redraw is cards too", async () => {
+    const cards: Fragment = {
+      ...SCENE,
+      markup: SCENE.markup.replace(
+        '<g id="SCENEID-b" data-cue="2"></g>',
+        `<g id="SCENEID-b" data-cue="2">${[0, 1, 2, 3]
+          .map(
+            (i) =>
+              `<rect x="${40 + i * 420}" y="120" width="380" height="320" rx="28" fill="#333"/>`,
+          )
+          .join("")}</g>`,
+      ),
+    };
+    const clean: GateFn = async (m) =>
+      new Map(
+        Object.keys(m).map((id) => [
+          id,
+          {
+            findings: [],
+            failed: false,
+            metrics: {
+              fill: 0.9,
+              cells: 0.8,
+              maxType: 96,
+              mass: 0.3,
+              cueChange: [0.02, 0.03],
+              kinds: [],
+            },
+          } satisfies GateResult,
+        ]),
+      );
+    // Draft: cards. Critique: the content itself. Kept, from the critique.
+    const once = fake((args) => (args.outPath.endsWith(".draft.json") ? cards : SCENE));
+    const r1 = await bespokePass({
+      ...input({ run: once.run, gate: clean }),
+      prefs: prefs({ maxCalls: 4 }),
+    });
+    const critiques = once.calls.filter((c) => c.outPath.endsWith(".critique.json"));
+    expect(critiques.length).toBeGreaterThan(0);
+    expect(critiques[0]?.prompt).toMatch(/error card_row: the main visual is a row of 4/);
+    expect(
+      r1.report.scenes.filter((s) => s.status === "bespoke").every((s) => s.from === "critique"),
+    ).toBe(true);
+    expect(Object.keys(r1.map).length).toBeGreaterThan(0);
+
+    // Cards both times: one critique each, then the archetype, and the reason says so.
+    const twice = fake(() => cards);
+    const r2 = await bespokePass({
+      ...input({ run: twice.run, gate: clean }),
+      prefs: prefs({ maxCalls: 4, cache: join(cacheDir, "b") }),
+    });
+    expect(Object.keys(r2.map)).toEqual([]);
+    for (const s of r2.report.scenes) {
+      expect(s.status).toBe("fallback");
+      expect(s.reason).toMatch(/card_row/);
+      expect(s.calls).toBe(2);
+    }
+  });
+
+  it("never asks card_row about a data beat, whose bars of close values are alike by design", async () => {
+    const bars: Fragment = {
+      ...SCENE,
+      markup: SCENE.markup.replace(
+        '<g id="SCENEID-b" data-cue="2"></g>',
+        `<g id="SCENEID-b" data-cue="2">${[0.82, 0.86, 0.9, 0.94]
+          .map(
+            (v, i) =>
+              `<rect x="${100 + i * 400}" y="${600 - 560 * v}" width="180" height="${560 * v}" fill="#4a7"/>`,
+          )
+          .join("")}</g>`,
+      ),
+    };
+    const { run } = fake(() => bars);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 40 }) });
+    const data = r.report.scenes.filter((s) => s.data);
+    expect(data.length).toBeGreaterThan(0);
+    for (const s of data) expect(s.status).toBe("bespoke");
+    // The same bars on a beat that is not a chart are still a row of cards.
+    const other = r.report.scenes.filter((s) => !s.data);
+    expect(other.length).toBeGreaterThan(0);
+    for (const s of other) expect(s.reason).toMatch(/card_row/);
+  });
+
+  it("stamps a cached rejection with card_row's version, so loosening it asks again", async () => {
+    const cards: Fragment = {
+      ...SCENE,
+      markup: SCENE.markup.replace(
+        '<g id="SCENEID-b" data-cue="2"></g>',
+        `<g id="SCENEID-b" data-cue="2">${[0, 1, 2, 3].map((i) => `<rect x="${40 + i * 420}" y="120" width="380" height="320" fill="#333"/>`).join("")}</g>`,
+      ),
+    };
+    const { run } = fake(() => cards);
+    const r = await bespokePass({ ...input({ run }), prefs: prefs({ maxCalls: 4 }) });
+    const rejected = r.report.scenes.find((s) => s.status === "fallback");
+    const hit = await new SceneCache(cacheDir).get(rejected?.key ?? "");
+    expect(hit?.verdict).toBe("rejected");
+    expect(GATE_STAMP).toContain(CARDS_VERSION);
+    expect(hit?.gates).toBe(GATE_STAMP);
+  });
+
+  it("asks a second critique for a beat that would fall back, and keeps what it draws", async () => {
+    const bad: Fragment = { ...SCENE, css: `${SCENE.css}\n/* bad */` };
+    const gate: GateFn = async (m) =>
+      new Map(
+        Object.entries(m).map(([id, e]) => [
+          id,
+          e.fragment.css.includes("bad")
+            ? {
+                findings: ["error text_overlap: #s3 at c1z (2.00s): text prints over text — a × b"],
+                failed: true,
+              }
+            : { findings: [], failed: false },
+        ]),
+      );
+    const { calls, run } = fake((args) => (args.outPath.endsWith(".critique2.json") ? SCENE : bad));
+    const r = await bespokePass({ ...input({ run, gate }), prefs: prefs({ maxCalls: 3 }) });
+    expect(calls.map((c) => c.outPath.split(".").slice(-2, -1)[0])).toEqual([
+      "draft",
+      "critique",
+      "critique2",
+    ]);
+    const sc = r.report.scenes[0];
+    expect(sc?.status).toBe("bespoke");
+    expect(sc?.second).toBe(true);
+    expect(sc?.reason).toMatch(/second critique/);
+    // A second critique that fails too: the archetype, and the reason says which round.
+    const still = fake(() => bad);
+    const r2 = await bespokePass({
+      ...input({ run: still.run, gate }),
+      prefs: prefs({ maxCalls: 3, cache: join(cacheDir, "b") }),
+    });
+    expect(r2.report.scenes[0]?.status).toBe("fallback");
+    expect(r2.report.scenes[0]?.reason).toMatch(/after the second critique round/);
+    expect(still.calls).toHaveLength(3);
+  });
+
+  it("never has more Codex calls in flight than its lanes, pictures and scenes alike, and frees a lane on a failure", async () => {
+    let live = 0;
+    let most = 0;
+    const slow = async (args: RunnerArgs) => {
+      live++;
+      most = Math.max(most, live);
+      await new Promise((r) => setTimeout(r, 5));
+      live--;
+      if (args.prompt === "fail") throw new Error("boom");
+    };
+    const limited = lanes(slow, 2);
+    const args = (prompt: string) => ({ prompt, schemaPath: "s", outPath: "o", timeoutMs: 1 });
+    const all = await Promise.allSettled(
+      ["a", "fail", "b", "c", "d", "e"].map((p) => limited(args(p))),
+    );
+    expect(most).toBe(2);
+    expect(all.filter((r) => r.status === "rejected")).toHaveLength(1);
+    await limited(args("after"));
+  });
+
+  it("the device call is apart from the scene cap, but not past the quota or the clock", () => {
+    let t = 0;
+    const capped = new Budget(0, 10 * 60_000, () => t);
+    expect(capped.take()).toMatch(/cap of 0/);
+    expect(capped.takeDevice()).toBeUndefined();
+    expect(capped.devices).toBe(1);
+    const said = new Budget(9, 10 * 60_000, () => t);
+    said.quota = true;
+    expect(said.takeDevice()).toMatch(/quota/);
+    const late = new Budget(9, 10 * 60_000, () => t);
+    t = 9 * 60_000;
+    expect(late.takeDevice()).toMatch(/wall-time/);
+    expect(late.devices).toBe(0);
+  });
+
+  it("decides a call's timeout when it starts, not when it queued, and never runs one past the cap", async () => {
+    let t = 0;
+    const seen: number[] = [];
+    // Each call takes 4 minutes of the clock; the cap is 10 minutes away.
+    const slow = async (args: RunnerArgs) => {
+      seen.push(args.timeoutMs);
+      t += 4 * 60_000;
+    };
+    const one = lanes(
+      slow,
+      1,
+      deadlineAdmit(10 * 60_000, () => t),
+    );
+    const args = { prompt: "p", schemaPath: "s", outPath: "o", timeoutMs: 600_000 };
+    const all = await Promise.allSettled([one(args), one(args), one(args)]);
+    // Queued together at t=0 with 600s each: the second starts at 4 min (6 min left),
+    // the third at 8 min, two minutes from the cap.
+    expect(seen).toEqual([600_000, 360_000, 120_000]);
+    t = 9.75 * 60_000;
+    await expect(one(args)).rejects.toThrow(/wall-time cap/);
+    expect(all.every((r) => r.status === "fulfilled")).toBe(true);
   });
 
   it("the budget refuses past its call cap, its deadline, and a quota answer", () => {
@@ -458,7 +782,7 @@ describe("the bespoke pass", () => {
     const draft = SCENE;
     const broken: Fragment = {
       ...SCENE,
-      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { x: 1 }, 2);`,
+      script: `${SCENE.script}\ntl.fromTo("#SCENEID-dot", { x: 0 }, { x: 1 }, 2);`,
     };
     const { run } = fake((args) =>
       args.prompt.includes("strict motion-design reviewer") ? broken : draft,
@@ -541,10 +865,10 @@ describe("the bespoke pass", () => {
   const RICH: Fragment = {
     ...SCENE,
     script: `${SCENE.script}
-tl.to("#SCENEID-n", { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
-tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
+tl.fromTo("#SCENEID-n", { textContent: 0 }, { textContent: 9, snap: { textContent: 1 }, duration: 1 }, 2);
+tl.fromTo("#SCENEID-dot", { opacity: 1 }, { opacity: 0.3, duration: 0.5 }, 3);`,
   };
-  const clean = { fill: 0.9, cells: 0.8, maxType: 96, cueChange: [0.02, 0.03] };
+  const clean = { fill: 0.9, cells: 0.8, maxType: 44, cueChange: [0.02, 0.03] };
 
   it("skips the critique call when every gate passed and the rubric probe is clean", async () => {
     const { calls, run } = fake(() => RICH);
@@ -579,9 +903,410 @@ tl.to("#SCENEID-dot", { opacity: 0.3, duration: 0.5 }, 3);`,
   });
 });
 
+/* --------------------------------------------------------------- devices */
+
+describe("the deck-order device pass", () => {
+  let work = "";
+  beforeEach(async () => {
+    work = await mkdtemp(join(tmpdir(), "decksmith-devices-"));
+  });
+  afterEach(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+  const beat = (id: string, over: Partial<DeviceBeat> = {}): DeviceBeat => ({
+    id,
+    archetype: "pipeline",
+    headline: `h ${id}`,
+    intent: `i ${id}`,
+    cues: 3,
+    data: false,
+    ...over,
+  });
+  const deck = [
+    beat("b1", { archetype: "title", cues: 1 }),
+    beat("b2"),
+    beat("b3"),
+    beat("b4", { archetype: "bar-compare", data: true }),
+    beat("b5"),
+    beat("b6", { archetype: "callout" }),
+  ];
+  const answer =
+    (beats: unknown[]) =>
+    async (args: RunnerArgs): Promise<void> => {
+      await writeFile(args.outPath, JSON.stringify({ beats }));
+    };
+
+  it("gives every beat a device, none repeated, in deck order", async () => {
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
+    expect(r.from).toBe("rule");
+    const names = r.beats.map((b) => b.device);
+    expect(new Set(names).size).toBe(deck.length);
+    for (const n of names) expect(n).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    r.beats.forEach((b, i) => {
+      expect(b.beatId).toBe(deck[i]?.id);
+    });
+  });
+
+  it("keeps every unchanged beat's device when one beat changes, and asks only about the rest", async () => {
+    const cacheDir = join(work, "cache");
+    const prompts: string[] = [];
+    const run = async (args: RunnerArgs) => {
+      prompts.push(args.prompt);
+      const ids = [...args.prompt.matchAll(/id=(\S+)/g)].map((m) => m[1] as string);
+      // A model that would rename everything on a second call.
+      await answer(
+        ids.map((id) => ({
+          id,
+          device: `${id}-v${prompts.length}`,
+          illustrate: false,
+          idea: `idea ${id}`,
+        })),
+      )(args);
+    };
+    const opts = { artCap: 6, work, timeoutMs: 1000, run, cacheDir };
+    const first = await assignDevices(deck, opts);
+    const edited = deck.map((b) => (b.id === "b3" ? { ...b, headline: "a new headline" } : b));
+    const second = await assignDevices(edited, opts);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toMatch(/ALREADY DECIDED \(keep exactly\): device "b2-v1" — idea b2/);
+    expect(prompts[1]).not.toMatch(/id=b3[^\n]*\n(?: {3}[^\n]*\n)* {3}ALREADY DECIDED/);
+    for (const [i, d] of second.beats.entries()) {
+      if (d.beatId === "b3") expect(d.device).toBe("b3-v2");
+      else {
+        expect(d.device).toBe(first.beats[i]?.device);
+        expect(d.idea).toBe(first.beats[i]?.idea);
+      }
+    }
+    // Every beat decided: no call at all, even for a deck in another order.
+    const third = await assignDevices([...edited].reverse(), opts);
+    expect(prompts).toHaveLength(2);
+    expect(third.from).toBe("cache");
+  });
+
+  it("never throws: a cache file with junk in it, or a cache it cannot write", async () => {
+    const cacheDir = join(work, "cache");
+    const run = answer(
+      deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: false, idea: "" })),
+    );
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    // Corrupt every file the pass wrote: null elements, non-objects, a bad device.
+    const { readdir } = await import("node:fs/promises");
+    const dir = join(cacheDir, "devices");
+    for (const f of await readdir(dir))
+      if (f.endsWith(".json"))
+        await writeFile(join(dir, f), JSON.stringify({ answers: [null, 7, "x", { id: 3 }] }));
+    for (const f of await readdir(join(dir, "beats")))
+      await writeFile(join(dir, "beats", f), "null");
+    const again = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    expect(again.beats.map((b) => b.beatId)).toEqual(r.beats.map((b) => b.beatId));
+    // A cache path under a file: mkdir fails, and the names still come back.
+    const blocked = join(work, "blocked");
+    await writeFile(blocked, "a file, not a directory");
+    const unwritable = await assignDevices(deck, {
+      artCap: 6,
+      work,
+      timeoutMs: 1000,
+      run,
+      cacheDir: blocked,
+    });
+    expect(unwritable.beats).toHaveLength(deck.length);
+    expect(unwritable.note).toMatch(/device cache was not written/);
+  });
+
+  it("pictures every eligible beat, data beats too, up to the cap, whatever the model marks (round 6), and says which were forced", async () => {
+    const none = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: false, idea: "x" }));
+    // b1 (one cue) is not eligible: five eligible beats, the data beat b4 among them.
+    const eligible = deck.filter((b) => b.cues >= 2).length;
+    expect(eligible).toBe(5);
+    for (const cap of [1, 2, 6]) {
+      const r = await assignDevices(deck, {
+        artCap: cap,
+        work,
+        timeoutMs: 1000,
+        run: answer(none),
+      });
+      const pictured = r.beats.filter((b) => b.illustrate);
+      expect(pictured).toHaveLength(Math.min(cap, eligible));
+      expect(pictured.every((b) => b.forced === true)).toBe(true);
+      expect(r.note).toMatch(
+        /picture floor: .* given a picture \(the model marked 0 of 5 eligible beats; the floor is \d\)/,
+      );
+    }
+    expect(pictureFloor(4, 6)).toBe(4);
+    expect(pictureFloor(7, 6)).toBe(6);
+    expect(pictureFloor(5, 1)).toBe(1);
+    // The model marking every eligible beat: nothing forced, nothing said.
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run: answer(all) });
+    expect(r.beats.filter((b) => b.illustrate).map((b) => b.beatId)).toEqual([
+      "b2",
+      "b3",
+      "b4",
+      "b5",
+      "b6",
+    ]);
+    expect(r.beats.some((b) => b.forced)).toBe(false);
+    expect(r.note ?? "").not.toMatch(/picture floor/);
+  });
+
+  it("spends the picture cap on data beats first, whatever the model marks (round 6)", async () => {
+    // The model wants pictures on b2 and b3 only; b4 is the data beat.
+    const some = deck.map((b) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: b.id === "b2" || b.id === "b3",
+      idea: "x",
+    }));
+    const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(some) });
+    expect(r.beats.filter((b) => b.illustrate).map((b) => b.beatId)).toEqual(["b2", "b4"]);
+    expect(r.beats.find((b) => b.beatId === "b4")?.forced).toBe(true);
+    expect(r.note).toMatch(/data beats first: b4 given a picture/);
+  });
+
+  it("plans the deck's pictures together: a setting and subjects per illustrated beat, none for the rest (round 5)", async () => {
+    const all = deck.map((b, i) => ({
+      id: b.id,
+      device: `d-${b.id}`,
+      illustrate: true,
+      idea: "x",
+      setting: `place ${i}`,
+      subjects: [`thing ${i}a`, `thing ${i}b`, 7],
+    }));
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run: answer(all) });
+    for (const b of r.beats) {
+      if (b.illustrate) {
+        expect(b.setting).toMatch(/^place \d$/);
+        expect(b.subjects).toHaveLength(2);
+      } else {
+        expect(b.setting).toBeUndefined();
+        expect(b.subjects).toBeUndefined();
+      }
+    }
+    const brief = {
+      lang: "en",
+      headline: "h",
+      intent: "i",
+      context: "c",
+      theme: resolveTheme("ink"),
+      pack: "ink",
+      setting: "a tide pool",
+      subjects: ["crab", "anemone"],
+    };
+    expect(artPrompt(brief)).toContain(
+      "the setting is a tide pool; the subjects are crab, anemone",
+    );
+  });
+
+  it("gives every illustrated beat a camera grammar, never the one before it, and every data beat its own build (round 5)", async () => {
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(
+      [...deck, beat("b7"), beat("b8"), beat("b9", { archetype: "line-chart", data: true })],
+      { artCap: 6, work, timeoutMs: 1000, run: answer(all) },
+    );
+    const pictured = r.beats.filter((b) => b.illustrate);
+    expect(pictured.length).toBeGreaterThan(3);
+    for (const b of r.beats) expect(b.grammar !== undefined).toBe(b.illustrate);
+    const gs = pictured.map((b) => b.grammar);
+    gs.slice(1).forEach((g, i) => {
+      expect(g).not.toBe(gs[i]);
+    });
+    // Up to seven illustrated beats, every grammar differs.
+    expect(new Set(gs).size).toBe(gs.length);
+    const builds = r.beats.filter((b) => b.build).map((b) => b.build);
+    expect(builds).toHaveLength(2);
+    expect(new Set(builds).size).toBe(2);
+  });
+
+  it("never illustrates a one-cue beat, holds to the cap, and pictures a data beat (round 6)", async () => {
+    const all = deck.map((b) => ({ id: b.id, device: `d-${b.id}`, illustrate: true, idea: "x" }));
+    const r = await assignDevices(deck, { artCap: 2, work, timeoutMs: 1000, run: answer(all) });
+    const pictured = r.beats.filter((b) => b.illustrate).map((b) => b.beatId);
+    // Data beats first under the cap: b4 before b3.
+    expect(pictured).toEqual(["b2", "b4"]);
+    const ruled = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000 });
+    const ruledPictures = ruled.beats.filter((b) => b.illustrate).map((b) => b.beatId);
+    expect(ruledPictures).not.toContain("b1");
+    expect(ruledPictures).toContain("b4");
+  });
+
+  it("takes the model's names, kebab-cased, and replaces a repeat or a blank from the catalogue", async () => {
+    const run = answer([
+      { id: "b1", device: "Particle Assembly!", illustrate: false, idea: "dust gathers" },
+      { id: "b2", device: "spike train", illustrate: true, idea: "spikes fire" },
+      { id: "b3", device: "spike-train", illustrate: true, idea: "again" },
+      { id: "b5", device: "", illustrate: false, idea: "" },
+      { id: "b6", device: "fog_lift", illustrate: false, idea: "fog lifts" },
+    ]);
+    const r = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run });
+    expect(r.from).toBe("codex");
+    const by = new Map(r.beats.map((b) => [b.beatId, b]));
+    expect(by.get("b1")?.device).toBe("particle-assembly");
+    expect(by.get("b2")?.device).toBe("spike-train");
+    expect(by.get("b3")?.device).not.toBe("spike-train");
+    expect(by.get("b6")?.device).toBe("fog-lift");
+    expect(new Set(r.beats.map((b) => b.device)).size).toBe(deck.length);
+    expect(r.note).toMatch(/b3: "spike-train" repeated/);
+    expect(r.note).toMatch(/b5: no usable name/);
+    expect(deviceName("  Edge   Sweep  ")).toBe("edge-sweep");
+  });
+
+  it("never keeps type or a UI element as the device, even one an earlier run cached", async () => {
+    // r3 (2026-10-10): b01's cached "kinetic-title" drew EM-SNN as 350px letterforms.
+    const cacheDir = join(work, "cache");
+    const prompts: string[] = [];
+    let reply = deck.map((b, i) => ({
+      id: b.id,
+      device: i === 0 ? "kinetic-title" : `scene-${i}`,
+      illustrate: false,
+      idea: `idea ${b.id}`,
+    }));
+    const run = async (args: RunnerArgs) => {
+      prompts.push(args.prompt);
+      await answer(reply)(args);
+    };
+    const opts = { artCap: 6, work, timeoutMs: 1000, run, cacheDir };
+    const first = await assignDevices(deck, opts);
+    expect(first.beats[0]?.device).not.toBe("kinetic-title");
+    expect(isUiDevice(first.beats[0]?.device ?? "")).toBe(false);
+    expect(first.note).toMatch(/b1: "kinetic-title" is type or a UI element/);
+    // A cache written before this rule, with the type device in it.
+    const { readdir } = await import("node:fs/promises");
+    const beatsDir = join(cacheDir, "devices", "beats");
+    const b1 = deck[0] as DeviceBeat;
+    for (const f of await readdir(beatsDir)) {
+      const row = JSON.parse(await readFile(join(beatsDir, f), "utf8")) as { id: string };
+      if (row.id === b1.id) throw new Error("a ruled device must not be cached as decided");
+    }
+    reply = reply.map((r, i) =>
+      i === 0 ? { ...r, device: "dawn-reveal", idea: "light rises" } : r,
+    );
+    const second = await assignDevices(deck, opts);
+    // Asked again about b1 alone; every other beat kept its device.
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toMatch(/id=b2[^\n]*\n(?: {3}[^\n]*\n)* {3}ALREADY DECIDED/);
+    expect(second.beats[0]?.device).toBe("dawn-reveal");
+    for (let i = 1; i < deck.length; i++)
+      expect(second.beats[i]?.device).toBe(first.beats[i]?.device);
+    // The rule catalogue holds none either, whatever the archetype.
+    for (const archetype of [
+      "title",
+      "kinetic",
+      "callout",
+      "bar-compare",
+      "claim-figure",
+      "split-compare",
+    ] as const) {
+      const many = Array.from({ length: 16 }, (_, i) => beat(`r${i}`, { archetype }));
+      const ruled = await assignDevices(many, { artCap: 0, work, timeoutMs: 1000 });
+      for (const d of ruled.beats) expect(isUiDevice(d.device), d.device).toBe(false);
+    }
+    expect(
+      ["kinetic-title", "word-cascade", "fill-gauges", "ink-stamp", "label-pop"].every(isUiDevice),
+    ).toBe(true);
+    expect(["fog-lift", "spike-train", "contrast-fog", "survey-horizon"].some(isUiDevice)).toBe(
+      false,
+    );
+  });
+
+  it("survives a failed call, and a rerun reads the decided names back without a call", async () => {
+    const failed = await assignDevices(deck, {
+      artCap: 6,
+      work,
+      timeoutMs: 1000,
+      run: async () => {
+        throw new Error("codex exec exited 1");
+      },
+    });
+    expect(failed.from).toBe("rule");
+    expect(failed.note).toMatch(/device call failed/);
+
+    const cacheDir = join(work, "cache");
+    const names = deck.map((b, i) => ({
+      id: b.id,
+      device: `device-${i}`,
+      illustrate: false,
+      idea: "",
+    }));
+    let calls = 0;
+    const run = async (args: RunnerArgs) => {
+      calls++;
+      await answer(names)(args);
+    };
+    const first = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    const second = await assignDevices(deck, { artCap: 6, work, timeoutMs: 1000, run, cacheDir });
+    expect(calls).toBe(1);
+    expect(second.from).toBe("cache");
+    expect(second.beats).toEqual(first.beats);
+  });
+
+  it("asks nothing when the budget refuses", async () => {
+    let calls = 0;
+    const r = await assignDevices(deck, {
+      artCap: 6,
+      work,
+      timeoutMs: 1000,
+      take: () => "the Codex quota said no earlier in this pass",
+      run: async () => {
+        calls++;
+      },
+    });
+    expect(calls).toBe(0);
+    expect(r.note).toMatch(/quota/);
+    expect(new Set(r.beats.map((b) => b.device)).size).toBe(deck.length);
+  });
+
+  it("is rendered into the scene prompts: this device and its planned composition", () => {
+    const brief = {
+      lang: "en",
+      headline: "h",
+      intent: "i",
+      archetype: "pipeline",
+      params: {},
+      context: "",
+      cues: [{ t0: 1, t1: 3, text: "a" }],
+      duration: 6,
+      region: { width: 1700, height: 658 },
+      theme: resolveTheme("ink"),
+      pack: "ink",
+      device: "fog-lift",
+      idea: "fog rolls off a city skyline from left to right as the voice names each layer",
+    };
+    const p = generatePrompt(brief);
+    expect(p).toContain('THE VISUAL DEVICE: "fog-lift"');
+    expect(p).toContain("planned this scene as: fog rolls off a city skyline");
+    expect(p).toMatch(/FORBIDDEN AS THE MAIN VISUAL[\s\S]*row of rounded cards/);
+    expect(p).toMatch(/TRUTHFUL PICTURES[\s\S]*SINKS/);
+    expect(p).toMatch(/TEXT never below 0\.6/);
+    expect(generatePrompt({ ...brief, idea: undefined })).not.toContain("planned this scene as");
+    const c = critiquePrompt(brief, SCENE, [], undefined);
+    expect(c).toContain('visual device: "fog-lift" — keep it (planned as: fog rolls off');
+  });
+
+  it("asks the device pass for varied compositions and truthful pictures", () => {
+    const p = devicePrompt(deck, 3);
+    expect(p).toMatch(/VARY THE COMPOSITION/);
+    expect(p).toMatch(/two big numbers in two colours above a shape/);
+    expect(p).toMatch(/larger or heavier value SINKS/);
+    expect(p).toMatch(/proportional to it from zero/);
+    expect(p).not.toMatch(/ALREADY DECIDED/);
+    expect(p).toMatch(/THE MOTION IS THE PICTURE/);
+    expect(p).toMatch(/NEVER TYPE AS THE PICTURE/);
+    expect(p).not.toMatch(/kinetic-title|stamp-seal|kinetic type, particle/);
+  });
+});
+
+/* ------------------------------------------------------------ rubric probe */
+
 describe("the rubric probe", () => {
   const kinds = ["flow", "counter", "focus"];
-  const ok = { fill: 0.9, cells: 0.8, maxType: 96, kinds, cueChange: [0.02, 0.03] };
+  const ok = {
+    fill: 0.9,
+    cells: 0.8,
+    maxType: 44,
+    maxDeclared: 56,
+    kinds,
+    cueChange: [0.02, 0.03],
+  };
   it("is clean only when every measurable criterion is", () => {
     expect(rubricProbe(ok)).toEqual([]);
     expect(rubricProbe(undefined)).toEqual(["nothing was measured"]);
@@ -590,7 +1315,15 @@ describe("the rubric probe", () => {
     expect(rubricProbe({ ...ok, mass: 0.08 })).toHaveLength(1);
     expect(rubricProbe({ ...ok, dimmed: 0.3 })).toEqual([]);
     expect(rubricProbe({ ...ok, dimmed: 0.7 })).toHaveLength(1);
-    expect(rubricProbe({ ...ok, maxType: 70 })).toHaveLength(1);
+    // Quiet type (founder, 2026-10-10): a diagram's label reaches 44px; nothing declares
+    // more than 56, and (round 6) nothing RENDERS more, camera zoom included.
+    expect(rubricProbe({ ...ok, maxType: 40 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, maxDeclared: 88 })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, maxType: 56 })).toEqual([]);
+    expect(rubricProbe({ ...ok, maxType: 70, maxDeclared: 44 })).toHaveLength(1);
+    // Round 6: UI animated into place; a scene on a picture is not held to kinds of motion.
+    expect(rubricProbe({ ...ok, uiMotion: ["plate s3-chip (y)"] })).toHaveLength(1);
+    expect(rubricProbe({ ...ok, kinds: [] }, [], true)).toEqual([]);
     expect(rubricProbe({ ...ok, kinds: ["draw", "focus", "stagger"] })).toHaveLength(1);
     expect(rubricProbe({ ...ok, kinds: ["flow"] })).toHaveLength(1);
     expect(rubricProbe({ ...ok, cueChange: [0.02, 0.001] })).toHaveLength(1);
@@ -633,7 +1366,7 @@ describe("a scene that morphs", () => {
     const ctx = { source, format: deck16, theme: resolveTheme("ink"), sid: "s3", start: 0 };
     const morph = {
       ...SCENE,
-      script: `${SCENE.script}\ntl.to("#SCENEID-dot", { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
+      script: `${SCENE.script}\ntl.fromTo("#SCENEID-dot", { morphSVG: "M0 0 L1 1" }, { morphSVG: "#SCENEID-b", duration: 1 }, 2);`,
     };
     expect(usesMorph(morph.script)).toBe(true);
     expect(bespokeScene(beat, ctx, { fragment: morph, holds: [1] }).plugins).toEqual(["morphSVG"]);

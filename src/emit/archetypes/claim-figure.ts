@@ -6,12 +6,14 @@
  * caption 200px off-canvas. Only a genuine strip earns the full width.
  */
 import type { Figure } from "../../types.js";
+import { PIECE_ATTR } from "../animate-runtime.js";
 import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
-import type { Emitter } from "../kit.js";
+import type { Emitter, Tween } from "../kit.js";
 import { esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import { type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   BODY_LH,
   BODY_SIZE,
@@ -79,8 +81,13 @@ const MIN_PLATE = 2 * Math.round(BODY_SIZE * BODY_LH);
 
 /* ------------------------------------------------------------------ v2 fit */
 
-/** v2: the claim may grow to this, never to more lines than it set on at `CLAIM_SIZE`. */
-const CLAIM_MAX = 72;
+/**
+ * v2: the claim is a body line on the confirmed scale (`TYPE_SCALE`), in every
+ * arrangement. It used to grow to 72px to fill its column; the founder's
+ * verdict on that was "the fonts are too large" (2026-10-10), so the FIGURE
+ * takes the room now and the claim stays quiet.
+ */
+const V2_CLAIM = TYPE_SCALE.body;
 /**
  * v2: a figure is drawn up to this many times its natural pixel size. The plate
  * used to be `width:auto;height:auto`, so a 632px figure stayed 632px in a
@@ -102,6 +109,37 @@ const SWITCH_MARGIN = 0.08;
  * photo in a 1760px plate (review, 2026-10-08).
  */
 const SWITCH_AREA = 0.9;
+
+/* ------------------------------------------------------------ the piece */
+
+/**
+ * An animate piece starts with its plate: the figure's entrance tween below
+ * begins at 1.0s, so frame 0 fades in with the plate and the piece then plays.
+ */
+const PIECE_AT = 1;
+/** Static frames after the piece's last one, before the hold that follows it. */
+const PIECE_TAIL = 0.3;
+/**
+ * The rate a piece is baked at: hyperframes' render default. On animate's twos
+ * that steps evenly at 15 Hz. `render --fps 24` resamples it, with judder.
+ */
+const PIECE_FPS = 30;
+/** A piece's id is written into a script; nothing that needs escaping gets there. */
+const PIECE_ID = /^[A-Za-z0-9_.-]+$/;
+/**
+ * The last of the classic holds: by 2.4s the claim, the plate (1.0–1.8s) and
+ * the caption (1.7–2.3s) have all entered. A piece's own hold is never earlier,
+ * or a short piece would stop the deck on a half-built slide.
+ */
+const SETTLED = 2.4;
+/** Invariant 10 at the piece's clock. */
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+/**
+ * The shortest beat that plays a piece of `seconds`: its entrance, the piece,
+ * and the tail before its hold. Exported for the planner, which has to be told
+ * it before it picks a beat's length (src/plan/prompt.ts).
+ */
+export const pieceBeatSeconds = (seconds: number) => r3(PIECE_AT + r3(seconds) + PIECE_TAIL);
 
 type Mode = "tall" | "wide" | "beside";
 
@@ -149,14 +187,6 @@ function arrangements(
     16 +
     wrap(caption, BODY_SIZE, width * MEASURE_SLACK, 400, 0, face).length *
       Math.round(BODY_SIZE * BODY_LH);
-  /** Grow the claim without adding a line, and without passing `room`. */
-  const grownClaim = (width: number, room: number) => {
-    const lines = claimLines(width, CLAIM_SIZE);
-    let size = CLAIM_MAX;
-    while (size > CLAIM_SIZE && (claimLines(width, size) > lines || claimH(width, size) > room))
-      size--;
-    return size;
-  };
   const plateIn = (w: number, h: number) => {
     const k = Math.max(0, Math.min(w / fig.width, h / fig.height, UPSCALE_MAX));
     return { w: Math.floor(fig.width * k), h: Math.floor(fig.height * k) };
@@ -167,7 +197,7 @@ function arrangements(
       const col = box - BESIDE_COL - 56;
       const cap = capH(col);
       const plate = plateIn(col - PLATE_PAD, region - 34 - 26 - PLATE_PAD - cap);
-      const claimSize = grownClaim(BESIDE_COL, region - 34);
+      const claimSize = V2_CLAIM;
       const right = 26 + plate.h + PLATE_PAD + cap;
       out.push({
         mode,
@@ -177,25 +207,20 @@ function arrangements(
       });
     } else if (mode === "wide") {
       const half = (box - 56) / 2;
-      // The claim grows only into height the figure does not need at its classic
-      // size (its own pixels, or the box's width). Grown without a bound, a
-      // 120-character claim took the plate down to 206px tall — 40% of what
-      // v0.8.0 drew (set20 8872a314 s3, fix-round Tier A).
-      const classicH = Math.min(fig.height, ((box - PLATE_PAD) * fig.height) / fig.width);
-      const claimSize = grownClaim(half, Math.max(0, region - 26 - PLATE_PAD - 26 - classicH));
+      const claimSize = V2_CLAIM;
       const row = Math.max(claimH(half, claimSize), capH(half) - 16);
       const plate = plateIn(box - PLATE_PAD, region - 26 - PLATE_PAD - 26 - row);
       out.push({ mode, claimSize, plate, fit: fitOf(plate.h + PLATE_PAD + 26 + row, region) });
     } else {
-      // Stacked: the claim takes the figure's height, so it does not grow here.
-      const band = claimH(box, CLAIM_SIZE);
+      // Stacked: the claim takes the figure's height.
+      const band = claimH(box, V2_CLAIM);
       const cap = capH(box);
       const plate = plateIn(box - PLATE_PAD, region - 34 - band - 26 - PLATE_PAD - cap);
       const used = band + 26 + plate.h + PLATE_PAD + cap;
       // `.cf-stack` is `space-evenly`: of the slack, the two gaps between its
       // children are inside the painted extent and the two ends are not.
       const slack = Math.max(0, region - 34 - used);
-      out.push({ mode, claimSize: CLAIM_SIZE, plate, fit: fitOf(used + slack / 3, region) });
+      out.push({ mode, claimSize: V2_CLAIM, plate, fit: fitOf(used + slack / 3, region) });
     }
   };
   add(classic);
@@ -254,10 +279,10 @@ function blockLines(text: string, size: number, width: number, face: Face): numb
 }
 
 /** What the plate holds, and the tag its height cap and its drift rule name. */
-interface Plate {
+export interface Plate {
   html: string;
-  /** `img` or `video`. One CSS rule is written, for whichever is actually there. */
-  el: "img" | "video";
+  /** `img`, `video` or `canvas`. One CSS rule is written, for whichever is actually there. */
+  el: "img" | "video" | "canvas";
 }
 
 /**
@@ -288,12 +313,35 @@ interface Plate {
  * composition, and test/emit.test.ts ("never embeds a document it does not own")
  * asserts the vocabulary never writes one — or this figure's watch URL — to
  * begin with.
+ *
+ * SHARED WITH `stage`, which is why the refusals name `who` (the archetype and
+ * beat) rather than assuming claim-figure, and why a piece's canvas may be
+ * given a `buffer` size: a stage canvas is the frame, not the figure's box.
  */
-function plate(fig: Figure, sid: string, beatId: string, start: number | undefined): Plate {
+export function plate(
+  fig: Figure,
+  sid: string,
+  who: string,
+  start: number | undefined,
+  buffer: { width: number; height: number } = fig,
+): Plate {
   const img = (src: string): Plate => ({
     html: `<img src="assets/${esc(src)}" alt="${esc(fig.caption)}" />`,
     el: "img",
   });
+  // A PIECE IS A CANVAS AND THE SCRIPT THAT DRAWS ON IT. The script registers the
+  // piece's factory as the document parses; the scene's `measure` mounts it on
+  // this canvas, and the `dsAnimate` tween draws it (see the emitter below).
+  // `role="img"` and the caption as its label, because a canvas has no `alt`.
+  // `PIECE_ATTR` marks it 2D, so a checker without WebGL still measures it.
+  if (fig.kind === "piece") {
+    return {
+      html:
+        `<canvas id="${sid}-pc" ${PIECE_ATTR} width="${buffer.width}" height="${buffer.height}" role="img" aria-label="${esc(fig.caption)}"></canvas>` +
+        `<script src="assets/${esc(fig.src)}"></script>`,
+      el: "canvas",
+    };
+  }
   if (fig.kind !== "clip") return img(fig.src);
   if (fig.href !== undefined) {
     // Nothing to draw, said with the one instruction that fixes it. A clip with
@@ -301,7 +349,7 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
     // thing that is wrong, so the message names the figure and the step.
     if (fig.poster === undefined) {
       throw new Error(
-        `claim-figure ${beatId}: figure "${fig.id}" is a clip we hold no file for and no still of — ` +
+        `${who}: figure "${fig.id}" is a clip we hold no file for and no still of — ` +
           `re-ingest it so its poster is measured, or point the beat at a figure this deck has`,
       );
     }
@@ -350,7 +398,7 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
   // buy a seek the runtime already performs at 24x the non-reproducible frames.
   if (start === undefined) {
     throw new Error(
-      `claim-figure ${beatId}: figure "${fig.id}" is a clip, and nobody said when this scene starts — ` +
+      `${who}: figure "${fig.id}" is a clip, and nobody said when this scene starts — ` +
         "the video is seeked on the deck's absolute clock, so `EmitContext.start` has to be passed",
     );
   }
@@ -358,6 +406,72 @@ function plate(fig: Figure, sid: string, beatId: string, start: number | undefin
   return {
     html: `<video id="${sid}-v" src="assets/${esc(fig.src)}"${poster} data-start="${start}" preload="auto" playsinline muted></video>`,
     el: "video",
+  };
+}
+
+/**
+ * What a piece adds to the scene: the statement that mounts it, ONE `fromTo`
+ * that plays it, and the hold after its last frame.
+ *
+ * THE TWEEN IS THE ONLY THING THAT DRAWS (invariants 1 and 11). Its value is
+ * the piece's own second — `0` to `seconds` over `seconds`, ease "none" —
+ * and the `dsAnimate` plugin draws that second as part of the seek
+ * (src/emit/animate-runtime.ts). No callback, no CSS animation: before the
+ * tween the canvas holds frame 0, after it the last frame, so holds and slide
+ * edges are static.
+ *
+ * `hand` is the deck's font stack, for the kit's `HAND`: a piece draws no text,
+ * and the kit's `measureText` should still never name a family the deck does
+ * not declare (invariant 9).
+ *
+ * REFUSED BY NAME rather than clamped: a piece with no length has no clock, a
+ * `src` not ending in `.js` is a script verify never scans, and
+ * a beat too short for the piece would end it mid-motion with the hold clamped
+ * on top of a moving frame. `who` names the archetype and beat, because
+ * `stage` plays a piece through this too.
+ */
+export function pieceTimeline(
+  fig: Figure,
+  sid: string,
+  who: string,
+  seconds: number,
+  hand: string,
+): { tween: Tween; mount: string; hold: number } {
+  if (fig.seconds === undefined) {
+    throw new Error(
+      `${who}: figure "${fig.id}" is a piece with no \`seconds\` — a piece is its own clock, so its source.json entry has to say how long it plays`,
+    );
+  }
+  if (!PIECE_ID.test(fig.id)) {
+    throw new Error(
+      `${who}: piece "${fig.id}" has an id a script cannot carry as written — use letters, digits, ".", "_" and "-"`,
+    );
+  }
+  // `verify`'s determinism scan reads `assets/**/*.js` (`readAssetScripts`);
+  // a `.mjs` loads just the same through `<script src>` and is never read.
+  if (!fig.src.endsWith(".js")) {
+    throw new Error(
+      `${who}: piece "${fig.id}" has src "${fig.src}" — a piece's script must end in ".js", the only scripts verify's determinism scan reads`,
+    );
+  }
+  const run = r3(fig.seconds);
+  const hold = pieceBeatSeconds(run);
+  if (hold > seconds) {
+    throw new Error(
+      `${who}: piece "${fig.id}" plays ${run}s from ${PIECE_AT}s and holds ${PIECE_TAIL}s, ` +
+        `which needs ${hold}s, and the beat is ${seconds}s — lengthen the beat or shorten the piece`,
+    );
+  }
+  const cfg = `{ seconds: ${run}, fps: ${PIECE_FPS}, hand: ${JSON.stringify(hand)} }`;
+  return {
+    tween: tween(
+      `#${sid}-pc`,
+      { dsAnimate: 0 },
+      { dsAnimate: run, duration: run, ease: "none" },
+      PIECE_AT,
+    ),
+    mount: `DSAnimate.mount(document.getElementById("${sid}-pc"), "${fig.id}", ${cfg})`,
+    hold,
   };
 }
 
@@ -379,6 +493,10 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       `claim-figure ${beat.id}: no figure "${p.figureId}" in source ${ctx.source.id}`,
     );
   }
+  const piece =
+    fig.kind === "piece"
+      ? pieceTimeline(fig, sid, `claim-figure ${beat.id}`, beat.seconds, theme.fontStack)
+      : undefined;
   /**
    * The content box, or what the chosen placement leaves the body
    * (src/emit/look.ts). The figure this beat draws is named so an aside in the
@@ -483,7 +601,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // the script it is instead of in sentence-long blocks.
   const claim = `<div class="claim" id="${sid}-c">${words(p.claim, "w", { unspaced: v2 })}</div>`;
   // `figure.src` is relative to the deck's asset directory.
-  const held = plate(fig, sid, beat.id, ctx.start);
+  const held = plate(fig, sid, `claim-figure ${beat.id}`, ctx.start);
   const figure = `<div class="figwrap" id="${sid}-f">${held.html}</div>`;
   const caption = `<div class="caption" id="${sid}-cap">${esc(fig.caption)}</div>`;
 
@@ -536,6 +654,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       },
       1.8,
     ),
+    ...(piece ? [piece.tween] : []),
   ];
 
   // The area the image is painted at: the solved plate under v2, and what
@@ -549,7 +668,8 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   return {
     html: F.compose(body),
     tl,
-    holds: holdsWithin([1.4, 2.4], beat.seconds),
+    holds: holdsWithin(piece ? [Math.max(piece.hold, SETTLED)] : [1.4, SETTLED], beat.seconds),
+    ...(piece ? { measure: [piece.mount], plugins: ["dsAnimate"] } : {}),
     ...(chosen ? { fit: chosen.fit } : {}),
     figureArea,
     css: [
@@ -570,7 +690,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
       // 350px hole between the headline and the claim and half that under the
       // caption. Evenly divided, the same slack reads as three equal margins.
       ".cf-stack{display:flex;flex-direction:column;justify-content:space-evenly;flex:1;min-height:0;margin-top:34px}",
-      `.claim{font-size:${CLAIM_SIZE}px;line-height:${CLAIM_LH};color:${theme.fg};border-left:${CLAIM_RULE - 32}px solid ${theme.accent};padding-left:32px}`,
+      `.claim{font-size:${v2 ? V2_CLAIM : CLAIM_SIZE}px;line-height:${CLAIM_LH};color:${theme.fg};border-left:${CLAIM_RULE - 32}px solid ${theme.accent};padding-left:32px}`,
       // The words rise, so they have to be blocks; `inline-block` on an inline
       // run is what makes a transform apply at all.
       ".claim .w{display:inline-block}",

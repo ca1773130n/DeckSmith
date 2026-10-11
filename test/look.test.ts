@@ -48,6 +48,16 @@ const source: Source = {
     { id: "aside", kind: "image", src: "aside.png", caption: "An aside", width: 1200, height: 900 },
     { id: "strip", kind: "image", src: "strip.png", caption: "A strip", width: 2400, height: 600 },
     { id: "small", kind: "image", src: "small.png", caption: "Small", width: 400, height: 300 },
+    // Sized like `small`, so only its kind can keep it out of the rail.
+    {
+      id: "loop",
+      kind: "piece",
+      src: "loop.js",
+      caption: "A loop",
+      width: 400,
+      height: 300,
+      seconds: 4,
+    },
   ],
 };
 const ctx = (look?: Look, f: Format = format): EmitContext => ({
@@ -199,6 +209,16 @@ describe("rail", () => {
     expect(uncited.compose("")).not.toContain("lk-aside");
   });
 
+  it("never sets an animate piece as an aside: an aside is an <img>, and a piece is a script", () => {
+    const piece = frameOf(ctx(look), {
+      eyebrow: "R",
+      headline: "Short",
+      evidence: [{ kind: "figure", id: "loop" }],
+    });
+    expect(piece.compose("")).not.toContain("lk-aside");
+    expect(piece.compose("")).not.toContain("loop.js");
+  });
+
   it("never squeezes a big figure into the rail as an aside, where its text would be unreadable", () => {
     // ko s9 (review 2026-10-08): a 1098px results table drawn ~576px wide in the
     // rail, its numbers at 7-8px. A 1200px figure there would be drawn at 46%.
@@ -299,7 +319,7 @@ describe("bar-compare: columns", () => {
 describe("bar-compare: versus", () => {
   const vs = { variant: "versus", placement: "top" } as const;
 
-  it("sets two values as the slide's largest type, on the rows' own clock", () => {
+  it("sets two values as the slide's largest type — 56px, the headline's — on the rows' own clock", () => {
     const rows = emitScene(bars(2, [58.4, 87.6]), ctx());
     const v = emitScene(bars(2, [58.4, 87.6]), ctx(vs));
     // Same stops: a look moves geometry, never time.
@@ -308,11 +328,15 @@ describe("bar-compare: versus", () => {
       Number(m[1]),
     );
     expect(sizes).toHaveLength(2);
-    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(96);
+    // The headline's size, not 96-200px (founder, 2026-10-10: no giant numerals).
+    for (const size of sizes) expect(size).toBeLessThanOrEqual(56);
+    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(44);
     // The bar keeps the ratio: it grows along x.
     const grow = v.tl.find((t) => t.target === "#s1-bar0");
     expect(Object.keys(grow?.to.attr ?? {})).toEqual(["width"]);
-    expect(v.fill).toBeGreaterThan(rows.fill ?? 0);
+    // It no longer out-fills the rows (its figures were 96-200px): the
+    // Director weighs the two on fill like any other pair of looks.
+    expect(v.fill).toBeGreaterThan(0);
   });
 
   it("sets each figure's whole glyph box inside the chart", () => {
@@ -354,8 +378,32 @@ describe("pipeline: stair and column", () => {
   it("steps each stage down, and uses height the row leaves", () => {
     const row = emitScene(pipe(4), ctx());
     const stair = emitScene(pipe(4), ctx({ variant: "stair", placement: "top" }));
-    expect(stair.fill ?? 0).toBeGreaterThan(row.fill ?? 0);
     expect(stair.html).not.toEqual(row.html);
+  });
+
+  it("scores a stair as the ink it paints, not the height its rise was solved to span", () => {
+    // ko deck b03 (2026-10-09): pipeline:stair@foot reported fill 1 while its
+    // three boxes left two empty corners of the body. The rise is solved to
+    // spend whatever height the row leaves, so the extent was 1 by construction.
+    for (const placement of ["top", "foot"] as const) {
+      const stair = emitScene(pipe(3), { ...ctx({ variant: "stair", placement }), design: "v2" });
+      expect(stair.fill ?? 1, placement).toBeLessThan(0.7);
+    }
+  });
+
+  it("sets a v2 stair's labels as body lines, not classic's 52px", () => {
+    // r3 (2026-10-10): the one v2 path that still set 52px labels — a stair
+    // keeps classic's boxes, and took classic's type with them.
+    const stair = emitScene(pipe(4), {
+      ...ctx({ variant: "stair", placement: "top" }),
+      design: "v2",
+    });
+    const sizes = [...stair.html.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const n of sizes) expect(n).toBeLessThanOrEqual(44);
+    expect(emitScene(pipe(4), ctx({ variant: "stair", placement: "top" })).html).toContain(
+      'font-size="52"',
+    );
   });
 
   it("has no stair for a loop or for two stages", () => {

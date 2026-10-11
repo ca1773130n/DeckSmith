@@ -39,8 +39,15 @@ export const figureSchema = z.object({
    * being an enum with a default: every `source.json` written before clips
    * existed parses unchanged and comes back an `image`, which is what it has
    * always been.
+   *
+   * A PIECE IS A FIGURE ON THE SAME TERMS: a rectangle with intrinsic pixels, a
+   * caption and a duration, whose asset is an animate scene SCRIPT that
+   * `claim-figure` draws on a `<canvas>`, seeked by the `dsAnimate` plugin
+   * (src/emit/animate-runtime.ts). Hand-written into `source.json` — no ingest
+   * path produces one — and only `claim-figure` and `stage` take it; every
+   * other figure archetype refuses it by name. One per deck in this version.
    */
-  kind: z.enum(["image", "clip"]).default("image"),
+  kind: z.enum(["image", "clip", "piece"]).default("image"),
   /** Path relative to the deck's asset directory. */
   src: z.string(),
   caption: z.string(),
@@ -78,7 +85,11 @@ export const figureSchema = z.object({
    * else, so it is the picture the beat is really planned around.
    */
   poster: z.string().optional(),
-  /** How long the clip runs. Seconds, as measured off the file, never guessed. */
+  /**
+   * How long the clip runs. Seconds, as measured off the file, never guessed.
+   * For a piece, how long it plays — REQUIRED there, and `claim-figure` and
+   * `stage` refuse a piece without it, because it is the piece's own clock.
+   */
   seconds: z.number().positive().optional(),
   /**
    * The page the video lives ON, when the video itself is not a file we can
@@ -158,9 +169,75 @@ export const titleParamsSchema = z.object({
 export const illustrationSchema = z.object({
   /** The scene: objects, arrangement, mood. Never text, labels, numbers, charts. */
   prompt: z.string(),
-  /** claim-figure prints it under the picture; a split-compare side keeps it as the figure's title. */
+  /**
+   * claim-figure prints it under the picture; a split-compare side keeps it as
+   * the figure's title; a stage draws no caption and carries it as alt text.
+   */
   caption: z.string(),
 });
+
+/**
+ * A picture BEHIND a diagram: the frame-filling scene a pipeline, a comparison
+ * or a callout is drawn over, so a deck reads as a sequence of scenes rather
+ * than as cards on one pale ground (the founder's bar, 2026-10-09).
+ *
+ * The same two fields stage takes, for the same reasons: `figureId` first, so
+ * a real figure is looked for before a brief is written; `illustration` when
+ * none fits, which `illustrate` turns into a `gen-<beat>-bd` figure. A backdrop
+ * with a brief and no figure is PENDING exactly as a stage is.
+ *
+ * Optional on every archetype that takes it, and absent means the archetype's
+ * own ground: every storyboard written before this parses and emits the bytes
+ * it did. The emitter draws the panels as dark glass over a scrim when it is
+ * present (`src/emit/backdrop.ts`), so the words' contrast never depends on the
+ * picture.
+ */
+export const backdropSchema = z.object({
+  figureId: z.string().optional(),
+  illustration: illustrationSchema.optional(),
+});
+
+/**
+ * The archetypes that take a `backdrop`: the diagrams and comparisons, drawn
+ * over a scene, and the two full-bleed ones that are otherwise drawn over a
+ * field of colour (`FIELD_ARCHETYPES`).
+ */
+export const BACKDROP_ARCHETYPES = [
+  "pipeline",
+  "split-compare",
+  "callout",
+  "bar-compare",
+  "hero-number",
+  "kinetic",
+] as const;
+
+/**
+ * The archetypes that never sit on the pack's pale ground: with no `backdrop`
+ * they are drawn over a deep field of one of the pack's colours instead
+ * (src/emit/backdrop.ts, `overField`).
+ */
+export const FIELD_ARCHETYPES = ["hero-number", "kinetic"] as const;
+
+/**
+ * Archetypes that stand on the field in v2 only. A bar-compare with no backdrop
+ * was the one chart left on the pale ground in round 2 of the 2026-10-09 ko
+ * e2e (b10, a plain bar chart between two panels); classic is v0.8.0 exactly
+ * and keeps drawing it on its ground.
+ */
+export const V2_FIELD_ARCHETYPES = ["bar-compare"] as const;
+
+/**
+ * The id prefix `illustrate` gives every figure it draws (`gen-b03`,
+ * `gen-b04-left`). Such a figure is the DECK's, not the document's: it was
+ * drawn from a brief the planner wrote, so nothing that sizes a deck to what
+ * the document contains may count it (`sourcePoints`).
+ */
+export const GENERATED_FIGURE_PREFIX = "gen-";
+
+/** Whether `illustrate` drew this figure, rather than the document carrying it. */
+export function isGeneratedFigure(id: string): boolean {
+  return id.startsWith(GENERATED_FIGURE_PREFIX);
+}
 
 export const claimFigureParamsSchema = z
   .object({
@@ -320,6 +397,8 @@ export const calloutParamsSchema = z.object({
     .min(1)
     .max(3),
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 /* --------------------------------------------------- Diagrammatic archetypes
@@ -360,6 +439,8 @@ export const pipelineParamsSchema = z.object({
     .object({ from: z.int().min(0).optional(), to: z.int().min(0), label: z.string() })
     .optional(),
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 export const annotatedFigureParamsSchema = z.object({
@@ -435,6 +516,8 @@ export const barCompareParamsSchema = z.object({
     .min(2)
     .max(8),
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
 
 export const stackParamsSchema = z.object({
@@ -482,7 +565,102 @@ export const splitCompareParamsSchema = z.object({
   left: splitSideSchema,
   right: splitSideSchema,
   note: z.string().optional(),
+  /** A full-bleed scene behind the diagram. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
 });
+
+/**
+ * Where a stage beat sets its words over the picture, or `none` for no words.
+ *
+ * A SMALL FIXED SET rather than coordinates: each one is a layout the emitter
+ * has a scrim for, so the contrast under the text is decided once per entry
+ * and never by the planner. An enum, so the model sees exactly these values.
+ */
+export const STAGE_PLACEMENTS = ["none", "bottom-left", "center", "top-left", "right"] as const;
+
+/**
+ * One figure that owns the whole frame — a product UI, a scene, a photo, an
+ * animate piece — edge to edge, with no plate, border or side column.
+ *
+ * `headline` is required even under `placement: "none"`: it is the scene's
+ * label (the composition's title attribute, the deck's notes fallback), and a
+ * beat with nothing to say about its picture has no business being a beat.
+ *
+ * `illustration` is claim-figure's alternative to `figureId`, for the same
+ * reason: without it a source whose only figures are plots — a typical paper —
+ * had no legal way to a full-bleed slide at all, and every slide kept the
+ * headline-over-body layout.
+ */
+export const stageParamsSchema = z
+  .object({
+    headline: z.string(),
+    /** First, for the reason claim-figure gives: look for a real figure before writing a brief. */
+    figureId: z.string().optional(),
+    /** A picture to generate when no figure in the inventory can own the frame. */
+    illustration: illustrationSchema.optional(),
+    placement: z.enum(STAGE_PLACEMENTS),
+    /** One short line under the headline. Dropped under `placement: "none"`. */
+    line: z.string().optional(),
+  })
+  .refine((p) => p.figureId !== undefined || p.illustration !== undefined, {
+    message: "stage needs a figureId or an illustration",
+    path: ["figureId"],
+  });
+
+/**
+ * ONE NUMBER THAT OWNS THE FRAME — the result an explainer video stops on.
+ *
+ * `value` is the figure as the source prints it ("43.63", "1/4", "75.1%"); its
+ * digits are drawn as odometer reels that roll into place, every other
+ * character standing still. `compare` is the number it is read against — the
+ * baseline, the before — drawn as a second figure, and as a pair of bars when
+ * both parse as plain numbers in one unit (`unit`). `label` names what `value`
+ * measures; `headline` is the sentence the number says, set under it.
+ *
+ * Full-bleed like `stage`: over a `backdrop` picture when it has one, else over
+ * a deep field of one of the pack's colours (src/emit/backdrop.ts), never on the pale
+ * ground a deck of cards sits on.
+ */
+export const heroNumberParamsSchema = z.object({
+  eyebrow: z.string().optional(),
+  headline: z.string(),
+  value: z.string(),
+  unit: z.string().optional(),
+  label: z.string(),
+  compare: z.object({ value: z.string(), label: z.string() }).optional(),
+  /** A full-bleed scene behind the number. See `backdropSchema`. */
+  backdrop: backdropSchema.optional(),
+});
+
+/**
+ * A CLAIM SET AS MOVING TYPE. Two to four phrases, each arriving with its own
+ * move and stopped on, with one `key` word in it struck through by a highlight.
+ *
+ * `headline` labels the slide — the composition's title, the notes fallback —
+ * and is not drawn, as under a stage's `placement: "none"`: the phrases are
+ * what the audience reads. `key` must appear verbatim in its phrase.
+ */
+export const kineticParamsSchema = z
+  .object({
+    headline: z.string(),
+    phrases: z
+      .array(z.object({ text: z.string(), key: z.string().optional() }))
+      .min(2)
+      .max(4),
+    /** A full-bleed scene behind the words. See `backdropSchema`. */
+    backdrop: backdropSchema.optional(),
+  })
+  .superRefine((p, ctx) => {
+    p.phrases.forEach((ph, i) => {
+      if (ph.key !== undefined && !ph.text.includes(ph.key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["phrases", i, "key"],
+          message: `key "${ph.key}" is not in phrase "${ph.text}"`,
+        });
+      }
+    });
+  });
 
 /* ------------------------------------------------------------------- Beats */
 
@@ -665,6 +843,19 @@ export const beatSchema = z.discriminatedUnion("archetype", [
     params: splitCompareParamsSchema,
     ...beatTail,
   }),
+  z.object({ ...beatCore, archetype: z.literal("stage"), params: stageParamsSchema, ...beatTail }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("hero-number"),
+    params: heroNumberParamsSchema,
+    ...beatTail,
+  }),
+  z.object({
+    ...beatCore,
+    archetype: z.literal("kinetic"),
+    params: kineticParamsSchema,
+    ...beatTail,
+  }),
 ]);
 
 /**
@@ -690,6 +881,10 @@ export const DIAGRAMMATIC: ReadonlySet<string> = new Set([
   "equation-walk",
   "equation-morph",
   "line-chart",
+  "stage",
+  // A magnitude, drawn and measured against its baseline. `kinetic` is not
+  // here: moving type is still a sentence, however it arrives.
+  "hero-number",
 ]);
 
 /**
@@ -717,7 +912,12 @@ export type ArchetypeFamily = "frame" | "structure" | "quantity" | "formal";
 export const ARCHETYPE_FAMILY: Readonly<Record<Archetype, ArchetypeFamily>> = {
   title: "frame",
   "claim-figure": "frame",
+  // Same reason as claim-figure: the picture illustrates what the beat says.
+  stage: "frame",
+  // A claim, however it moves.
+  kinetic: "frame",
   callout: "frame",
+  "hero-number": "quantity",
   pipeline: "structure",
   grid: "structure",
   stack: "structure",
@@ -939,28 +1139,50 @@ export const prefsSchema = z.object({
        * Most PICTURES drawn through the chain — a split-compare beat with two
        * briefs spends two. Briefs past it are drawn by the tool, which is free.
        * Zero is legal and means "every picture by the tool".
+       *
+       * TEN, so a fourteen-beat deck can be mostly scenes (`SCENE_SHARE` in
+       * src/plan/variety.ts): at four, three stages spent the cap and every
+       * diagram was cards on the pack's ground.
        */
-      max: z.int().min(0).default(4),
+      max: z.int().min(0).default(10),
     })
     // Same reason as `narration`: the resolved shape, spelled once, so an omitted
     // block reads fully populated and a `.deck` manifest carries every field.
-    .default({ enabled: false, provider: "codex", style: "flat vector illustration", max: 4 }),
+    .default({ enabled: false, provider: "codex", style: "flat vector illustration", max: 10 }),
 
   /* --- bespoke scenes --- */
   /**
-   * `--design v2` only: a few beats per deck drawn by a model-written GSAP+SVG
-   * scene instead of their archetype (src/bespoke/). OPTIONAL WITH NO DEFAULT,
+   * `--design v2` only: every beat drawn by a model-written GSAP+SVG scene, the
+   * archetype only where a scene fails its gates (src/bespoke/). ON UNDER V2
+   * UNLESS `enabled` IS false (`--no-bespoke`) — `bespokeFor` (src/prefs.ts)
+   * decides. The block is still OPTIONAL WITH NO DEFAULT,
    * unlike the two blocks above, and that is deliberate: a resolved prefs
    * object travels into `.deck` manifests, and a defaulted block would move the
    * bytes of every pack built without it.
    */
   bespoke: z
     .object({
-      enabled: z.boolean().default(false),
-      /** Hard cap on Codex calls for one deck. Each bespoke beat costs two. */
-      maxCalls: z.int().min(0).max(40).default(12),
-      /** Hard cap on the bespoke pass's wall time, seconds. */
-      maxSeconds: z.int().min(60).max(7200).default(1800),
+      /** Absent: on under v2. `false` (`--no-bespoke`) keeps every archetype. */
+      enabled: z.boolean().optional(),
+      /**
+       * Hard cap on scene calls for one deck: a draft and at most one critique
+       * per beat, so 40 pays for a 14-beat deck with room to spare. The device
+       * call and the pictures are counted apart.
+       */
+      maxCalls: z.int().min(0).max(80).default(40),
+      /**
+       * Hard cap on the bespoke pass's wall time, seconds. A 14-beat deck at two
+       * calls in flight is ~14 pictures-or-not, 14 drafts at 135-371s each and
+       * up to 14 critiques: an hour is the budget, and what is left falls back.
+       */
+      maxSeconds: z.int().min(60).max(14400).default(3600),
+      /**
+       * One scene call's ceiling, seconds: the per-scene timeout. MEASURED
+       * 2026-10-08..09 at medium effort, tools off: drafts 135-371s, critiques
+       * ~100-300s. A call past this is killed and its beat keeps its draft or
+       * its archetype.
+       */
+      callSeconds: z.int().min(60).max(1800).default(600),
       /** Passed to `codex exec --model`. Absent: whatever the account is configured for. */
       model: z.string().optional(),
       /** The Codex CLI to run. Absent: `codex` on PATH. */
@@ -968,12 +1190,12 @@ export const prefsSchema = z.object({
       /** Where generated scenes are cached. Absent: the user cache directory. */
       cache: z.string().optional(),
       /**
-       * Codex calls in flight at once. Five: MEASURED 2026-10-08, a deck's
-       * five drafts at three in flight took two waves (252s) where one wave is
-       * ~150s, and the second wave alone put the pass over ten minutes. Still
-       * bounded by `maxCalls` per deck.
+       * Codex calls in flight at once — pictures, the device call and scenes
+       * alike. Two: every beat is drawn now, and each call is a Codex process on
+       * a machine that measured 8-23% memory free through this work; five in
+       * flight was measured faster (2026-10-08) for a five-beat deck only.
        */
-      concurrency: z.int().min(1).max(8).default(5),
+      concurrency: z.int().min(1).max(8).default(2),
       /**
        * `model_reasoning_effort` for the bespoke calls. MEASURED 2026-10-08, one
        * draft prompt, tools off: medium 166s and 24k tokens, high 371s and 50k.
@@ -1223,9 +1445,21 @@ export const CAPTION_LINE_RATIO = 1.6;
  */
 export const CAPTION_MAX_LINES = 2;
 
-/** The burned band's font size at this canvas width. */
+/**
+ * The burned caption's size, reference px: `TYPE_SCALE.caption` in
+ * src/emit/type.ts, restated here because this file may import nothing from
+ * `src/emit`. A quiet lower third, the founder's ask on 2026-10-10: 4% of a
+ * 1920 canvas was a 71px caption, larger than the slide's own headline.
+ */
+export const CAPTION_FONT_PX = 40;
+
+/**
+ * The burned band's font size at this canvas width: `CAPTION_FONT_RATIO` of it,
+ * never more than `CAPTION_FONT_PX` — which is what every format's ratio
+ * already gave at its 1080px side, and now also holds at 1920.
+ */
 export function captionFontSize(width: number): number {
-  return Math.round(width * CAPTION_FONT_RATIO);
+  return Math.min(CAPTION_FONT_PX, Math.round(width * CAPTION_FONT_RATIO));
 }
 
 /**
@@ -1567,6 +1801,7 @@ export type Section = z.infer<typeof sectionSchema>;
 export type Source = z.infer<typeof sourceSchema>;
 export type Term = z.infer<typeof termSchema>;
 export type Illustration = z.infer<typeof illustrationSchema>;
+export type Backdrop = z.infer<typeof backdropSchema>;
 /** The `images` block of the preferences, resolved. What `illustrate` reads. */
 export type ImagesPrefs = z.infer<typeof prefsSchema>["images"];
 export type Beat = z.infer<typeof beatSchema>;

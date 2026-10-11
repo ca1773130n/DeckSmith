@@ -1,0 +1,32 @@
+The three .js files in this directory are vendored, unmodified, from animate:
+
+  https://github.com/cth9191/animate
+  commit 7e5eb56feb2dd573f890e1b7b34748af43d58263 ("Animate 0.4.0")
+  Copyright (c) 2026 cth9191, MIT License — the full text is LICENSE, beside this file.
+
+  core.js       <- plugins/animate/skills/animate/kit/core.js
+  morph.js      <- plugins/animate/skills/animate/kit/morph.js
+  cut-paper.js  <- plugins/animate/skills/animate/styles/cut-paper/kit.js
+
+sha256, as fetched and as shipped (test/wiring.test.ts holds these):
+
+  d791e21cdc1396d20bd7f1507a34693c64be9220a0d996cc4688149554967fc9  core.js
+  f5791c4b6481407d4eba0eab69eca35d227481816b384967f6adf86c1ccd1a1e  cut-paper.js
+  08d1427f6b2044dedcca4487d92cc6f67a176834b6e9d020aca146ef1813209d  morph.js
+
+NOT PATCHED. morph.js still writes window.renderFrame and window.anchorAt and
+still falls back to getElementById('c') when renderFrame is handed no canvas.
+DeckSmith always hands it the mounted canvas, and allows ONE piece per deck
+(src/emit/composition.ts refuses a second by name), so those two globals have a
+single writer. Lifting that limit means patching morph.js and testing two pieces
+on one page — record the patch here when it happens.
+
+Only the cut-paper style is vendored. Riso and pixel read pixels back from the
+canvas (getImageData), which flips Chrome's 2D raster mode; core.js, morph.js
+and cut-paper.js call it zero times. See
+.planning/2026-10-09-animate-piece-design.md and
+.planning/2026-10-09-animate-piece-spike.md.
+
+src/build/piece.ts assembles these, in animate's own build order (head, core,
+style, the author's scenes and bridges, morph), into each piece's script.
+Nothing else of animate is used: no head.html, board, score or tools.

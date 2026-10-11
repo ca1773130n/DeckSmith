@@ -8,6 +8,8 @@
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { buildRepeats } from "../bespoke/databuild.js";
+import { diversityWanted, grammarRepeats } from "../bespoke/grammar.js";
 import { BESPOKE_FILE } from "../bespoke/scene.js";
 import { prepareMorph } from "../emit/archetypes/equation-morph.js";
 import { prepareWalk } from "../emit/archetypes/equation-walk.js";
@@ -24,6 +26,7 @@ import {
   type BeatOf,
   DIAGRAMMATIC,
   type Finding,
+  isGeneratedFigure,
   type Source,
   type Storyboard,
   type Term,
@@ -125,6 +128,17 @@ const NONDETERMINISM: ReadonlyArray<readonly [RegExp, string, string, string?]> 
   [/\bperformance\.now\s*\(/, "performance_now", "calls"],
   [/\bfetch\s*\(/, "runtime_fetch", "calls"],
   [/\bXMLHttpRequest\b/, "runtime_fetch", "calls"],
+  // A CLOCK OF ITS OWN. A timer or a frame callback draws on wall-clock time
+  // between the renderer's seeks — play, not seek (invariant 1) — and after an
+  // animate piece's text trap has been put back. No emitted composition
+  // schedules anything; a piece pasted with animate's player loop does (its
+  // score.js drives `renderFrame` from `requestAnimationFrame`), and the piece's
+  // `<script src>` is a file `hyperframes lint` never reads.
+  [/\brequestAnimationFrame\s*\(/, "wall_clock", "calls"],
+  [/\bset(?:Timeout|Interval)\s*\(/, "wall_clock", "calls"],
+  // An image is drawn once it has decoded, which is a race with the seek:
+  // animate's `asset()` draws nothing until `.complete`.
+  [/\bnew\s+Image\s*\(/, "async_load", "calls"],
   // The TAG, matched with a word boundary so `<iframes>` and the word "iframe"
   // in a comment or a `createElement("iframe")` in the wrapper's own runtime are
   // not it. `deck.html` is never scanned at all (`readCompositions`), which is
@@ -191,7 +205,9 @@ export async function verify(
   source?: Source,
 ): Promise<Verdict> {
   const html = await readCompositions(dir);
-  const determinism = html.flatMap(([file, text]) => scanDeterminism(text, file));
+  const determinism = [...html, ...(await readAssetScripts(dir))].flatMap(([file, text]) =>
+    scanDeterminism(text, file),
+  );
   const narration = scanNarration(
     await readFile(join(dir, DECK_PAGE), "utf8").catch(() => ""),
     await listFiles(dir),
@@ -209,7 +225,8 @@ export async function verify(
   // both are in hand — `build`, not `verify <dir>`. Absent either, silence: a
   // check that cannot see its inputs must not report that it found nothing.
   const lead = kept && timing ? scanNarrationLead(kept, timing) : [];
-  const ours = [...determinism, ...narration, ...budget, ...type, ...lead];
+  const variety = scanStagingVariety(html.map(([, text]) => text));
+  const ours = [...determinism, ...narration, ...budget, ...type, ...lead, ...variety];
   // ONE READING OF THE STOPS, HANDED TO BOTH GATES.
   //
   // `fidelity` already worked this out for itself and `check` never knew the
@@ -655,14 +672,17 @@ export function scanRepeatedObject(storyboard: Storyboard): Finding[] {
  * citing it in evidence is a different defect, and not this scan's to report.
  */
 export function scanUnusedFigures(storyboard: Storyboard, source: Source): Finding[] {
-  if (!source.figures.length) return [];
+  // The AUTHORS' figures. One `illustrate` drew is the deck's own — a backdrop
+  // cites nothing by design — and "the authors drew them" would be false of it.
+  const figures = source.figures.filter((f) => !isGeneratedFigure(f.id));
+  if (!figures.length) return [];
 
   const used = new Set<string>();
   for (const beat of storyboard.beats) {
     for (const ref of beat.evidence) if (ref.kind === "figure") used.add(ref.id);
     for (const id of figuresShown(beat.params as Record<string, unknown>)) used.add(id);
   }
-  const unused = source.figures.filter((f) => !used.has(f.id));
+  const unused = figures.filter((f) => !used.has(f.id));
   if (!unused.length) return [];
 
   // The caption travels with the id, because "fig2 is unused" is not something
@@ -670,14 +690,14 @@ export function scanUnusedFigures(storyboard: Storyboard, source: Source): Findi
   const named = unused.map((f) => `${f.id} ("${f.caption}")`).join("; ");
   // Two words, not one: "1 of 4 source figures is" and "2 of 4 source figures are"
   // disagree about different things, and one variable cannot serve both.
-  const noun = source.figures.length === 1 ? "figure" : "figures";
+  const noun = figures.length === 1 ? "figure" : "figures";
   const verb = unused.length === 1 ? "is" : "are";
   return [
     {
       severity: "warning",
       gate: "storyboard",
       rule: "figure_unused",
-      message: `${unused.length} of ${source.figures.length} source ${noun} ${verb} never cited: ${named}. The authors drew them to carry the argument — a figure worth pointing into is an annotated-figure, one that argues on its own is a claim-figure — or say why this deck does not need it.`,
+      message: `${unused.length} of ${figures.length} source ${noun} ${verb} never cited: ${named}. The authors drew them to carry the argument — a figure worth pointing into is an annotated-figure, one that argues on its own is a claim-figure — or say why this deck does not need it.`,
     },
   ];
 }
@@ -1174,6 +1194,24 @@ export function scanDeterminism(html: string, file: string): Finding[] {
   return findings;
 }
 
+/**
+ * Every script under the deck's `assets/` — which is where an animate piece's
+ * assembled script lives (src/build/piece.ts), and the only file holding code
+ * an AUTHOR wrote. It runs at render time like the composition does, so the
+ * determinism scan reads it; the type and budget gates, which read markup, do
+ * not.
+ */
+export async function readAssetScripts(dir: string): Promise<Array<[string, string]>> {
+  const root = join(dir, "assets");
+  const entries = await readdir(root, { recursive: true, withFileTypes: true }).catch(() => []);
+  const files = entries
+    .filter((e) => e.isFile() && e.name.endsWith(".js"))
+    .map((e) => join(e.parentPath, e.name));
+  return Promise.all(
+    files.map(async (f) => [relative(dir, f), await readFile(f, "utf8")] as [string, string]),
+  );
+}
+
 async function readCompositions(dir: string): Promise<Array<[string, string]>> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
   const files = entries
@@ -1192,4 +1230,56 @@ async function readCompositions(dir: string): Promise<Array<[string, string]>> {
   return Promise.all(
     files.map(async (f) => [relative(dir, f), await readFile(f, "utf8")] as [string, string]),
   );
+}
+
+/**
+ * ROUND 5, the deck's variety: the camera grammars its illustrated scenes are
+ * staged in (`data-ds-grammar`, stamped by the shell) and the builds of its
+ * data scenes (`data-ds-build`), in scene order. Two consecutive illustrated
+ * scenes in one grammar, or two data scenes that build alike, is the "same
+ * animation every card" one level up; fewer distinct grammars than
+ * `diversityWanted` is reported.
+ */
+export function scanStagingVariety(compositions: readonly string[]): Finding[] {
+  const grammar = new Map<number, string>();
+  const build = new Map<number, string>();
+  for (const text of compositions)
+    for (const m of text.matchAll(/<div\b[^>]*\bid="s(\d+)-g"[^>]*>/g)) {
+      const n = Number(m[1]);
+      const g = /\sdata-ds-grammar="([\w-]+)"/.exec(m[0])?.[1];
+      const b = /\sdata-ds-build="([\w-]+)"/.exec(m[0])?.[1];
+      if (g) grammar.set(n, g);
+      if (b) build.set(n, b);
+    }
+  const out: Finding[] = [];
+  const order = (m: Map<number, string>) =>
+    [...m].sort((a, b) => a[0] - b[0]).map(([n, v]) => ({ sid: `s${n}`, v }));
+  const gs = order(grammar);
+  const { distinct, adjacent } = grammarRepeats(gs.map((x) => x.v));
+  for (const [i, g] of adjacent)
+    out.push({
+      severity: "error",
+      gate: "motion",
+      rule: "grammar_repeat",
+      message: `#${gs[i]?.sid}: staged in the "${g}" camera grammar, like the illustrated scene before it (#${gs[i - 1]?.sid}) — consecutive scenes must move differently.`,
+    });
+  if (gs.length > 1 && distinct < diversityWanted(gs.length))
+    out.push({
+      severity: "warning",
+      gate: "motion",
+      rule: "grammar_diversity",
+      message: `${gs.length} illustrated scenes use ${distinct} camera grammar(s); ${diversityWanted(gs.length)} wanted.`,
+    });
+  const bs = order(build);
+  for (const b of buildRepeats(bs.map((x) => x.v)))
+    out.push({
+      severity: "error",
+      gate: "motion",
+      rule: "build_repeat",
+      message: `two data scenes build as "${b}" (${bs
+        .filter((x) => x.v === b)
+        .map((x) => `#${x.sid}`)
+        .join(", ")}) — each data beat of a deck builds differently.`,
+    });
+  return out;
 }

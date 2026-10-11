@@ -32,7 +32,7 @@
  * furniture, and nothing else.
  */
 import type { BeatOf } from "../../types.js";
-import { fitOf, GROWTH, isV2 } from "../fit.js";
+import { EMPTY_BELOW, fitOf, isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { esc, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
@@ -59,6 +59,7 @@ import {
   wrap,
 } from "../svg.js";
 import { ambient, BREATHE } from "../theme.js";
+import { TYPE_SCALE } from "../type.js";
 import {
   chromeCss,
   chromeIn,
@@ -182,7 +183,7 @@ const V_LOOP_PAD = 18;
  * `budget` is the height the SVG may take (the region less the wrapper's margin
  * and the note); `region` is the whole body region, which bounds a box's height
  * at `GROWN_BOX_H` of it — the plan's `MAX_BOX_H = 0.8·region.h`. The label's
- * preferred size grows by `GROWTH` and `fitBoxes` still shrinks it to the width.
+ * preferred size is `TYPE_SCALE.body` and `fitBoxes` still shrinks it to the width.
  */
 export interface PipeGrow {
   budget: number;
@@ -196,18 +197,12 @@ const GROWN_BOX_ASPECT = 1.2;
 const GROWN_BOX_W = 560;
 /** A grown box is at most this many times as tall as the text inside it. */
 const GROWN_AIR = 1.6;
-/** Notes grow with the label, but by at most this much: they are the quieter line. */
-const NOTE_GROWTH = 1.3;
-
-/** The note size that goes with a label set at `size`. Classic: always the floor. */
-function noteFor(size: number, grow?: PipeGrow): number {
-  if (!grow) return NOTE;
-  return Math.min(
-    Math.round(NOTE * NOTE_GROWTH),
-    Math.max(NOTE, Math.floor((NOTE * size) / LABEL)),
-  );
-}
-
+/**
+ * The fill a grown row is pulled up to when its aspect cap would leave it in the
+ * empty band. Above `EMPTY_BELOW` by a margin, so the browser's measurement —
+ * which agrees with the prediction to a few percent — still clears the gate.
+ */
+const HOLLOW_FLOOR = EMPTY_BELOW + 0.05;
 /**
  * The flow turned ninety degrees, for a canvas that is twice as tall as it is
  * wide.
@@ -238,10 +233,12 @@ function columnLayout(
   // `textWidth` is linear in size, so the size at which the widest label exactly
   // fills the box is a division. It is almost never binding at this width.
   const unit = Math.max(1, ...stages.map((s) => textWidth(s.label, 1, 600, 0, false, face)));
-  const preferred = grow ? LABEL * GROWTH : LABEL;
+  const preferred = grow ? TYPE_SCALE.body : LABEL;
   const size = Math.max(MIN_FONT, Math.min(preferred, Math.floor(boxW / (unit + 2 * PAD_X_EM))));
   const innerW = Math.max(size, boxW - 2 * PAD_X_EM * size);
-  const noteSize = noteFor(size, grow);
+  // The floor, always: labels stop at 44 (`TYPE_SCALE`), so a note is quieter by
+  // weight and colour, not size.
+  const noteSize = NOTE;
 
   const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600, 0, face));
   const noteLines = stages.map((s) => (s.note ? wrap(s.note, noteSize, innerW, 400, 0, face) : []));
@@ -331,7 +328,16 @@ function notesFit(stages: readonly Stage[], size: number, innerW: number, face: 
 }
 
 /**
- * The split of `label` into at most `k` lines whose WIDEST line is narrowest.
+ * A label line narrower than this share of its widest line is an orphan: "맵"
+ * alone between "구조" and "정규화", which round 2 of the 2026-10-09 ko e2e
+ * set in a grown pipeline because three one-word lines made the biggest type.
+ */
+const ORPHAN_SHARE = 0.4;
+
+/**
+ * The split of `label` into at most `k` lines whose WIDEST line is narrowest,
+ * with no line an orphan (`ORPHAN_SHARE`) — fewer lines when every split into
+ * `k` leaves one, so the grown row takes the bigger type only when it reads.
  *
  * `balance` breaks once a line has taken its share, which never breaks a
  * two-word label whose first word is the shorter: "Split attributes" stays one
@@ -339,24 +345,26 @@ function notesFit(stages: readonly Stage[], size: number, innerW: number, face: 
  * every label at the one-line size (46px, in 545px boxes). Labels are a handful
  * of words, so every placement of the `k - 1` breaks is simply tried.
  */
-function splitEven(label: string, k: number, face: Face): string[] {
+export function splitEven(label: string, k: number, face: Face): string[] {
   const words = label.split(/\s+/).filter(Boolean);
   if (k <= 1 || words.length <= 1) return [label];
   const width = (from: number, to: number) =>
     textWidth(words.slice(from, to).join(" "), 1, 600, 0, false, face);
   let best: number[] = [];
   let bestW = Number.POSITIVE_INFINITY;
-  const breaks = Math.min(k, words.length) - 1;
   const walk = (start: number, left: number, cuts: number[]) => {
     if (left === 0) {
       const ends = [...cuts, words.length];
       let from = 0;
       let w = 0;
+      let narrow = Number.POSITIVE_INFINITY;
       for (const end of ends) {
-        w = Math.max(w, width(from, end));
+        const lw = width(from, end);
+        w = Math.max(w, lw);
+        narrow = Math.min(narrow, lw);
         from = end;
       }
-      if (w < bestW) {
+      if (narrow >= ORPHAN_SHARE * w && w < bestW) {
         bestW = w;
         best = cuts;
       }
@@ -364,7 +372,14 @@ function splitEven(label: string, k: number, face: Face): string[] {
     }
     for (let at = start + 1; at <= words.length - left; at++) walk(at, left - 1, [...cuts, at]);
   };
-  walk(0, breaks, []);
+  // One line never orphans, so this always ends with a split.
+  for (
+    let breaks = Math.min(k, words.length) - 1;
+    breaks >= 0 && bestW === Number.POSITIVE_INFINITY;
+    breaks--
+  ) {
+    walk(0, breaks, []);
+  }
   const lines: string[] = [];
   let from = 0;
   for (const end of [...best, words.length]) {
@@ -452,14 +467,15 @@ export function pipeLayout(
   loop?: Loop,
   face: Face = "latin",
   grow?: PipeGrow,
+  size = LABEL,
 ): PipeLayout {
   const width = stageW - 2 * M;
   if (grow) return grownRow(stageW, stages, loop, face, grow);
   const capped = Math.min(width, stages.length * MAX_BOX_W + (stages.length - 1) * GAP);
   // Try the capped row first, and only spend the full canvas when the labels
   // actually need it — the cap is a preference, not a constraint.
-  let fit = solve(stages, capped, stageW, face);
-  if (!fit.ok && capped < width) fit = solve(stages, width, stageW, face);
+  let fit = solve(stages, capped, stageW, face, size);
+  if (!fit.ok && capped < width) fit = solve(stages, width, stageW, face, size);
   const row = measureRow(fit, stages, loop, face, stageW, width);
   return { ...row, boxH: row.need, svgH: M + row.need + row.below };
 }
@@ -475,7 +491,6 @@ function measureRow(
   face: Face,
   stageW: number,
   width: number,
-  grow?: PipeGrow,
 ) {
   // Floor rather than round, so the box is never asked to hold type a fraction
   // wider than it was solved for. `fit.size` is already at or above the floor
@@ -484,7 +499,9 @@ function measureRow(
   const size = Math.max(MIN_FONT, Math.floor(fit.size));
   const boxes = fit.boxes;
   const innerW = Math.max(size, (boxes[0]?.w ?? width) - 2 * PAD_X_EM * size);
-  const noteSize = noteFor(size, grow);
+  // The floor, always: labels stop at 44 (`TYPE_SCALE`), so a note is quieter by
+  // weight and colour, not size.
+  const noteSize = NOTE;
 
   const labelLines = stages.map((s) => wrap(s.label, size, innerW, 600, 0, face));
   const noteLines = stages.map((s) => (s.note ? wrap(s.note, noteSize, innerW, 400, 0, face) : []));
@@ -542,7 +559,7 @@ function measureRow(
  * Classic asks one question — the fewest lines at which the labels fit at 52px —
  * and stops at one line, which is why the demo's stages sat at 52px in boxes
  * with 600px of width each. Here every line count from one to three is solved
- * at a preferred `LABEL × GROWTH`, and the one that sets the label LARGEST wins,
+ * at a preferred `TYPE_SCALE.body`, and the one that sets the label LARGEST wins,
  * as long as the box it needs still fits the budget; ties go to fewer lines.
  *
  * The box is then grown, but only so far: to `GROWN_AIR` times what its text
@@ -560,7 +577,9 @@ function grownRow(
 ): PipeLayout {
   const width = stageW - 2 * M;
   const capped = Math.min(width, stages.length * GROWN_BOX_W + (stages.length - 1) * GAP);
-  const preferred = LABEL * GROWTH;
+  // The label is a body line: the v2 scale's 44px at most (`TYPE_SCALE`). The
+  // BOXES grow into the region; the type no longer does.
+  const preferred = TYPE_SCALE.body;
   let best: ReturnType<typeof measureRow> | undefined;
   for (const span of capped < width ? [capped, width] : [width]) {
     for (let k = 1; k <= 3; k++) {
@@ -571,7 +590,7 @@ function grownRow(
       // at 79. The note still has to fit, and that is checked below instead.
       const fit = fitAt(stages, k, span, stageW, face, preferred, 0, splitEven);
       if (!fit.ok) continue;
-      const row = measureRow(fit, stages, loop, face, stageW, width, grow);
+      const row = measureRow(fit, stages, loop, face, stageW, width);
       if (!notesFit(stages, row.note, row.innerW, face)) continue;
       // Bigger only while every word still sets whole: a label grown until
       // "Rectified-flow" is cut to "Rectified-flo / w" is a broken label.
@@ -581,19 +600,23 @@ function grownRow(
     }
     if (best) break;
   }
-  // Nothing grown fits: draw exactly the classic row.
-  if (!best) return pipeLayout(stageW, stages, loop, face);
+  // Nothing grown fits: draw the classic row, at v2's label size.
+  if (!best) return pipeLayout(stageW, stages, loop, face, undefined, TYPE_SCALE.body);
   const room = grow.budget - M - best.below;
+  const ceiling = Math.min(best.text * GROWN_AIR, GROWN_BOX_H * grow.region, room);
+  const shaped = Math.max(best.need, Math.floor(Math.min(ceiling, best.boxW * GROWN_BOX_ASPECT)));
+  const hollow = (M + shaped + best.below) / grow.region < EMPTY_BELOW;
   const boxH = Math.max(
-    best.need,
-    Math.floor(
-      Math.min(
-        best.text * GROWN_AIR,
-        GROWN_BOX_H * grow.region,
-        best.boxW * GROWN_BOX_ASPECT,
-        room,
-      ),
-    ),
+    shaped,
+    // HOLLOW OUTRANKS THE ASPECT CAP. Five stages share ~1700px, so each box is
+    // ~315px wide and the 1.2 aspect stops it at ~380px — a band through 56% of
+    // a 698px region, which is what the fill gate measured on the 2026-10-09
+    // Korean deck (`hollow_at_hold`, b05). An unbreakable word ("멀티스케일")
+    // had already stopped the label growing, so height was the only room left.
+    // The box may pass the aspect just as far as the row needs to leave the
+    // empty band, and never past the air and region caps: a box that would be
+    // mostly air stays short, because a tall card around two words is worse.
+    hollow ? Math.floor(Math.min(ceiling, HOLLOW_FLOOR * grow.region - M - best.below)) : 0,
   );
   return { ...best, boxH, svgH: M + boxH + best.below };
 }
@@ -651,7 +674,9 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
   const grow = v2 && variant !== "stair" ? { budget, region } : undefined;
   const L = tall
     ? columnLayout(W, budget, p.stages, face, loop, grow)
-    : pipeLayout(W, p.stages, loop, face, grow);
+    : // A v2 stair keeps classic's boxes but not classic's 52px labels: v2's
+      // labels are body lines (`TYPE_SCALE`) whatever the variant.
+      pipeLayout(W, p.stages, loop, face, grow, v2 ? TYPE_SCALE.body : undefined);
   /** `stair`: how far each stage steps down from the one before. Zero for a row. */
   const rise = variant === "stair" ? stairRise(beat.id, L, p.stages.length, budget, !!loop) : 0;
   if (variant !== "row") assertVariantFits(beat.id, variant, L, budget);
@@ -1020,7 +1045,13 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     // With a note, v2 hands the spare height to the gap above it (below), so the
     // body spans the region; without one the diagram is all there is.
     ...(v2 ? { fit: fitOf(p.note ? region - 38 : svgH, region) } : {}),
-    fill: Math.min(1, svgH / budget),
+    // A STAIR IS SCORED AS THE ROW IT IS. Its rise is solved to spend the
+    // height the row leaves (`stairRise`), so `svgH / budget` came out 1 by
+    // construction whatever was drawn — the 2026-10-09 ko deck reported b03, a
+    // three-step stair leaving two empty corners of the body, as 1.0 full and
+    // the Director chose it over every grown row. Stepping the boxes down adds
+    // no ink: the same classic-sized boxes paint the same area as their row.
+    fill: Math.min(1, (variant === "stair" ? L.svgH : svgH) / budget),
     css: [
       chromeCss(theme),
       ".pipewrap{margin-top:38px;display:flex;justify-content:center}",
