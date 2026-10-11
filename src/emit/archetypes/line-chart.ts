@@ -306,7 +306,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const spotBox = (s: Spot, text: string) => {
     const w = runW(text);
     const x0 = s.anchor === "start" ? s.x : s.anchor === "end" ? s.x - w : s.x - w / 2;
-    return { x: x0, y: s.y - LABEL_SIZE, w, h: LABEL_SIZE };
+    // Down to the descenders: two labels a few px apart by their cap boxes still
+    // print through each other's tails (the sweep's 16-point "+0.30" / "+0.23").
+    return { x: x0, y: s.y - LABEL_SIZE, w, h: LABEL_SIZE + 10 };
   };
   const onLine = (b: { x: number; y: number; w: number; h: number }) =>
     segs.some(([x1, y1, x2, y2]) => {

@@ -297,6 +297,27 @@ export function collectSvgMarks(sid: string): Marks {
     }
     return boxes;
   };
+  // A hairline (1.5px or less: a chart's grid) or a stroke within a wash's
+  // distance of the ground is not a mark a word lies ON: it reads through.
+  const ground = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(
+    getComputedStyle(document.body).backgroundColor,
+  );
+  const gr = ground ? [Number(ground[1]), Number(ground[2]), Number(ground[3])] : [0, 0, 0];
+  const faint = (el: Element) => {
+    const cs = getComputedStyle(el);
+    if ((Number.parseFloat(cs.strokeWidth) || 0) <= 1.5) return true;
+    const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(cs.stroke);
+    if (!m) return true;
+    let a = (m[4] === undefined ? 1 : Number(m[4])) * (Number(cs.strokeOpacity) || 1);
+    for (let e: Element | null = el; e && e !== scene; e = e.parentElement)
+      a *= Number(getComputedStyle(e).opacity) || 0;
+    const d = Math.max(
+      Math.abs(Number(m[1]) - (gr[0] as number)),
+      Math.abs(Number(m[2]) - (gr[1] as number)),
+      Math.abs(Number(m[3]) - (gr[2] as number)),
+    );
+    return d * a <= 36;
+  };
   const inside = (x: number, y: number, boxes: DOMRect[]) =>
     boxes.every((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
   const walk = (el: Element, inSvg: boolean): void => {
@@ -316,7 +337,7 @@ export function collectSvgMarks(sid: string): Marks {
         const cx = r.left + r.width / 2;
         const cy = r.top + r.height / 2;
         if (radius > 2 && inside(cx, cy, box)) out.points.push({ x: cx, y: cy, r: radius });
-      } else if (!(tag === "path" && /z\s*$/i.test(el.getAttribute("d") ?? ""))) {
+      } else if (!(tag === "path" && /z\s*$/i.test(el.getAttribute("d") ?? "")) && !faint(el)) {
         // A line by its own user box against its client rect: the browser's layout
         // carries every transform, the deck's zoom and a stack's perspective tilt,
         // none of which `getScreenCTM` saw (demo s8: a leader 50px off).
