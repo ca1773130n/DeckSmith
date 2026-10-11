@@ -61,12 +61,16 @@ function chain(c: Ctx): MechanismResult {
     if (!ids.has(e.from) || !ids.has(e.to))
       throw new Error(`edge ${e.from} → ${e.to} names a stage that does not exist`);
   const titleH = d.phases ? 64 : 0;
+  // What a dashed card means is said once, under the chain, not as a tag in
+  // every learned card (r2 b06: the tag inside the card was noise).
+  const learnedAny = d.stages.some((s) => s.learned);
+  const keyH = learnedAny ? Math.round(TYPE.label * 1.2) + 16 : 0;
   const perRow = n <= 5 ? n : Math.ceil(n / 2);
   const rows = Math.ceil(n / perRow);
   const gapX = 72;
   const gapY = 72;
   const bw = (W - (perRow - 1) * gapX) / perRow;
-  const rowH = (H - titleH - (rows - 1) * gapY) / rows;
+  const rowH = (H - titleH - keyH - (rows - 1) * gapY) / rows;
   const size = TYPE.label;
   const lh = Math.round(size * 1.18);
   // Inside the card. A text prim's y is its line box's top and CJK ink rises
@@ -78,7 +82,6 @@ function chain(c: Ctx): MechanismResult {
   const padTop = Math.round(size * 0.4);
   const padBot = Math.round(size * 0.4);
   const innerW = bw - 2 * padX - 6;
-  const chipH = Math.round(size * 1.5);
   const chipGap = 12;
   const laid = d.stages.map((s) => {
     const label = wrapBy(s.label, size, innerW, c.measure);
@@ -88,27 +91,39 @@ function chain(c: Ctx): MechanismResult {
         `stage "${s.label}": "${wide}" is wider than its card (${Math.floor(innerW)}px inside); shorten it or use fewer stages`,
       );
     const tokens = s.shape ? tokenChips(s.shape) : undefined;
+    // A count of a few tokens is the stage's picture, so its chips are large.
+    const chipH = Math.round(size * (tokens && tokens.length <= 6 ? 2.4 : 1.5));
     const chips = tokens ? layChips(tokens, innerW, chipH, chipGap, (t) => c.measure(t, size)) : [];
     const chipsH = chips.length ? Math.max(...chips.map((q) => q.y + chipH)) + 16 : 0;
     const shape = s.shape && !tokens ? wrapBy(s.shape, size, innerW, c.measure) : [];
-    const learned = s.learned ? 1 : 0;
-    const need = padTop + label.length * lh + 6 + chipsH + (shape.length + learned) * lh + padBot;
-    return { label, chips, chipsH, shape, learned, need };
+    const need = padTop + label.length * lh + 6 + chipsH + shape.length * lh + padBot;
+    return { label, chips, chipH, chipsH, shape, need };
   });
-  // A card is as tall as its words and tokens, not the region; only a stage
-  // showing a picture takes the room a picture wants.
-  const pictures = d.stages.some((s) => s.show || s.figure);
-  const bh = pictures
-    ? Math.min(rowH, bw * 1.2)
-    : Math.min(rowH, Math.max(...laid.map((l) => l.need)));
+  // A card is as tall as its own words and tokens — never the tallest card's
+  // height with a blank body under a short label (r2 b06's third card) — and a
+  // stage showing a picture takes the room a picture wants.
+  const heights = d.stages.map((s, i) =>
+    s.show || s.figure
+      ? Math.min(rowH, bw * 1.2)
+      : Math.min(rowH, (laid[i] as (typeof laid)[number]).need),
+  );
+  // One row descends the region as a staircase, first stage at the top and
+  // last at the bottom, so a chain of short cards uses the frame's height
+  // instead of a band through its middle (r2: a 170px band in a 1080 frame).
+  const stairs = rows === 1 && n >= 2;
   const pos = (i: number) => {
     const r = Math.floor(i / perRow);
     const q = i % perRow;
-    return { x: q * (bw + gapX), y: titleH + r * (rowH + gapY) + (rowH - bh) / 2 };
+    const h = heights[i] as number;
+    const y = stairs
+      ? titleH + ((rowH - h) * i) / (n - 1)
+      : titleH + r * (rowH + gapY) + (rowH - h) / 2;
+    return { x: q * (bw + gapX), y, h };
   };
   const boxes: Prim[][] = d.stages.map((s, i) => {
     const { x, y } = pos(i);
-    const { label, chips, chipsH, shape, learned, need } = laid[i] as (typeof laid)[number];
+    const bh = heights[i] as number;
+    const { label, chips, chipH, chipsH, shape, need } = laid[i] as (typeof laid)[number];
     if (need > bh + 0.5)
       throw new Error(
         `stage "${s.label}" needs ${Math.ceil(need)}px and has ${Math.floor(bh)}px; shorten its label or use fewer stages`,
@@ -157,7 +172,7 @@ function chain(c: Ctx): MechanismResult {
         });
     }
     const visTop = chipTop + chipsH;
-    const visBot = y + bh - padBot - (shape.length + learned) * lh - 6;
+    const visBot = y + bh - padBot - shape.length * lh - 6;
     if (s.show || s.figure) {
       if (visBot - visTop < 110)
         throw new Error(
@@ -175,17 +190,6 @@ function chain(c: Ctx): MechanismResult {
       } as Prim);
     }
     out.push(...textLines(shape, x + bw / 2, visBot + 6, size, "muted", { cam: true }, "middle"));
-    if (s.learned)
-      out.push({
-        p: "text",
-        x: x + bw / 2,
-        y: y + bh - padBot - lh,
-        size,
-        role: "accent",
-        anchor: "middle",
-        slot: "learned",
-        cam: true,
-      });
     return out;
   });
   const edgePrims = (e: (typeof edges)[number], dim: boolean): Prim[] => {
@@ -200,58 +204,107 @@ function chain(c: Ctx): MechanismResult {
       wipe: true,
       ...(dim ? { opacity: 0.15 } : {}),
     };
-    const sameRow = Math.abs(pa.y - pb.y) < 1;
+    const sameRow = Math.floor(a / perRow) === Math.floor(b / perRow);
+    const aMid = pa.y + pa.h / 2;
     if (!e.skip && sameRow && Math.abs(b - a) === 1) {
-      const [l, r] = a < b ? [pa, pb] : [pb, pa];
-      const y = l.y + bh / 2;
+      const fwd = a < b;
+      const xOut = fwd ? pa.x + bw + 6 : pa.x - 6;
+      const xIn = fwd ? pb.x - 8 : pb.x + bw + 8;
+      // Level with the next card: straight across.
+      if (aMid > pb.y + 16 && aMid < pb.y + pb.h - 16)
+        return [{ p: "line", x1: xOut, y1: aMid, x2: xIn, y2: aMid, arrow: true, ...base } as Prim];
+      // A step of the staircase: across, then down (or up) into the card.
+      const xb = pb.x + bw / 2;
+      const down = pb.y > aMid;
+      const yEnd = down ? pb.y - 4 : pb.y + pb.h + 4;
       return [
         {
+          p: "path",
+          pts: [xOut, aMid, xb, aMid, xb, down ? yEnd - 12 : yEnd + 12],
+          ...base,
+        } as Prim,
+        {
           p: "line",
-          x1: l.x + bw + 6,
-          y1: y,
-          x2: r.x - 8,
-          y2: y,
+          x1: xb,
+          y1: down ? yEnd - 14 : yEnd + 14,
+          x2: xb,
+          y2: yEnd,
           arrow: true,
           ...base,
-          ...(a > b ? { x1: r.x - 8, x2: l.x + bw + 6 } : {}),
         } as Prim,
       ];
     }
-    // A skip, or a jump between rows: up and over the boxes (or down and under), then into the target.
-    const up = !sameRow ? pb.y > pa.y : true;
-    const ya = up ? pa.y : pa.y + bh;
-    const yb = up ? pb.y : pb.y + bh;
-    const lane = sameRow ? (up ? pa.y - 30 : pa.y + bh + 30) : (pa.y + bh + pb.y) / 2;
     const xa = pa.x + bw / 2;
     const xb = pb.x + bw / 2;
-    const yIn = sameRow ? yb : pb.y;
+    const bMid = pb.y + pb.h / 2;
+    // A skip down the staircase: down out of the source, then across into the target's side.
+    if (stairs && a < b && bMid > pa.y + pa.h + 16) {
+      return [
+        {
+          p: "path",
+          pts: [xa, pa.y + pa.h, xa, bMid, pb.x - 20, bMid],
+          ...base,
+          dash: !!e.skip,
+        } as Prim,
+        {
+          p: "line",
+          x1: pb.x - 22,
+          y1: bMid,
+          x2: pb.x - 6,
+          y2: bMid,
+          arrow: true,
+          ...base,
+        } as Prim,
+      ];
+    }
+    // A jump between rows, or a skip with no room under it: over the boxes (or
+    // under), then into the target, kept inside the region.
+    const up = !sameRow ? pb.y > pa.y : true;
+    const lane = sameRow ? Math.max(4, Math.min(pa.y, pb.y) - 30) : (pa.y + pa.h + pb.y) / 2;
+    const yIn = sameRow ? pb.y : pb.y;
     return [
       {
         p: "path",
         pts: [
           xa,
-          sameRow ? ya : pa.y + bh,
+          sameRow ? (up ? pa.y : pa.y + pa.h) : pa.y + pa.h,
           xa,
           lane,
           xb,
           lane,
           xb,
-          sameRow ? yIn - (up ? 12 : -12) : yIn - 12,
+          yIn - 12,
         ],
         ...base,
         dash: !!e.skip,
       } as Prim,
-      {
-        p: "line",
-        x1: xb,
-        y1: sameRow ? yIn - (up ? 14 : -14) : yIn - 14,
-        x2: xb,
-        y2: sameRow ? yIn - (up ? 4 : -4) : yIn - 4,
-        arrow: true,
-        ...base,
-      } as Prim,
+      { p: "line", x1: xb, y1: yIn - 14, x2: xb, y2: yIn - 4, arrow: true, ...base } as Prim,
     ];
   };
+  // The key for a dashed card, under the first stage, where the staircase leaves room.
+  const key: Prim[] = learnedAny
+    ? [
+        {
+          p: "path",
+          pts: [0, H - keyH + 8, 64, H - keyH + 8, 64, H - 8, 0, H - 8],
+          closed: true,
+          role: "accent",
+          width: 3,
+          dash: true,
+          cam: true,
+        },
+        {
+          p: "text",
+          x: 84,
+          y: H - keyH + 8,
+          size: TYPE.label,
+          role: "accent",
+          anchor: "start",
+          slot: "learned",
+          cam: true,
+        },
+      ]
+    : [];
   const train = (s: (typeof d.stages)[number]) => s.phase === "train";
   // The order a stage comes in: every stage on the training graph; on inference, the ones that stay.
   const order = (infer: boolean) => {
@@ -296,7 +349,8 @@ function chain(c: Ctx): MechanismResult {
           ...(at > 1 && !dim ? { at } : { at: undefined, wipe: undefined }),
         } as Prim);
     }
-    return { id: infer ? "infer" : "train", prims, vars: {} };
+    prims.push(...key);
+    return { id: infer ? "infer" : "train", prims, vars: {}, preview: true };
   };
   const frames = [frame(false)];
   if (d.phases) frames.push(frame(true));

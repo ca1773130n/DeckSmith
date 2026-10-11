@@ -1319,7 +1319,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      long as its stated \`total\` (or Σ count·dur), else every
                      lane has one length and the runs show the difference.`,
     slots: {
-      learned: { what: "the word on a learned stage (required when one is)", optional: true },
+      learned: {
+        what: "the key for a learned stage's dashed card, drawn once under the chain (required when one is)",
+        optional: true,
+      },
       train: { what: "title of the training graph (required with `phases`)", optional: true },
       infer: { what: "title of the inference graph (required with `phases`)", optional: true },
       unit: { what: "timeline only: what one run is", optional: true },

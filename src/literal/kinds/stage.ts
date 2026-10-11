@@ -449,6 +449,9 @@ ${body}
   return { svg, reveals, cam };
 }
 
+/** The opacity a `preview` frame's parts stand at until they are spoken. */
+export const PREVIEW = 0.3;
+
 /** How far the camera pushes in on a frame's material once its reveals are out. */
 export const PUSH = 1.07;
 
@@ -501,8 +504,9 @@ export function stagedFragment(
         );
         last = Math.max(last, t + dur);
       } else {
-        tl.fromTo(r.id, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
-        tl.fromTo(r.id, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, t);
+        const o = (frames[i] as Frame).preview ? PREVIEW : 0;
+        tl.fromTo(r.id, { opacity: o }, { opacity: o, duration: 0.01 }, 0);
+        tl.fromTo(r.id, { opacity: o }, { opacity: 1, duration: 0.5, ease: "power2.out" }, t);
         last = Math.max(last, t + 0.5);
       }
     }

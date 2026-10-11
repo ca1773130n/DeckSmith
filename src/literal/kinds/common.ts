@@ -178,6 +178,15 @@ export interface Frame {
    * a plot is not cut while the camera leans in (`text_clipped`).
    */
   pad?: { x: number; y: number };
+  /**
+   * The frame's faded reveals stand at `PREVIEW` opacity from the frame's
+   * first moment and come to full when spoken, so every hold shows the whole
+   * diagram (the fill gate measures the content's box at EVERY hold). For a
+   * diagram whose parts are known up front — a chain's stages, a plane's points,
+   * a set's members — never for a computed result, which must not show before
+   * the op that makes it. Wipes are untouched.
+   */
+  preview?: boolean;
   /** The values this frame's slots may name. */
   vars: Record<string, string | number>;
 }
