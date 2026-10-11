@@ -21,7 +21,7 @@
 import type { Theme } from "../../emit/kit.js";
 import type { Literal } from "../../types.js";
 import { evaluate, parseFormula } from "../formula.js";
-import { type KindImpl, type KindSpec, lab } from "../kind.js";
+import { type KindImpl, type KindSpec, lab, namedIn, subjectOf } from "../kind.js";
 import type { Cue, Layers } from "../kit.js";
 import type { Frame, MechanismResult, Prim, Region, Role } from "./common.js";
 import { TYPE, wrapBy } from "./common.js";
@@ -271,6 +271,7 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
   // may cross a line, never a word or a point.
   const taken: Box[] = [...legend.boxes];
   const strokes: Box[] = [];
+  const leaderBoxes: Box[] = [];
   // The axes: lines and their names, outside the plot.
   prims.push({
     p: "rect",
@@ -472,6 +473,23 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     strokes.push(...segBoxes(seg, 3));
   }
   const byGroup = d.reveal === "groups";
+  // THE SUBJECT: the items (or a group) the headline names stand out from the first
+  // frame — the accent, a larger dot, their label first and in the accent — and the
+  // rest are revealed in spoken order around them. r3 left the method the same pink as
+  // every rival and dimmed (unspoken yet) at every hold of three planes.
+  const subj = subjectOf(
+    c.headline,
+    d.items.map((it) => nameOf(it)),
+  );
+  for (const [i, it] of d.items.entries())
+    if (it.group && namedIn(c.headline, it.group) && groups.length > 1) subj.add(i);
+  if (subj.size === d.items.length) subj.clear();
+  const subjGroups = new Set(
+    groups.filter((g) => g && d.items.every((it, i) => (it.group ?? "") !== g || subj.has(i))),
+  );
+  // Steps: the subject is there from the start, so the others count without it.
+  const groupStep = (g: number) => groups.slice(0, g).filter((q) => !subjGroups.has(q)).length + 1;
+  const itemStep = (i: number) => d.items.slice(0, i).filter((_, k) => !subj.has(k)).length + 1;
   // A curve named as a group is that group's: drawn on the group's step, with its points,
   // so the curve comes when its points are spoken. Other curves come first, one step each.
   const curveGroup = (label: string) => (byGroup ? groups.indexOf(label) : -1);
@@ -480,7 +498,8 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
   curves.forEach((cv, k) => {
     const g = curveGroup(cv.label);
     if (g < 0) at = Math.min(12, at + 1);
-    const step = g < 0 ? at : Math.min(12, own + g + 1);
+    const step =
+      g < 0 ? at : subjGroups.has(groups[g] as string) ? 0 : Math.min(12, own + groupStep(g));
     const pts = cv.pts
       .flatMap(([x, y]) => [X(x), Y(y)])
       .map((v, i) => (i % 2 ? Math.max(plot.y, Math.min(plot.y + plot.h, v)) : v));
@@ -522,7 +541,7 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
           role: roleOf(g),
           width: 4,
           cam: true,
-          at: Math.min(12, at + (byGroup ? k + 1 : 1)),
+          at: subjGroups.has(g) ? 0 : Math.min(12, at + (byGroup ? groupStep(k) : 1)),
           wipe: true,
         });
         strokes.push(...segBoxes(pts, 4));
@@ -532,13 +551,26 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
   const marks: Prim[] = [];
   const words: Prim[] = [];
   const tinted = groups.length > 1 && groups.every(Boolean);
-  for (const [i, it] of d.items.entries()) {
+  // The subject's labels are placed first: they get the nearest free place.
+  const order = [...d.items.keys()].sort((p, q) => Number(subj.has(q)) - Number(subj.has(p)));
+  const stepOf = (i: number) => {
+    if (subj.has(i)) return 0;
+    const g = groups.indexOf((d.items[i] as PlaceLit["items"][number]).group ?? "");
+    return Math.min(12, at0 + (byGroup ? groupStep(g) : itemStep(i)));
+  };
+  // With a subject and no group colours, the others recede to the muted tone.
+  const quiet = subj.size > 0 && !tinted;
+  for (const i of order) {
+    const it = d.items[i] as PlaceLit["items"][number];
     const { x: px, y: py } = pos[i] as { x: number; y: number };
-    const g = groups.indexOf(it.group ?? "");
-    const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
-    const fill = roleOf(it.group ?? "");
-    if (mode === "crossed") marks.push(...markerPrims(shapeOf(it.label), px, py, R, fill, a));
-    else marks.push({ p: "circle", cx: px, cy: py, r: R, fill, cam: true, at: a });
+    const a = stepOf(i);
+    const lead = subj.has(i);
+    const fill: Role = lead && !tinted ? "accent" : quiet ? "muted" : roleOf(it.group ?? "");
+    const r = lead ? R + 4 : R;
+    if (mode === "crossed") marks.push(...markerPrims(shapeOf(it.label), px, py, r, fill, a));
+    else marks.push({ p: "circle", cx: px, cy: py, r, fill, cam: true, at: a });
+    if (lead && tinted)
+      marks.push({ p: "circle", cx: px, cy: py, r: R + 10, role: "accent", width: 5, cam: true });
     if (mode === "crossed") continue;
     // One line when name and values fit on it; else the name on its own
     // line(s) and the values on one more, never broken: r1 wrapped "6.58 ·\n88.29".
@@ -573,6 +605,10 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
       taken,
       strokes,
       two ? 0 : i,
+      // A name must read as its own point's, its leader crossing no line; a key's number
+      // may sit in a cluster, its leader crossing a curve but never another leader.
+      mode === "labels" ? pos.filter((_, k) => k !== i) : [],
+      mode === "labels" ? strokes : leaderBoxes,
     );
     if (!spot) {
       if (mode === "labels") return null;
@@ -582,6 +618,7 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     }
     taken.push(spot.box);
     strokes.push(...spot.leader.flatMap((s) => segBoxes(s, 2)));
+    leaderBoxes.push(...spot.leader.flatMap((s) => segBoxes(s, 2)));
     for (const s of spot.leader)
       words.push({
         p: "line",
@@ -601,8 +638,16 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
         x: spot.box.x0,
         y: spot.box.y0 + j * LH,
         size: TYPE.label,
-        role: tinted && (lines.length === 1 || j < lines.length - 1) ? fill : "fg",
+        role:
+          lead && !tinted
+            ? "accent"
+            : tinted && (lines.length === 1 || j < lines.length - 1)
+              ? fill
+              : quiet
+                ? "muted"
+                : "fg",
         anchor: "start",
+        ...(lead ? { weight: 700 } : {}),
         text: t,
         cam: true,
         at: a,
@@ -619,15 +664,15 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     const y0 = below ? H - keyH + 16 : top + Math.max(0, (H - top - keyLines.length * KEY_LH) / 2);
     keyLines.forEach((t, i) => {
       const it = d.items[i] as PlaceLit["items"][number];
-      const g = groups.indexOf(it.group ?? "");
-      const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
+      const a = stepOf(i);
       prims.push({
         p: "text",
         x: x0,
         y: y0 + i * KEY_LH,
         size: TYPE.label,
-        role: tinted ? roleOf(it.group ?? "") : "fg",
+        role: tinted ? roleOf(it.group ?? "") : subj.has(i) ? "accent" : quiet ? "muted" : "fg",
         anchor: "start",
+        ...(subj.has(i) ? { weight: 700 } : {}),
         text: t,
         at: a,
       });
@@ -738,6 +783,8 @@ export function placeLabel(
   taken: readonly Box[],
   strokes: readonly Box[],
   spreadFrom = 0,
+  others: ReadonlyArray<{ x: number; y: number }> = [],
+  crossNot: readonly Box[] = strokes,
 ): { box: Box; leader: number[][] } | null {
   // On a strip a label is centred over (or under) its own dot first: set
   // beside it, it sat over the gap between two dots and read as the other one's.
@@ -778,6 +825,16 @@ export function placeLabel(
       // A leader stops 12px short of its label: a glyph's box is taller than its line,
       // and a leader run into it reads as a stroke through the word.
       const far = Math.hypot(nx - px, ny - py);
+      // A label reads as the nearest point's: never nearer another point than its own
+      // (r3 C s10 put one model's label 400px from its dot, beside another point), and never
+      // so far that the leader is the only thing tying it there.
+      if (far > LEADER_MAX) continue;
+      const toBox = (q: { x: number; y: number }) =>
+        Math.hypot(
+          q.x - Math.max(box.x0, Math.min(q.x, box.x1)),
+          q.y - Math.max(box.y0, Math.min(q.y, box.y1)),
+        );
+      if (others.some((q) => toBox(q) < far)) continue;
       const stop = far > 0 ? Math.max(0, far - 12) / far : 0;
       const leader =
         far > LEADER_PX ? [[px, py, px + (nx - px) * stop, py + (ny - py) * stop]] : [];
@@ -793,7 +850,16 @@ export function placeLabel(
           by as number,
         ];
       });
-      if (rim.some((s) => segBoxes(s, 2).some((b) => taken.some((t) => area(b, t) > 0)))) continue;
+      // The leader crosses no word, point, curve, series or other leader (r3: crossed leaders
+      // in a cluster of four, leaders across two curves).
+      if (
+        rim.some((s) =>
+          segBoxes(s, 2).some(
+            (b) => taken.some((t) => area(b, t) > 0) || crossNot.some((t) => area(b, t) > 0),
+          ),
+        )
+      )
+        continue;
       return { box, leader };
     }
   return null;
@@ -803,6 +869,9 @@ const LEGEND_ROW = 56;
 
 /** Past this many px from its dot, a label is joined to it by a leader line. */
 export const LEADER_PX = 60;
+
+/** A label never sits further than this from its dot; past it the points are keyed. */
+export const LEADER_MAX = 150;
 
 /**
  * 3–6 round tick values inside `[lo, hi]` (an axis's drawn range, in log10 on a

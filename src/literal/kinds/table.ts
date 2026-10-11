@@ -1,8 +1,10 @@
 /**
  * table — numbers and claims the source reports, cited, rows lit in spoken
- * order, winning or missing cells marked.
+ * order, winning or missing cells marked. A row the headline names (by its
+ * first cell) is the subject: lit, with its name in the accent, from the first
+ * frame to the last — r3 dimmed the method's own row at both holds.
  */
-import { type KindImpl, LAB_H, lab, stepStarts, widthOf, wrap } from "../kind.js";
+import { type KindImpl, LAB_H, lab, stepStarts, subjectOf, widthOf, wrap } from "../kind.js";
 import { baseCss, esc, LABEL, label, px, SMALL, Tl } from "../kit.js";
 
 interface TableData {
@@ -87,6 +89,10 @@ export const tableKind: KindImpl = {
     const headH = headLines * lineH + 2 * pad;
     const bodyH = bodyLines.map((n) => n * lineH + 2 * pad);
     const lit = new Set(t.highlight);
+    const subj = subjectOf(
+      spec.headline,
+      t.rows.map((r) => r[0] ?? ""),
+    );
     const isMarked = (i: number, j: number) => t.marks.some((m) => m.row === i && m.col === j);
     // One cell's lines in a box of its own, so a mark can change the cell's colour as a whole.
     const cell = (
@@ -120,7 +126,10 @@ export const tableKind: KindImpl = {
         .map((c, j) => {
           // A mark on a row that is never spoken is emphasised from the start; on a spoken
           // row, the cell turns to the accent when the row is spoken — a colour, not a box.
-          if (!isMarked(i, j)) return cell(`c${i}-${j}`, c, j, y, h, theme.fg, size);
+          if (!isMarked(i, j))
+            return subj.has(i) && j === 0
+              ? cell(`c${i}-${j}`, c, j, y, h, theme.accent, size, 700)
+              : cell(`c${i}-${j}`, c, j, y, h, theme.fg, size);
           if (!lit.has(i)) return cell(`c${i}-${j}`, c, j, y, h, theme.accent, size, 700);
           return `${cell(`c${i}-${j}`, c, j, y, h, theme.fg, size)}${cell(`k${i}-${j}`, c, j, y, h, theme.accent, size, 700)}`;
         })
@@ -144,10 +153,12 @@ ${caption ? label("cap", caption, 0, y + Math.min(30, (capH - LAB_H) / 2 + 10), 
       tl.fromTo(
         `row${i}`,
         { opacity: 0 },
-        { opacity: lit.has(i) ? 0.4 : 1, duration: 0.6 },
+        { opacity: lit.has(i) && !subj.has(i) ? 0.4 : 1, duration: 0.6 },
         0.3 + i * 0.08,
       );
-      tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+      if (subj.has(i))
+        tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0.45, duration: 0.6 }, 0.3 + i * 0.08);
+      else tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
       if (lit.has(i))
         for (const m of t.marks.filter((mm) => mm.row === i))
           tl.fromTo(`k${i}-${m.col}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
@@ -156,20 +167,23 @@ ${caption ? label("cap", caption, 0, y + Math.min(30, (capH - LAB_H) / 2 + 10), 
     steps.forEach((rows, s) => {
       const t0 = Math.max(0.3 + t.rows.length * 0.08 + 0.7, (at[s] as number) + 0.2);
       for (const i of rows) {
-        tl.fromTo(
-          `row${i}`,
-          { opacity: 0.4 },
-          { opacity: 1, duration: 0.6, ease: "power2.out" },
-          t0,
-        );
-        tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0.45, duration: 0.6 }, t0);
+        // The subject is lit already; its marks still come forward when it is spoken.
+        if (!subj.has(i)) {
+          tl.fromTo(
+            `row${i}`,
+            { opacity: 0.4 },
+            { opacity: 1, duration: 0.6, ease: "power2.out" },
+            t0,
+          );
+          tl.fromTo(`band${i}`, { opacity: 0 }, { opacity: 0.45, duration: 0.6 }, t0);
+        }
         for (const m of t.marks.filter((mm) => mm.row === i)) {
           tl.fromTo(`k${i}-${m.col}`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t0 + 0.3);
           tl.fromTo(`c${i}-${m.col}`, { opacity: 1 }, { opacity: 0, duration: 0.6 }, t0 + 0.3);
         }
       }
       // The rows lit on the step before step back, so the spoken one leads.
-      for (const i of steps[s - 1] ?? [])
+      for (const i of (steps[s - 1] ?? []).filter((r) => !subj.has(r)))
         tl.fromTo(
           `band${i}`,
           { opacity: 0.45 },

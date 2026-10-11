@@ -36,6 +36,11 @@ export interface KindSpec {
   labels: Record<string, string>;
   /** The storyboard's `literal` object. */
   data?: unknown;
+  /**
+   * The beat's headline, the words on screen above the scene: an item or a row it
+   * NAMES is the scene's subject and is emphasised from the first frame (`namedIn`).
+   */
+  headline?: string;
   /** The source's own figures a scene may show, by id → absolute file. */
   assets?: Record<string, string>;
 }
@@ -64,6 +69,43 @@ export const lab = (
   vars?: Readonly<Record<string, string | number>>,
 ) => slotText(kind, spec.labels, slot, vars);
 export const LAB_H = 60;
+
+/**
+ * Whether `text` (a headline) names `name` (an item, a row, a group): the name,
+ * without a parenthetical ("Model (variant)" is named by "Model"),
+ * as a whole word — so "Net" does not name "Res Net+Head" and "Head" does not
+ * name "Res Head". Case and width folded (NFKC). A name of one character names
+ * nothing.
+ */
+export function namedIn(text: string | undefined, name: string): boolean {
+  if (!text) return false;
+  const fold = (s: string) => s.normalize("NFKC").toLowerCase();
+  const core = fold(name)
+    .replace(/[(（][^)）]*[)）]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if ([...core].length < 2) return false;
+  const t = fold(text);
+  for (let i = t.indexOf(core); i >= 0; i = t.indexOf(core, i + 1)) {
+    const before = t[i - 1];
+    const after = t[i + core.length];
+    // A Latin or digit edge must not run on into a longer name (letters, digits, or a
+    // joining + - _); Han, kana and Hangul have no spaces to look for.
+    const edge = (ch: string | undefined, inner: string | undefined) =>
+      !ch || !inner || !/[a-z0-9]/.test(inner) || !/[a-z0-9+\-_]/.test(ch);
+    if (edge(before, core[0]) && edge(after, core[core.length - 1])) return true;
+  }
+  return false;
+}
+
+/**
+ * The indexes of `names` the headline names — the scene's subject. Empty when it
+ * names none, or every one (then nothing stands out from anything).
+ */
+export function subjectOf(text: string | undefined, names: readonly string[]): Set<number> {
+  const hit = names.flatMap((n, i) => (namedIn(text, n) ? [i] : []));
+  return new Set(hit.length < names.length ? hit : []);
+}
 export const even = (n: number) => 2 * Math.round(n / 2);
 
 /**

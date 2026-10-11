@@ -87,6 +87,8 @@ export interface VerbCtx<K extends LiteralKind> {
   earlier: ReadonlyMap<string, Earlier>;
   /** Figure id → absolute file, for a stage showing the source's own figure. */
   assets: Readonly<Record<string, string>>;
+  /** The beat's headline: an item it names is the scene's subject (src/literal/kind.ts `subjectOf`). */
+  headline?: string;
 }
 
 export type VerbRun<K extends LiteralKind> = (c: VerbCtx<K>) => MechanismResult;
@@ -644,6 +646,7 @@ export function verbKind<K extends LiteralKind>(
         ...(image ? { image } : {}),
         earlier: input.earlier,
         assets: input.spec.assets ?? {},
+        ...(input.spec.headline ? { headline: input.spec.headline } : {}),
       });
       const L = await writeLayers(r, input.beatId, input.dir);
       await copyFigures(r, input.spec.assets ?? {}, input.beatId, input.dir, L.files);

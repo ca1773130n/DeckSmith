@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Theme } from "../src/emit/kit.js";
 import { drawProblems } from "../src/literal/check.js";
-import { widthOf } from "../src/literal/kind.js";
+import { namedIn, subjectOf, widthOf } from "../src/literal/kind.js";
 import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
@@ -27,6 +27,7 @@ import {
   stagedFragment,
   type VerbRun,
 } from "../src/literal/kinds/stage.js";
+import { tableKind } from "../src/literal/kinds/table.js";
 import { type Cue, stillSpans } from "../src/literal/kit.js";
 import {
   LITERAL_KIND_DOCS,
@@ -1536,6 +1537,83 @@ describe("what each verb computes", () => {
     }>;
     // 8·1 against 7·0.05 + 1·1 = 1.35.
     expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1.35 / 8, 3);
+  });
+
+  it("the subject: a headline names an item as a whole word, without its parenthetical", () => {
+    expect(namedIn("Model X wins on the benchmark", "Model X (variant b)")).toBe(true);
+    expect(namedIn("Res Net+Head is slower", "Net")).toBe(false);
+    expect(namedIn("模型A 在基准上最高", "模型A")).toBe(true);
+    expect(namedIn("ModelAB is best", "ModelA")).toBe(false);
+    expect([...subjectOf("Aa beats Bb", ["Aa", "Bb", "Cc"])]).toEqual([0, 1]);
+    // Naming every item names no subject.
+    expect([...subjectOf("Aa and Bb", ["Aa", "Bb"])]).toEqual([]);
+  });
+
+  it("place: the item the headline names is there from the first frame, in the accent, the rest muted", () => {
+    const lit = literalSchema.parse({
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "latency", lowerIsBetter: true },
+        { name: "score", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "Old", values: ["6.5", "88.3"] },
+        { label: "Other", values: ["8.6", "83.9"] },
+        { label: "Ours", values: ["4.4", "88.8"] },
+      ],
+      labels: [],
+    }) as Extract<Literal, { kind: "place" }>;
+    const r = runVerb(points as VerbRun<"place">, {
+      lit,
+      labels: {},
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+      headline: "Ours is the best score",
+    });
+    const dots = (r.frames[0]?.prims ?? []).filter((p) => p.p === "circle") as Array<{
+      fill?: string;
+      at?: number;
+      r: number;
+    }>;
+    expect(dots.map((d) => d.fill)).toEqual(["accent", "muted", "muted"]);
+    expect(dots[0]?.at ?? 0).toBe(0);
+    expect(dots.slice(1).map((d) => d.at)).toEqual([1, 2]);
+    expect(dots[0]?.r).toBeGreaterThan(dots[1]?.r ?? 0);
+  });
+
+  it("table: the row the headline names is lit from the start and never steps back", () => {
+    const spec = {
+      labels: {},
+      headline: "Ours trails the strongest baseline",
+      data: {
+        columns: ["method", "score"],
+        rows: [
+          ["Base", "78.27"],
+          ["Ours (aux)", "76.13"],
+        ],
+        highlight: [0, 1],
+        marks: [],
+      },
+    };
+    const f = tableKind.fragment(
+      { files: {}, data: {} },
+      { width: 1700, height: 700 },
+      [
+        { t0: 1, t1: 4, text: "a" },
+        { t0: 5, t1: 9, text: "b" },
+      ] as never,
+      spec,
+      theme,
+      (x) => x,
+    );
+    expect(f.script).toContain('tl.fromTo("#SCENEID-row1", {"opacity":0}, {"opacity":1');
+    expect(f.script).not.toMatch(/#SCENEID-row1", \{"opacity":0\.4\}/);
+    expect(f.markup).toMatch(/SCENEID-c1-0"[^>]*><div[^>]*color:[^;]*;font-weight:700/);
   });
 
   it("flow timeline: with no time stated, a parallel run is one step, so its lane is shorter", () => {

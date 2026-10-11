@@ -68,6 +68,8 @@ const specSchema = z.object({
   data: z.unknown().optional(),
   /** The source's own figures a scene may show, by id → absolute file. */
   assets: z.record(z.string(), z.string()).optional(),
+  /** The beat's headline: what it names is the scene's subject (`subjectOf`). */
+  headline: z.string().optional(),
 });
 export type LiteralSpec = z.infer<typeof specSchema> & { kind: LiteralKind };
 
@@ -133,9 +135,11 @@ export function literalPlanOf(
         throw new Error(
           `literal: ${beat.id} shows figure "${id}", which is not one of the source's own figures`,
         );
+    const headline = (beat.params as { headline?: unknown }).headline;
     beats[beat.id] = {
       kind: lit.kind,
       takeaway: beat.takeaway?.trim() || beat.intent,
+      ...(typeof headline === "string" && headline.trim() ? { headline } : {}),
       labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
       ...(image ? { image } : {}),
       data: lit,
