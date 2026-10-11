@@ -151,14 +151,22 @@ export interface VerifyOptions extends CheckOptions {
    * Default true. The motion gates in ./scenes.ts: all three, as errors, on the
    * scenes `bespoke.json` says were generated; `seek_order` alone, as a
    * warning, on every other scene of a v2 deck. A classic deck runs none.
+   * `seekRest: false` drops the warning pass.
    * The bespoke pass turns this off on its probe decks, which it gates itself.
    */
   scenes?: boolean;
   /**
+   * Default true. The warning-only `seek_order` pass on the scenes nobody
+   * generated. `build` turns it off: about 250 screenshots after the other
+   * gates for a warning, measured +21s on a 16-beat deck (19s → 40s) and
+   * minutes under HypePaper's worker, where it never returned a finding.
+   * `decksmith verify <dir>` keeps it.
+   */
+  seekRest?: boolean;
+  /**
    * Generated scenes whose motion gates the bespoke pass already ran on these
    * exact bytes at this same scene id (`bespoke.json`'s `gatedAt`): `build`
-   * seeks them like any other scene instead of repeating the full probe (~16s
-   * a scene). `decksmith verify <dir>` never passes it.
+   * skips them instead of repeating the full probe (~16s a scene). `decksmith verify <dir>` never passes it.
    */
   probed?: ReadonlySet<string>;
 }
@@ -240,7 +248,7 @@ export async function verify(
   const motion =
     opts.scenes === false || opts.fidelity === false
       ? []
-      : await sceneGates(dir, timing, opts.probed);
+      : await sceneGates(dir, timing, opts.probed, opts.seekRest !== false);
   const seen = [...ours, ...(frames?.findings ?? []), ...motion, ...storyboardFindings];
   // The machine's audio device erroring is not the deck's (`ENVIRONMENT_ERRORS`,
   // which the motion gates already skip): reported, not failed. MEASURED
@@ -283,11 +291,13 @@ export async function verify(
  * the ones that did. Every other scene of a v2 deck gets `seek_order` as a
  * warning: it is the gate that found the equation-walk bug, and an archetype
  * scene that fails it today is a defect to report, not a deck to refuse.
+ * `build` skips that warning pass (`seekRest`); `decksmith verify <dir>` runs it.
  */
 async function sceneGates(
   dir: string,
   timing: Timing | undefined,
   probed: ReadonlySet<string> = new Set(),
+  seekRest = true,
 ): Promise<Finding[]> {
   if (!timing) return [];
   const v2 = await stat(join(dir, FIT_FILE)).then(
@@ -311,13 +321,16 @@ async function sceneGates(
     const strict = mine.length
       ? await probeScenes(mine, { open: () => openDeck(dir, { watch: errors }), errors })
       : { findings: [] };
-    const loose = await probeScenes(rest, {
-      open: () => openDeck(dir),
-      gates: ["seek"],
-      seekSeverity: "warning",
-      cold: false,
-      sparse: true,
-    });
+    const loose =
+      seekRest && rest.length
+        ? await probeScenes(rest, {
+            open: () => openDeck(dir),
+            gates: ["seek"],
+            seekSeverity: "warning",
+            cold: false,
+            sparse: true,
+          })
+        : { findings: [] };
     return [...strict.findings, ...loose.findings];
   } catch (err) {
     return [
