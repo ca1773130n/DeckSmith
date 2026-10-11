@@ -1257,8 +1257,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     doc: `an input run through a CHAIN of known operations (the op library
                      below), each output computed for real at build time and
                      revealed on its sentence. The input is a \`picture\` (a beat
-                     carrying one), \`vectors\` over \`bins\` (1–2, e.g. two
-                     distributions) or a \`matrix\`. Each \`chain\` step names an
+                     carrying one), \`vectors\` over \`bins\` (1–2 vectors, e.g.
+                     two distributions, over 2–24 bins; a number in a bin's
+                     label must be one the source prints) or a \`matrix\`. Each \`chain\` step names an
                      \`op\`, its \`how\`, its \`params\` ({name, value, symbol}
                      exactly as the source writes them) and a \`label\` in the
                      deck's language. \`condition\` (contrast · noise · blur,
