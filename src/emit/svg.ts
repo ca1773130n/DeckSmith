@@ -808,6 +808,45 @@ export function wrap(
   return lines.length > 0 ? lines : [text];
 }
 
+/**
+ * A figure's caption as a slide sets it, in at most `lines` lines of `width`.
+ *
+ * Its first sentence — the "Figure 5: A simplified trace diagram…" title the
+ * authors wrote — and, where even that is too long, cut at a word (a character,
+ * in a script with no spaces) with the ellipsis typed into the text. A caption
+ * is provenance; a paper's own runs to 600 characters ("Figure 1: Our technique
+ * illustrated…" from arXiv), which beside a claim took the whole column and
+ * left the figure a 30px plate, and under an annotated figure was clamped by
+ * CSS, which the layout gate rightly calls clipped text. The full caption stays
+ * the image's alt.
+ */
+export function captionFit(
+  caption: string,
+  fontSize: number,
+  width: number,
+  lines: number,
+  face: Face = "latin",
+  weight = 400,
+): string {
+  const fits = (s: string) => wrap(s, fontSize, width, weight, 0, face).length <= lines;
+  const first =
+    caption
+      .trim()
+      .split(/(?<=[.!?。．])\s+(?=[\p{Lu}\p{Script=Hangul}\p{Script=Han}])/u)[0]
+      ?.trim() ?? "";
+  if (fits(first)) return first;
+  const spaced = /\s/.test(first);
+  const units = spaced ? first.split(/\s+/) : [...first];
+  for (let n = units.length - 1; n > 0; n--) {
+    const cut = `${units
+      .slice(0, n)
+      .join(spaced ? " " : "")
+      .replace(/[\s,;:·–—-]+$/u, "")}…`;
+    if (fits(cut)) return cut;
+  }
+  return "";
+}
+
 /** Scripts a line may break between any two characters of: Han and kana. */
 const BREAKS_ANYWHERE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 

@@ -11,7 +11,7 @@ import { type Fit, fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter, Tween } from "../kit.js";
 import { esc, staggerFor, wordAtoms, words } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
-import { type Face, faceOf, textWidth, wrap } from "../svg.js";
+import { captionFit, type Face, faceOf, textWidth, wrap } from "../svg.js";
 import { ambient, DRIFT } from "../theme.js";
 import { TYPE_SCALE } from "../type.js";
 import {
@@ -52,6 +52,8 @@ import {
  * has something to grep for.
  */
 const CAP_LINES_ASSUMED = 2;
+/** The most a caption is set in; longer is cut at a word (`captionFit`). */
+const CAP_LINES_MAX = 3;
 const CAP_BAND = 26 + CAP_LINES_ASSUMED * Math.round(BODY_SIZE * BODY_LH);
 
 /**
@@ -168,7 +170,7 @@ function arrangements(
   classic: Mode,
   fig: Figure,
   claim: string,
-  caption: string,
+  capFor: (width: number) => string,
   box: number,
   region: number,
   portrait: boolean,
@@ -185,7 +187,7 @@ function arrangements(
     claimLines(width, size) * Math.round(size * CLAIM_LH);
   const capH = (width: number) =>
     16 +
-    wrap(caption, BODY_SIZE, width * MEASURE_SLACK, 400, 0, face).length *
+    wrap(capFor(width), BODY_SIZE, width * MEASURE_SLACK, 400, 0, face).length *
       Math.round(BODY_SIZE * BODY_LH);
   const plateIn = (w: number, h: number) => {
     const k = Math.max(0, Math.min(w / fig.width, h / fig.height, UPSCALE_MAX));
@@ -516,6 +518,13 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // a wide canvas too.
   const portrait = isPortrait(ctx.format);
   const wide = !portrait && fig.width / fig.height >= FULL_WIDTH_ASPECT;
+  // The caption as set in a column `width` wide: at most `CAP_LINES_MAX`
+  // lines. A paper's own caption runs to 600 characters, which set whole took
+  // the column and left the figure a 30px plate. One line over
+  // `CAP_LINES_ASSUMED` is the slack the demo's own three-line caption has
+  // always taken; past that it is cut at a word.
+  const capFor = (width: number) =>
+    captionFit(fig.caption, BODY_SIZE, width * MEASURE_SLACK, CAP_LINES_MAX, face);
 
   // BESIDE IS ONLY VIABLE IF THE CLAIM FITS THE ROW. `.cf-beside` gives the claim
   // a fixed 560px column and centres the row on its tallest item, so a long claim
@@ -584,7 +593,7 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
           tall ? "tall" : wide ? "wide" : "beside",
           fig,
           p.claim,
-          fig.caption,
+          capFor,
           box,
           F.budget(0, 0, 0),
           portrait,
@@ -603,7 +612,11 @@ export const claimFigure: Emitter<"claim-figure"> = (beat, ctx) => {
   // `figure.src` is relative to the deck's asset directory.
   const held = plate(fig, sid, `claim-figure ${beat.id}`, ctx.start);
   const figure = `<div class="figwrap" id="${sid}-f">${held.html}</div>`;
-  const caption = `<div class="caption" id="${sid}-cap">${esc(fig.caption)}</div>`;
+  // The column the chosen arrangement sets the caption in (`arrangements`).
+  const capText = capFor(
+    mode === "beside" ? box - BESIDE_COL - 56 : mode === "wide" ? (box - 56) / 2 : box,
+  );
+  const caption = `<div class="caption" id="${sid}-cap">${esc(capText)}</div>`;
 
   // PORTRAIT: claim, then figure, then caption, each across the whole box. Side
   // by side inside 860 the grid gave the claim its authored 560px and the figure

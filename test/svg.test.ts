@@ -3,6 +3,7 @@ import { DEFAULT_POSE, depthCss, scaleAt, tiltedFloor, worstScale } from "../src
 import {
   arrow,
   arrowDefs,
+  captionFit,
   circle,
   cutsWord,
   elbow,
@@ -227,6 +228,33 @@ describe("cutsWord", () => {
     expect(cutsWord("直近の数フレームだけでも強い比較基準になる", 60, 200)).toBe(false);
     // Hangul words are space-separated, so a long one does count.
     expect(cutsWord("정렬인코더비교실험결과요약", 60, 200)).toBe(true);
+  });
+});
+
+describe("captionFit", () => {
+  // arXiv's own Figure 1 caption for speculative decoding, 597 characters.
+  const LONG =
+    "Figure 1: Our technique illustrated in the case of unconditional language modeling. Each line represents one iteration of the algorithm. The green tokens are the suggestions made by the approximation model (here, a GPT-like Transformer decoder with 6M parameters trained on lm1b with 8k tokens) that the target model accepted, while the red and blue tokens are the rejected suggestions and their corrections, respectively.";
+
+  it("sets the first sentence when it fits", () => {
+    expect(captionFit(LONG, 40, 1500, 2)).toBe(
+      "Figure 1: Our technique illustrated in the case of unconditional language modeling.",
+    );
+  });
+
+  it("cuts at a word with a typed ellipsis inside the lines, never leaving it to a clamp", () => {
+    const cut = captionFit(LONG, 40, 600, 2);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(cut.startsWith("Figure 1: Our technique")).toBe(true);
+    expect(wrap(cut, 40, 600).length).toBeLessThanOrEqual(2);
+  });
+
+  it("cuts a caption with no spaces between characters", () => {
+    const zh =
+      "图1：本文方法在无条件语言建模中的示意图，每一行代表算法的一次迭代，绿色为近似模型提出并被接受的词元";
+    const cut = captionFit(zh, 40, 400, 2, "cjk");
+    expect(cut.endsWith("…")).toBe(true);
+    expect(wrap(cut, 40, 400, 400, 0, "cjk").length).toBeLessThanOrEqual(2);
   });
 });
 

@@ -22,11 +22,12 @@
  * the label sitting on it. Only which way "out" points has moved.
  */
 import type { BeatOf, Format } from "../../types.js";
-import { fitOf, isV2 } from "../fit.js";
+import { fitOf, isV2, MEASURE_SLACK } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentH, contentW, esc, spotlighter } from "../kit.js";
 import type { Box, Pt } from "../svg.js";
 import {
+  captionFit,
   circle,
   DRAW_FROM,
   DRAW_TO,
@@ -722,7 +723,10 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
   /** The stage's own box: the content width the shell's padding leaves. */
   const STAGE_W = contentW(ctx.format);
   const face = faceOf(ctx.theme.fontStack);
-  const budget = stageBudget(ctx.format, p.eyebrow, p.headline, fig.caption, face);
+  // The caption as set, inside the two lines the stage reserves and the CSS
+  // clamps to (`CAP_LINES`): a clamp that has to cut is clipped text to the gate.
+  const capText = captionFit(fig.caption, LAB, STAGE_W * MEASURE_SLACK, CAP_LINES, face);
+  const budget = stageBudget(ctx.format, p.eyebrow, p.headline, capText, face);
   // The ladder's last rung. Between `MIN_STAGE` and the whole canvas the figure
   // simply shrinks; below it there is no picture left to annotate, and drawing
   // one inside-out — `scale` goes negative once `stageH < 2 * PLATE` — is how a
@@ -810,7 +814,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
   <div class="af-plate" id="${sid}-plate"><img${crop ? " data-layout-allow-overflow" : ""} src="assets/${esc(fig.src)}" alt="${esc(fig.caption)}" /></div>
   ${svg(`${sid}-ov`, STAGE_W, stageH, `<g class="af-ov-g">${parts.join("")}</g>`)}
 </div>
-<div class="af-cap" id="${sid}-cap">${esc(fig.caption)}</div>`;
+<div class="af-cap" id="${sid}-cap">${esc(capText)}</div>`;
 
   const tl = [
     ...chromeIn(sid, p.eyebrow !== undefined),
@@ -893,7 +897,7 @@ export const annotatedFigure: Emitter<"annotated-figure"> = (beat, ctx) => {
 
   // The stage `planFigure` used, then the caption under it — over the box less
   // the chrome. `stageBudget` charges the same three terms.
-  const capLines = Math.min(CAP_LINES, wrap(fig.caption, LAB, STAGE_W, 400, 0, face).length);
+  const capLines = Math.min(CAP_LINES, wrap(capText, LAB, STAGE_W, 400, 0, face).length);
   const region = contentH(ctx.format) - chromeHeight(p.eyebrow, p.headline, STAGE_W, face);
 
   return {

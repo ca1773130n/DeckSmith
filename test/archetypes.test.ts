@@ -441,6 +441,22 @@ describe("archetypes", () => {
     expect(layout("f3")).toContain("cf-under");
   });
 
+  it("claim-figure sets a paper-length caption as two lines, not as the whole column", () => {
+    // arXiv captions run to 600 characters; beside the claim one took every line
+    // of the column and left the figure a 30px plate (speculative decoding, fig1).
+    const long = `Figure 1: Our technique illustrated in the case of unconditional language modeling. ${"Each line represents one iteration of the algorithm and the tokens it accepted. ".repeat(6)}`;
+    const wide = { ...source, figures: source.figures.map((f) => ({ ...f, caption: long })) };
+    const beat = structuredClone(beats[1]) as Extract<Beat, { archetype: "claim-figure" }>;
+    const html = emitScene(beat, { ...ctx("s2"), source: wide }).html;
+    const cap = /<div class="caption" id="s2-cap">([^<]*)<\/div>/.exec(html)?.[1] ?? "";
+    // The first sentence, cut at a word where even that is wider than two lines here.
+    expect(cap.startsWith("Figure 1: Our technique")).toBe(true);
+    expect(cap.length).toBeLessThanOrEqual(84);
+    expect(cap).not.toContain("Each line");
+    // The full caption stays the image's alt.
+    expect(html).toMatch(/alt="[^"]*Each line represents/);
+  });
+
   it("claim-figure refuses a brief that has not been drawn, by name and with the command", () => {
     // `emitDeck` is public, so a pending slot can arrive without
     // `assertRefsResolve` having run; `no figure "undefined"` is not an answer.
