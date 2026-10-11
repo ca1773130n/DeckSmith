@@ -113,8 +113,13 @@ export function motionStats(composition: string): MotionStats {
       if (k === "opacity,y") modalScenes++;
     }
     // The handoff is the root tween that does NOT render immediately: the
-    // incoming half of a v2 seam does, at 0, and is not a handoff.
-    const out = tl.filter((s) => s.target === `#${sid}` && /immediateRender: false/.test(s.to));
+    // incoming half of a v2 seam does, at 0, and is not a handoff. It fades the
+    // scene out; a lean through a still sentence (`leanThroughSentences`) moves
+    // only its scale, and is not one either.
+    const out = tl.filter(
+      (s) =>
+        s.target === `#${sid}` && /immediateRender: false/.test(s.to) && /\bopacity:/.test(s.from),
+    );
     const last = out[out.length - 1];
     if (last) seams.push(seamKind(last.from));
     // A camera's dip is `.ds-zoom`/`.ds-pan` and a fade on the plate; it is one kind.

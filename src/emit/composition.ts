@@ -555,7 +555,7 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
     // that alone is restyled — clear of the seam, like every archetype's.
     const bespoke = opts.bespoke?.[beat.id] !== undefined;
     const verb = motion?.entrances[i] ?? "fade";
-    const { scene } = stageScene(
+    const { scene: staged } = stageScene(
       !motion
         ? emitted
         : bespoke
@@ -564,7 +564,9 @@ function layout(storyboard: Storyboard, source: Source, format: Format, options:
       speed,
       bespoke ? undefined : segments,
     );
-    const seconds = beatSeconds(beat.seconds * speed, scene, segments);
+    const seconds = beatSeconds(beat.seconds * speed, staged, segments);
+    const scene =
+      bespoke || !segments?.length ? staged : leanThroughSentences(staged, sid, seconds);
 
     // A camera leaves from this scene only if the NEXT surviving beat says it
     // happens inside a part of this one. The move is a TAIL on this scene's own
@@ -1054,6 +1056,61 @@ export function stageScene(
  * A fixed point of `speechPlan`: a later sentence waits for its hold, and its
  * hold is now its start. A bespoke scene (`script`) times itself and is untouched.
  */
+/** The shortest still stretch inside a sentence an archetype scene leans through. */
+const LEAN_MIN_SECONDS = 4;
+/** How far the lean pushes in: enough to read as the camera moving, not as a zoom. */
+const LEAN_SCALE = 1.025;
+
+/**
+ * An archetype scene with a slow lean through each still stretch of its speech.
+ *
+ * `onSentences` lands each reveal on its sentence, but one sentence is often 7-9s
+ * and an archetype reveals once per sentence, so the rest of it stood still: r2 of
+ * the literal verbs run had ten `dead_stretch` failures, every one an archetype (a
+ * title held 8.9s, a callout panel 8.5s). Literal scenes already lean their camera
+ * over what is left of a sentence (`drift` in src/literal/kind.ts); this is the same
+ * move on the scene box: in and back out between a reveal's hold and the next
+ * reveal (or the scene's end), so every hold — where the layout gates photograph —
+ * sees the scene at rest, and the exit's own `scale: 1` from-state does not jump.
+ */
+export function leanThroughSentences(scene: Scene, sid: string, seconds: number): Scene {
+  if (scene.script !== undefined) return scene;
+  const holds = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
+    (a, b) => a - b,
+  );
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const lean: Tween[] = [];
+  holds.forEach((h, i) => {
+    const next = Math.min(
+      holds[i + 1] ?? seconds,
+      seconds,
+      ...scene.tl.filter((t) => t.at > h + 0.05).map((t) => t.at),
+    );
+    const t0 = h + 0.2;
+    const t1 = next - 0.15;
+    if (t1 - t0 < LEAN_MIN_SECONDS) return;
+    // A 0.05s rest at the peak, where sine.inOut is still anyway, so float rounding can
+    // never make the way out start before the way in ends (hyperframes lint warns).
+    const half = r3((t1 - t0 - 0.05) / 2);
+    const ease = "sine.inOut";
+    lean.push(
+      {
+        target: `#${sid}`,
+        from: { scale: 1 },
+        to: { scale: LEAN_SCALE, duration: half, ease, immediateRender: false },
+        at: r3(t0),
+      },
+      {
+        target: `#${sid}`,
+        from: { scale: LEAN_SCALE },
+        to: { scale: 1, duration: half, ease, immediateRender: false },
+        at: r3(t0 + half + 0.05),
+      },
+    );
+  });
+  return lean.length ? { ...scene, tl: [...scene.tl, ...lean] } : scene;
+}
+
 function onSentences(scene: Scene, open: number, segments: readonly Segment[]): Scene {
   if (scene.script !== undefined) return scene;
   const old = [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(

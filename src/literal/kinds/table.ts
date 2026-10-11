@@ -2,7 +2,17 @@
  * table — numbers and claims the source reports, cited, rows lit in spoken
  * order, winning or missing cells marked.
  */
-import { type KindImpl, LAB_H, lab, stepStarts, widthOf, wrap } from "../kind.js";
+import {
+  drift,
+  type KindImpl,
+  LAB_H,
+  lab,
+  type Pose,
+  REST,
+  stepStarts,
+  widthOf,
+  wrap,
+} from "../kind.js";
 import { baseCss, esc, LABEL, label, px, SMALL, Tl } from "../kit.js";
 
 interface TableData {
@@ -130,11 +140,11 @@ export const tableKind: KindImpl = {
       );
       y += h;
     });
-    const markup = `<div id="SCENEID-lit">
+    const markup = `<div id="SCENEID-lit"><div id="SCENEID-acam" style="position:absolute;left:0;top:0;width:100%;height:100%">
 <div id="SCENEID-head" style="position:absolute;left:0;top:0;width:100%;height:100%">${headRow}<div style="position:absolute;left:0;top:${px(y0 + headH - 2)};width:${px(W)};height:3px;background:${theme.fg}"></div></div>
 ${bodies.join("\n")}
 ${caption ? label("cap", caption, 0, y + Math.min(30, (capH - LAB_H) / 2 + 10), SMALL, theme.muted) : ""}
-</div>`;
+</div></div>`;
     const steps = rowSteps(t.highlight, cues.length);
     const at = stepStarts(cues, steps.length);
     const tl = new Tl();
@@ -176,6 +186,19 @@ ${caption ? label("cap", caption, 0, y + Math.min(30, (capH - LAB_H) / 2 + 10), 
           { opacity: 0, duration: 0.6, immediateRender: false },
           t0,
         );
+    });
+    // A spoken row is lit at its sentence's start, and then the sentence runs on 6-8s with
+    // nothing moving (r2: a results table, 6.4s). The table leans in and back over
+    // what is left of each sentence, at rest again before the next row lights.
+    const end = cues[cues.length - 1]?.t1 ?? 0;
+    const LEAN: Pose = { x: 0, y: 0, scale: 1.02 };
+    steps.forEach((_, s) => {
+      const t0 = Math.max(0.3 + t.rows.length * 0.08 + 0.7, (at[s] as number) + 0.2) + 0.9;
+      const t1 = (at[s + 1] ?? end) - 0.15;
+      if (t1 - t0 < 4) return;
+      const mid = (t0 + t1) / 2;
+      drift(tl, "acam", t0, mid - 0.025, LEAN);
+      drift(tl, "acam", mid + 0.025, t1, REST, LEAN);
     });
     return { markup, css: baseCss(theme), script: tl.script };
   },

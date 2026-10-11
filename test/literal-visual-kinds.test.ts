@@ -236,6 +236,26 @@ const CASES: Array<[string, Literal, Cue[]]> = [
       [27.542, 37.692],
     ]),
   ],
+  [
+    // OneVL's Impromptu L2 table: a row lit per sentence, each sentence 7-9s.
+    "table (b12-impromptu)",
+    literalSchema.parse({
+      kind: "table",
+      columns: ["方法", "1 s", "2 s", "3 s", "4 s", "平均"],
+      rows: [
+        ["OneVL", "0.13", "0.48", "1.18", "2.25", "1.01"],
+        ["AR CoT+Answer", "0.13", "0.51", "1.27", "2.44", "1.09"],
+        ["Impromptu VLA", "0.14", "0.60", "1.45", "2.67", "1.22"],
+      ],
+      highlight: [2, 1, 0],
+      labels: [],
+    }),
+    c([
+      [0.95, 8.3],
+      [8.35, 16.9],
+      [16.95, 25.4],
+    ]),
+  ],
 ];
 
 /* -------------------------------------------------------- pure computation */
