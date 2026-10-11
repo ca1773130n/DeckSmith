@@ -198,6 +198,62 @@ export type Measure = (text: string, size: number) => number;
 /** A conservative Latin estimate, for tests and previews. */
 export const roughMeasure: Measure = (text, size) => text.length * size * 0.6;
 
+/**
+ * Han and kana: the scripts with no spaces between words, so a line breaks
+ * between any two characters — as the deck's own CSS lets Chinese and Japanese
+ * break (src/emit/composition.ts `cjkTypesetCss`). Hangul is not here: Korean
+ * breaks at spaces, and a Korean word stays whole (`keep-all`).
+ */
+export const BREAKS_ANYWHERE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+/** Never opens a line (kinsoku): closing punctuation and the marks that lean on the character before. */
+const NO_LINE_START = /[、。，．！？：；）」』】〕〉》”’ー々…・,.!?:;)\]%]/u;
+
+/**
+ * Greedy wrap by a measure. Breaks at spaces and, inside Han or kana, between
+ * characters — without that a Chinese label is one unbreakable word ("极端场景或
+ * 安全关键型评测套件" ran 621px into a 582px part). A lone separator ("·") never
+ * opens a line. A unit wider than the line keeps its own line; the caller decides
+ * whether that is an error. An empty text is no lines.
+ */
+export function wrapBy(text: string, size: number, maxW: number, measure: Measure): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const { t, join, glue } of breakUnits(text)) {
+    const next = cur ? `${cur}${join}${t}` : t;
+    if (cur && !glue && measure(next, size) > maxW) {
+      lines.push(cur);
+      cur = t;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/** A text's break units, each with what joins it to the unit before on one line. */
+function breakUnits(text: string): { t: string; join: string; glue: boolean }[] {
+  const out: { t: string; join: string; glue: boolean }[] = [];
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (/^[·•|/]$/.test(word)) {
+      out.push({ t: word, join: " ", glue: true });
+      continue;
+    }
+    const pieces: string[] = [];
+    let run = "";
+    for (const ch of word) {
+      if (BREAKS_ANYWHERE.test(ch)) {
+        if (run) pieces.push(run);
+        run = "";
+        pieces.push(ch);
+      } else if (!run && pieces.length && NO_LINE_START.test(ch)) {
+        pieces[pieces.length - 1] += ch;
+      } else run += ch;
+    }
+    if (run) pieces.push(run);
+    for (const [i, t] of pieces.entries()) out.push({ t, join: i ? "" : " ", glue: false });
+  }
+  return out;
+}
+
 /** The deck's type, never below 40 px at 1920×1080 (invariant 5). */
 export const TYPE = {
   headline: TYPE_SCALE.headline,

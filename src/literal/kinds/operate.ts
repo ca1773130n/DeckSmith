@@ -27,9 +27,9 @@ import {
   tensor,
 } from "../ops.js";
 import type { Frame, MechanismResult, Prim, Raster } from "./common.js";
-import { fitBox, TYPE } from "./common.js";
+import { fitBox, TYPE, wrapBy } from "./common.js";
 import { opStepOf, plain } from "./read.js";
-import { rasterOf, sharedScale, textLines, type VerbCtx, wrapBy } from "./stage.js";
+import { rasterOf, sharedScale, textLines, type VerbCtx } from "./stage.js";
 
 type Ctx = VerbCtx<"operate">;
 

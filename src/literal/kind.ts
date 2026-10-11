@@ -11,6 +11,7 @@ import type { Fragment } from "../bespoke/contract.js";
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
 import type { LiteralKind } from "../types.js";
+import { BREAKS_ANYWHERE, wrapBy } from "./kinds/common.js";
 import { type Cue, type Layers, label, px, r3, slotText, type Tl } from "./kit.js";
 
 /** What a kind is given: its picture (picture kinds), its data (data kinds), the earlier scenes (recap). */
@@ -156,7 +157,7 @@ export function widthOf(text: string, size: number, theme: Theme, weight = 600):
   return textWidth(text, size, weight, 0, false, faceOf(theme.fontStack));
 }
 
-/** Greedy word wrap to `maxW` px; a word wider than the line keeps its own line. */
+/** Greedy wrap to `maxW` px in the deck's face (`wrapBy`); a unit wider than the line keeps its own line. */
 export function wrap(
   text: string,
   size: number,
@@ -164,33 +165,16 @@ export function wrap(
   theme: Theme,
   weight = 600,
 ): string[] {
-  // A separator never starts a line: "Method-A · Method-B" breaks after the "·".
-  const words = text
-    .split(/\s+/)
-    .filter(Boolean)
-    .reduce<string[]>((acc, w) => {
-      if (/^[·•|/]$/.test(w) && acc.length) acc[acc.length - 1] = `${acc[acc.length - 1]} ${w}`;
-      else acc.push(w);
-      return acc;
-    }, []);
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (cur && widthOf(next, size, theme, weight) > maxW) {
-      lines.push(cur);
-      cur = w;
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
+  const lines = wrapBy(text, size, maxW, (t, s) => widthOf(t, s, theme, weight));
   return lines.length ? lines : [""];
 }
 
 /**
  * A label on a picture that wraps to the picture's width instead of running past its
  * edge (a panel clips it: "…적용한 장면 0" in r3 of the pure-planner deck). One element, so
- * a tween of `id` still moves all of it; the browser wraps, word by word (keep-all keeps a
- * Korean word whole), and `fromBottom` grows it upward from `y` by the lines `wrap`
+ * a tween of `id` still moves all of it; the browser wraps where `wrap` does — at spaces
+ * (keep-all keeps a Korean word whole), and between Han or kana characters, which
+ * keep-all would forbid — and `fromBottom` grows it upward from `y` by the lines `wrap`
  * measures.
  */
 export function tag(
@@ -207,6 +191,7 @@ export function tag(
 ): string {
   const n = wrap(text, size, maxW, theme).length;
   const top = fromBottom ? y - (n - 1) * size * 1.15 : y;
+  const breaks = BREAKS_ANYWHERE.test(text) ? "line-break:strict" : "word-break:keep-all";
   return label(
     id,
     text,
@@ -214,7 +199,7 @@ export function tag(
     top,
     size,
     color,
-    `${extra};white-space:normal;word-break:keep-all;width:${px(maxW)}`,
+    `${extra};white-space:normal;${breaks};width:${px(maxW)}`,
   );
 }
 

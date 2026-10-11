@@ -20,10 +20,10 @@
  * in order; there is no playhead.
  */
 import type { Frame, MechanismResult, Prim } from "./common.js";
-import { TYPE } from "./common.js";
+import { TYPE, wrapBy } from "./common.js";
 import { messagePassing } from "./message-passing.js";
 import { num } from "./read.js";
-import { textLines, type VerbCtx, wrapBy } from "./stage.js";
+import { textLines, type VerbCtx } from "./stage.js";
 
 type Ctx = VerbCtx<"flow">;
 

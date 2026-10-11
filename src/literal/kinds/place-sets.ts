@@ -16,6 +16,7 @@
 import type { Theme } from "../../emit/kit.js";
 import { drift, type KindImpl, lab, REST, spread, stepStarts, widthOf } from "../kind.js";
 import { baseCss, LABEL, label, px, r3, SMALL, Tl } from "../kit.js";
+import { wrapBy } from "./common.js";
 
 export interface ScopeData {
   rings: Array<{ label: string; items: string[] }>;
@@ -59,7 +60,7 @@ export function scopeLayout(
     if (!r.items.length) throw new Error(`literal: scope part "${r.label}" has no items`);
   const w = Math.floor((W - (R - 1) * GAP) / R);
   if (w < 240) throw new Error(`literal: scope's parts would be ${w}px wide; use fewer`);
-  const wrapTo = (t: string, size: number) => wrapBy(t, size, w, measure);
+  const wrapTo = (t: string, size: number) => wrapIn(t, size, w, measure);
   const labels = d.rings.map((r) => wrapTo(r.label, LABEL));
   const top = RULE_Y + 30 + Math.max(...labels.map((l) => l.length)) * LABEL_LH + 36;
   const bottom = H - captionH - 8;
@@ -84,24 +85,14 @@ export function scopeLayout(
   return { parts, top, captionY: H - captionH + 6 };
 }
 
-/** `wrap` with an injected measure, so the layout is testable without a theme. */
-function wrapBy(
+/** `wrapBy`, refusing a unit wider than the part: it would run into the next one. */
+function wrapIn(
   text: string,
   size: number,
   maxW: number,
   measure: (t: string, s: number) => number,
 ): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let cur = "";
-  for (const wd of words) {
-    const next = cur ? `${cur} ${wd}` : wd;
-    if (cur && measure(next, size) > maxW) {
-      lines.push(cur);
-      cur = wd;
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
+  const lines = wrapBy(text, size, maxW, measure);
   for (const l of lines)
     if (measure(l, size) > maxW)
       throw new Error(

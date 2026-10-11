@@ -10,6 +10,7 @@ import type { Theme } from "../src/emit/kit.js";
 import { drawProblems } from "../src/literal/check.js";
 import { literalFragment } from "../src/literal/index.js";
 import { widthOf } from "../src/literal/kind.js";
+import { wrapBy } from "../src/literal/kinds/common.js";
 import { combinations, resultOf } from "../src/literal/kinds/place-combos.js";
 import { axisSpan, marginOf, marginsOf } from "../src/literal/kinds/place-margins.js";
 import { type ScopePart, scopeLayout } from "../src/literal/kinds/place-sets.js";
@@ -366,6 +367,33 @@ describe("scope: one region split into parts that exclude each other", () => {
         widthOf(t, s, theme),
       ),
     ).toThrow(/two to four parts/);
+  });
+
+  it("wraps a Chinese item between characters, where a space-only wrap could not break it", () => {
+    // The OneVL plan's item, refused at 621px in a 582px part before Han could break.
+    const item = "极端场景或安全关键型评测套件";
+    const d = {
+      rings: [
+        { label: "已测", items: ["nuScenes"] },
+        { label: "未测", items: [item] },
+      ],
+    };
+    const L = scopeLayout(d, 1000, 1500, (t, s) => widthOf(t, s, theme));
+    const it2 = L.parts[1]?.items[0];
+    expect(it2?.lines.length).toBeGreaterThan(1);
+    expect(it2?.lines.join("")).toBe(item);
+    for (const l of it2?.lines ?? [])
+      expect(widthOf(l, 44, theme)).toBeLessThanOrEqual(L.parts[1]?.w ?? 0);
+  });
+
+  it("keeps a Korean word whole and never opens a line on closing punctuation", () => {
+    const narrow = (t: string, s: number) => widthOf(t, s, theme);
+    for (const l of wrapBy("안개 제거 네트워크의 경계 복원 성능", 44, 260, narrow))
+      expect(l.startsWith(" ")).toBe(false);
+    expect(wrapBy("안개 제거 네트워크의", 44, 120, narrow)).toEqual(["안개", "제거", "네트워크의"]);
+    const zh = wrapBy("语言解码器，视觉解码器。", 44, 150, narrow);
+    for (const l of zh) expect(/^[，。]/.test(l)).toBe(false);
+    expect(zh.join("")).toBe("语言解码器，视觉解码器。");
   });
 });
 

@@ -51,8 +51,18 @@ import {
   writeRaster,
 } from "../kit.js";
 import type { Tensor } from "../ops.js";
-import type { Frame, Measure, MechanismResult, Prim, Raster, Region, Rgb } from "./common.js";
-import { clamp01, TYPE } from "./common.js";
+import {
+  clamp01,
+  type Frame,
+  type Measure,
+  type MechanismResult,
+  type Prim,
+  type Raster,
+  type Region,
+  type Rgb,
+  TYPE,
+  wrapBy,
+} from "./common.js";
 import { type Draw, type LayerPaint, primSvg } from "./svg.js";
 
 /** What an earlier scene left that a later one may reuse: its layers and its computed arrays. */
@@ -81,21 +91,6 @@ export interface VerbCtx<K extends LiteralKind> {
 export type VerbRun<K extends LiteralKind> = (c: VerbCtx<K>) => MechanismResult;
 
 /* ----------------------------------------------------------------- words */
-
-/** Greedy wrap by a measure; a word wider than the line keeps its own line. */
-export function wrapBy(text: string, size: number, maxW: number, measure: Measure): string[] {
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of text.split(/\s+/).filter(Boolean)) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (cur && measure(next, size) > maxW) {
-      lines.push(cur);
-      cur = w;
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
 
 /** Text lines as primitives, top-down from y. */
 export function textLines(

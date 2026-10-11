@@ -23,13 +23,13 @@ import { evaluate, parseFormula } from "../formula.js";
 import { type KindImpl, type KindSpec, lab } from "../kind.js";
 import type { Cue, Layers } from "../kit.js";
 import type { Frame, MechanismResult, Prim, Region } from "./common.js";
-import { TYPE } from "./common.js";
+import { TYPE, wrapBy } from "./common.js";
 import { combosForm } from "./place-combos.js";
 import { lengthsForm } from "./place-lengths.js";
 import { marginsForm } from "./place-margins.js";
 import { setsForm } from "./place-sets.js";
 import { paramRecord } from "./read.js";
-import { stagedFragment, type VerbCtx, verbKind, wrapBy } from "./stage.js";
+import { stagedFragment, type VerbCtx, verbKind } from "./stage.js";
 
 type Ctx = VerbCtx<"place">;
 type PlaceLit = Extract<Literal, { kind: "place" }>;
