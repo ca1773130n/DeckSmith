@@ -1354,7 +1354,8 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      symbol goes in the run's label) — serial runs one after another,
                      a parallel run covering its count at once; a lane is as
                      long as its stated \`total\` (or Σ count·dur), else every
-                     lane has one length and the runs show the difference.`,
+                     lane has one length and the runs show the difference.
+                     A timeline always fills the \`unit\` slot: what one run is.`,
     slots: {
       learned: {
         what: "the key for a learned stage's dashed card, drawn once under the chain (required when one is)",
@@ -1362,7 +1363,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
       },
       train: { what: "title of the training graph (required with `phases`)", optional: true },
       infer: { what: "title of the inference graph (required with `phases`)", optional: true },
-      unit: { what: "timeline only: what one run is", optional: true },
+      unit: {
+        what: "what one run is, under the lanes (required with a timeline; timeline only)",
+        optional: true,
+      },
       layer: { what: "graph only: which layer the colours show", vars: ["l", "L"], optional: true },
       field: { what: "graph only: the focus node's outline", vars: ["count", "l"], optional: true },
       caption: { what: "under the scene: what flows", optional: true },
