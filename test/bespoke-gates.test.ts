@@ -49,6 +49,7 @@ import {
   STAGE_FILL,
   sceneWindows,
   shotsOf,
+  stillRun,
   TEXT_CONTRAST,
 } from "../src/verify/scenes.js";
 
@@ -92,6 +93,26 @@ describe("the graders", () => {
     expect(gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: lean, total }])).toHaveLength(
       1,
     );
+  });
+
+  it("a still run is judged across two-second steps: a slow lean is still, one cut is two halves", () => {
+    const total = 1000;
+    const times = Array.from({ length: 13 }, (_, k) => k);
+    // A lean: 0.6% across every two seconds, adding up past 1% of the first frame.
+    const lean = times.map((_, k) => (k >= 2 ? 6 : undefined));
+    expect(stillRun(times, lean, total)).toEqual({ a: 0, b: 12, peak: 6 });
+    // One change between 6 and 7 (seen by the steps 5→7 and 6→8): two still halves.
+    const cut = times.map((_, k) => (k < 2 ? undefined : k === 7 || k === 8 ? 50 : 0));
+    const r = stillRun(times, cut, total);
+    expect(r.b - r.a).toBe(5);
+    // Motion in every step: no run.
+    expect(
+      stillRun(
+        times,
+        times.map((_, k) => (k >= 2 ? 20 : undefined)),
+        total,
+      ).b,
+    ).toBe(0);
   });
 
   it("pooled averages a frame down so a one-pixel shimmer is not a change", () => {

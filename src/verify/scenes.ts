@@ -61,7 +61,7 @@ export const PIXEL_DELTA = 24;
  */
 export const SEEK_TOLERANCE_PX = 1500;
 /** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
-export const GATES_VERSION = "gates-7";
+export const GATES_VERSION = "gates-8";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
@@ -152,8 +152,8 @@ export function deadCandidates(w: SceneWindow, min = DEAD_SECONDS): Array<[numbe
 }
 
 /**
- * A long stretch moved when this share of its pixels changed, compared at
- * 480×270 (`pooled`). Not `MIN_CHANGE`'s "anything at all": a literal scene's
+ * A step of a long stretch moved when this share of its pixels changed across
+ * `DEAD_STEP` seconds, compared at 480×270 (`pooled`). Not `MIN_CHANGE`'s "anything at all": a literal scene's
  * lean — a 1.5% scale breathing over a still slide — changes edge pixels on
  * every frame and passed r2's runs of 6–10s that a viewer saw as stills.
  */
@@ -176,6 +176,53 @@ export function pooled(f: Frame, k = DEAD_POOL): Frame {
         out[(y * w + x) * 3 + c] = Math.round(sum / (k * k));
       }
   return { width: w, height: h, channels: 3, pixels: out };
+}
+
+/** Seconds between the two frames a step of motion is judged across. */
+export const DEAD_STEP = 2;
+
+/**
+ * The longest still run across frames at `times` (a second apart), given the
+ * changed pixels between each frame and the one `DEAD_STEP` seconds before it
+ * (`changed[k]` for frame k against frame k − DEAD_STEP; undefined for the
+ * first). A second of the stretch moved when a two-second step that spans it
+ * changed `min` of the pixels or more; the run is the longest stretch of
+ * seconds none of which moved. A slow lean — a slide breathing 1.5% across 8s —
+ * accumulates past 1% of the stretch's first frame and so read as motion to a
+ * comparison against the run's start; r3 had a line chart under 1% between every
+ * pair of frames two seconds apart for 14s, and the gate passed it.
+ */
+export function stillRun(
+  times: readonly number[],
+  changed: ReadonlyArray<number | undefined>,
+  total: number,
+  min = DEAD_MIN_CHANGE,
+): { a: number; b: number; peak: number } {
+  const n = times.length;
+  const moved = new Array<boolean>(Math.max(0, n - 1)).fill(false);
+  const peakAt = new Array<number>(Math.max(0, n - 1)).fill(0);
+  for (let k = DEAD_STEP; k < n; k++) {
+    const c = changed[k] ?? 0;
+    for (let j = k - DEAD_STEP; j < k; j++) {
+      if (c / total >= min) moved[j] = true;
+      peakAt[j] = Math.max(peakAt[j] as number, c);
+    }
+  }
+  let best = { a: 0, b: 0, peak: 0 };
+  let from = 0;
+  let peak = 0;
+  for (let j = 0; j < n - 1; j++) {
+    if (moved[j]) {
+      from = j + 1;
+      peak = 0;
+      continue;
+    }
+    peak = Math.max(peak, peakAt[j] as number);
+    const a = times[from] as number;
+    const b = times[j + 1] as number;
+    if (b - a > best.b - best.a) best = { a, b, peak };
+  }
+  return best;
 }
 
 export function gradeDeadSpans(rows: readonly DeadSpan[], min = DEAD_MIN_CHANGE): Finding[] {
@@ -1376,10 +1423,10 @@ export async function probeScenes(
       // change, as for a cue. After the scene's own probe, so its history is made.
       if (gates.has("dead")) {
         for (const [t0, t1] of deadCandidates(w)) {
-          // A frame a second across the stretch, and the longest RUN of them that
-          // stays within 1% of the run's first frame: one emphasis in the middle
-          // of 7s is two still halves, and three frames (t0, middle, t1) either
-          // missed it or called the whole stretch alive for it.
+          // A frame a second across the stretch, and the longest RUN of seconds in
+          // which no two frames two seconds apart differ by 1% (`stillRun`): one
+          // emphasis in the middle of 7s is two still halves, and a slow lean
+          // that adds up to 1% over the run is still a still picture.
           const n = Math.max(2, Math.ceil(t1 - t0));
           const times = Array.from({ length: n + 1 }, (_, k) => round(t0 + ((t1 - t0) * k) / n));
           const shots: Frame[] = [];
@@ -1390,23 +1437,12 @@ export async function probeScenes(
           }
           const first = shots[0] as Frame;
           const total = first.width * first.height;
-          let from = 0;
-          let worst = { a: 0, b: 0, changed: 0 };
-          let peak = 0;
-          for (let k = 1; k < shots.length; k++) {
-            const changed = changedPixels(shots[from] as Frame, shots[k] as Frame);
-            if (changed / total >= DEAD_MIN_CHANGE) {
-              from = k;
-              peak = 0;
-              continue;
-            }
-            peak = Math.max(peak, changed);
-            const span = (times[k] as number) - (times[from] as number);
-            if (span > worst.b - worst.a)
-              worst = { a: times[from] as number, b: times[k] as number, changed: peak };
-          }
+          const changed = shots.map((s, k) =>
+            k >= DEAD_STEP ? changedPixels(shots[k - DEAD_STEP] as Frame, s) : undefined,
+          );
+          const worst = stillRun(times, changed, total);
           if (worst.b - worst.a >= DEAD_SECONDS - 1e-6)
-            dead.push({ sid: w.sid, t0: worst.a, t1: worst.b, changed: worst.changed, total });
+            dead.push({ sid: w.sid, t0: worst.a, t1: worst.b, changed: worst.peak, total });
         }
       }
       // The seam into this scene, after its own probe made its first history.
