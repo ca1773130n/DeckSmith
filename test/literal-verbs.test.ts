@@ -1686,6 +1686,19 @@ describe("what each verb computes", () => {
     expect(plates.length).toBe(2);
   });
 
+  it("flow chain: a stage whose shape is one blank chip is refused", () => {
+    const lit = literalSchema.parse({
+      kind: "flow",
+      form: "chain",
+      stages: [
+        { id: "a", label: "draft", learned: true, shape: "γ" },
+        { id: "b", label: "one more", learned: false, shape: "1" },
+      ],
+      labels: L({ learned: "model call" }),
+    }) as Literal;
+    expect(drawProblems(lit, region_, theme)[0]).toMatch(/one blank chip/);
+  });
+
   it("flow timeline: lanes of equal serial steps on example material are refused", () => {
     const lit = literalSchema.parse({
       kind: "flow",

@@ -95,6 +95,12 @@ function chain(c: Ctx): MechanismResult {
         `stage "${s.label}": "${wide}" is wider than its card (${Math.floor(innerW)}px inside); shorten it or use fewer stages`,
       );
     const tokens = s.shape ? tokenChips(s.shape) : undefined;
+    // One unnumbered chip is a blank shape standing for nothing (r3 C s4's "extra token"
+    // was an empty pink square): a stage shows a count of two or more, or its words.
+    if (tokens?.length === 1)
+      throw new Error(
+        `stage "${s.label}": a \`shape\` of 1 draws one blank chip; leave \`shape\` out, or give the stage a \`figure\` or a \`show\``,
+      );
     // A count of a few tokens is the stage's picture, so its chips are large.
     const chipH = Math.round(size * (tokens && tokens.length <= 6 ? 2.4 : 1.5));
     const chips = tokens ? layChips(tokens, innerW, chipH, chipGap, (t) => c.measure(t, size)) : [];
