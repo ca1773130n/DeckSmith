@@ -1382,6 +1382,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      spoken order or \`reveal\` groups (a group's points with
                      \`connect\` are a series: the source's rows over steps).
                      Items that share one label are named by their \`group\`.
+                     A label and a group are the source's own words, NOT
+                     translated in a deck in another language: a table row's
+                     name cells ("ResNet-50", "ImageNet") and a condition as its
+                     column head and the row's value print it ("Temp 0",
+                     "γ=5"); never a value of another column.
                      \`diagonal\` true when both axes are ONE measure under two
                      conditions (α at temp 0 against α at temp 1): both axes
                      share a scale and y = x is drawn, so above or below it is
