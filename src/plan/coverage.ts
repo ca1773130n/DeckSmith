@@ -548,9 +548,13 @@ const namesIn = (t: string): string[] =>
     .map((x) => x.trim())
     .filter(Boolean);
 
-/** A word that says a result was measured WITHOUT a component: an ablation. */
+/**
+ * A word that says a result was measured WITHOUT a component: an ablation.
+ * "不使用视觉解码器：87.97" is OneVL's own ablation row; "not using" and
+ * "remove" are as common as "without" in each language.
+ */
 const ABLATION_WORD =
-  /\bwithout\b|\bw\/o\b|ablat|\bremov|\bexclud|\bdrop|제거|빼고|없이|除去|去掉|去除|消融|なし|除い|抜い/iu;
+  /\bwithout\b|\bw\/o\b|ablat|\bremov|\bexclud|\bdrop|제거|빼고|없이|사용하지\s*않|미사용|除去|去掉|去除|移除|不使用|未使用|不用|消融|なし|除い|抜い|使用しない|用いない|使わない/iu;
 
 /**
  * Metrics whose better direction is a convention, so a plan cannot flip it:

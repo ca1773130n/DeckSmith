@@ -570,6 +570,15 @@ describe("literalFindings", { timeout: 20_000 }, () => {
         /reports "PSNR 28.83" for TM-LIF \(without SSM\), and the source never reports that number as a result without SSM/,
       ),
     ]);
+    // "不使用 SSM" (not using SSM) is an ablation row as much as "without SSM".
+    const notUsing = sourceSchema.parse({
+      ...analysis,
+      sections: [
+        ...analysis.sections,
+        { id: "sec90", depth: 3, heading: "结果", text: "- 不使用 SSM：28.83" },
+      ],
+    });
+    expect(literalFindings(plan(beats), notUsing)).toEqual([]);
   });
 
   it("places a margin only by the setting's own values, its named rival and the metric's direction", () => {
