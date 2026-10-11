@@ -33,9 +33,11 @@ import {
 import {
   collectSvgTextRuns,
   gradeOverprint,
+  gradeWordsOnMarks,
   MIN_OVERLAP,
   overprints,
   type TextRun,
+  wordsOnMarks,
 } from "../src/verify/overprint.js";
 import { scanTypeFloor, TYPE_FLOOR_PX } from "../src/verify/typefloor.js";
 
@@ -1533,6 +1535,25 @@ describe("the sweep's two instruments still register", () => {
 
   it("ignores two rects of ONE text node, which is one label Chrome split", () => {
     expect(overprints(split("T=4", 100))).toEqual([]);
+  });
+
+  it("finds a word on a point or a line, and not a key's number in its own dot", () => {
+    const word = run("OneVL 1 · 0.13", 100);
+    // A series through the middle of the word (r2 b13), and a point under its corner.
+    const line = { points: [], lines: [{ x: 200, y: 125 }] };
+    expect(wordsOnMarks([word], line)).toEqual([{ word: "OneVL 1 · 0.13", on: "line" }]);
+    expect(wordsOnMarks([word], { points: [{ x: 110, y: 110, r: 14 }], lines: [] })).toEqual([
+      { word: "OneVL 1 · 0.13", on: "point" },
+    ]);
+    // Beside it, clear of the shrunk box: no finding.
+    expect(
+      wordsOnMarks([word], { points: [{ x: 80, y: 125, r: 14 }], lines: [{ x: 320, y: 125 }] }),
+    ).toEqual([]);
+    const number = { node: seq++, text: "7", x: 90, y: 92, w: 20, h: 36 };
+    expect(wordsOnMarks([number], { points: [{ x: 100, y: 110, r: 26 }], lines: [] })).toEqual([]);
+    const [f] = gradeWordsOnMarks([{ sid: "s4", t: 9, hits: wordsOnMarks([word], line) }]);
+    expect(f).toMatchObject({ severity: "error", rule: "svg_text_on_mark" });
+    expect(f?.message).toContain("#s4");
   });
 
   it("still reports two DIFFERENT labels that happen to read the same", () => {

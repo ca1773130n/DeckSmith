@@ -162,7 +162,16 @@ import {
   readFitManifest,
   stripContainers,
 } from "./fill.js";
-import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
+import {
+  collectSvgMarks,
+  collectSvgTextRuns,
+  gradeOverprint,
+  gradeWordsOnMarks,
+  type MarkedStop,
+  type Overprinted,
+  overprints,
+  wordsOnMarks,
+} from "./overprint.js";
 import { TYPE_FLOOR_PX } from "./typefloor.js";
 
 /**
@@ -768,6 +777,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const brokenPieces = await page.evaluate(collectBrokenPieces);
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
+    const marked: MarkedStop[] = [];
     const apparent: ApparentStop[] = [];
     const fills: FillRow[] = [];
     // v2 only — a classic deck is not graded for fill, so it pays no extra
@@ -794,9 +804,11 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       // The frame is already seeked and already settled, so the collision rule
       // is one more DOM read on the same page. The pairwise arithmetic stays in
       // Node, where it can be tested without a browser.
-      collided.push({
+      const runs = await page.evaluate(collectSvgTextRuns, stop.sid);
+      collided.push({ ...stop, pairs: overprints(runs) });
+      marked.push({
         ...stop,
-        pairs: overprints(await page.evaluate(collectSvgTextRuns, stop.sid)),
+        hits: wordsOnMarks(runs, await page.evaluate(collectSvgMarks, stop.sid)),
       });
       // One more read on the frame that is already seeked and settled: how big
       // the glyphs actually came out. `typefloor` reads the source and says in
@@ -849,6 +861,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...gradeFidelity(measured, floor),
         ...gradeReserve(measured),
         ...gradeOverprint(collided),
+        ...gradeWordsOnMarks(marked),
         ...gradeApparent(apparent),
         ...gradeUnfit(unfit),
         ...gradePieces(brokenPieces),
