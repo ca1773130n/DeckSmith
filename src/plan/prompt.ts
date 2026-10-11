@@ -1042,6 +1042,10 @@ COMPOSE
     material: say so with \`example\`, and on \`operate\` with \`caption\`.
   - \`labels\` are the scene's few words, in the deck's language, by slot:
     every required slot listed under the verb, and no slot it does not list.
+    An eyebrow, a caption, a step name and a slot are WORDS OF THE DECK, in its
+    language (a Korean deck's eyebrow is Korean, never "SPECULATIVE
+    DECODING"); only a name — a method, a dataset, a model, as the source
+    writes it — keeps the source's form.
     There are no defaults. Every number in any label or step name is one the
     source states. \`{name}\` puts a computed value into a text, where the slot
     says it may and only when every input is stated.
@@ -1052,6 +1056,17 @@ COMPOSE
     rival, a point's values beside its item. A combos cell with a component
     removed holds only an ablation the source reports; the first set holds
     only what the source gives a result for.
+
+THE PICTURE, NOT THE WORDS. A deck of text slides is slideware however true
+it is. Text-only beats (split-compare, callout, kinetic, hero-number with no
+\`literal\`) take at most a fifth of the spoken time, never two in a row; a
+kinetic statement is spoken for 8 seconds or less. THE PROBLEM BEAT SHOWS THE
+BOTTLENECK: work done one step at a time is a \`flow\` timeline of those serial
+steps against what the method does instead (or an \`evolve\` of the state
+step by step), not a sentence about it. The beat whose headline names the
+method's result shows that result as the subject (a \`place\` plane or strip
+on the source's numbers), and its headline names it, so the scene can lead
+with it.
 
 TAKEAWAY. Every beat but the title carries \`takeaway\`: ONE sentence naming
 what the viewer can now explain — a cause, a mechanism, a number and what it

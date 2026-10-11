@@ -57,6 +57,7 @@ import {
   LITERAL_RULES,
   literalSlotProblems,
 } from "../types.js";
+import { charsPerSecond } from "./duration.js";
 
 /** The order a deck covers its parts in. */
 export const PART_ORDER: readonly BeatPart[] = beatPartSchema.options;
@@ -327,6 +328,13 @@ export function slidewareFindings(
       out.push(
         `${beat.id} states ${[...new Set(nums)].slice(0, 4).join(", ")} in its claim and draws them as ${beat.archetype} words: place them — a \`place\` strip (one axis, one dot per setting: an ablation), a plane, or combos.`,
       );
+    if (lit?.kind === "place" && lit.form === "sets") {
+      const thin = (lit.sets?.rings ?? []).filter((r) => r.items.length < 3);
+      if (thin.length)
+        out.push(
+          `${beat.id}'s place sets has ${thin.map((r) => `"${r.label}" with ${r.items.length}`).join(", ")}: rings of one or two names are two lists of words (r3: two-column name lists). Say them in a caption, or use sets only where each ring holds three or more.`,
+        );
+    }
     if (!lit && beat.archetype === "split-compare") {
       const p = beat.params as { left?: { lines?: string[] }; right?: { lines?: string[] } };
       if ((p.left?.lines?.length ?? 0) <= 2 && (p.right?.lines?.length ?? 0) <= 2)
@@ -335,6 +343,88 @@ export function slidewareFindings(
         );
     }
   }
+  out.push(...textShareFindings(storyboard), ...latinWordFindings(storyboard));
+  return out;
+}
+
+/** Scripts whose deck shows few Latin words: a Latin phrase there is untranslated text. */
+const NON_LATIN_LANG = /^(zh|ja|ko|yue|ru|uk|el|ar|he|hi|th)\b/i;
+
+/**
+ * Advice: an eyebrow or a scene's slot words left in English in a deck in another
+ * script (r3: "SPECULATIVE DECODING" over a Korean scene): two or more Latin
+ * words, no letter of another script, not all of them names (an acronym, a model
+ * with a digit). Names (items, rows, members) are the source's own and not checked.
+ */
+export function latinWordFindings(storyboard: Storyboard): string[] {
+  if (!NON_LATIN_LANG.test(storyboard.lang ?? "")) return [];
+  // A word that reads as a name: an acronym, a model with a digit (NAVSIM, T5-XXL, GPT-4).
+  const name = (w: string) => /\d/.test(w) || (w.match(/\p{Lu}/gu)?.length ?? 0) >= 2;
+  const latin = (t: string) => {
+    const words = t
+      .trim()
+      .split(/\s+/)
+      .filter((w) => /\p{Script=Latin}/u.test(w));
+    return (
+      words.length >= 2 &&
+      !words.every(name) &&
+      ![...t].some((ch) => /\p{L}/u.test(ch) && !/\p{Script=Latin}/u.test(ch))
+    );
+  };
+  const out: string[] = [];
+  for (const beat of storyboard.beats) {
+    const p = beat.params as { eyebrow?: unknown };
+    const texts = [
+      ...(typeof p.eyebrow === "string" ? [["eyebrow", p.eyebrow]] : []),
+      ...(beat.literal?.labels ?? []).map((l) => [l.slot, l.text]),
+    ] as Array<[string, string]>;
+    for (const [slot, t] of texts)
+      if (latin(t))
+        out.push(
+          `${beat.id}'s ${slot} "${t}" is in English in a ${storyboard.lang} deck. Write it in the deck's language; keep only a name in the source's form.`,
+        );
+  }
+  return out;
+}
+
+/** Archetypes that are text and nothing else when they carry no `literal`. */
+const TEXT_ARCHETYPES = new Set(["split-compare", "callout", "kinetic", "hero-number"]);
+/** The most of a deck's spoken time text-only beats may take. */
+export const TEXT_SHARE = 0.2;
+/** The longest a kinetic statement may be spoken over, seconds. */
+export const KINETIC_SECONDS = 8;
+
+/**
+ * Advice against a deck that is mostly text: r3 opened one deck with 75s of
+ * bullet columns, held kinetic statements at 2–11% fill for 22–29s, and spent
+ * about a third of its runtime on split-compare, callout, kinetic and
+ * hero-number. Measured by the narration each beat speaks (its characters at the
+ * deck language's speaking rate): text-only beats at most `TEXT_SHARE` of it,
+ * never two in a row, and a kinetic beat at most `KINETIC_SECONDS`.
+ */
+export function textShareFindings(storyboard: Storyboard): string[] {
+  const out: string[] = [];
+  const cps = charsPerSecond(storyboard.lang ?? "en");
+  const len = (b: Storyboard["beats"][number]) => [...(b.narration ?? "")].length;
+  const total = storyboard.beats.reduce((a, b) => a + len(b), 0);
+  if (!total) return out;
+  const text = storyboard.beats.filter((b) => !b.literal && TEXT_ARCHETYPES.has(b.archetype));
+  const share = text.reduce((a, b) => a + len(b), 0) / total;
+  if (share > TEXT_SHARE)
+    out.push(
+      `Text-only beats (${text.map((b) => `${b.id} ${b.archetype}`).join(", ")}) take ${Math.round(100 * share)}% of the spoken time; keep them under ${Math.round(100 * TEXT_SHARE)}%. Draw the rest with a verb, or fold a text beat into the caption of the beat that shows its point.`,
+    );
+  storyboard.beats.forEach((b, i) => {
+    const prev = storyboard.beats[i - 1];
+    if (prev && text.includes(b) && text.includes(prev))
+      out.push(
+        `${prev.id} (${prev.archetype}) and ${b.id} (${b.archetype}) are two text-only beats in a row. Draw one of them with a verb or a figure.`,
+      );
+    if (!b.literal && b.archetype === "kinetic" && len(b) / cps > KINETIC_SECONDS)
+      out.push(
+        `${b.id} is a kinetic statement spoken for about ${Math.round(len(b) / cps)}s; a kinetic beat holds at most ${KINETIC_SECONDS}s. Cut its narration to one or two sentences, or show the problem it states (a \`flow\` timeline of the serial steps, an \`evolve\`).`,
+      );
+  });
   return out;
 }
 

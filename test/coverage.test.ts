@@ -13,12 +13,14 @@ import { codexPlanner, schemaFor } from "../src/plan/codex.js";
 import {
   coverageFindings,
   formulaProblems,
+  latinWordFindings,
   literalFindings,
   paramProblem,
   partOfHeading,
   pictureFindings,
   slidewareFindings,
   sourceParts,
+  textShareFindings,
 } from "../src/plan/coverage.js";
 import { sourceBlocks } from "../src/plan/prompt.js";
 import {
@@ -1566,5 +1568,76 @@ describe("codexPlanner coverage repair", () => {
       }),
     ).rejects.toThrow(/does not cover the source .* after one repair:\n.*prior work/s);
     expect(calls).toBe(2);
+  });
+});
+
+describe("advice against a deck of text", () => {
+  // The advice reads only ids, archetypes, params, literals and narration.
+  const sb = (beats: unknown[]) =>
+    ({ sourceId: "s", title: "t", lang: "ko", beats }) as unknown as Parameters<
+      typeof textShareFindings
+    >[0];
+  const kinetic = (id: string, narration: string) => ({
+    id,
+    intent: id,
+    archetype: "kinetic",
+    params: { lines: ["가"] },
+    narration,
+  });
+  const callout = (id: string, narration: string) => ({
+    id,
+    intent: id,
+    archetype: "callout",
+    params: { headline: "h", panels: [{ title: "a", body: "b" }] },
+    narration,
+  });
+  const stage = (id: string, narration: string) => ({
+    id,
+    intent: id,
+    archetype: "stage",
+    params: { headline: "h", placement: "center", illustration: { prompt: "p", caption: "c" } },
+    narration,
+  });
+
+  it("text-only beats over a fifth of the speech, two in a row, a long kinetic", () => {
+    const long = "가".repeat(200);
+    const found = textShareFindings(
+      sb([kinetic("b01", long), callout("b02", long), stage("b03", long), stage("b04", long)]),
+    );
+    expect(found.join("\n")).toMatch(/take 50% of the spoken time/);
+    expect(found.join("\n")).toMatch(/b01 \(kinetic\) and b02 \(callout\) are two text-only beats/);
+    expect(found.join("\n")).toMatch(/b01 is a kinetic statement spoken for about 31s/);
+    expect(
+      textShareFindings(
+        sb([
+          stage("b01", long),
+          kinetic("b02", "가".repeat(30)),
+          stage("b03", long),
+          stage("b04", long),
+          stage("b05", long),
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("an English eyebrow in a Korean deck, but not a name", () => {
+    const eb = (id: string, eyebrow: string) => ({
+      ...stage(id, "x"),
+      params: {
+        headline: "h",
+        eyebrow,
+        placement: "center",
+        illustration: { prompt: "p", caption: "c" },
+      },
+    });
+    expect(
+      latinWordFindings(
+        sb([
+          eb("b01", "Speculative sampling"),
+          eb("b02", "NAVSIM T5-XXL"),
+          eb("b03", "추측 디코딩"),
+        ]),
+      ),
+    ).toEqual([expect.stringMatching(/b01's eyebrow "Speculative sampling" is in English/)]);
   });
 });
