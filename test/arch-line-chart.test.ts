@@ -108,44 +108,51 @@ const settlesAt = (t: Tween, n: number) => ends(t) + Number(t.to.stagger ?? 0) *
 /* ---- the painted boxes, read back out of the svg the same way the gate would */
 
 const FACE = faceOf(theme.fontStack);
-const runW = (s: string) => textWidth(s, 40, 400, 0, false, FACE);
+const runW = (s: string, face = FACE) => textWidth(s, 40, 400, 0, false, face);
 /** `.axname` is painted at 500 and `.ghostlab` at 600. Charging either of them
  *  at 400 recovers a box narrower than the one on the page, which is how a
  *  collision test can pass over markup that overprints. */
 const nameW = (s: string) => textWidth(s, 40, 500, 0, false, FACE);
-const ghostW = (s: string) => textWidth(s, 40, 600, 0, false, FACE);
+const ghostW = (s: string, face = FACE) => textWidth(s, 40, 600, 0, false, face);
 interface Box {
   x: number;
   y: number;
   w: number;
   h: number;
 }
+/**
+ * A 40px run's box as the overprint gate measures it: its client rect, which is
+ * the line box, 39px above the baseline and 10px below — measured in Chrome on a
+ * built deck. NOT `[baseline - 40, baseline]`: that cap box leaves out the
+ * descent, and a test using it passed over a ghost the gate then failed.
+ */
+const runBox = (left: number, by: number, w: number): Box => ({ x: left, y: by - 39, w, h: 49 });
 /** `overlaps` from line-chart.ts, on boxes recovered from the emitted markup. */
 const hits = (a: Box, b: Box) =>
   Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 8 &&
   Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 8;
 
-const ghostBox = (html: string): Box | undefined => {
+const ghostBox = (html: string, face = FACE): Box | undefined => {
   const m = /id="s2-ghostlab" text-anchor="(start|end)" x="([\d.]+)" y="([\d.]+)">([^<]*)</.exec(
     html,
   );
   if (!m) return undefined;
-  const w = ghostW(m[4] as string);
+  const w = ghostW(m[4] as string, face);
   const cx = Number(m[2]);
-  return { x: m[1] === "start" ? cx : cx - w, y: Number(m[3]) - 40, w, h: 40 };
+  return runBox(m[1] === "start" ? cx : cx - w, Number(m[3]), w);
 };
-const valueBoxes = (html: string): Box[] =>
+const valueBoxes = (html: string, face = FACE): Box[] =>
   [...html.matchAll(/<text class="pv"( text-anchor="start")? x="([\d.]+)" y="([\d.]+)">([^<]*)</g)]
     .map((m) => ({ start: m[1] !== undefined, cx: Number(m[2]), by: Number(m[3]), t: m[4] ?? "" }))
     .map(({ start, cx, by, t }) => {
-      const w = runW(t);
-      return { x: start ? cx : cx - w / 2, y: by - 40, w, h: 40 };
+      const w = runW(t, face);
+      return runBox(start ? cx : cx - w / 2, by, w);
     });
 /** The y-axis NAME, which is on every chart this file emits whatever the data is. */
 const axisNameBox = (html: string): Box => {
   const m = /<text class="axname" x="0" y="42">([^<]*)</.exec(html);
   if (!m) throw new Error("no y-axis name in the emitted svg");
-  return { x: 0, y: 2, w: nameW(m[1] as string), h: 40 };
+  return runBox(0, 42, nameW(m[1] as string));
 };
 
 /** The vertices of one emitted polyline, read straight out of its own `d`. */
@@ -493,6 +500,44 @@ describe("the baseline's label", () => {
         expect({ name, hit: hits(g, v) }).toEqual({ name, hit: false });
       }
     }
+  });
+
+  it("clears the endpoint value by the box the gate measures, not by a cap box", () => {
+    // HypePaper, 2026-10-11, zh-Hans on "signal": the baseline ends 32.05px of
+    // baseline above the result, so `away` put "AR CoT+Answer" 32.05px over the
+    // result's "2.25". The cap-box model called that 7.95px of overlap and kept
+    // it; Chrome's line boxes overlap by 17px and `svg_text_overprint` failed the
+    // build. The plan's own numbers, in the deck's own face.
+    const zh: Theme = {
+      ...theme,
+      fontStack: '"Noto Sans SC", "Space Grotesk", "Inter", system-ui, sans-serif',
+    };
+    const face = faceOf(zh.fontStack);
+    const xs = ["1 秒", "2 秒", "3 秒", "4 秒"];
+    const scene = lineChart(
+      beat({
+        eyebrow: "Impromptu",
+        headline: "OneVL 在二至四秒的预测时域中降低了轨迹误差",
+        xLabel: "预测时域",
+        yLabel: "轨迹 L2 误差",
+        points: [0.13, 0.48, 1.18, 2.25].map((y, i) => ({ x: xs[i] as string, y })),
+        compare: {
+          label: "AR CoT+Answer",
+          points: [0.13, 0.51, 1.27, 2.44].map((y, i) => ({ x: xs[i] as string, y })),
+        },
+      }),
+      { ...ctx(), theme: zh },
+    );
+    const g = ghostBox(scene.html, face);
+    // Named, not dropped: lifted over the value it used to print through, still
+    // at the baseline's last x and on the baseline's side of the result.
+    expect(g).toBeDefined();
+    const box = g as Box;
+    expect(scene.html).toMatch(/id="s2-ghostlab" text-anchor="end"/);
+    for (const v of valueBoxes(scene.html, face)) expect(hits(box, v)).toBe(false);
+    for (const id of ["base", "target"]) expect(crosses(polyline(scene.html, id), box)).toBe(false);
+    const [, endY] = polyline(scene.html, "base").at(-1) as [number, number];
+    expect(box.y + box.h).toBeLessThan(endY);
   });
 
   it("never prints through the y-axis name, which is on the chart whatever the data is", () => {

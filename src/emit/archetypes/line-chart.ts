@@ -250,6 +250,31 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   };
 
   const LABEL_SIZE = 40;
+  /**
+   * HOW TALL A 40px RUN IS, AS THE OVERPRINT GATE MEASURES IT — which is not 40.
+   *
+   * Every box below used to be `[baseline - 40, baseline]`: a cap box with no
+   * descent. `svg_text_overprint` measures each run's client rect, which is the
+   * font's line box — Inter's 0.969 em above the baseline and 0.242 below, and
+   * every pack face is declared with Inter's metrics (`PACK_DISPLAY` in
+   * build/files.ts). MEASURED in Chrome on 2026-10-11, in a built zh-Hans
+   * "signal" deck: a 40px run, Latin or CJK, spans baseline -39 to +10.
+   *
+   * The 9.7px that model left out is most of the 8px tolerance `overlaps` allows,
+   * so the emitter accepted placements the gate then failed. The deck that found
+   * it: a ghost label 32.05px of baseline above the endpoint value. The cap-box
+   * model called that 7.95px of overlap, under 8, and kept it. The gate measured
+   * 17px and failed the build.
+   */
+  const RUN_ABOVE = Math.ceil(LABEL_SIZE * 0.969);
+  const RUN_BELOW = Math.ceil(LABEL_SIZE * 0.242);
+  /** A run's painted box: `w` wide from `left`, sitting on baseline `by`. */
+  const runBox = (left: number, by: number, w: number) => ({
+    x: left,
+    y: by - RUN_ABOVE,
+    w,
+    h: RUN_ABOVE + RUN_BELOW,
+  });
   /** One answer to "how wide is this", shared with every other archetype. */
   const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
   const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
@@ -313,7 +338,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   /** A label's painted box: middle-anchored on `cx`, sitting on baseline `cy`. */
   const labelBox = (cx: number, cy: number, text: string, anchorStart = false) => {
     const w = runW(text);
-    return { x: anchorStart ? cx : cx - w / 2, y: cy - LABEL_SIZE, w, h: LABEL_SIZE };
+    return runBox(anchorStart ? cx : cx - w / 2, cy, w);
   };
   const valueBoxes = p.points
     .map((pt, i) => ({ pt, i }))
@@ -467,9 +492,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
    * BECAUSE ANY OF THEM HAS BEEN SEEN TO COLLIDE. On today's clamps none can.
    * The tick labels are `end`-anchored at `PAD.l - 22`, so they end 22px left of
    * where the first-x candidates begin. The category names sit on a baseline of
-   * `H - PAD.b + 56`, so their boxes start 12px below `H - PAD.b + 4`, the
-   * lowest baseline `toward` can reach; the x-axis name's box starts 80px below
-   * it. They are in the set so that moving one of those clamps — or the padding
+   * `H - PAD.b + 56`, so their boxes start 3px below the bottom of a ghost on
+   * `H - PAD.b + 4`, the lowest baseline `toward` can reach; the x-axis name's
+   * box starts 71px below it. They are in the set so that moving one of those clamps — or the padding
    * either is measured from — cannot silently re-open this.
    *
    * AND THAT IS ALL OF THEM. The runs this archetype sets are the two `.axname`s,
@@ -486,16 +511,11 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     // `.axname` is the one run here set at weight 500 rather than 400, and
     // under-charging a width is the unrecoverable direction (see `padR`).
     // No `text-anchor` on the y half, so it runs rightwards from x=0.
-    { x: 0, y: 42 - LABEL_SIZE, w: nameW(p.yLabel), h: LABEL_SIZE },
-    {
-      x: PAD.l + plotW / 2 - nameW(p.xLabel) / 2,
-      y: H - 16 - LABEL_SIZE,
-      w: nameW(p.xLabel),
-      h: LABEL_SIZE,
-    },
+    runBox(0, 42, nameW(p.yLabel)),
+    runBox(PAD.l + plotW / 2 - nameW(p.xLabel) / 2, H - 16, nameW(p.xLabel)),
     ...ticks.map((v) => {
       const w = runW(v.toFixed(scale.decimals));
-      return { x: PAD.l - 22 - w, y: y(v) + 13 - LABEL_SIZE, w, h: LABEL_SIZE };
+      return runBox(PAD.l - 22 - w, y(v) + 13, w);
     }),
     ...p.points
       .map((pt, i) => ({ pt, i }))
@@ -554,17 +574,33 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
         `line-chart ${beat.id}: the compare label "${cmp.label}" is ${Math.ceil(w)}px against the ${Math.floor(plotW)}px of plot it is set in. Shorten it.`,
       );
     }
-    /** Both sides of one end of the baseline, the one away from the result first. */
+    /**
+     * Both sides of one end of the baseline, the one away from the result first.
+     *
+     * And, where the baseline ends ABOVE the result, a third: the same side,
+     * lifted clear of the result's value label. Values ride 26px over their own
+     * point, so when the two endpoints are within a line of each other the
+     * result's value lands exactly where `away` puts the ghost — "AR CoT+Answer"
+     * over "2.25", 32px apart at the end of a converging pair. Stacked above the
+     * value, the name stays on the baseline's side of the result and at its x.
+     * Last, so a chart whose first two candidates are clear places exactly as it
+     * did. Not offered where the baseline is BELOW the result: above the result's
+     * value is the wrong curve's side, and the name would label the result.
+     */
     const atEnd = (i: number, start: boolean) => {
       const cy = y(cmp.points[i]?.y ?? 0);
+      const ty = y(p.points[i]?.y ?? 0);
       const away = Math.max(44, cy - 26);
       const toward = Math.min(cy + 52, H - PAD.b + 4);
-      const sides = cy < y(p.points[i]?.y ?? 0) ? [away, toward] : [toward, away];
+      const sides = cy < ty ? [away, toward] : [toward, away];
+      const valueTop = Math.max(44, ty - 26) - RUN_ABOVE;
+      const lifted = Math.min(away, valueTop - RUN_BELOW);
+      if (cy < ty && showsValue(i) && lifted >= 44) sides.push(lifted);
       return sides.map((by) => ({ i, start, by }));
     };
     const drawnDeltas = deltasFit ? deltaBoxes : [];
     return [...atEnd(lastI, false), ...atEnd(0, true)].find((c) => {
-      const box = { x: c.start ? x(c.i) : x(c.i) - w, y: c.by - LABEL_SIZE, w, h: LABEL_SIZE };
+      const box = runBox(c.start ? x(c.i) : x(c.i) - w, c.by, w);
       if (fixedBoxes.some((f) => overlaps(box, f))) return false;
       if (valueBoxes.some((v) => overlaps(box, v))) return false;
       if (drawnDeltas.some((d) => d !== null && overlaps(box, d))) return false;
