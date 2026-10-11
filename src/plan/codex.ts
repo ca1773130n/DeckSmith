@@ -22,7 +22,7 @@ import { z } from "zod";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
 import { paperArcRequested } from "./arc.js";
-import { coverageFindings, literalFindings, sourceParts } from "./coverage.js";
+import { coverageFindings, literalFindings, pictureFindings, sourceParts } from "./coverage.js";
 import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
 import { sizeFindings, varietyFindings } from "./variety.js";
@@ -284,9 +284,10 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         ...coverageFindings(plan, source),
         ...literalFindings(plan, source, { takeaways }),
       ],
+      advice: pictureFindings(plan, source),
     });
     const broken = findings(first);
-    const all = [...broken.size, ...broken.variety, ...broken.coverage];
+    const all = [...broken.size, ...broken.variety, ...broken.coverage, ...broken.advice];
     if (all.length === 0) return first;
     opts.onRepair?.(all);
     const second = await ask(repairPrompt(prompt, first, broken));
@@ -332,6 +333,8 @@ interface Findings {
   size: string[];
   variety: string[];
   coverage: string[];
+  /** Asked for once (`pictureFindings`); a repair that still misses it is kept. */
+  advice: string[];
 }
 
 function repairPrompt(prompt: string, plan: Storyboard, broken: Findings): string {
@@ -368,8 +371,16 @@ results it introduces, and join neighbours that say one thing. Keep every
 section covered and every other rule above.
 `
     : "";
+  const advice = broken.advice.length
+    ? `
+YOUR PREVIOUS STORYBOARD, BELOW, LEAVES THE SOURCE'S PICTURES UNUSED:
+${list(broken.advice)}
+
+Fix this by redrawing an existing beat; keep the beat count.
+`
+    : "";
   return `${prompt}
-${size}${variety}${coverage}
+${size}${variety}${coverage}${advice}
 Return the whole storyboard again with these fixed. ${
     broken.size.length
       ? "Merge only as the TOO LONG list asks; drop nothing else."

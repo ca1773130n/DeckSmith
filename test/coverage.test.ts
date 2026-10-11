@@ -16,6 +16,7 @@ import {
   literalFindings,
   paramProblem,
   partOfHeading,
+  pictureFindings,
   sourceParts,
 } from "../src/plan/coverage.js";
 import { sourceBlocks } from "../src/plan/prompt.js";
@@ -1032,6 +1033,56 @@ describe("the truth gate grounds every number in its role", () => {
     const found = literalFindings(plan(beats), analysis).join("\n");
     expect(found).toMatch(/stage "인코더" is learned and shows a computed layer/);
     expect(found).toMatch(/shows figure "gen-b02", which is not one of the source's own figures/);
+  });
+
+  it("walks panels only of the source's own figure, with no size and no example tag", () => {
+    const own = sourceSchema.parse({
+      ...analysis,
+      figures: [
+        ...analysis.figures,
+        { id: "fig1", src: "f1.png", caption: "Figure 1 the model", width: 900, height: 600 },
+      ],
+    });
+    const beats = covered();
+    const panels = (figureId: string) =>
+      beatOf("b03-method", "method", ["sec4"], {
+        archetype: "stage",
+        params: { headline: "h", placement: "bottom-left", figureId },
+        literal: {
+          kind: "region",
+          picture: "b03-method",
+          cut: "panels",
+          labels: [{ slot: "picture", text: "그림 1" }],
+        },
+      });
+    beats[3] = panels("fig1");
+    expect(literalFindings(plan(beats), own).join("\n")).not.toMatch(/b03-method's region/);
+    beats[3] = panels("gen-b02");
+    expect(literalFindings(plan(beats), own).join("\n")).toMatch(
+      /walks the panels of "b03-method", which shows none of the source's own figures/,
+    );
+  });
+
+  it("asks a plan of a picture paper to use region or operate, once", () => {
+    const pics = sourceSchema.parse({
+      ...analysis,
+      figures: [1, 2, 3].map((k) => ({
+        id: `fig${k}`,
+        src: `f${k}.png`,
+        caption: `Figure ${k} qualitative example, front view`,
+        width: 900,
+        height: 600,
+      })),
+    });
+    const beats = covered().map((b) => {
+      const { literal: _drop, ...rest } = b as { literal?: unknown };
+      return rest;
+    });
+    expect(pictureFindings(plan(beats as never), pics)).toEqual([
+      expect.stringMatching(/about pictures — 3 of its figures/),
+    ]);
+    expect(pictureFindings(plan(covered()), pics)).toEqual([]);
+    expect(pictureFindings(plan(beats as never), analysis)).toEqual([]);
   });
 
   it("refuses a chain of empty boxes, and takes one whose stage holds a stated count", () => {

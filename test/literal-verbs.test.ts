@@ -18,7 +18,7 @@ import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
 import { placeForm, points, ticksOf } from "../src/literal/kinds/place.js";
-import { region } from "../src/literal/kinds/region.js";
+import { findPanels, region } from "../src/literal/kinds/region.js";
 import {
   type Earlier,
   frameFill,
@@ -868,6 +868,27 @@ const FIXTURES: Fixture[] = [
       labels: L({ picture: "tiles", example: "example" }),
     },
   },
+  {
+    name: "robot architecture, panel by panel",
+    domain: "robotics",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "panels",
+      labels: L({ picture: "the controller" }),
+    },
+  },
+  {
+    name: "micrograph series",
+    domain: "materials-science",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "panels",
+      count: { value: "2" },
+      labels: L({ picture: "grain growth" }),
+    },
+  },
 ];
 
 /** A fixture as the plan would carry it, defaults filled. */
@@ -993,6 +1014,9 @@ const FILL: Record<string, number> = {
   "flow:timeline": 0.35,
   place: 0.5,
   region: 0.4,
+  // A panel is drawn at its own aspect, full height: a tall one in a wide
+  // region cannot cover more, and stretching it would change the figure.
+  "region:panels": 0.3,
 };
 const floorOf = (form: string) =>
   FILL[form.split(":").slice(0, 2).join(":")] ?? FILL[form.split(":")[0] as string] ?? 0;
@@ -1288,6 +1312,29 @@ describe("what each verb refuses", () => {
     const label = prims.find((p) => p.p === "text" && p.text === "draft") as { y: number };
     expect(label.y - card.y).toBeGreaterThanOrEqual(16);
     expect(prims.filter((p) => p.p === "text" && p.text === "γ+1")).toHaveLength(1);
+  });
+
+  it("region panels: a figure splits along its blank gutters, in reading order", () => {
+    const W = 300;
+    const H = 200;
+    const d = new Float32Array(W * H * 3).fill(1);
+    const block = (x0: number, y0: number, w: number, h: number) => {
+      for (let y = y0; y < y0 + h; y++)
+        for (let x = x0; x < x0 + w; x++) for (let k = 0; k < 3; k++) d[(y * W + x) * 3 + k] = 0.2;
+    };
+    block(160, 10, 130, 80); // top right
+    block(10, 10, 130, 80); // top left
+    block(10, 110, 280, 80); // bottom, full width
+    const found = findPanels({ w: W, h: H, d });
+    expect(found).toEqual([
+      { x: 10, y: 10, w: 130, h: 80 },
+      { x: 160, y: 10, w: 130, h: 80 },
+      { x: 10, y: 110, w: 280, h: 80 },
+    ]);
+    // One block, no gutter: no panels to walk.
+    const solid = new Float32Array(W * H * 3).fill(1);
+    for (let i = 0; i < 100 * 100 * 3; i++) solid[i] = 0.2;
+    expect(findPanels({ w: W, h: H, d: solid })).toHaveLength(1);
   });
 
   it("place: ticks are round values inside the drawn range", () => {

@@ -1391,11 +1391,17 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     },
   },
   region: {
-    doc: `parts of a picture picked out by a RULE with stated numbers, never
-                     by coordinates: \`cut\` crops (\`count\` crops of side \`size\`
-                     at the training size \`resize\`, \`gather\` lifting them into
-                     one batch) or grid (cells of side \`size\`, lit row by row).
-                     Takes \`picture\`.`,
+    doc: `parts of a picture picked out by a RULE, never by coordinates:
+                     \`cut\` crops (\`count\` crops of side \`size\` at the
+                     training size \`resize\`, \`gather\` lifting them into one
+                     batch) or grid (cells of side \`size\`, lit row by row) on
+                     example material; or panels — the SOURCE'S OWN FIGURE split
+                     along its blank gutters (found in its pixels at build time)
+                     into its panels, the whole figure first, then each panel
+                     zoomed on its own sentence, in reading order (\`count\`:
+                     how many, at most 6). Panels is how an architecture
+                     figure's parts are walked through one by one. Takes
+                     \`picture\`: for panels, the beat that cites the figure.`,
     slots: {
       picture: { what: "title of the picture" },
       batch: { what: "title of the gathered batch (required with `gather`)", optional: true },
@@ -1704,8 +1710,9 @@ export const literalSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("region"),
     picture: z.string(),
-    cut: z.enum(["crops", "grid"]),
-    size: numSchema,
+    cut: z.enum(["crops", "grid", "panels"]),
+    /** crops and grid: the piece's side. panels takes none. */
+    size: numSchema.optional(),
     count: numSchema.optional(),
     resize: numSchema.optional(),
     gather: z.boolean().default(false),

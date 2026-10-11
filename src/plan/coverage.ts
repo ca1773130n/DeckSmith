@@ -216,6 +216,45 @@ export function coverageFindings(storyboard: Storyboard, source: Source): string
   return out;
 }
 
+/** The figure ids a beat shows, wherever its params put them. */
+function figureIds(beat: Beat): string[] {
+  const p = beat.params as Record<string, unknown>;
+  return [p, p.left, p.right, p.backdrop].flatMap((v) => {
+    const id = (v as { figureId?: unknown } | undefined)?.figureId;
+    return typeof id === "string" ? [id] : [];
+  });
+}
+
+/** A caption that says its figure is a picture of something rather than a chart. */
+const PICTURE_CAPTION =
+  /qualitative|visuali[sz]|photo|camera|\bviews?\b|\bframes?\b|\bscenes?\b|定性|可视化|视图|画面|정성|시각화|장면|可視化|定性的/iu;
+
+/**
+ * Advice for a plan whose source is about pictures: at least three of its own
+ * figures are captioned as views, frames or qualitative examples, and no beat
+ * runs `region` or `operate`. r1 drew a driving paper's only imagery at 55%
+ * width beside text, its panels unreadable, with neither verb used once. Sent
+ * back once with the other findings; a plan that still ignores it is kept.
+ */
+export function pictureFindings(storyboard: Storyboard, source: Source): string[] {
+  const pictures = source.figures.filter(
+    (f) => !f.id.startsWith(GENERATED_FIGURE_PREFIX) && PICTURE_CAPTION.test(f.caption),
+  );
+  if (pictures.length < 3) return [];
+  const used = storyboard.beats.some(
+    (b) => b.literal?.kind === "region" || b.literal?.kind === "operate",
+  );
+  if (used) return [];
+  return [
+    `This source is about pictures — ${pictures.length} of its figures are views or examples (${pictures
+      .slice(0, 3)
+      .map((f) => f.id)
+      .join(
+        ", ",
+      )}…) — and no beat runs \`region\` or \`operate\`. Walk an architecture figure's parts with \`region\` panels on the beat that cites it, or compute an \`operate\` on a picture.`,
+  ];
+}
+
 /** Whether a beat carries a picture a literal scene can run on: a figure or a brief for one. */
 function hasPicture(beat: Beat): boolean {
   const p = beat.params as Record<string, unknown>;
@@ -1151,6 +1190,9 @@ function verbGrounding(
       break;
     }
     case "region":
+      // Panels are the source's own figure cut along its own gutters: no stated
+      // size, nothing example about it, and `count` is how many to walk through.
+      if (lit.cut === "panels") break;
       role(lit.size, LITERAL_ROLE_NOUNS.cut, "the piece size");
       role(lit.count, LITERAL_ROLE_NOUNS.batch, "the number of crops");
       role(lit.resize, LITERAL_ROLE_NOUNS.resize, "the training size");
@@ -1441,6 +1483,17 @@ export function literalFindings(
       else if (!hasPicture(owner))
         out.push(
           `${at} runs on the picture of "${pic}", which has none. Give that beat a figure or an illustration brief, or name a beat that has one.`,
+        );
+      else if (
+        lit.kind === "region" &&
+        lit.cut === "panels" &&
+        !figureIds(owner).some(
+          (id) =>
+            !id.startsWith(GENERATED_FIGURE_PREFIX) && source.figures.some((f) => f.id === id),
+        )
+      )
+        out.push(
+          `${at} walks the panels of "${pic}", which shows none of the source's own figures. Panels are cut from the paper's figure: name the beat that cites it.`,
         );
     }
     const refs: Array<[string, string, (p: Literal) => boolean, string]> = [];

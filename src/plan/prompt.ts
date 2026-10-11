@@ -969,11 +969,21 @@ COMPOSE
                                                    connect
       a stated formula's behaviour ............... place plane with curves
       latency, serial against parallel ........... flow timeline
+      a figure of the method with parts .......... region panels on the beat
+                                                   citing it: the figure, then
+                                                   each panel zoomed on the
+                                                   sentence that names it
       an architecture, a pipeline ................ flow chain
       earlier approaches, family by family ....... prior-work
     \`table\` only where none is honest, at most once a deck. Each word form
     (place strip, margin, length, combos, sets) at most ONCE a deck, and two
     beats in a row never draw the same verb, form and operand.
+  - WHEN A BEAT CITES A FIGURE WHOSE PANELS CARRY THE MECHANISM (an
+    architecture, a decoder with its inputs and outputs, before/after views),
+    prefer \`region\` cut panels on that beat over showing the figure small
+    beside text: each panel is cut from the figure's own layout and zoomed while
+    its sentence is spoken, so nothing is placed by hand. One sentence per panel,
+    in the figure's reading order (top to bottom, left to right).
   - A verb that takes \`picture\` names the beat whose picture it runs on: this
     beat or an earlier one carrying a figure or an illustration brief. Use ONE
     picture for the whole deck: give an early beat a brief for a CLEAR,
