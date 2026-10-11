@@ -751,6 +751,56 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     );
   });
 
+  it("binds a curve's fixed parameter by a table column headed with its symbol", () => {
+    const withTable = (head: string) =>
+      sourceSchema.parse({
+        ...analysis,
+        tables: [
+          {
+            id: "tbl9",
+            caption: "Table 1: speed against the baseline.",
+            columns: ["α\\alpha", head, "Speed"],
+            rows: [
+              ["0.6", "2", "1.96X"],
+              ["0.8", "2", "2.44X"],
+              ["0.9", "2", "2.71X"],
+              ["0.8", "5", "3.69X"],
+            ],
+          },
+        ],
+      });
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "place",
+        form: "plane",
+        axes: [
+          { name: "α", lowerIsBetter: false },
+          { name: "Speed", lowerIsBetter: false },
+        ],
+        items: [
+          { label: "LHID", values: ["30.56", "0.9106"] },
+          { label: "DehazeFormer-b", values: ["29.73", "29.73"] },
+        ],
+        curves: [
+          {
+            label: "γ=2",
+            expr: "(1 - α^(γ+1)) / (1 - α)",
+            x: "α",
+            fixed: [{ name: "γ", value: "2" }],
+            checks: [
+              { inputs: [{ name: "α", value: "0.6" }], output: "1.96" },
+              { inputs: [{ name: "α", value: "0.9" }], output: "2.71" },
+            ],
+          },
+        ],
+      },
+    });
+    const found = (head: string) => literalFindings(plan(beats), withTable(head)).join("\n");
+    expect(found("γ\\gamma")).not.toMatch(/curve "γ=2"/);
+    expect(found("g")).toMatch(/curve "γ=2": γ 2 is never printed bound to γ/);
+  });
+
   it("holds set items to the source's names, and the first set to what has results", () => {
     const beats = covered();
     const sets = (first: string[]) =>

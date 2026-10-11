@@ -665,6 +665,25 @@ export function paramProblem(
   return `${role} ${value} is printed, but never as the ${role}${sym ? ` (${sym} never stands beside its name)` : ""}`;
 }
 
+/**
+ * Whether one of the source's tables has a column headed by the symbol alone and
+ * a cell of it holding the value: a table binds its column's values to its
+ * header as "γ = 2" binds in prose. arXiv 2211.17192's Table 1 heads a column
+ * γ (written "γ\\gamma", the page's MathML and its TeX) over 2, 3, 2, 5, 2,
+ * 10, and a curve fixed at γ = 2 was refused as never printed bound to γ.
+ */
+function columnStates(source: Source, symbol: string, value: string): boolean {
+  const sym = symbolOf(symbol);
+  const v = value.trim();
+  if (!sym || !v) return false;
+  return source.tables.some((t) =>
+    t.columns.some((col, j) => {
+      const h = normalizeTex(col).replace(/\s+/g, "");
+      return (h === sym || h === sym + sym) && t.rows.some((r) => (r[j] ?? "").trim() === v);
+    }),
+  );
+}
+
 /** The passages that name an op (or rule), normalised. */
 const passagesNaming = (ps: readonly string[], nouns: RegExp) => ps.filter((p) => nouns.test(p));
 
@@ -1266,7 +1285,8 @@ function verbGrounding(
         );
         for (const f of c.fixed) {
           const why = paramProblem(f.value, f.symbol ?? f.name, /./, f.name, text, true);
-          if (why) out.push(`curve "${c.label}": ${why}`);
+          if (why && !columnStates(source, f.symbol ?? f.name, f.value))
+            out.push(`curve "${c.label}": ${why}`);
         }
       }
       break;
