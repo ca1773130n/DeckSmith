@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { lineChart } from "../src/emit/archetypes/line-chart.js";
 import type { EmitContext, Theme, Tween } from "../src/emit/kit.js";
 import { faceOf, textWidth } from "../src/emit/svg.js";
+import { THEMES } from "../src/emit/themes/index.js";
 import type { BeatOf, Format, Source } from "../src/types.js";
 import { beatSchema, FORMATS } from "../src/types.js";
 
@@ -132,14 +133,26 @@ const hits = (a: Box, b: Box) =>
   Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 8 &&
   Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 8;
 
+/**
+ * The ghost's name as painted: a label beside the curve, anchored start, middle
+ * or end — or, where no honest place on the plot exists, a key off it, whose box
+ * runs from its swatch to the end of its name.
+ */
 const ghostBox = (html: string, face = FACE): Box | undefined => {
-  const m = /id="s2-ghostlab" text-anchor="(start|end)" x="([\d.]+)" y="([\d.]+)">([^<]*)</.exec(
-    html,
-  );
+  const key =
+    /<g class="ghostkey" id="s2-ghostlab"><line x1="([\d.]+)"[^>]*\/><text class="ghostlab" text-anchor="end" x="([\d.]+)" y="([\d.]+)">/.exec(
+      html,
+    );
+  if (key) return runBox(Number(key[1]), Number(key[3]), Number(key[2]) - Number(key[1]));
+  const m =
+    /id="s2-ghostlab" text-anchor="(start|middle|end)" x="([\d.]+)" y="([\d.]+)">([^<]*)</.exec(
+      html,
+    );
   if (!m) return undefined;
   const w = ghostW(m[4] as string, face);
   const cx = Number(m[2]);
-  return runBox(m[1] === "start" ? cx : cx - w, Number(m[3]), w);
+  const left = m[1] === "start" ? cx : m[1] === "middle" ? cx - w / 2 : cx - w;
+  return runBox(left, Number(m[3]), w);
 };
 const valueBoxes = (html: string, face = FACE): Box[] =>
   [...html.matchAll(/<text class="pv"( text-anchor="start")? x="([\d.]+)" y="([\d.]+)">([^<]*)</g)]
@@ -529,15 +542,94 @@ describe("the baseline's label", () => {
       { ...ctx(), theme: zh },
     );
     const g = ghostBox(scene.html, face);
-    // Named, not dropped: lifted over the value it used to print through, still
-    // at the baseline's last x and on the baseline's side of the result.
+    // Named, not dropped — and not over the result's number. Every `.pv` is the
+    // RESULT's value, so a name sharing a column with one and nearer than a line
+    // of type reads as its caption: the first fix for this deck lifted the name
+    // clear of "2.25" by 0px, and the frame then said the baseline scored 2.25.
     expect(g).toBeDefined();
     const box = g as Box;
-    expect(scene.html).toMatch(/id="s2-ghostlab" text-anchor="end"/);
-    for (const v of valueBoxes(scene.html, face)) expect(hits(box, v)).toBe(false);
-    for (const id of ["base", "target"]) expect(crosses(polyline(scene.html, id), box)).toBe(false);
-    const [, endY] = polyline(scene.html, "base").at(-1) as [number, number];
-    expect(box.y + box.h).toBeLessThan(endY);
+    for (const v of valueBoxes(scene.html, face)) {
+      expect(hits(box, v)).toBe(false);
+      const shareColumns = Math.min(box.x + box.w, v.x + v.w) - Math.max(box.x, v.x) > 0;
+      const gap = Math.max(v.y - (box.y + box.h), box.y - (v.y + v.h));
+      if (shareColumns) expect(gap).toBeGreaterThanOrEqual(49);
+      // And the ghost, now legible, is not drawn through a value either: its last
+      // leg ran through "2.25" until that value moved under its point.
+      expect(crosses(polyline(scene.html, "base"), v)).toBe(false);
+    }
+    // The curves are never more than 32px apart, under one line of type, so no
+    // place beside the baseline is clear of the result: the name goes in a key,
+    // off the plot, above its top gridline, with a stub of the ghost's stroke.
+    expect(scene.html).toContain('<g class="ghostkey" id="s2-ghostlab">');
+    const topGrid = Math.min(
+      ...[...scene.html.matchAll(/<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="\1" \/>/g)].map(
+        (m) => Number(m[1]),
+      ),
+    );
+    expect(box.y + box.h).toBeLessThanOrEqual(topGrid);
+    expect(scene.html).toMatch(new RegExp(`class="ghostkey"[^>]*><line [^>]*stroke="${zh.dim}"`));
+  });
+
+  it("names the ghost where the curves part when both ends are taken", () => {
+    // Converged at both ends, a curve's height apart in the middle: no end is
+    // honest, so the name goes along the baseline at the widest separation, on
+    // its side away from the result — never in the key while a place exists.
+    const scene = lineChart(
+      beat({
+        headline: "Each extra step buys less",
+        xLabel: "Steps",
+        yLabel: "Loss",
+        points: [10, 40, 60, 61].map((y, i) => ({ x: `T=${i}`, y })),
+        compare: {
+          label: "Baseline",
+          points: [10, 15, 25, 60].map((y, i) => ({ x: `T=${i}`, y })),
+        },
+      }),
+      ctx(),
+    );
+    expect(scene.html).toMatch(/id="s2-ghostlab" text-anchor="middle"/);
+    const g = ghostBox(scene.html) as Box;
+    for (const v of valueBoxes(scene.html)) expect(hits(g, v)).toBe(false);
+    for (const id of ["base", "target"]) expect(crosses(polyline(scene.html, id), g)).toBe(false);
+    // Under the baseline, which is the side away from a result drawn above it.
+    const base = polyline(scene.html, "base");
+    const target = polyline(scene.html, "target");
+    const mid = g.x + g.w / 2;
+    const at = (pts: [number, number][]) => {
+      const i = pts.findIndex(([px]) => px >= mid);
+      const [ax, ay] = pts[i - 1] as [number, number];
+      const [bx, by] = pts[i] as [number, number];
+      return ay + ((by - ay) * (mid - ax)) / (bx - ax);
+    };
+    expect(at(target)).toBeLessThan(at(base));
+    expect(g.y).toBeGreaterThan(at(base));
+  });
+
+  it("leaves the ghost at 3:1 or better against the ground, in every theme", () => {
+    // The ghost used to fade the accent to 0.28 opacity: 1.38:1 to 1.87:1 across
+    // the nine themes, and in "signal" it all but vanished. It now turns to the
+    // theme's `dim`, a neutral the accent is told apart from by hue as well.
+    const lum = (hex: string) => {
+      const c = [1, 3, 5]
+        .map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * (c[0] as number) + 0.7152 * (c[1] as number) + 0.0722 * (c[2] as number);
+    };
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    for (const [name, deck] of Object.entries(THEMES)) {
+      const t: Theme = deck;
+      const scene = lineChart(COMPARED, { ...ctx(), theme: t });
+      const left = scene.tl.filter((tw) => tw.target === "#s2-base" && "stroke" in tw.to);
+      expect({ name, n: left.length }).toEqual({ name, n: 1 });
+      const rest = String((left[0] as Tween).to.stroke);
+      expect(rest).not.toBe(t.accent);
+      expect({ name, ok: ratio(rest, t.bg) >= 3 }).toEqual({ name, ok: true });
+      // Nothing fades it back down after it has turned.
+      expect(scene.tl.some((tw) => tw.target === "#s2-base" && "opacity" in tw.to)).toBe(false);
+    }
   });
 
   it("never prints through the y-axis name, which is on the chart whatever the data is", () => {
