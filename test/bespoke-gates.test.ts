@@ -67,8 +67,20 @@ describe("the graders", () => {
   it("dead_stretch: photographs only stretches of 6s+ after a hold, and fails one that never changes", () => {
     // r1's split-compare: holds [1.95, 2.85, 3.65] in a 23.6s scene.
     const w = { sid: "s3", start: 0, duration: 23.6, cues: [], holds: [1.95, 2.85, 3.65] };
-    expect(deadCandidates(w)).toEqual([[3.95, 23.1]]);
-    expect(deadCandidates({ ...w, holds: [1.95, 8.5, 12.85], duration: 18 })).toEqual([]);
+    expect(deadCandidates(w)).toEqual([
+      [3.95, 23.1],
+      [3.15, 23.1],
+    ]);
+    // Each stretch under 6s, but two of them across a hold are photographed too: a hold
+    // with nothing to reveal joined r2's last two into one 12s still run.
+    expect(deadCandidates({ ...w, holds: [1.95, 8.5, 12.85], duration: 18 })).toEqual([
+      [2.25, 11.65],
+      [8.8, 17.5],
+    ]);
+    expect(deadCandidates({ ...w, holds: [1.95, 6.5, 10.5], duration: 14 })).toEqual([
+      [2.25, 9.3],
+      [6.8, 13.5],
+    ]);
     const total = 1920 * 1080;
     const dead = gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: 0, total }]);
     expect(dead.map((f) => [f.rule, f.severity])).toEqual([["dead_stretch", "error"]]);

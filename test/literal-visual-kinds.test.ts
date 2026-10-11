@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "../src/emit/kit.js";
 import { drawProblems } from "../src/literal/check.js";
-import { literalFragment } from "../src/literal/index.js";
+import { leanThroughStill, literalFragment } from "../src/literal/index.js";
 import { widthOf } from "../src/literal/kind.js";
 import { wrapBy } from "../src/literal/kinds/common.js";
 import { combinations, resultOf } from "../src/literal/kinds/place-combos.js";
@@ -651,5 +651,36 @@ describe("prior-work brings back what earlier scenes computed", () => {
 
   it("refuses a lane that names a scene which computed no picture", async () => {
     await expect(run(PRIOR, new Map())).rejects.toThrow(/computed no picture before it/);
+  });
+});
+
+describe("a literal scene leans through a still sentence", () => {
+  const tween = (id: string, dur: number, at: number) =>
+    `tl.fromTo("#SCENEID-${id}", {"opacity":0}, {"opacity":1,"duration":${dur}}, ${at});`;
+  const leans = (script: string) =>
+    script.split("\n").filter((l) => l.startsWith('tl.fromTo("#SCENEID-lit"'));
+  const atOf = (l: string) => Number(/, (-?[\d.]+)\);$/.exec(l)?.[1]);
+
+  it("leans in and back inside each sentence, clear of every tween and sentence start", () => {
+    // Two groups over four sentences: the last two sentences have nothing to reveal.
+    const script = [tween("a", 0.6, 1), tween("b", 0.6, 8.5)].join("\n");
+    const cues = c([
+      [0.95, 8.3],
+      [8.35, 15.1],
+      [15.15, 21.9],
+      [21.95, 25.2],
+    ]);
+    const l = leans(leanThroughStill(script, cues));
+    // Sentences 1-3 each lean (in, out); the 3.25s last one does not.
+    expect(l).toHaveLength(6);
+    expect(l.map(atOf)).toEqual([1.75, 5, 9.25, 12.15, 15.3, 18.575]);
+    expect(l[1]).toContain('"scale":1,');
+  });
+
+  it("adds nothing where the kind keeps moving, or where nothing is spoken", () => {
+    const busy = Array.from({ length: 8 }, (_, k) => tween(`x${k}`, 1, 1 + k)).join("\n");
+    const cues = c([[0.95, 8.5]]);
+    expect(leanThroughStill(busy, cues)).toBe(busy);
+    expect(leanThroughStill(tween("a", 0.6, 1), [])).toBe(tween("a", 0.6, 1));
   });
 });

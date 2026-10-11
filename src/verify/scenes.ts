@@ -127,16 +127,27 @@ export interface DeadSpan {
  * reveal (which runs in the second before its hold), and the last hold to the
  * settled end. Only those at least `DEAD_SECONDS` long, which are the only ones
  * worth photographing.
+ *
+ * And each run of TWO such stretches, across the hold between them: a hold
+ * with nothing to reveal joins its neighbours into one still run that neither
+ * half shows. r2's OneVL deck had a lengths scene still for 12s over its last
+ * two holds, each window under 6s, and the gate passed it. The three frames
+ * of a two-stretch window still see a reveal at the hold between.
  */
 export function deadCandidates(w: SceneWindow, min = DEAD_SECONDS): Array<[number, number]> {
   const holds = [...new Set(w.holds ?? [])].filter((h) => h > 0).sort((a, b) => a - b);
   const out: Array<[number, number]> = [];
-  holds.forEach((h, i) => {
-    const next = holds[i + 1];
-    const t0 = round(h + 0.3);
-    const t1 = round(next === undefined ? w.duration - 0.5 : next - 1.2);
-    if (t1 - t0 >= min) out.push([t0, t1]);
-  });
+  const endOf = (k: number) => {
+    const next = holds[k];
+    return round(next === undefined ? w.duration - 0.5 : next - 1.2);
+  };
+  for (const span of [1, 2])
+    holds.forEach((h, i) => {
+      if (span === 2 && i + 1 >= holds.length) return;
+      const t0 = round(h + 0.3);
+      const t1 = endOf(i + span);
+      if (t1 - t0 >= min) out.push([t0, t1]);
+    });
   return out;
 }
 

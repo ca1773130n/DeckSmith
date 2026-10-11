@@ -158,7 +158,72 @@ export function literalFragment(
   theme: Theme,
 ): Fragment {
   const href = (f: string) => `${LITERAL_DIR}/${f}`;
-  return KINDS[kind].fragment(layers, region, cues, spec, theme, href);
+  const f = KINDS[kind].fragment(layers, region, cues, spec, theme, href);
+  return { ...f, script: leanThroughStill(f.script, cues) };
+}
+
+/** The shortest still stretch inside a sentence a literal scene leans through. */
+const LEAN_MIN_SECONDS = 4;
+const LEAN_SCALE = 1.02;
+
+/**
+ * A scene's script with a slow lean of the whole scene through each still stretch
+ * of a sentence: in, and back to rest before the next sentence starts or the
+ * next tween runs, so every hold (a sentence's start) sees the layout as drawn.
+ *
+ * A kind times its steps on the sentences, but a step is one reveal and a sentence
+ * runs 7-9s: r2's results table stood 6.4s after each row lit, and a lengths scene
+ * with two groups over four sentences stood 12s across its last two. The kinds
+ * that lean their own camera (`drift`) leave no stretch for this to find.
+ *
+ * Reads the script it is given — every line is `Tl`'s `tl.fromTo(..., {to}, at);`
+ * with a JSON `to` — and a line it cannot read counts as busy for 1s, so an
+ * unfamiliar line can only make the lean shorter, never overlap a tween.
+ */
+export function leanThroughStill(script: string, cues: readonly Cue[]): string {
+  const first = cues[0];
+  const last = cues[cues.length - 1];
+  if (!first || !last) return script;
+  const busy: Array<[number, number]> = [];
+  for (const line of script.split("\n")) {
+    const m = /, (\{[^{}]*\}), (-?\d+(?:\.\d+)?)\);\s*$/.exec(line);
+    if (!m) continue;
+    let dur = 1;
+    try {
+      const d = (JSON.parse(m[1] as string) as { duration?: unknown }).duration;
+      if (typeof d === "number") dur = d;
+    } catch {
+      // Not Tl's JSON: counted busy for 1s, which only shortens a lean.
+    }
+    const at = Number(m[2]);
+    busy.push([at, at + dur]);
+  }
+  // Each sentence on its own: a lean never crosses a sentence's start, where a hold is.
+  const out: string[] = [];
+  cues.forEach((c, k) => {
+    const end = cues[k + 1]?.t0 ?? last.t1;
+    let t = c.t0;
+    const marks = busy.filter(([a, b]) => b > c.t0 && a < end).sort((x, y) => x[0] - y[0]);
+    const gaps: Array<[number, number]> = [];
+    for (const [a, b] of marks) {
+      if (a > t) gaps.push([t, a]);
+      t = Math.max(t, b);
+    }
+    if (end > t) gaps.push([t, end]);
+    for (const [g0, g1] of gaps) {
+      const t0 = round3(g0 + 0.15);
+      const t1 = round3(g1 - 0.15);
+      if (t1 - t0 < LEAN_MIN_SECONDS) continue;
+      const half = round3((t1 - t0 - 0.05) / 2);
+      const lean = JSON.stringify({ scale: LEAN_SCALE, transformOrigin: "50% 50%" });
+      const rest = JSON.stringify({ scale: 1, transformOrigin: "50% 50%" });
+      out.push(
+        `tl.fromTo("#SCENEID-lit", ${rest}, ${JSON.stringify({ scale: LEAN_SCALE, transformOrigin: "50% 50%", duration: half, ease: "sine.inOut", immediateRender: false })}, ${t0});`,
+        `tl.fromTo("#SCENEID-lit", ${lean}, ${JSON.stringify({ scale: 1, transformOrigin: "50% 50%", duration: half, ease: "sine.inOut", immediateRender: false })}, ${round3(t0 + half + 0.05)});`,
+      );
+    }
+  });
+  return out.length ? `${script}\n${out.join("\n")}` : script;
 }
 
 /* -------------------------------------------------------------------- the pass */
