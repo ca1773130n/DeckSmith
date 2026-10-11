@@ -985,10 +985,13 @@ COMPOSE
                                                           figure or an earlier
                                                           layer — never a
                                                           chain of names)
-    Only a method beat none of these fits keeps \`literal\` null.
+    Only a method beat none of these fits keeps \`literal\` null. Two beats in a
+    row never draw the same verb and form (two \`flow\` chains in a row are one
+    chain: merge them, or draw the second as a timeline or panels).
   - A setup detail (a protocol, a model size, a split) is not a beat: say it in
-    the \`caption\` of the result beat that uses it. An ablation is \`place\`
-    strip (one axis, one dot per setting) or combos; a plane names at most 8
+    the \`caption\` of the result beat that uses it. An ablation (each setting
+    with its one reported score) is a \`place\` strip: one axis, one dot per
+    setting — combos is for experiments NOT run. A plane names at most 8
     points beside them (more are keyed), so give the ones the beat is about.
     \`place\` sets only where what was and was not evaluated are the point.
   - Learned components are never computed: a \`flow\` stage with \`learned\`
