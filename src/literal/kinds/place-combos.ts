@@ -62,7 +62,20 @@ export const combosForm: KindImpl = {
       throw new Error('literal: ablation draws settings and needs the label slot "tested"');
     const two = d.components.length === 2;
     const othersH = d.others.length ? 64 + 26 : 0;
-    const gw = Math.round(W * (d.settings.length ? 0.46 : 1));
+    // The settings column is as wide as its words, between 28% and 54% of the scene; the grid
+    // and its results take the rest. A fixed 54% left a 2x2 grid with three results 782px of
+    // a 1700px scene for two short settings ("λ_l 1.0"), and the squares shrank to 46px.
+    const sNeed = d.settings.length
+      ? Math.max(
+          widthOf(tested, LABEL, theme),
+          ...d.settings.map(
+            (st) => widthOf(st.name, SMALL, theme) + 32 + widthOf(st.value, LABEL, theme),
+          ),
+        )
+      : 0;
+    const gw = d.settings.length
+      ? Math.round(W - 64 - Math.min(W * 0.54 - 64, Math.max(W * 0.28, sNeed)))
+      : W;
     const gh = H - othersH;
     // Left: the combinations as one small grid of squares — no words in them, the holes are
     // the picture — with ONE quiet mark naming what an empty square means, and under it the
@@ -80,23 +93,45 @@ export const combosForm: KindImpl = {
     const missLines = holes ? wrap(missing, SMALL, gw - 60, theme) : [];
     const missH = holes ? missLines.length * 50 + 28 : 0;
     // The reported results, at the deck's headline size: what the source did measure.
-    // Beside the grid when the scene has the width (no settings column), else under it.
     const BIG = 56;
     const cellMax = Math.round(Math.min(220, (gw - headW - 16) / 2));
-    const beside = gw - (headW + 2 * cellMax + 16) - 64 >= 420;
-    const rx = beside ? headW + 2 * cellMax + 16 + 64 : 0;
-    const rw = gw - rx;
-    const blocks = d.reported.map((r) => ({
-      name: wrap(r.with.length ? r.with.join(" + ") : off, SMALL, rw, theme),
-      value: wrap(r.result, BIG, rw, theme),
-    }));
-    const resH = blocks.reduce((a, b) => a + b.name.length * 50 + b.value.length * 66 + 20, 0);
-    const room = gh - gy - (rows - 1) * 16 - missH - (beside ? 0 : 12 + resH);
-    const cell = Math.round(Math.min(cellMax, room / rows));
-    if (cell < Math.max(72, colW + 8) || (beside && gy + resH - 20 > gh))
-      throw new Error(
-        `literal: ablation's grid and reported results do not fit ${Math.floor(gh)}px (squares of ${cell}px); shorten the results or the component names`,
+    const blocksIn = (w: number) =>
+      d.reported.map((r) => ({
+        name: wrap(r.with.length ? r.with.join(" + ") : off, SMALL, w, theme),
+        value: wrap(r.result, BIG, w, theme),
+      }));
+    const n = d.reported.length;
+    const layoutFor = (beside: boolean) => {
+      const rx = beside ? headW + 2 * cellMax + 16 + 64 : 0;
+      const rw = gw - rx;
+      const stacked = blocksIn(rw);
+      const stackedH = stacked.reduce(
+        (a, b) => a + b.name.length * 50 + b.value.length * 66 + 20,
+        0,
       );
+      // Under the grid, the results side by side when each gets 240px and that is shorter than
+      // stacking them: stacked, three results took 420px of a 714px scene and left 46px squares.
+      const colR = Math.floor((rw - (n - 1) * 32) / Math.max(1, n));
+      const row = !beside && n > 1 && colR >= 240 ? blocksIn(colR) : undefined;
+      const rowNameH = row ? Math.max(...row.map((b) => b.name.length * 50)) : 0;
+      const rowH = row ? rowNameH + Math.max(...row.map((b) => b.value.length * 66)) + 20 : 0;
+      const across = row !== undefined && rowH < stackedH;
+      const resH = across ? rowH : stackedH;
+      const room = gh - gy - (rows - 1) * 16 - missH - (beside ? 0 : 12 + resH);
+      const cell = Math.round(Math.min(cellMax, room / rows));
+      const ok = cell >= Math.max(72, colW + 8) && !(beside && gy + resH - 20 > gh);
+      const blocks = across ? (row as typeof stacked) : stacked;
+      return { beside, rx, rw, colR, rowNameH, across, blocks, cell, ok };
+    };
+    // Beside the grid when there is the width and the results fit its height, else under it.
+    const wide = gw - (headW + 2 * cellMax + 16) - 64 >= 360;
+    const tries = wide ? [layoutFor(true), layoutFor(false)] : [layoutFor(false)];
+    const lay = tries.find((t) => t.ok) ?? (tries[0] as (typeof tries)[number]);
+    if (!lay.ok)
+      throw new Error(
+        `literal: ablation's grid and reported results do not fit ${Math.floor(gh)}px (squares of ${lay.cell}px); shorten the results or the component names`,
+      );
+    const { beside, rx, rw, colR, rowNameH, across, blocks, cell } = lay;
     const cellXY = (i: number): [number, number] =>
       two
         ? [headW + (i % 2) * (cell + 16), gy + Math.floor(i / 2) * (cell + 16)]
@@ -135,12 +170,15 @@ export const combosForm: KindImpl = {
     let ry = beside ? gy : mY + missH + 12 - (holes ? 28 : 0);
     const reported = blocks
       .map(({ name, value }, i) => {
+        // Across: one row, the values on one line under the tallest name.
+        const nameH = across ? rowNameH : name.length * 50;
+        const x = across ? i * (colR + 32) : rx;
         const y = ry;
-        ry += name.length * 50 + value.length * 66 + 20;
-        return `<div id="SCENEID-rp${i}" style="position:absolute;left:${px(rx)};top:${px(y)};width:${px(rw)};height:${px(name.length * 50 + value.length * 66)}">${name
+        if (!across) ry += nameH + value.length * 66 + 20;
+        return `<div id="SCENEID-rp${i}" style="position:absolute;left:${px(x)};top:${px(y)};width:${px(across ? colR : rw)};height:${px(nameH + value.length * 66)}">${name
           .map((t, j) => label(`rn${i}-${j}`, t, 0, j * 50, SMALL, theme.muted))
           .join("")}${value
-          .map((t, j) => label(`rv${i}-${j}`, t, 0, name.length * 50 + j * 66, BIG, theme.accent))
+          .map((t, j) => label(`rv${i}-${j}`, t, 0, nameH + j * 66, BIG, theme.accent))
           .join("")}</div>`;
       })
       .join("\n");

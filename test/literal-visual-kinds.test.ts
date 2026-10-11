@@ -424,6 +424,34 @@ describe("ablation: the experiments not run, as holes", () => {
     expect(f.markup).not.toMatch(/<circle|stroke-dasharray/);
   });
 
+  it("gives the grid the width short settings leave, and three results room", () => {
+    // OneVL's ablation: two decoders, three reported results, two loss weights. A fixed
+    // 54% settings column left the squares 46px and the plan was refused in every format.
+    const lit = literalSchema.parse({
+      kind: "place",
+      form: "combos",
+      combos: {
+        components: ["视觉解码器", "语言解码器"],
+        reported: [
+          { with: ["视觉解码器", "语言解码器"], result: "88.84" },
+          { with: ["语言解码器"], result: "87.97" },
+          { with: ["视觉解码器"], result: "88.53" },
+        ],
+        settings: [
+          { name: "λ_l", value: "1.0" },
+          { name: "λ_v", value: "0.1" },
+        ],
+      },
+      labels: [],
+    });
+    for (const r of [region, { width: 1220, height: 1000 }, { width: 1220, height: 2120 }]) {
+      const f = draw(lit, CASES[4]?.[2] as Cue[], undefined, r);
+      const cell = Number(/id="SCENEID-cell0" style="[^"]*width:(\d+)px/.exec(f.markup)?.[1]);
+      expect(cell).toBeGreaterThanOrEqual(200);
+      expect(f.markup).toMatch(/font-size:56px;[^"]*">87\.97</);
+    }
+  });
+
   it("outlines a proposal that is neither a combination nor a setting, after the settings", () => {
     const lit = literalSchema.parse({
       ...FUTURE,
