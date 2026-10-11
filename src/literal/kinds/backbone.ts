@@ -252,8 +252,8 @@ export const backboneKind: KindImpl = {
       .map((t, i) => label(`dn${i}`, t, dx, H - (depthLines.length - i) * 52, SMALL, theme.muted))
       .join("");
     const markup = `<div id="SCENEID-lit">
-${label("l-in", lab(K, spec, "input"), (X[0] as number) + 16, yIn + 12, SMALL, "", ON_PHOTO)}
 ${panel("in", X[0] as number, yIn, full, fullH, img("in-i", href(f.input as string), 0, 0, full, fullH), "lit-dark")}
+${label("l-in", lab(K, spec, "input"), (X[0] as number) + 16, yIn + 12, SMALL, "", ON_PHOTO)}
 ${mapLabel("l0", lab(K, spec, "shallow"), 0)}
 ${panel("m0", X[0] as number, Y[0] as number, full, fullH, `<div id="SCENEID-m0-w" style="position:absolute;left:0;top:0;width:0;height:${px(fullH)};overflow:hidden">${img("m0-i", href(f.shallow as string), 0, 0, full, fullH)}</div>`, "lit-dark")}
 ${mapLabel("l1", lab(K, spec, "encoder"), 1)}${map("m1", f.e1 as string, 1)}

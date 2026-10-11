@@ -98,7 +98,36 @@ export const marginsKind: KindImpl = {
     );
     const rw = Math.min(readW, W * 0.34);
     const scaledLines = wrap(scaled, SMALL, W - rw - 64, theme);
-    const footH = scaledLines.length * 50 + 10;
+    // On the plane the regions are named in a legend UNDER it, each beside a swatch of its
+    // tint: words inside a quadrant sit where the points land (r3 of the EM-SNN deck drew
+    // "ahead" across RICE2's dot and name). Entries flow in rows across the plot's width.
+    const legendW = W - rw - 64;
+    const legend = two
+      ? [
+          { id: "l-ahead", text: ahead, swatch: `background:${theme.accent};opacity:0.45` },
+          { id: "l-behind", text: behind, swatch: `background:${theme.muted};opacity:0.45` },
+          { id: "l-zero", text: zero, swatch: `height:4px;top:22px;background:${theme.fg}` },
+        ].map((e) => ({ ...e, lines: wrap(e.text, SMALL, legendW - 52, theme) }))
+      : [];
+    let lx = 0;
+    let lrow = 0;
+    const placed = legend.map((e) => {
+      const w = 52 + Math.max(...e.lines.map((t) => widthOf(t, SMALL, theme)));
+      if (lx > 0 && lx + w > legendW) {
+        lx = 0;
+        lrow += 1;
+      }
+      const at = { ...e, x: lx, row: lrow };
+      lx += w + 40;
+      return at;
+    });
+    // A wrapped entry takes its own lines; rows are as tall as their tallest entry.
+    const rowLines = placed.reduce<number[]>((a, e) => {
+      a[e.row] = Math.max(a[e.row] ?? 1, e.lines.length);
+      return a;
+    }, []);
+    const legendH = rowLines.reduce((a, n) => a + n * 48 + 8, 0);
+    const footH = legendH + scaledLines.length * 50 + 10;
     const pw = W - rw - 64;
     const ph = H - footH;
     const span = d.metrics.map((_, m) => axisSpan(M, m));
@@ -160,40 +189,26 @@ export const marginsKind: KindImpl = {
         return label(`n${i}`, s.name, Math.max(0, lx), ly, SMALL, theme.fg);
       })
       .join("");
-    // Each corner's words wrapped to their own quadrant, so a long label in the deck's language
-    // never runs into the axis names or the next corner (r3 of the EM-SNN deck: "ahead" ran
-    // across "SSIM ↑", and "behind" into "zero"). `bottom`: the block ends there, growing up.
-    const block = (
-      id: string,
-      text: string,
-      x: number,
-      y: number,
-      maxW: number,
-      color: string,
-      o: { right?: boolean; bottom?: boolean } = {},
-    ) => {
-      const ls = wrap(text, SMALL, maxW, theme);
-      const top = o.bottom ? y - ls.length * 48 : y;
-      return `<div id="SCENEID-${id}" style="position:absolute;left:0;top:0;width:0;height:0">${ls
-        .map((t, j) =>
-          label(
-            `${id}-${j}`,
-            t,
-            o.right ? x - widthOf(t, SMALL, theme) : x,
-            top + j * 48,
-            SMALL,
-            color,
-          ),
-        )
-        .join("")}</div>`;
-    };
-    const quad = pw / 2 - 40;
     const corner = two
-      ? `${block("l-ahead", ahead, pw - 12, 64, quad, theme.accent, { right: true })}
-${block("l-behind", behind, 12, ph - 10, quad, theme.muted, { bottom: true })}
-${label("l-x", `${d.metrics[0]?.name ?? ""} →`, pw - metricW(0) - 60, cy + 10, SMALL, theme.fg)}
+      ? `${label("l-x", `${d.metrics[0]?.name ?? ""} →`, pw - metricW(0) - 60, cy + 10, SMALL, theme.fg)}
 ${label("l-y", `${d.metrics[1]?.name ?? ""} ↑`, cx + 14, 10, SMALL, theme.fg)}
-${block("l-zero", zero, cx + 14, ph - 10, quad, theme.muted, { bottom: true })}`
+${placed
+  .map((e) => {
+    const y = ph + 10 + rowLines.slice(0, e.row).reduce((a, n) => a + n * 48 + 8, 0);
+    return `<div id="SCENEID-${e.id}" style="position:absolute;left:${px(e.x)};top:${px(y)};width:0;height:0"><div style="position:absolute;left:0;top:6px;width:36px;height:36px;border-radius:4px;${e.swatch}"></div>${e.lines
+      .map((t, j) =>
+        label(
+          `${e.id}-${j}`,
+          t,
+          52,
+          j * 48,
+          SMALL,
+          e.id === "l-ahead" ? theme.accent : theme.muted,
+        ),
+      )
+      .join("")}</div>`;
+  })
+  .join("")}`
       : `${label("l-ahead", ahead, pw - widthOf(ahead, SMALL, theme) - 12, 0, SMALL, theme.accent)}
 ${label("l-behind", behind, 12, 0, SMALL, theme.muted)}
 ${label("l-zero", zero, cx - widthOf(zero, SMALL, theme) / 2, ph + 4 - LAB_H, SMALL, theme.muted)}
@@ -243,7 +258,7 @@ ${label("l-x", `${d.metrics[0]?.name ?? ""}`, cx - metricW(0) / 2, LAB_H * 0.5, 
 ${corner}
 ${names}
 ${readout}
-${scaledLines.map((t, i) => label(`sc${i}`, t, 0, ph + 10 + i * 50, SMALL, theme.muted)).join("")}
+${scaledLines.map((t, i) => label(`sc${i}`, t, 0, ph + 10 + legendH + i * 50, SMALL, theme.muted)).join("")}
 </div>`;
     const at = stepStarts(cues, n);
     const end = cues[cues.length - 1]?.t1 ?? (at[n - 1] as number) + 7;
