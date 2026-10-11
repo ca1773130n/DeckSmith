@@ -2,8 +2,8 @@
  * prior-work — earlier approaches shown by what they do, family by family,
  * side by side. A family the build can RUN is run, for real, on the deck's
  * picture under the same haze as every other scene: the classical Dark Channel
- * Prior (exact, He et al.), a fixed Sobel filter (exact), or spike quantization
- * of the picture's edges (illustrative, and tagged so). A family of LEARNED
+ * Prior (exact, He et al.), a fixed Sobel filter (exact), or the binary spikes
+ * any spiking network starts from (illustrative, and tagged so). A family of LEARNED
  * methods is never drawn as an output — a network the build does not have
  * cannot be shown working — so it appears only with the numbers the source
  * reports for it, each held to the source by the truth gate.
@@ -12,20 +12,8 @@
  * out (`gap`), all the plan's words in the deck's language.
  */
 import { join } from "node:path";
-import {
-  drift,
-  even,
-  img,
-  type KindImpl,
-  lab,
-  normBy,
-  panel,
-  spread,
-  std,
-  stepStarts,
-  wrap,
-} from "../kind.js";
-import { dcp, tmQuantize } from "../kinds-shared.js";
+import { drift, even, img, type KindImpl, lab, panel, spread, stepStarts, wrap } from "../kind.js";
+import { dcp } from "../kinds-shared.js";
 import {
   AIRLIGHT,
   baseCss,
@@ -69,11 +57,20 @@ export const runsOnPicture = (s: LaneShows) => s !== "numbers";
 const PW = 600;
 const PH = 400;
 
-/** Spike levels of the picture's edge energy: TM-LIF's quantizer at θ = the map's own spread, D = 4 (illustrative). */
-export function spikeEdges(l: Float32Array, w: number, h: number): Float32Array {
-  const e = sobel(l, w, h);
-  const u = normBy(e, quantile(e, 0.99));
-  return tmQuantize(u, std(u), 4);
+/**
+ * What a spiking network does to the picture, as the FAMILY does it: one step of a
+ * plain integrate-and-fire neuron per pixel, input the picture's brightness
+ * (stretched to [0, 1] between its 1st and 99th percentiles), a fixed threshold of
+ * one half, and a binary spike — fired or not. It is not any one paper's neuron:
+ * an earlier version drew EM-SNN's own TM-LIF quantizer (D = 4 levels, a scaled
+ * threshold) here, the method under a prior-work heading (review, 2026-10-11).
+ * What is lost below the threshold is the family's gap the source names.
+ */
+export const SPIKE_THETA = 0.5;
+export function binarySpikes(l: Float32Array): Float32Array {
+  const lo = quantile(l, 0.01);
+  const hi = Math.max(lo + 1e-6, quantile(l, 0.99));
+  return l.map((v) => ((v - lo) / (hi - lo) >= SPIKE_THETA ? 1 : 0));
 }
 
 /** Checks a plan's lanes before anything is drawn: the counts and what each lane needs. */
@@ -124,12 +121,7 @@ export const priorWorkKind: KindImpl = {
         await writeRaster(join(dir, files[`l${k}`] as string), PW, PH, mapRgba(s, EDGE));
       } else if (lane.shows === "spikes") {
         files[`l${k}`] = `${beatId}-l${k}.png`;
-        await writeRaster(
-          join(dir, files[`l${k}`] as string),
-          PW,
-          PH,
-          mapRgba(spikeEdges(l, PW, PH)),
-        );
+        await writeRaster(join(dir, files[`l${k}`] as string), PW, PH, mapRgba(binarySpikes(l)));
       }
     }
     const first = d.lanes.findIndex((x) => x.shows === "dark-channel");
@@ -256,22 +248,29 @@ ${caption ? label("cap", caption, 0, H - 46, SMALL, theme.muted) : ""}
     const at = stepStarts(cues, n);
     const end = cues[cues.length - 1]?.t1 ?? (at[n - 1] as number) + 7;
     const tl = new Tl();
-    // Every lane is there from the start, quiet, so the frame is whole; lane by lane, on its
+    // Every lane is there from the start, quiet but legible (0.55: dimmed 40px text at 0.32
+    // read at about 2:1 on the dark theme), so the frame is whole; lane by lane, on its
     // sentence, it comes forward and shows what it does: a method that runs sweeps its output
-    // across the picture and is then read closely; a learned family's numbers arrive one by one.
+    // across the picture and is then read closely; a learned family's box of numbers appears
+    // only then — never an empty frame waiting — and its numbers arrive one by one.
+    const IDLE = 0.55;
     for (let k = 0; k < n; k++)
-      tl.fromTo(`lane${k}`, { opacity: 0 }, { opacity: 0.32, duration: 0.6 }, 0.2 + k * 0.12);
+      tl.fromTo(`lane${k}`, { opacity: 0 }, { opacity: IDLE, duration: 0.6 }, 0.2 + k * 0.12);
+    d.lanes.forEach((lane, k) => {
+      if (!runsOnPicture(lane.shows))
+        tl.fromTo(`v${k}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
+    });
     if (caption) tl.show("cap", 0.8);
     d.lanes.forEach((lane, k) => {
       const t0 = Math.max(1.0, (at[k] as number) + 0.1);
       const t1 = (at[k + 1] as number | undefined) ?? end;
       tl.fromTo(
         `lane${k}`,
-        { opacity: 0.32 },
+        { opacity: IDLE },
         { opacity: 1, duration: 0.6, ease: "power2.out" },
         t0,
       );
-      if (k > 0) tl.fromTo(`lane${k - 1}`, { opacity: 1 }, { opacity: 0.6, duration: 0.6 }, t0);
+      if (k > 0) tl.fromTo(`lane${k - 1}`, { opacity: 1 }, { opacity: 0.7, duration: 0.6 }, t0);
       if (runsOnPicture(lane.shows)) {
         const sw = Math.max(2.4, Math.min(5, (t1 - t0) * 0.5));
         tl.fromTo(`w${k}`, { width: 0 }, { width: cw, duration: sw, ease: "sine.inOut" }, t0 + 0.5);
@@ -282,6 +281,7 @@ ${caption ? label("cap", caption, 0, H - 46, SMALL, theme.muted) : ""}
           scale: 1.15,
         });
       } else {
+        tl.show(`v${k}`, t0 + 0.2, 0.5);
         lane.numbers.forEach((_, i) => {
           tl.fromTo(`n${k}-${i}`, { opacity: 0 }, { opacity: 0, duration: 0.01 }, 0);
         });

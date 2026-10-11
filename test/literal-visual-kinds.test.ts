@@ -16,8 +16,8 @@ import { literalFragment } from "../src/literal/index.js";
 import { widthOf } from "../src/literal/kind.js";
 import { combinations, resultOf } from "../src/literal/kinds/ablation.js";
 import { axisSpan, marginOf, marginsOf } from "../src/literal/kinds/margins.js";
-import { checkLanes, spikeEdges } from "../src/literal/kinds/prior-work.js";
-import { flow, scopeLayout } from "../src/literal/kinds/scope.js";
+import { binarySpikes, checkLanes } from "../src/literal/kinds/prior-work.js";
+import { type ScopePart, scopeLayout } from "../src/literal/kinds/scope.js";
 import { type Cue, type Layers, stillSpans, toRgba, writeRaster } from "../src/literal/kit.js";
 import { KINDS } from "../src/literal/registry.js";
 import { type Literal, type LiteralKind, literalSchema } from "../src/types.js";
@@ -73,7 +73,10 @@ const PRIOR = literalSchema.parse({
 const MARGINS = literalSchema.parse({
   kind: "margins",
   ours: "EM-SNN",
-  metrics: [{ name: "PSNR" }, { name: "SSIM" }],
+  metrics: [
+    { name: "PSNR", lowerIsBetter: false },
+    { name: "SSIM", lowerIsBetter: false },
+  ],
   settings: [
     {
       name: "LHID",
@@ -287,7 +290,7 @@ describe("margins: the source's numbers, as positions", () => {
   it("draws one metric as a strip, one row per setting", () => {
     const one = literalSchema.parse({
       ...MARGINS,
-      metrics: [{ name: "PSNR" }],
+      metrics: [{ name: "PSNR", lowerIsBetter: false }],
       settings: (MARGINS as Extract<Literal, { kind: "margins" }>).settings.map((s) => ({
         name: s.name,
         values: [s.values[0]],
@@ -299,40 +302,40 @@ describe("margins: the source's numbers, as positions", () => {
   });
 });
 
-describe("scope: nested regions, inner to outer", () => {
-  it("flows chips into rows that fit, and refuses one wider than its ring", () => {
-    expect(flow([100, 100, 100], 250)).toEqual([
-      { row: 0, x: 0 },
-      { row: 0, x: 116 },
-      { row: 1, x: 0 },
-    ]);
-    expect(() => flow([300], 250)).toThrow(/300px wide/);
-  });
-
-  it("nests every ring inside the one around it, and every chip inside its own ring", () => {
+describe("scope: one region split into parts that exclude each other", () => {
+  it("draws the parts side by side, never one inside another, each item inside its own part", () => {
     const d = LIMITS as Extract<Literal, { kind: "scope" }>;
     const L = scopeLayout(d, region.width, region.height, (t, s) => widthOf(t, s, theme));
-    for (let r = 0; r < L.boxes.length - 1; r++) {
-      const a = L.boxes[r] as { x: number; y: number; w: number; h: number };
-      const b = L.boxes[r + 1] as typeof a;
-      expect(a.x).toBeGreaterThan(b.x);
-      expect(a.y).toBeGreaterThan(b.y);
-      expect(a.x + a.w).toBeLessThan(b.x + b.w);
-      expect(a.y + a.h).toBeLessThan(b.y + b.h);
+    for (let k = 0; k < L.parts.length - 1; k++) {
+      const a = L.parts[k] as ScopePart;
+      const b = L.parts[k + 1] as ScopePart;
+      expect(a.x + a.w).toBeLessThan(b.x);
     }
-    for (const ch of L.chips) {
-      const box = L.boxes[ch.ring] as { x: number; y: number; w: number; h: number };
-      expect(ch.x).toBeGreaterThanOrEqual(box.x);
-      expect(ch.x + ch.w).toBeLessThanOrEqual(box.x + box.w);
-      expect(ch.y).toBeGreaterThanOrEqual(box.y);
-      expect(ch.y + 64).toBeLessThanOrEqual(box.y + box.h);
-      // An inner ring's chip is never inside the next ring in.
-      const inner = L.boxes[ch.ring - 1];
-      if (inner) expect(ch.y + 64 <= inner.y || ch.y >= inner.y + inner.h).toBe(true);
-    }
+    const last = L.parts[L.parts.length - 1] as ScopePart;
+    expect(last.x + last.w).toBeLessThanOrEqual(region.width);
+    for (const p of L.parts)
+      for (const it of p.items) {
+        expect(it.y).toBeGreaterThanOrEqual(L.top);
+        expect(it.y + it.lines.length * 54).toBeLessThanOrEqual(region.height);
+        for (const l of it.lines) expect(widthOf(l, 44, theme)).toBeLessThanOrEqual(p.w);
+      }
   });
 
-  it("refuses rings that cannot fit, and fewer than two or more than four", () => {
+  it("writes items as words, not pills, and lights each part on its own sentence", () => {
+    const f = draw(LIMITS, CASES[3]?.[2] as Cue[]);
+    expect(f.markup).not.toMatch(/border-radius:32px/);
+    expect(f.markup).toContain(">입증되지 않음<");
+    const at = (id: string) =>
+      Number(
+        new RegExp(
+          `tl\\.fromTo\\("#SCENEID-${id}", \\{"opacity":0\\.55\\}, [^)]*, ([\\d.]+)\\);`,
+        ).exec(f.script)?.[1],
+      );
+    expect(at("z1")).toBeGreaterThan(at("z0"));
+    expect(at("z2")).toBeGreaterThan(at("z1"));
+  });
+
+  it("refuses parts that cannot fit, and fewer than two or more than four", () => {
     const many = {
       rings: [
         { label: "a", items: Array.from({ length: 40 }, (_, i) => `항목 ${i}`) },
@@ -340,13 +343,13 @@ describe("scope: nested regions, inner to outer", () => {
       ],
     };
     expect(() => scopeLayout(many, 1700, 400, (t, s) => widthOf(t, s, theme))).toThrow(
-      /innermost ring needs/,
+      /needs \d+px for its items/,
     );
     expect(() =>
       scopeLayout({ rings: [{ label: "a", items: ["x"] }] }, 1700, 747, (t, s) =>
         widthOf(t, s, theme),
       ),
-    ).toThrow(/two to four rings/);
+    ).toThrow(/two to four parts/);
   });
 });
 
@@ -363,15 +366,18 @@ describe("ablation: the experiments not run, as holes", () => {
     );
   });
 
-  it("fills the reported cell and leaves the others visibly empty, saying so", () => {
+  it("fills the reported square, leaves the others visibly empty, and says what empty means once", () => {
     const f = draw(FUTURE, CASES[4]?.[2] as Cue[]);
     expect(f.markup).toMatch(/id="SCENEID-cell0" style="[^"]*border:4px solid/);
     for (const i of [1, 2, 3])
       expect(f.markup).toMatch(new RegExp(`id="SCENEID-cell${i}" style="[^"]*border:4px dashed`));
-    expect((f.markup.match(/>missing</g) ?? []).length).toBe(3);
-    // One point per setting, its value as the source writes it.
-    expect(f.markup).toContain(">α = 0.6<");
-    expect(f.markup).toContain(">구조 단서 = Sobel<");
+    // No words in the squares: one mark for the holes, the result under the grid at 56px.
+    expect((f.markup.match(/>missing</g) ?? []).length).toBe(1);
+    expect(f.markup).toMatch(/font-size:56px;[^"]*">LHID 30\.56 · 0\.9106</);
+    // Each setting is its name and its one value, as words: no axis, no point on a line.
+    expect(f.markup).toContain(">0.6<");
+    expect(f.markup).toContain(">Sobel<");
+    expect(f.markup).not.toMatch(/<circle|stroke-dasharray/);
   });
 
   it("outlines a proposal that is neither a combination nor a setting, after the settings", () => {
@@ -411,15 +417,17 @@ describe("prior-work: families by what they do", () => {
     ).toThrow(/its numbers would not be drawn/);
   });
 
-  it("spike-quantizes the edges on D = 4 levels", () => {
+  it("draws the family's binary spikes, not the paper's own multi-level quantizer", () => {
     const w = 32;
     const h = 24;
     const l = new Float32Array(w * h).map(
       (_, i) => (i % w > w / 2 ? 0.8 : 0.2) + ((i * 7) % 5) / 50,
     );
-    const s = spikeEdges(l, w, h);
-    expect(new Set([...s].map((v) => v * 4)).size).toBeGreaterThan(1);
-    for (const v of s) expect(Number.isInteger(Math.round(v * 4 * 1e6) / 1e6)).toBe(true);
+    const s = binarySpikes(l);
+    // Fired or not: two levels only, and the bright half fires.
+    expect([...new Set(s)].sort()).toEqual([0, 1]);
+    expect(s[w - 1]).toBe(1);
+    expect(s[0]).toBe(0);
   });
 
   it("draws no output for a learned family: only its numbers", () => {

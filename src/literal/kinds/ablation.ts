@@ -1,9 +1,11 @@
 /**
  * ablation — the experiments a paper did not run, shown as the holes they
- * leave. Every combination of its components (one or two) is a cell: the
- * combinations the source reports carry its result, the rest are visibly empty
- * and say so. Each setting the source fixes is a line with ONE point on it —
- * the only value tested — and further comparisons it proposes are outlined.
+ * leave. Every combination of its components (one or two) is a square of one
+ * small grid: the combinations the source reports are filled and their results
+ * stand under the grid, large; the rest are visibly empty, and one quiet mark
+ * says what an empty square means. Each setting the source fixes is its name and
+ * the ONE value tested, as words (no axis: the source states no range), and
+ * further comparisons it proposes are outlined.
  *
  * Nothing here is computed but the layout: the components, the reported
  * results, the settings' values and the proposals are the plan's, held to the
@@ -11,7 +13,7 @@
  * placeholder: they are what the next experiment would fill.
  */
 import { type KindImpl, LAB_H, lab, spread, stepStarts, widthOf, wrap } from "../kind.js";
-import { baseCss, LABEL, label, px, r3, SMALL, Tl } from "../kit.js";
+import { baseCss, LABEL, label, px, SMALL, Tl } from "../kit.js";
 
 export interface AblationData {
   components: string[];
@@ -57,31 +59,31 @@ export const ablationKind: KindImpl = {
     if (d.settings.length && !tested)
       throw new Error('literal: ablation draws settings and needs the label slot "tested"');
     const two = d.components.length === 2;
-    // Left: the grid of combinations. Right: the settings, one line each. Below: proposals.
     const othersH = d.others.length ? 64 + 26 : 0;
-    const gw = Math.round(W * (d.settings.length ? 0.5 : 1));
+    const gw = Math.round(W * (d.settings.length ? 0.46 : 1));
     const gh = H - othersH;
+    // Left: the combinations as one small grid of squares — no words in them, the holes are
+    // the picture — with ONE quiet mark naming what an empty square means, and under it the
+    // reported result, large. (An earlier version wrote "not reported" in three of four
+    // cells: repeated empty text, review 2026-10-11.)
     const headW = two
       ? Math.max(
           widthOf(`${d.components[0]} ${on}`, SMALL, theme),
           widthOf(`${d.components[0]} ${off}`, SMALL, theme),
         ) + 28
       : 0;
-    const cols = two ? 2 : 2;
+    const colHead = (c: number) =>
+      two ? `${d.components[1]} ${c === 0 ? on : off}` : `${d.components[0]} ${c === 0 ? on : off}`;
+    const colW = Math.max(widthOf(colHead(0), SMALL, theme), widthOf(colHead(1), SMALL, theme));
     const rows = two ? 2 : 1;
-    const cw = (gw - headW - 16 * (cols - 1)) / cols;
-    // The cells take the grid's height: the holes are the scene.
-    const ch = Math.min(340, (gh - LAB_H - 16 * (rows - 1)) / rows);
+    const cell = Math.round(Math.min(170, Math.max(120, colW + 16), (gw - headW - 16) / 2));
     const gy = LAB_H;
     const cellXY = (i: number): [number, number] =>
       two
-        ? [headW + (i % 2) * (cw + 16), gy + Math.floor(i / 2) * (ch + 16)]
-        : [headW + i * (cw + 16), gy];
-    // Column heads: the second component on/off (or the only one); row heads: the first.
-    const headCol = (c: number) =>
-      two ? `${d.components[1]} ${c === 0 ? on : off}` : `${d.components[0]} ${c === 0 ? on : off}`;
+        ? [headW + (i % 2) * (cell + 16), gy + Math.floor(i / 2) * (cell + 16)]
+        : [headW + i * (cell + 16), gy];
     const heads = [0, 1]
-      .map((c) => label(`hc${c}`, headCol(c), headW + c * (cw + 16) + 12, 0, SMALL, theme.fg))
+      .map((c) => label(`hc${c}`, colHead(c), headW + c * (cell + 16), 0, SMALL, theme.fg))
       .join("");
     const rowHeads = two
       ? [0, 1]
@@ -90,7 +92,7 @@ export const ablationKind: KindImpl = {
               `hr${r}`,
               `${d.components[0]} ${r === 0 ? on : off}`,
               0,
-              gy + r * (ch + 16) + ch / 2 - 26,
+              gy + r * (cell + 16) + cell / 2 - 26,
               SMALL,
               theme.fg,
             ),
@@ -100,43 +102,86 @@ export const ablationKind: KindImpl = {
     const cells = combos
       .map((keep, i) => {
         const [x, y] = cellXY(i);
-        const res = resultOf(d, keep);
-        const words = wrap(res ?? missing, res ? LABEL : SMALL, cw - 40, theme);
-        const lh = res ? 54 : 50;
-        const ty = (ch - words.length * lh) / 2;
-        const text = words
-          .map((t, j) =>
-            label(
-              `ct${i}-${j}`,
-              t,
-              20,
-              ty + j * lh,
-              res ? LABEL : SMALL,
-              res ? theme.accent : theme.muted,
-            ),
-          )
-          .join("");
-        const style = res
-          ? `border:4px solid ${theme.accent};background:${theme.panel}`
-          : `border:4px dashed ${theme.muted}`;
-        return `<div id="SCENEID-cell${i}" style="position:absolute;left:${px(x)};top:${px(y)};width:${px(cw)};height:${px(ch)};${style};border-radius:12px;box-sizing:border-box">${text}</div>`;
+        const style =
+          resultOf(d, keep) !== undefined
+            ? `background:${theme.accent};border:4px solid ${theme.accent}`
+            : `border:4px dashed ${theme.muted}`;
+        return `<div id="SCENEID-cell${i}" style="position:absolute;left:${px(x)};top:${px(y)};width:${px(cell)};height:${px(cell)};${style};border-radius:10px;box-sizing:border-box"></div>`;
       })
       .join("\n");
-    // Settings: a dashed line each — the range nobody tried — with the one value that was.
+    const gridB = gy + rows * cell + (rows - 1) * 16;
+    const holes = combos.filter((k) => resultOf(d, k) === undefined).length;
+    const mY = gridB + 28;
+    const mark = holes
+      ? `<div id="SCENEID-miss" style="position:absolute;left:0;top:${px(mY)};width:${px(gw)};height:56px"><div style="position:absolute;left:0;top:6px;width:40px;height:40px;border:4px dashed ${theme.muted};border-radius:8px;box-sizing:border-box"></div>${wrap(
+          missing,
+          SMALL,
+          gw - 60,
+          theme,
+        )
+          .map((t, j) => label(`mt${j}`, t, 60, j * 50, SMALL, theme.muted))
+          .join("")}</div>`
+      : "";
+    const missH = holes ? wrap(missing, SMALL, gw - 60, theme).length * 50 + 28 : 0;
+    // The reported results, at the deck's headline size: what the source did measure.
+    // Under the grid, or beside it when the scene has the width (no settings column).
+    const BIG = 56;
+    const gridR = headW + 2 * cell + 16;
+    const beside = gw - gridR - 64 >= 420;
+    const rx = beside ? gridR + 64 : 0;
+    const rw = gw - rx;
+    let ry = beside ? gy : mY + missH + 12;
+    const reported = d.reported
+      .map((r, i) => {
+        const name = wrap(r.with.length ? r.with.join(" + ") : off, SMALL, rw, theme);
+        const value = wrap(r.result, BIG, rw, theme);
+        const y = ry;
+        ry += name.length * 50 + value.length * 66 + 20;
+        return `<div id="SCENEID-rp${i}" style="position:absolute;left:${px(rx)};top:${px(y)};width:${px(rw)};height:${px(name.length * 50 + value.length * 66)}">${name
+          .map((t, j) => label(`rn${i}-${j}`, t, 0, j * 50, SMALL, theme.muted))
+          .join("")}${value
+          .map((t, j) => label(`rv${i}-${j}`, t, 0, name.length * 50 + j * 66, BIG, theme.accent))
+          .join("")}</div>`;
+      })
+      .join("\n");
+    if (Math.max(ry - 20, mY + missH) > gh)
+      throw new Error(
+        `literal: ablation's grid and reported results need ${Math.ceil(ry - 20)}px and the scene has ${Math.floor(gh)}px; shorten the results`,
+      );
+    // Right: the settings the source fixed, each a name and the ONE value it was tested at,
+    // as words — no axis, which would claim a range the source never states.
     const sx = gw + 64;
     const sw = W - sx;
     const sTitle = tested ? wrap(tested, LABEL, sw, theme) : [];
-    const sTop = sTitle.length * 54 + 20;
-    const sRow = d.settings.length ? Math.min(110, (gh - sTop) / d.settings.length) : 0;
-    const settings = d.settings
-      .map((st, i) => {
-        const y = sTop + i * sRow + sRow / 2 + 14;
-        const text = `${st.name} = ${st.value}`;
-        const tw = widthOf(text, SMALL, theme);
-        const box = `position:absolute;left:${px(sx)};top:0;width:${px(sw)};height:${px(gh)}`;
-        const svg = (inner: string) =>
-          `<svg width="${r3(sw)}" height="${r3(gh)}" viewBox="0 0 ${r3(sw)} ${r3(gh)}" style="left:0;top:0">${inner}</svg>`;
-        return `<div id="SCENEID-s${i}" style="${box}">${svg(`<line x1="0" y1="${r3(y)}" x2="${r3(sw)}" y2="${r3(y)}" stroke="${theme.muted}" stroke-width="3" stroke-dasharray="10 10"/>`)}</div><div id="SCENEID-sp${i}" style="${box}">${svg(`<circle cx="${r3(sw / 2)}" cy="${r3(y)}" r="14" fill="${theme.accent}"/>`)}${label(`st${i}`, text, sw / 2 - tw / 2, y - 64, SMALL, theme.fg)}</div>`;
+    const sTop = sTitle.length * 54 + 24;
+    const nameW = Math.min(
+      sw * 0.45,
+      Math.max(0, ...d.settings.map((st) => widthOf(st.name, SMALL, theme))),
+    );
+    const vx = nameW + 32;
+    const rowsOf = d.settings.map((st) => ({
+      name: wrap(st.name, SMALL, nameW, theme),
+      value: wrap(st.value, LABEL, sw - vx, theme),
+    }));
+    const need = rowsOf.reduce((a, r) => a + Math.max(r.name.length * 48, r.value.length * 54), 0);
+    if (sTop + need > gh)
+      throw new Error(
+        `literal: ablation's settings need ${Math.ceil(sTop + need)}px and the scene has ${Math.floor(gh)}px; give fewer or shorter ones`,
+      );
+    const pad = d.settings.length ? Math.min(40, (gh - sTop - need) / d.settings.length) : 0;
+    let sy = sTop;
+    const settings = rowsOf
+      .map((r, i) => {
+        const h = Math.max(r.name.length * 48, r.value.length * 54);
+        const y = sy;
+        sy += h + pad;
+        return `<div id="SCENEID-s${i}" style="position:absolute;left:${px(sx)};top:${px(y)};width:${px(sw)};height:${px(h)}">${r.name
+          .map((t, j) => label(`sn${i}-${j}`, t, 0, 4 + j * 48, SMALL, theme.muted))
+          .join(
+            "",
+          )}<div id="SCENEID-sv${i}" style="position:absolute;left:0;top:0;width:100%;height:100%">${r.value
+          .map((t, j) => label(`sv${i}-${j}`, t, vx, j * 54, LABEL, theme.fg))
+          .join("")}</div></div>`;
       })
       .join("\n");
     const titles = sTitle.map((t, i) => label(`sh${i}`, t, sx, i * 54, LABEL, theme.fg)).join("");
@@ -157,16 +202,16 @@ export const ablationKind: KindImpl = {
     const markup = `<div id="SCENEID-lit">
 ${heads}${rowHeads}
 ${cells}
+${mark}
+${reported}
 ${titles}
 ${settings}
 ${others}
 </div>`;
-    // Steps: the grid on the first sentence; then the settings and the proposals, in order, over
-    // the sentences that follow — each sentence takes its share, each item its moment in it.
-    const items = [
-      ...d.settings.map((_, i) => ({ id: `s${i}`, setting: true })),
-      ...d.others.map((_, i) => ({ id: `o${i}`, setting: false })),
-    ];
+    // Steps: the grid on the first sentence — the reported square, its result, then the holes
+    // and what they mean; then the settings and the proposals, in order, over the sentences
+    // that follow — each sentence takes its share, each item its moment in it.
+    const items = [...d.settings.map((_, i) => `s${i}`), ...d.others.map((_, i) => `o${i}`)];
     const rest = items.length ? Math.max(1, Math.min(items.length, cues.length - 1)) : 0;
     const at = stepStarts(cues, 1 + rest);
     const end = cues[cues.length - 1]?.t1 ?? (at[rest] as number) + 6;
@@ -176,18 +221,26 @@ ${others}
       const t1 = (at[1] as number | undefined) ?? end;
       for (const id of ["hc0", "hc1", ...(two ? ["hr0", "hr1"] : [])])
         tl.show(id, Math.min(0.4, t0), 0.5);
-      // The reported combination first, then the holes, one by one.
       const order = combos
         .map((keep, i) => [i, resultOf(d, keep) !== undefined] as const)
         .sort((a, b) => Number(b[1]) - Number(a[1]))
         .map(([i]) => i);
-      spread(t0 + 0.2, t1, order.length, 0.5, 1.8, 1.2).forEach((t, k) => {
-        tl.fromTo(
-          `cell${order[k]}`,
-          { opacity: 0, scale: 0.92, transformOrigin: "50% 50%" },
-          { opacity: 1, scale: 1, transformOrigin: "50% 50%", duration: 0.5, ease: "power2.out" },
-          t,
-        );
+      const ids = [
+        `cell${order[0]}`,
+        ...d.reported.map((_, i) => `rp${i}`),
+        ...order.slice(1).map((i) => `cell${i}`),
+        ...(holes ? ["miss"] : []),
+      ];
+      spread(t0 + 0.2, t1, ids.length, 0.5, 1.8, 1.2).forEach((t, k) => {
+        const id = ids[k] as string;
+        if (id.startsWith("cell"))
+          tl.fromTo(
+            id,
+            { opacity: 0, scale: 0.85, transformOrigin: "50% 50%" },
+            { opacity: 1, scale: 1, transformOrigin: "50% 50%", duration: 0.5, ease: "power2.out" },
+            t,
+          );
+        else tl.show(id, t, 0.6, { from: { y: 12 }, to: { y: 0 } });
       });
     }
     const share = (k: number) =>
@@ -199,24 +252,19 @@ ${others}
       if (k === 0 && d.settings.length)
         for (let i = 0; i < sTitle.length; i++) tl.show(`sh${i}`, t0, 0.5);
       spread(t0 + 0.4, t1, mine.length, 0.5, 3.6, 1.6).forEach((t, j) => {
-        const it = mine[j] as (typeof items)[number];
-        // A setting in two beats: the range nobody tried, then the one value that was.
-        if (it.setting) {
+        const id = mine[j] as string;
+        // A setting in two beats: what was fixed, then the one value it was tested at.
+        if (id.startsWith("s")) {
           tl.fromTo(
-            it.id,
+            id,
             { opacity: 0, x: -24 },
             { opacity: 1, x: 0, duration: 0.5, ease: "power2.out" },
             t,
           );
-          tl.fromTo(
-            `sp${it.id.slice(1)}`,
-            { opacity: 0, y: -16 },
-            { opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.6)" },
-            t + 1.2,
-          );
+          tl.fromTo(`sv${id.slice(1)}`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t + 1.2);
         } else
           tl.fromTo(
-            it.id,
+            id,
             { opacity: 0, scale: 0.9, transformOrigin: "50% 50%" },
             {
               opacity: 1,
