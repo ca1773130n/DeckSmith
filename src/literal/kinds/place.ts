@@ -245,7 +245,7 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
   // A plane's x-axis name has its own row under the tick values, so no tick
   // is ever dropped for it (r2 lost its 4s tick under "预测时域").
   const plot = two
-    ? { x: 24 + yTickW, y: top, w: W - 48 - yTickW - keyW, h: H - top - 64 - nameH - 8 }
+    ? { x: 24 + yTickW, y: top, w: W - 48 - yTickW - keyW, h: H - top - 72 - nameH - 8 }
     : { x: 24, y: top, w: W - 48 - keyW, h: H - top - 24 };
   const better = (k: number) => !(d.axes[k] as PlaceLit["axes"][number]).lowerIsBetter;
   const X = (v: number) => {
@@ -298,7 +298,7 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
         cam: true,
       },
     );
-    const xNameY = lineY + 14 + nameH + 8;
+    const xNameY = lineY + TICK_Y + nameH + 8;
     prims.push(
       {
         p: "text",
@@ -398,13 +398,13 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     const w = c.measure(t.text, TYPE.label);
     // Inside the region, which clips: r1's last tick printed as "3.!".
     if (x - w / 2 < 0 || x + w / 2 > W) continue;
-    taken.push({ x0: x - w / 2, y0: lineY + 14, x1: x + w / 2, y1: lineY + 14 + nameH });
+    taken.push({ x0: x - w / 2, y0: lineY + TICK_Y, x1: x + w / 2, y1: lineY + TICK_Y + nameH });
     prims.push(
       { p: "line", x1: x, y1: lineY - 8, x2: x, y2: lineY + 8, role: "rule", width: 3, cam: true },
       {
         p: "text",
         x,
-        y: lineY + 14,
+        y: lineY + TICK_Y,
         size: TYPE.label,
         role: "muted",
         anchor: "middle",
@@ -694,6 +694,9 @@ export function segBoxes(pts: readonly number[], w: number): Box[] {
   return out;
 }
 
+/** A tick's value sits this far under its axis: clear of a point on the axis (radius 14). */
+const TICK_Y = 22;
+
 /** Text lines are this far apart, px. */
 const LH = 47;
 
@@ -736,8 +739,8 @@ export function placeLabel(
     const order = [
       ...Array.from({ length: levels + 1 }, (_, k) => (k + spreadFrom) % (levels + 1)),
     ];
-    const near = (k: number) => (side === "above" ? py - 28 - h - 48 * k : py + 72 + 48 * k);
-    const far = (k: number) => (side === "above" ? py + 72 + 48 * k : py - 28 - h - 48 * k);
+    const near = (k: number) => (side === "above" ? py - 28 - h - 48 * k : py + 80 + 48 * k);
+    const far = (k: number) => (side === "above" ? py + 80 + 48 * k : py - 28 - h - 48 * k);
     for (const k of order) ys.push(near(k));
     for (const k of order) ys.push(far(k));
   }
@@ -754,7 +757,12 @@ export function placeLabel(
       if (taken.some((t) => area(box, t) > 0) || strokes.some((t) => area(box, t) > 0)) continue;
       const nx = Math.max(box.x0, Math.min(px, box.x1));
       const ny = Math.max(box.y0, Math.min(py, box.y1));
-      const leader = Math.hypot(nx - px, ny - py) > LEADER_PX ? [[px, py, nx, ny]] : [];
+      // A leader stops 12px short of its label: a glyph's box is taller than its line,
+      // and a leader run into it reads as a stroke through the word.
+      const far = Math.hypot(nx - px, ny - py);
+      const stop = far > 0 ? Math.max(0, far - 12) / far : 0;
+      const leader =
+        far > LEADER_PX ? [[px, py, px + (nx - px) * stop, py + (ny - py) * stop]] : [];
       // The leader leaves the dot from its rim and must not cross anything but its own dot.
       const rim = leader.map(([ax, ay, bx, by]) => {
         const len =
