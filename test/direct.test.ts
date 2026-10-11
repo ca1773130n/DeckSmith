@@ -358,11 +358,12 @@ describe("design: the switch", () => {
     // scene's first hold: parts not yet spoken stand at PREVIEW from the open
     // (previewParts), callout words spread down their box (rows right-aligned),
     // equation legends span the box as rows (symbol left, meaning right; s6 read
-    // at 47.3s), the emphasis walks the parts on later sentences, grids widen,
+    // at 47.3s; after the walk the light walks the terms once more), the
+    // emphasis walks the parts on later sentences, grids widen,
     // line-chart values and deltas sit off the line (s12 read at 100.8s), the
     // stack probe moves left.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "18a035eaebc300b0996901df6bf4cf832c390bb541a7251328377d2300b02d33",
+      "bc6af80826503378757de896ca94b2f16ffcf9517be4b899fd1bb91b15b60da0",
     );
   });
 

@@ -1376,18 +1376,37 @@ export async function probeScenes(
       // change, as for a cue. After the scene's own probe, so its history is made.
       if (gates.has("dead")) {
         for (const [t0, t1] of deadCandidates(w)) {
+          // A frame a second across the stretch, and the longest RUN of them that
+          // stays within 1% of the run's first frame: one emphasis in the middle
+          // of 7s is two still halves, and three frames (t0, middle, t1) either
+          // missed it or called the whole stretch alive for it.
+          const n = Math.max(2, Math.ceil(t1 - t0));
+          const times = Array.from({ length: n + 1 }, (_, k) => round(t0 + ((t1 - t0) * k) / n));
           const shots: Frame[] = [];
-          for (const t of [t0, round((t0 + t1) / 2), t1]) {
+          for (const t of times) {
             await deck.seek(w.start + t);
             await settle(deck);
             shots.push(pooled(await decodePng(await deck.shoot())));
           }
-          let changed = 0;
-          for (let x = 0; x < shots.length; x++)
-            for (let y = x + 1; y < shots.length; y++)
-              changed = Math.max(changed, changedPixels(shots[x] as Frame, shots[y] as Frame));
           const first = shots[0] as Frame;
-          dead.push({ sid: w.sid, t0, t1, changed, total: first.width * first.height });
+          const total = first.width * first.height;
+          let from = 0;
+          let worst = { a: 0, b: 0, changed: 0 };
+          let peak = 0;
+          for (let k = 1; k < shots.length; k++) {
+            const changed = changedPixels(shots[from] as Frame, shots[k] as Frame);
+            if (changed / total >= DEAD_MIN_CHANGE) {
+              from = k;
+              peak = 0;
+              continue;
+            }
+            peak = Math.max(peak, changed);
+            const span = (times[k] as number) - (times[from] as number);
+            if (span > worst.b - worst.a)
+              worst = { a: times[from] as number, b: times[k] as number, changed: peak };
+          }
+          if (worst.b - worst.a >= DEAD_SECONDS - 1e-6)
+            dead.push({ sid: w.sid, t0: worst.a, t1: worst.b, changed: worst.changed, total });
         }
       }
       // The seam into this scene, after its own probe made its first history.

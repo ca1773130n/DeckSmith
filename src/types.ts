@@ -1348,7 +1348,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      states it), \`layers\` — message passing run for real,
                      only where the source has a graph.
                      \`form\` timeline: \`lanes\` ({label, total, runs: [{label,
-                     count, dur, parallel}]}) — serial runs one after another,
+                     count, dur, parallel}]}) — a \`count\` is a NUMBER the
+                     source prints (a symbol like K or γ is not a count: leave
+                     \`count\` out, the runs are then example, tagged, and the
+                     symbol goes in the run's label) — serial runs one after another,
                      a parallel run covering its count at once; a lane is as
                      long as its stated \`total\` (or Σ count·dur), else every
                      lane has one length and the runs show the difference.`,

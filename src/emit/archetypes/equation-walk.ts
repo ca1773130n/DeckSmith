@@ -9,7 +9,7 @@
 import type { Term } from "../../types.js";
 import { fitOf, isV2 } from "../fit.js";
 import type { Emitter, Theme, Vars } from "../kit.js";
-import { contentW, esc, js, previewed, raw, spotlighter } from "../kit.js";
+import { contentW, DIM, esc, js, previewed, raw, spotlighter } from "../kit.js";
 import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
 import { escapedCommandError, repairTex, texError, UNFIT_ATTR } from "../tex.js";
@@ -28,6 +28,9 @@ import {
 /** v2: the legend's type — a body line (`TYPE_SCALE`) — and the air between its rows. Classic is 48 and 30. */
 const LEG_SIZE_V2 = TYPE_SCALE.body;
 const LEG_GAP_V2 = 36;
+/** v2: after the walk, the second, slower pass of the light: its start and its step. */
+const REWALK_GAP = 2.5;
+const REWALK_STEP = 3;
 /** `.eqslide`'s minimum gap between the equation and its legend. */
 const EQ_GAP = 64;
 
@@ -829,6 +832,40 @@ ${slide}`;
       // the argument, and what it leaves behind is the whole line, readable.
       ...spot.restore(at),
     );
+    // v2: while the narration goes on over the whole line, the light walks the
+    // terms once more, slowly, so the slide is not still for the rest of its
+    // sentences (r3 B s8: 6.5s of nothing but the lean, which the dead-stretch
+    // gate fails). After the last hold, so every hold frame is as before.
+    if (v2) {
+      const again = at + REWALK_GAP;
+      const leg = (term: Term) => `#${sid}-leg-${term.tone}`;
+      const fade = (term: Term, from: number, to: number, t: number) =>
+        tween(leg(term), { opacity: from }, { opacity: to, duration: 0.45, ...later }, t);
+      // The legend's rows step back with the equation's terms, the spoken one forward.
+      tl.push(...terms.slice(1).map((term) => fade(term, 1, DIM, again)));
+      terms.forEach((term, i) => {
+        const t = again + i * REWALK_STEP;
+        const prev = terms[i - 1];
+        if (prev) tl.push(fade(prev, 1, DIM, t), fade(term, DIM, 1, t));
+        tl.push(
+          ...spot.lit(`.t-${term.tone}`, t),
+          tween(
+            `#${sid} .t-${term.tone}`,
+            { scale: 1 },
+            { scale: swell(term), duration: 0.5, ...later },
+            t,
+          ),
+          tween(
+            `#${sid} .t-${term.tone}`,
+            { scale: swell(term) },
+            { scale: 1, duration: 0.4, ...later },
+            t + REWALK_STEP - 1.2,
+          ),
+        );
+      });
+      const end = again + terms.length * REWALK_STEP;
+      tl.push(...spot.restore(end), ...terms.slice(0, -1).map((term) => fade(term, DIM, 1, end)));
+    }
   }
 
   // v2's prediction. ESTIMATED rather than solved, unlike the SVG archetypes:
