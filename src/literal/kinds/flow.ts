@@ -673,6 +673,7 @@ function timeline(c: Ctx): MechanismResult {
             opacity: 0.92,
             radius: 8,
             at,
+            cam: true,
           },
           {
             p: "text",
@@ -683,12 +684,14 @@ function timeline(c: Ctx): MechanismResult {
             anchor: "middle",
             text: words,
             at,
+            cam: true,
           },
         );
       } else
         prims.push(
           ...textLines(below.lines, below.left, y + lh + 2 + below.top, TYPE.label, "muted", {
             at,
+            cam: true,
           }),
         );
     });
@@ -705,6 +708,8 @@ function timeline(c: Ctx): MechanismResult {
         weight: 700,
         text: end,
         at,
+        // With the lanes under the camera: outside it, a push slid the bar's end over it.
+        cam: true,
       });
     y += lh + (gaps[i] ?? 0);
   });
