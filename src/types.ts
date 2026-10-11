@@ -1338,7 +1338,16 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`connect\` are a series: the source's rows over steps);
                      \`curves\` ({label, expr, x, fixed params, checks}) draw a
                      stated formula under the points, grounded by checks the
-                     source prints. \`measure\` margin: the method against the
+                     source prints. Curves are not only for images: a
+                     systems paper printing S = 1/((1-f)+f/n) with measured
+                     speedups for f = 0.9 at n = 2, 4, 8 is a plane, axes
+                     [n, S], items the measured rows, curves [{label "f = 0.9",
+                     expr "1/((1-f)+f/n)", x "n", fixed [{name "f", value
+                     "0.9"}], checks [{inputs [{name "n", value "2"}, {name
+                     "f", value "0.9"}], output "1.82"}, {inputs [{name "n",
+                     value "8"}, {name "f", value "0.9"}], output "4.71"}]}] —
+                     the rule computed over its range and checked against the
+                     paper's own numbers. \`measure\` margin: the method against the
                      best OTHER method (\`margins\`: ours, metrics {name,
                      lowerIsBetter}, settings {name, values [{ours, best,
                      rival}]}) — a strip for one metric, a plane for two.

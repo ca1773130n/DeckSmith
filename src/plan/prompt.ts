@@ -941,6 +941,15 @@ COMPOSE
     grounded by \`checks\` the source prints: each check's inputs and output in
     one passage, in order, two checks or more, every variable varying. When two
     checks come from one table, EVERY row of that table must fit it.
+  - A RULE THE SOURCE CAN COMPUTE IS COMPUTED. When the source prints a
+    closed-form rule with stated parameters — an expected count, a speedup, a
+    cost model, an update — and prints values it produces (a table, a worked
+    case), the mechanism beat is a \`place\` plane with \`curves\` {expr,
+    checks} (the rule over its range, for each stated parameter value, with the
+    measured points on it) or an \`evolve\` with rule formula. Not bullets in a
+    split-compare and not an equation-walk alone: that is slideware for a paper
+    whose point is the rule. This holds for language-model, systems and
+    optimisation papers as much as for image operations.
   - Learned components are never computed: a \`flow\` stage with \`learned\`
     true, a box, that may show the source's own \`figure\`.
   - A timeline lane is as long as its stated total or Σ count·dur; with
