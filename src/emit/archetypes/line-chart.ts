@@ -250,6 +250,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   };
 
   const LABEL_SIZE = 40;
+  const DESCENT = LABEL_SIZE / 4;
   /** One answer to "how wide is this", shared with every other archetype. */
   const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
   const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
@@ -564,9 +565,19 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     };
     const drawnDeltas = deltasFit ? deltaBoxes : [];
     return [...atEnd(lastI, false), ...atEnd(0, true)].find((c) => {
-      const box = { x: c.start ? x(c.i) : x(c.i) - w, y: c.by - LABEL_SIZE, w, h: LABEL_SIZE };
+      const box = {
+        x: c.start ? x(c.i) : x(c.i) - w,
+        y: c.by - LABEL_SIZE,
+        w,
+        h: LABEL_SIZE + DESCENT,
+      };
       if (fixedBoxes.some((f) => overlaps(box, f))) return false;
-      if (valueBoxes.some((v) => overlaps(box, v))) return false;
+      // Against the values, both boxes reach a quarter em below the baseline:
+      // the descent the overprint gate's client rect includes. Without it the
+      // compare label set 33px above a value measured 7px of overlap here, under
+      // the 8px floor, and 16px in the browser (OneVL: "AR CoT+Answer" through
+      // "2.25"). The deltas' fit above keeps its calibrated boxes.
+      if (valueBoxes.some((v) => overlaps(box, { ...v, h: v.h + DESCENT }))) return false;
       if (drawnDeltas.some((d) => d !== null && overlaps(box, d))) return false;
       return ![p.points, cmp.points].some((series) => {
         const [top, bottom] = curveBand(series, box.x, box.x + box.w);

@@ -469,6 +469,9 @@ describe("the baseline's label", () => {
       // And the third reviewer's: the ghost spans its own width sideways, so a
       // steep final segment draws the baseline through the label naming it.
       ["steep", [40, 55, 70, 99], [10, 11, 12, 95]],
+      // OneVL's L2 error by horizon: the ghost 33px above the last value, which
+      // a box ending at the baseline measured at 7px and the browser at 16px.
+      ["horizon", [0.13, 0.48, 1.18, 2.25], [0.13, 0.51, 1.27, 2.44]],
     ];
     for (const [name, points, cmp] of converging) {
       const scene = lineChart(
@@ -489,8 +492,10 @@ describe("the baseline's label", () => {
         expect(scene.tl.some((t) => t.target.includes("ghostlab"))).toBe(false);
         continue;
       }
+      // Both runs as the gate's client rect paints them: a quarter em of descent.
+      const painted = (b: Box) => ({ ...b, h: b.h + 10 });
       for (const v of valueBoxes(scene.html)) {
-        expect({ name, hit: hits(g, v) }).toEqual({ name, hit: false });
+        expect({ name, hit: hits(painted(g), painted(v)) }).toEqual({ name, hit: false });
       }
     }
   });
