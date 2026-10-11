@@ -66,6 +66,12 @@ function pointsIn(c: Ctx): MechanismResult {
   const nAxes = two ? 2 : 1;
   if (d.axes.length !== nAxes)
     throw new Error(`place ${d.form} needs ${nAxes} axis(es), got ${d.axes.length}`);
+  // A curve is drawn under the paper's own points, never alone: an r2 plan
+  // gave curves and no items twice, and "2–16 items" did not say where the points were.
+  if (d.items.length < 2 && d.curves.length)
+    throw new Error(
+      `place draws a curve under its points: give the rows its checks come from as \`items\` (label, values [${d.curves[0]?.x ?? "x"}, output]), 2–16 of them; got ${d.items.length}`,
+    );
   if (d.items.length < 2 || d.items.length > 16)
     throw new Error(`place draws 2–16 items, got ${d.items.length}`);
   if (d.curves.length && !two) throw new Error("place draws curves on a plane only");

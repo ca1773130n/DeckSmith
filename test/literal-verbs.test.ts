@@ -1185,6 +1185,23 @@ describe("what each verb refuses", () => {
   const problems = (lit: Record<string, unknown>) =>
     drawProblems(literalSchema.parse(lit) as Literal, region_, theme);
 
+  it("place: a curve with no points says to give its checks' rows as items", () => {
+    const lit = {
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "α", lowerIsBetter: false },
+        { name: "speed", lowerIsBetter: false },
+      ],
+      items: [],
+      curves: [
+        { label: "γ=2", expr: "(1 - α^(γ+1)) / (1 - α)", x: "α", fixed: params({ γ: "2" }) },
+      ],
+      labels: [],
+    };
+    expect(problems(lit).join("\n")).toMatch(/draws a curve under its points: give the rows/);
+  });
+
   it("operate: a parameter the op does not take, a variant it does not have, two inputs", () => {
     expect(
       problems({
