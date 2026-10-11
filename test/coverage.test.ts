@@ -314,7 +314,10 @@ describe("coverageFindings", () => {
   });
 });
 
-describe("literalFindings", () => {
+// Each case draws every literal beat at every format size (`gateProblems`):
+// ~0.7s alone, and past vitest's 5s default when the whole suite's browser
+// tests share the machine (two different cases timed out at 5.5s on 2026-10-11).
+describe("literalFindings", { timeout: 20_000 }, () => {
   it("passes a plan whose literal beats resolve", () => {
     expect(literalFindings(plan(covered()), analysis, { takeaways: true })).toEqual([]);
   });
