@@ -77,7 +77,14 @@ export async function bundleFont(
   await mkdir(dir, { recursive: true });
   const cssPath = join(dir, "fonts.css");
   const cached = await readFile(cssPath, "utf8").catch(() => "");
-  if (cached.startsWith(stamp)) return { family, css: cached, files: localNames(cached) };
+  if (cached.startsWith(stamp)) {
+    // A bundle cut before the faces carried Inter's metrics is otherwise
+    // reused as it is, by every rebuild of a deck that gains no new glyph. The
+    // file is rewritten too: a build that cannot refresh LINKS it instead.
+    const css = withInterMetrics(cached);
+    if (css !== cached) await writeFile(cssPath, css);
+    return { family, css, files: localNames(css) };
+  }
 
   const res = await fetch(
     `https://fonts.googleapis.com/css2?${families.map((f) => `family=${f.replaceAll(" ", "+")}:wght@400;500;700`).join("&")}` +
@@ -103,9 +110,39 @@ export async function bundleFont(
     files.push(name);
   }
 
-  css = `${stamp}\n${css}`;
+  css = withInterMetrics(`${stamp}\n${css}`);
   await writeFile(cssPath, css);
   return { family, css, files };
+}
+
+/**
+ * Inter's vertical metrics as `@font-face` descriptors: ascent 0.969em,
+ * descent 0.241em, no line gap.
+ *
+ * Every vertical number in the emitters (line boxes, the SVG label `dy`, the
+ * centring of a tspan block) and every box the gates measure was tuned on Inter.
+ * `src/build/files.ts` declares a v2 pack's Latin faces with these for that
+ * reason, and the CJK bundle needs them for the same one. Noto Sans SC as Google
+ * serves it is 1.160 / 0.288 (hhea, read from the woff2), so its line box is
+ * 1.448em where the emitters budget 1.21. MEASURED in Chrome on a zh-Hans deck
+ * (HypePaper, v0.9.2, 2026-10-11): a 56px split-compare heading spanned 65px
+ * above its baseline and overran the top of its svg by 11px. Every verify
+ * reports that as `container_overflow` on `#sN-sideI`; HypePaper's build also
+ * reported it as `text_box_overflow` on `#sN-labI`, failed on it, and a later
+ * verify of the same deck did not. The ink was never cut, because a Han glyph's
+ * ink sits inside 0.88em. Only the box was wrong.
+ *
+ * Advances are untouched, so the width tables in `src/emit/svg.ts` still apply.
+ */
+export const INTER_METRICS =
+  "ascent-override: 96.875%;\n  descent-override: 24.1211%;\n  line-gap-override: 0%";
+
+/** Declare every `@font-face` in `css` with `INTER_METRICS`. Idempotent. */
+export function withInterMetrics(css: string): string {
+  return css.replace(
+    /@font-face\s*\{(?![^}]*ascent-override)/g,
+    `@font-face {\n  ${INTER_METRICS};`,
+  );
 }
 
 function localNames(css: string): string[] {
