@@ -335,6 +335,24 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       const b = spotBox(sp, text);
       return inside(b) && !onLine(b) && clear(b);
     }) ?? (spots[0] as Spot);
+  const AXIS_ROOM = 16;
+  /** Whether a box comes within `AXIS_ROOM` of a tick value or a category name (as `fixedBoxes` below). */
+  const axisHit = (b: { x: number; y: number; w: number; h: number }) =>
+    [
+      ...ticks.map((v) => {
+        const w = runW(v.toFixed(scale.decimals));
+        return { x: PAD.l - 22 - w, y: y(v) + 13 - LABEL_SIZE, w, h: LABEL_SIZE };
+      }),
+      ...p.points
+        .map((pt, i) => ({ pt, i }))
+        .filter(({ i }) => shownX.has(i))
+        .map(({ pt, i }) => labelBox(x(i), H - PAD.b + 56, pt.x)),
+    ].some(
+      // With room to tell them apart: r3's "0.13" was 8px from the "1" under it.
+      (o) =>
+        Math.min(b.x + b.w, o.x + o.w + AXIS_ROOM) - Math.max(b.x, o.x - AXIS_ROOM) > 0 &&
+        Math.min(b.y + b.h, o.y + o.h + AXIS_ROOM) - Math.max(b.y, o.y - AXIS_ROOM) > 0,
+    );
   // A value over its point, or beside it on either side, or under it. The first
   // point sits ON the axis, so it only ever reads to the right (see the axis note).
   const valueSpots = p.points.map((pt, i) => {
@@ -356,7 +374,8 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
             { x: cx - 18, y: down, anchor: "end" },
             { x: cx + 18, y: down, anchor: "start" },
           ];
-    return showsValue(i) ? pick(spots, String(pt.y)) : undefined;
+    // Clear of the axis's own words too: r3 set "0.13" on the first category name "1".
+    return showsValue(i) ? pick(spots, String(pt.y), (b) => !axisHit(b)) : undefined;
   });
   const values = p.points
     .map((pt, i) => ({ pt, i, sp: valueSpots[i] }))

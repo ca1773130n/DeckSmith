@@ -328,6 +328,13 @@ export function slidewareFindings(
       out.push(
         `${beat.id} states ${[...new Set(nums)].slice(0, 4).join(", ")} in its claim and draws them as ${beat.archetype} words: place them — a \`place\` strip (one axis, one dot per setting: an ablation), a plane, or combos.`,
       );
+    // A series over steps drawn by the line-chart archetype builds in seconds and then
+    // holds still (r3 B s13: 14s under 1% change), its main series unnamed; the place
+    // plane steps it on the narration, names each series and leads with the subject.
+    if (!lit && beat.archetype === "line-chart")
+      out.push(
+        `${beat.id} draws a series as a line-chart, which builds in seconds and then stands still while it is spoken. Draw it as \`place\` plane, \`connect\` true, \`reveal\` groups — one group per series named as the source names it, items its rows over the steps — so each series arrives on its sentence and the one the headline names leads.`,
+      );
     if (lit?.kind === "place" && lit.form === "sets") {
       const thin = (lit.sets?.rings ?? []).filter((r) => r.items.length < 3);
       if (thin.length)

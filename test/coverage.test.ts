@@ -1620,6 +1620,21 @@ describe("advice against a deck of text", () => {
     ).toEqual([]);
   });
 
+  it("a series drawn as a line-chart is sent to a place plane", () => {
+    const chart = {
+      id: "b01",
+      intent: "x",
+      archetype: "line-chart",
+      params: { headline: "h", xLabel: "x", yLabel: "y", points: [] },
+      evidence: [],
+    };
+    const found = slidewareFindings(
+      sb([chart]) as never,
+      { figures: [], sections: [], equations: [], tables: [], title: "t" } as never,
+    );
+    expect(found.join("\n")).toMatch(/b01 draws a series as a line-chart.*place.*connect/);
+  });
+
   it("an English eyebrow in a Korean deck, but not a name", () => {
     const eb = (id: string, eyebrow: string) => ({
       ...stage(id, "x"),

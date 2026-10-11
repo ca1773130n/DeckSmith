@@ -1007,7 +1007,8 @@ COMPOSE
       datasets evaluated, limits of a claim ...... place sets
       future work, ablations not run ............. place combos
       a loss or a metric over steps .............. place plane, reveal groups,
-                                                   connect
+                                                   connect (never a line-chart
+                                                   archetype: it stands still)
       a stated formula's behaviour ............... place plane with curves
       latency, serial against parallel ........... flow timeline
       a figure of the method with parts .......... region panels on the beat
