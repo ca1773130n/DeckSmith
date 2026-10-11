@@ -294,6 +294,8 @@ export async function literalPass(
       fragment,
       holds: placeholder[beat.id]?.holds ?? [],
       ...(eyebrow ? { eyebrow } : {}),
+      // Its pictures move inside their own panels; the body is clipped to its box (BespokeEntry).
+      clip: true,
     };
     report.scenes.push({
       beat: beat.id,

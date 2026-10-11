@@ -11,7 +11,7 @@ import type { Fragment } from "../bespoke/contract.js";
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
 import type { LiteralKind } from "../types.js";
-import { type Cue, type Layers, needNumber, px, r3, slotText } from "./kit.js";
+import { type Cue, type Layers, needNumber, px, r3, slotText, type Tl } from "./kit.js";
 
 /** What a kind is given: its picture (picture kinds), its data (data kinds), the earlier scenes (recap). */
 export interface KindInput {
@@ -76,6 +76,47 @@ export function stepStarts(cues: readonly Cue[], n: number): number[] {
   const t0 = (cues[0] as Cue).t0;
   const t1 = (cues[cues.length - 1] as Cue).t1;
   return Array.from({ length: n }, (_, i) => r3(t0 + ((t1 - t0) * i) / n));
+}
+
+/**
+ * A slow move across a real picture (or a computed layer) between two times:
+ * the picture's own motion — a push-in on a detail, a pan along it — so a long
+ * sentence does not play over a frozen frame. Never a decoration: the element
+ * moved is the material the scene computed. `from` is where the previous move
+ * of the same element left it.
+ */
+export interface Pose {
+  x: number;
+  y: number;
+  scale: number;
+}
+export const REST: Pose = { x: 0, y: 0, scale: 1 };
+export function drift(tl: Tl, id: string, t0: number, t1: number, to: Pose, from: Pose = REST) {
+  if (!(t1 - t0 > 0.3)) return;
+  tl.fromTo(
+    id,
+    { x: r3(from.x), y: r3(from.y), scale: r3(from.scale), transformOrigin: "50% 50%" },
+    {
+      x: r3(to.x),
+      y: r3(to.y),
+      scale: r3(to.scale),
+      transformOrigin: "50% 50%",
+      duration: t1 - t0,
+      ease: "sine.inOut",
+    },
+    t0,
+  );
+}
+
+/**
+ * When `n` sub-steps of one step start, spread over the step's own sentence
+ * (from `t0` to `t1`, leaving `tail` seconds at the end), never closer than
+ * `min` nor further apart than `max`: a step's parts arrive while it is spoken,
+ * not in the first second and then nothing.
+ */
+export function spread(t0: number, t1: number, n: number, min = 0.4, max = 2.4, tail = 0.8) {
+  const dt = n > 1 ? Math.max(min, Math.min(max, (t1 - tail - t0) / n)) : 0;
+  return Array.from({ length: n }, (_, i) => r3(t0 + i * dt));
 }
 
 export function img(

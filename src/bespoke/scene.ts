@@ -63,6 +63,12 @@ export interface BespokeEntry {
   grammar?: Grammar;
   /** A data scene's build (src/bespoke/databuild.ts), stamped on the scene for the deck gate. */
   build?: DataBuild;
+  /**
+   * Clip the body to its box, as a camera scene is. A literal scene (src/literal/) sets it:
+   * its pictures move inside their own clipped panels (a push-in on a detail), and the
+   * clip is what tells the layout gate that what they carry past a panel is not painted.
+   */
+  clip?: true;
 }
 
 /** The file `build` writes beside a deck with the bespoke pass's account of itself. */
@@ -365,7 +371,7 @@ export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry):
   // SVG, which a viewBox camera does not. A scene that moves it is clipped to
   // its box, so a push-in never paints over the headline. A viewBox camera
   // (an `attr: { viewBox }` tween) zooms past the box as well.
-  const camera = cine || usesCamera(script) || /\bviewBox\b/.test(script);
+  const camera = cine || usesCamera(script) || /\bviewBox\b/.test(script) || entry.clip === true;
   const box = `<div class="ds-bespoke${cine ? " ds-cine" : ""}" id="${sid}-g"${camera ? " data-ds-clip" : ""}${subjects.length ? ` data-ds-grammar="${staged.grammar}"` : ""}${entry.build ? ` data-ds-build="${entry.build}"` : ""}${depth ? ` data-ds-depth="${depth.planes.length}"` : ""}>
 ${cine && art ? depthLayers(sid, art, width, height, theme, chromeBand(beat, ctx)) : ""}
 <div class="ds-cam" id="${sid}-cam">

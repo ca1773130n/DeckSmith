@@ -332,6 +332,36 @@ export interface Cue {
   t1: number;
 }
 
+/**
+ * The stretches of [from, to] in which no tween of a scene's script runs —
+ * what a viewer sees as the picture standing still. Read off the emitted
+ * script (`tl.fromTo(..., {...duration...}, at)`), so it measures what ships.
+ * A tween with no duration runs GSAP's default 0.5s. Pure; the tests hold
+ * every kind to a ceiling with it (r1 of the EM-SNN deck had 13 stretches of
+ * 6–9s where nothing moved).
+ */
+export function stillSpans(script: string, from: number, to: number): Array<[number, number]> {
+  const runs: Array<[number, number]> = [];
+  for (const line of script.split("\n")) {
+    const m = /^tl\.fromTo\(.*, (\{.*\}), (-?\d+(?:\.\d+)?)\);$/.exec(line.trim());
+    if (!m) continue;
+    const at = Number(m[2]);
+    const dur = /"duration":(\d+(?:\.\d+)?)/.exec(m[1] as string);
+    runs.push([at, at + (dur ? Number(dur[1]) : 0.5)]);
+  }
+  runs.sort((a, b) => a[0] - b[0]);
+  const out: Array<[number, number]> = [];
+  let cursor = from;
+  for (const [a, b] of runs) {
+    if (b <= cursor) continue;
+    if (a > cursor) out.push([cursor, Math.min(a, to)]);
+    cursor = Math.max(cursor, b);
+    if (cursor >= to) break;
+  }
+  if (cursor < to) out.push([cursor, to]);
+  return out.filter(([a, b]) => b - a > 1e-6 && a < to);
+}
+
 /* --------------------------------------------------------------------- slots */
 
 /**
