@@ -476,6 +476,11 @@ const PLAIN_FONT_V2 = TYPE_SCALE.body;
  * callback (invariant 11). The terms keep their `\htmlClass` wrappers across a
  * re-render, so the walk's tweens find them either way.
  */
+/** The share of the box's width a display grows toward when it fits small. */
+const EQ_SPAN = 0.62;
+/** The most a fitting display grows over its estimated size. */
+const EQ_GROW = 1.8;
+
 function mathFit(
   sid: string,
   targets: string[],
@@ -518,7 +523,20 @@ function mathFit(
                   }
                   return fits(each);
                 }
-                if (fits(false)) return "fits";
+                if (fits(false)) {
+                  // Small on a wide box, it GROWS toward ${Math.round(EQ_SPAN * 100)}% of the width, as far as the
+                  // slide's height allows (r3: a formula over 45% of the width, y 300-700 empty).
+                  var s0 = parseFloat(box.style.fontSize);
+                  var e0 = extent(false);
+                  if (!(e0 > 0) || e0 >= ${EQ_SPAN} * bw) return "fits";
+                  var grown = Math.floor(Math.min(s0 * ${EQ_GROW}, (s0 * ${EQ_SPAN} * bw) / e0));
+                  box.style.fontSize = grown + "px";
+                  while (!fits(false) && grown > s0) {
+                    grown = Math.max(s0, grown - 2);
+                    box.style.fontSize = grown + "px";
+                  }
+                  return grown > s0 ? "grown" : "fits";
+                }
                 var size = parseFloat(box.style.fontSize);
                 if (settle(false, (size * bw) / extent(false))) return "scaled";
                 targets.forEach(function (t, i) { katex.render("\\\\displaystyle " + TEX[i], t, ${INLINE_OPTS}); });
@@ -937,11 +955,10 @@ ${slide}`;
       ...(grows
         ? [
             `#${sid} .eqslide{justify-content:space-between}`,
-            // Each entry a row across the box: the symbol at the left edge, its
-            // meaning set to the right edge (a grid of columns broke on a wide TeX chip).
+            // Each entry a row across the box, its meaning beside its symbol: r3 set the
+            // meaning at the right edge, 1500px from the symbol it explains.
             `#${sid} .legend{width:100%;margin-inline:0}`,
-            `#${sid} .leg{max-width:none;justify-content:space-between;align-items:center}`,
-            `#${sid} .leg>span:last-child{text-align:right}`,
+            `#${sid} .leg{max-width:none;justify-content:flex-start;align-items:center}`,
           ]
         : []),
       // The block, not the term under discussion: which term that is, is a fact
