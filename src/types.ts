@@ -1300,7 +1300,12 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      label, learned, shape as the source writes it, \`show\` an
                      earlier verb beat's computed layer, \`figure\` the source's
                      own figure id, \`phase\` train · infer · both}) joined by
-                     \`edges\` ({from, to, skip}), revealed in order; \`phases\`
+                     \`edges\` ({from, to, skip}), revealed in order. A
+                     \`shape\` that is a stated count (4, γ, γ+1) is drawn as
+                     that many token chips. A chain where NO stage has a
+                     \`show\`, a \`figure\` or a count \`shape\` is refused: it
+                     is empty boxes with names, so draw that mechanism as a
+                     \`flow\` timeline or an \`evolve\` instead. \`phases\`
                      true draws the training graph, then inference without the
                      train-only stages. A learned stage is a box: it never
                      shows a computed layer, and a stage that shows one is

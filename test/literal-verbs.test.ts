@@ -15,7 +15,7 @@ import type { Theme } from "../src/emit/kit.js";
 import { drawProblems } from "../src/literal/check.js";
 import { widthOf } from "../src/literal/kind.js";
 import { evolve } from "../src/literal/kinds/evolve.js";
-import { flow } from "../src/literal/kinds/flow.js";
+import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
 import { placeForm, points } from "../src/literal/kinds/place.js";
 import { region } from "../src/literal/kinds/region.js";
@@ -1254,6 +1254,40 @@ describe("what each verb refuses", () => {
         labels: L({ learned: "learned" }),
       })[0],
     ).toMatch(/learned/);
+  });
+
+  it("flow: a shape that is a stated count is tokens, anything else stays words", () => {
+    expect(tokenChips("4")).toEqual(["", "", "", ""]);
+    expect(tokenChips("γ")).toEqual(["1", "2", "…", "γ"]);
+    expect(tokenChips("γ+1")).toEqual(["1", "2", "…", "γ+1"]);
+    expect(tokenChips("1…γ+1")).toEqual(["1", "2", "…", "γ+1"]);
+    expect(tokenChips("256×256")).toBeUndefined();
+    expect(tokenChips("40")).toBeUndefined();
+  });
+
+  it("flow chain: a card is as tall as what it holds, and its label starts inside it", () => {
+    const r = draw({
+      name: "chips",
+      domain: "llm",
+      lit: {
+        kind: "flow",
+        form: "chain",
+        stages: [
+          { id: "a", label: "draft", learned: true, shape: "γ" },
+          { id: "b", label: "verify", learned: true, shape: "γ+1" },
+        ],
+        labels: L({ learned: "model" }),
+      },
+    } as never).r;
+    const prims = r.frames[0]?.prims ?? [];
+    const card = prims.find((p) => p.p === "rect" && p.fill === "panel") as {
+      y: number;
+      h: number;
+    };
+    expect(card.h).toBeLessThan(region_.height * 0.8);
+    const label = prims.find((p) => p.p === "text" && p.text === "draft") as { y: number };
+    expect(label.y - card.y).toBeGreaterThanOrEqual(16);
+    expect(prims.filter((p) => p.p === "text" && p.text === "γ+1")).toHaveLength(1);
   });
 
   it("flow timeline: totals on some lanes and not others", () => {

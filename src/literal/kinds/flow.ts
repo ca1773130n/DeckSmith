@@ -66,22 +66,51 @@ function chain(c: Ctx): MechanismResult {
   const gapY = 72;
   const bw = (W - (perRow - 1) * gapX) / perRow;
   const rowH = (H - titleH - (rows - 1) * gapY) / rows;
-  const bh = Math.min(rowH, bw * 1.2);
+  const size = TYPE.label;
+  const lh = Math.round(size * 1.18);
+  // Inside the card. A text prim's y is its line box's top and CJK ink rises
+  // about 0.1em above that, so 0.4em puts the glyph tops 0.3em under the edge;
+  // lines wrap half an em short of each side, less the 3px halo. r1 set the
+  // label at y+12 in a card as tall as the region: the tops of "当前帧…" and
+  // "CoT" were cut by the region's edge, and the line ran out of the card.
+  const padX = Math.round(size * 0.5);
+  const padTop = Math.round(size * 0.4);
+  const padBot = Math.round(size * 0.4);
+  const innerW = bw - 2 * padX - 6;
+  const chipH = Math.round(size * 1.5);
+  const chipGap = 12;
+  const laid = d.stages.map((s) => {
+    const label = wrapBy(s.label, size, innerW, c.measure);
+    const wide = label.find((l) => c.measure(l, size) > innerW);
+    if (wide)
+      throw new Error(
+        `stage "${s.label}": "${wide}" is wider than its card (${Math.floor(innerW)}px inside); shorten it or use fewer stages`,
+      );
+    const tokens = s.shape ? tokenChips(s.shape) : undefined;
+    const chips = tokens ? layChips(tokens, innerW, chipH, chipGap, (t) => c.measure(t, size)) : [];
+    const chipsH = chips.length ? Math.max(...chips.map((q) => q.y + chipH)) + 16 : 0;
+    const shape = s.shape && !tokens ? wrapBy(s.shape, size, innerW, c.measure) : [];
+    const learned = s.learned ? 1 : 0;
+    const need = padTop + label.length * lh + 6 + chipsH + (shape.length + learned) * lh + padBot;
+    return { label, chips, chipsH, shape, learned, need };
+  });
+  // A card is as tall as its words and tokens, not the region; only a stage
+  // showing a picture takes the room a picture wants.
+  const pictures = d.stages.some((s) => s.show || s.figure);
+  const bh = pictures
+    ? Math.min(rowH, bw * 1.2)
+    : Math.min(rowH, Math.max(...laid.map((l) => l.need)));
   const pos = (i: number) => {
     const r = Math.floor(i / perRow);
     const q = i % perRow;
     return { x: q * (bw + gapX), y: titleH + r * (rowH + gapY) + (rowH - bh) / 2 };
   };
-  const lh = Math.round(TYPE.label * 1.18);
   const boxes: Prim[][] = d.stages.map((s, i) => {
     const { x, y } = pos(i);
-    const label = wrapBy(s.label, TYPE.label, bw - 24, c.measure);
-    const shape = s.shape ? wrapBy(s.shape, TYPE.label, bw - 24, c.measure) : [];
-    const learned = s.learned ? 1 : 0;
-    const textH = (label.length + shape.length + learned) * lh + 24;
-    if (textH > bh - 8)
+    const { label, chips, chipsH, shape, learned, need } = laid[i] as (typeof laid)[number];
+    if (need > bh + 0.5)
       throw new Error(
-        `stage "${s.label}" needs ${Math.ceil(textH)}px and has ${Math.floor(bh)}px; shorten its label or use fewer stages`,
+        `stage "${s.label}" needs ${Math.ceil(need)}px and has ${Math.floor(bh)}px; shorten its label or use fewer stages`,
       );
     const out: Prim[] = [
       { p: "rect", x, y, w: bw, h: bh, fill: "panel", radius: 10, cam: true },
@@ -96,10 +125,38 @@ function chain(c: Ctx): MechanismResult {
             cam: true,
           }
         : { p: "rect", x, y, w: bw, h: bh, role: "rule", width: 3, radius: 10, cam: true },
-      ...textLines(label, x + bw / 2, y + 12, TYPE.label, "fg", { cam: true }, "middle"),
+      ...textLines(label, x + bw / 2, y + padTop, size, "fg", { cam: true }, "middle"),
     ];
-    const visTop = y + 12 + label.length * lh + 6;
-    const visBot = y + bh - 12 - (shape.length + learned) * lh - 6;
+    const chipTop = y + padTop + label.length * lh + 6;
+    for (const q of chips) {
+      const cx = x + padX + 3 + q.x;
+      const cy = chipTop + q.y;
+      if (q.text !== "…")
+        out.push({
+          p: "rect",
+          x: cx,
+          y: cy,
+          w: q.w,
+          h: chipH,
+          fill: s.learned ? "accent" : "a",
+          radius: 8,
+          opacity: 0.85,
+          cam: true,
+        });
+      if (q.text)
+        out.push({
+          p: "text",
+          x: cx + q.w / 2,
+          y: cy + (chipH - size) / 2 - size * 0.05,
+          size,
+          role: q.text === "…" ? "muted" : "auto",
+          anchor: "middle",
+          text: q.text,
+          cam: true,
+        });
+    }
+    const visTop = chipTop + chipsH;
+    const visBot = y + bh - padBot - (shape.length + learned) * lh - 6;
     if (s.show || s.figure) {
       if (visBot - visTop < 110)
         throw new Error(
@@ -107,24 +164,22 @@ function chain(c: Ctx): MechanismResult {
         );
       out.push({
         p: "image",
-        x: x + 12,
+        x: x + padX,
         y: visTop,
-        w: bw - 24,
+        w: bw - 2 * padX,
         h: visBot - visTop,
         layer: s.show ? `from:${s.show}:thumb` : `fig:${s.figure}`,
         fit: true,
         cam: true,
       } as Prim);
     }
-    out.push(
-      ...textLines(shape, x + bw / 2, visBot + 6, TYPE.label, "muted", { cam: true }, "middle"),
-    );
+    out.push(...textLines(shape, x + bw / 2, visBot + 6, size, "muted", { cam: true }, "middle"));
     if (s.learned)
       out.push({
         p: "text",
         x: x + bw / 2,
-        y: y + bh - 12 - lh,
-        size: TYPE.label,
+        y: y + bh - padBot - lh,
+        size,
         role: "accent",
         anchor: "middle",
         slot: "learned",
@@ -251,6 +306,53 @@ function chain(c: Ctx): MechanismResult {
     data: { thumb: shown ? `from:${shown.show}:thumb` : undefined },
     vars: {},
   };
+}
+
+/**
+ * A stage's `shape` as the tokens it counts, when it is a count the source
+ * states: a whole number (that many chips, unlabelled), or one symbol with an
+ * optional offset, alone or as the end of a run from 1 ("γ", "γ+1", "1…γ+1"),
+ * drawn as 1, 2, …, the symbol, so no value of the symbol is invented.
+ * Anything else ("H×W×C", "256×256") is not a count and stays words.
+ */
+export function tokenChips(shape: string): string[] | undefined {
+  const t = shape.trim().replace(/\s+/g, "");
+  if (/^\d{1,2}$/.test(t)) {
+    const k = Number(t);
+    return k >= 1 && k <= 16 ? Array.from({ length: k }, () => "") : undefined;
+  }
+  const end = /^(?:1(?:…|\.\.\.?|–|-|~))?(\p{L}(?:[+−-]\d{1,2})?)$/u.exec(t)?.[1];
+  return end ? ["1", "2", "…", end] : undefined;
+}
+
+/** Chips laid left to right in rows `w` wide, each as wide as its text needs. */
+function layChips(
+  tokens: readonly string[],
+  w: number,
+  h: number,
+  gap: number,
+  measure: (t: string) => number,
+): Array<{ x: number; y: number; w: number; text: string }> {
+  const out: Array<{ x: number; y: number; w: number; text: string }> = [];
+  let x = 0;
+  let y = 0;
+  for (const text of tokens) {
+    const cw = text ? Math.max(h, measure(text) + h * 0.5) : h * 0.8;
+    if (x > 0 && x + cw > w) {
+      x = 0;
+      y += h + gap;
+    }
+    out.push({ x, y, w: cw, text });
+    x += cw + gap;
+  }
+  // Centred under the label, row by row.
+  for (const row of new Set(out.map((q) => q.y))) {
+    const inRow = out.filter((q) => q.y === row);
+    const last = inRow[inRow.length - 1] as (typeof out)[number];
+    const slack = (w - (last.x + last.w)) / 2;
+    for (const q of inRow) q.x += slack;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ graph */

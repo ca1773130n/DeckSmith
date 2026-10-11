@@ -960,6 +960,28 @@ describe("the truth gate grounds every number in its role", () => {
     expect(found).toMatch(/stage "인코더" is learned and shows a computed layer/);
     expect(found).toMatch(/shows figure "gen-b02", which is not one of the source's own figures/);
   });
+
+  it("refuses a chain of empty boxes, and takes one whose stage holds a stated count", () => {
+    // r1: speculative decoding drawn as three empty 500×630 rectangles.
+    const chain = (shape?: string) => {
+      const beats = covered();
+      beats[3] = beatOf("b03-method", "method", ["sec4"], {
+        literal: {
+          kind: "flow",
+          form: "chain",
+          stages: [
+            { id: "a", label: "초안", learned: true, ...(shape ? { shape } : {}) },
+            { id: "b", label: "검증", learned: true },
+          ],
+          labels: [{ slot: "learned", text: "모델" }],
+        },
+      });
+      return literalFindings(plan(beats), analysis).join("\n");
+    };
+    expect(chain()).toMatch(/a chain of empty boxes/);
+    expect(chain("γ")).not.toMatch(/a chain of empty boxes/);
+    expect(chain("H×W×C")).toMatch(/a chain of empty boxes/);
+  });
 });
 
 describe("a formula is grounded by every row of the table its checks cite", () => {

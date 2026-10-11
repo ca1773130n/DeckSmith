@@ -33,6 +33,7 @@ import { bespokeRegion } from "../bespoke/scene.js";
 import { deckLook } from "../emit/theme.js";
 import { drawProblems } from "../literal/check.js";
 import { checkPasses, GREEK, normalizeExpr, parseFormula, printed } from "../literal/formula.js";
+import { tokenChips } from "../literal/kinds/flow.js";
 import { placeForm } from "../literal/kinds/place.js";
 import { leavesPicture } from "../literal/kinds/recap.js";
 import type {
@@ -1044,6 +1045,12 @@ function verbGrounding(
     case "flow": {
       if (lit.form === "chain") {
         example = lit.stages.some((s) => !!s.show);
+        // A chain of boxes holding only their names is slideware: r1 drew
+        // speculative decoding as three empty 500×630 rectangles.
+        if (!lit.stages.some((s) => s.show || s.figure || (s.shape && tokenChips(s.shape))))
+          out.push(
+            "is a chain of empty boxes: no stage shows a layer (`show`), a figure (`figure`) or a stated count (`shape`, e.g. γ or 4). Draw the mechanism as a `flow` timeline or an `evolve`, or give the stages what they hold",
+          );
         for (const s of lit.stages) {
           if (s.show && s.learned)
             out.push(
