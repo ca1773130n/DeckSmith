@@ -12,7 +12,7 @@
  * source by the truth gate. The empty cells are the point of the scene, not a
  * placeholder: they are what the next experiment would fill.
  */
-import { type KindImpl, LAB_H, lab, spread, stepStarts, widthOf, wrap } from "../kind.js";
+import { type KindImpl, lab, spread, stepStarts, widthOf, wrap } from "../kind.js";
 import { baseCss, LABEL, label, px, SMALL, Tl } from "../kit.js";
 
 export interface AblationData {
@@ -66,37 +66,51 @@ export const ablationKind: KindImpl = {
     // the picture — with ONE quiet mark naming what an empty square means, and under it the
     // reported result, large. (An earlier version wrote "not reported" in three of four
     // cells: repeated empty text, review 2026-10-11.)
-    const headW = two
-      ? Math.max(
-          widthOf(`${d.components[0]} ${on}`, SMALL, theme),
-          widthOf(`${d.components[0]} ${off}`, SMALL, theme),
-        ) + 28
-      : 0;
-    const colHead = (c: number) =>
-      two ? `${d.components[1]} ${c === 0 ? on : off}` : `${d.components[0]} ${c === 0 ? on : off}`;
-    const colW = Math.max(widthOf(colHead(0), SMALL, theme), widthOf(colHead(1), SMALL, theme));
+    // Heads in two lines — the component, then kept or removed — so a square need only be
+    // as wide as the longer word, and the grid can shrink to the height it is given.
+    const [ca, cb] = d.components as [string, string | undefined];
+    const colName = two ? (cb as string) : ca;
+    const headW = two ? Math.max(...[ca, on, off].map((t) => widthOf(t, SMALL, theme))) + 28 : 0;
+    const colW = Math.max(...[colName, on, off].map((t) => widthOf(t, SMALL, theme)));
     const rows = two ? 2 : 1;
-    const cell = Math.round(Math.min(170, Math.max(120, colW + 16), (gw - headW - 16) / 2));
-    const gy = LAB_H;
+    const gy = 2 * 48 + 12;
+    const holes = combos.filter((k) => resultOf(d, k) === undefined).length;
+    const missLines = holes ? wrap(missing, SMALL, gw - 60, theme) : [];
+    const missH = holes ? missLines.length * 50 + 28 : 0;
+    // The reported results, at the deck's headline size: what the source did measure.
+    // Beside the grid when the scene has the width (no settings column), else under it.
+    const BIG = 56;
+    const cellMax = Math.round(Math.min(170, (gw - headW - 16) / 2));
+    const beside = gw - (headW + 2 * cellMax + 16) - 64 >= 420;
+    const rx = beside ? headW + 2 * cellMax + 16 + 64 : 0;
+    const rw = gw - rx;
+    const blocks = d.reported.map((r) => ({
+      name: wrap(r.with.length ? r.with.join(" + ") : off, SMALL, rw, theme),
+      value: wrap(r.result, BIG, rw, theme),
+    }));
+    const resH = blocks.reduce((a, b) => a + b.name.length * 50 + b.value.length * 66 + 20, 0);
+    const room = gh - gy - (rows - 1) * 16 - missH - (beside ? 0 : 12 + resH);
+    const cell = Math.round(Math.min(cellMax, room / rows));
+    if (cell < Math.max(72, colW + 8) || (beside && gy + resH - 20 > gh))
+      throw new Error(
+        `literal: ablation's grid and reported results do not fit ${Math.floor(gh)}px (squares of ${cell}px); shorten the results or the component names`,
+      );
     const cellXY = (i: number): [number, number] =>
       two
         ? [headW + (i % 2) * (cell + 16), gy + Math.floor(i / 2) * (cell + 16)]
         : [headW + i * (cell + 16), gy];
     const heads = [0, 1]
-      .map((c) => label(`hc${c}`, colHead(c), headW + c * (cell + 16), 0, SMALL, theme.fg))
+      .map(
+        (c) =>
+          `${label(`hc${c}`, colName, headW + c * (cell + 16), 0, SMALL, theme.fg)}${label(`hc${c}b`, c === 0 ? on : off, headW + c * (cell + 16), 48, SMALL, theme.muted)}`,
+      )
       .join("");
     const rowHeads = two
       ? [0, 1]
-          .map((r) =>
-            label(
-              `hr${r}`,
-              `${d.components[0]} ${r === 0 ? on : off}`,
-              0,
-              gy + r * (cell + 16) + cell / 2 - 26,
-              SMALL,
-              theme.fg,
-            ),
-          )
+          .map((r) => {
+            const y = gy + r * (cell + 16) + cell / 2 - 50;
+            return `${label(`hr${r}`, ca, 0, y, SMALL, theme.fg)}${label(`hr${r}b`, r === 0 ? on : off, 0, y + 48, SMALL, theme.muted)}`;
+          })
           .join("")
       : "";
     const cells = combos
@@ -110,31 +124,15 @@ export const ablationKind: KindImpl = {
       })
       .join("\n");
     const gridB = gy + rows * cell + (rows - 1) * 16;
-    const holes = combos.filter((k) => resultOf(d, k) === undefined).length;
     const mY = gridB + 28;
     const mark = holes
-      ? `<div id="SCENEID-miss" style="position:absolute;left:0;top:${px(mY)};width:${px(gw)};height:56px"><div style="position:absolute;left:0;top:6px;width:40px;height:40px;border:4px dashed ${theme.muted};border-radius:8px;box-sizing:border-box"></div>${wrap(
-          missing,
-          SMALL,
-          gw - 60,
-          theme,
-        )
+      ? `<div id="SCENEID-miss" style="position:absolute;left:0;top:${px(mY)};width:${px(gw)};height:${px(missH - 28)}"><div style="position:absolute;left:0;top:6px;width:40px;height:40px;border:4px dashed ${theme.muted};border-radius:8px;box-sizing:border-box"></div>${missLines
           .map((t, j) => label(`mt${j}`, t, 60, j * 50, SMALL, theme.muted))
           .join("")}</div>`
       : "";
-    const missH = holes ? wrap(missing, SMALL, gw - 60, theme).length * 50 + 28 : 0;
-    // The reported results, at the deck's headline size: what the source did measure.
-    // Under the grid, or beside it when the scene has the width (no settings column).
-    const BIG = 56;
-    const gridR = headW + 2 * cell + 16;
-    const beside = gw - gridR - 64 >= 420;
-    const rx = beside ? gridR + 64 : 0;
-    const rw = gw - rx;
-    let ry = beside ? gy : mY + missH + 12;
-    const reported = d.reported
-      .map((r, i) => {
-        const name = wrap(r.with.length ? r.with.join(" + ") : off, SMALL, rw, theme);
-        const value = wrap(r.result, BIG, rw, theme);
+    let ry = beside ? gy : mY + missH + 12 - (holes ? 28 : 0);
+    const reported = blocks
+      .map(({ name, value }, i) => {
         const y = ry;
         ry += name.length * 50 + value.length * 66 + 20;
         return `<div id="SCENEID-rp${i}" style="position:absolute;left:${px(rx)};top:${px(y)};width:${px(rw)};height:${px(name.length * 50 + value.length * 66)}">${name
@@ -144,10 +142,6 @@ export const ablationKind: KindImpl = {
           .join("")}</div>`;
       })
       .join("\n");
-    if (Math.max(ry - 20, mY + missH) > gh)
-      throw new Error(
-        `literal: ablation's grid and reported results need ${Math.ceil(ry - 20)}px and the scene has ${Math.floor(gh)}px; shorten the results`,
-      );
     // Right: the settings the source fixed, each a name and the ONE value it was tested at,
     // as words — no axis, which would claim a range the source never states.
     const sx = gw + 64;
@@ -219,7 +213,13 @@ ${others}
     {
       const t0 = Math.max(0.8, (at[0] as number) + 0.1);
       const t1 = (at[1] as number | undefined) ?? end;
-      for (const id of ["hc0", "hc1", ...(two ? ["hr0", "hr1"] : [])])
+      for (const id of [
+        "hc0",
+        "hc0b",
+        "hc1",
+        "hc1b",
+        ...(two ? ["hr0", "hr0b", "hr1", "hr1b"] : []),
+      ])
         tl.show(id, Math.min(0.4, t0), 0.5);
       const order = combos
         .map((keep, i) => [i, resultOf(d, keep) !== undefined] as const)
