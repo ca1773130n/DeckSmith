@@ -892,6 +892,38 @@ function tableRowStates(
   );
 }
 
+/** A passage that is a list item ("- X", "1. X"): one row of a list. */
+const LIST_ITEM = /^\s*(?:[-*•]|\d+[.)])\s/u;
+
+/**
+ * Whether a two-value point is one row of a table the source wrote as a list:
+ * a list item naming the label states one value as its k-th number, and the
+ * nearest passage before it that is not a list item — the header the list
+ * hangs from — states the other as ITS k-th. Measured on OneVL's horizon table,
+ * flattened to "附录表格报告 1 s、2 s、3 s、4 s 时的 L2 误差" and then
+ * "- OneVL：0.13、0.48、1.18、2.25、1.01": a `connect` series of OneVL's L2
+ * error over the horizons is the source's own row, and requiring the horizon
+ * beside the error refused every point of it.
+ */
+function listRowStates(
+  ps: readonly string[],
+  item: { label: string; values: readonly string[] },
+): boolean {
+  if (item.values.length !== 2) return false;
+  const [a, b] = item.values.map((v) => numbersIn(v));
+  if (a?.length !== 1 || b?.length !== 1) return false;
+  const esc = item.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return ps.some((p, i) => {
+    if (!LIST_ITEM.test(p) || !named(p, item.label)) return false;
+    let h = i - 1;
+    while (h >= 0 && LIST_ITEM.test(ps[h] as string)) h--;
+    if (h < 0) return false;
+    const head = numbersIn(ps[h] as string);
+    const row = numbersIn(p.replace(new RegExp(esc, "giu"), " "));
+    return head.some((x, k) => (x === a[0] && row[k] === b[0]) || (x === b[0] && row[k] === a[0]));
+  });
+}
+
 /* ------------------------------------------------------------ the word forms */
 
 /**
@@ -946,7 +978,8 @@ function wordGrounding(lit: Literal, source: Source, text: string): string[] {
     for (const it of lit.items)
       if (
         !ps.some((p) => has(p, it.label) && it.values.every((v) => states(p, v))) &&
-        !tableRowStates(source, it)
+        !tableRowStates(source, it) &&
+        !listRowStates(ps, it)
       )
         out.push(
           `places "${it.label}" at ${it.values.join(", ")}, and no passage of the source states ${it.values.length > 1 ? "those values" : "that value"} with "${it.label}" named. Each item's values sit in one passage with its name`,

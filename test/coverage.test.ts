@@ -695,6 +695,53 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     expect(found).toMatch(/places "LHID · Temp 0" at 2.6/);
   });
 
+  it("places a series point by a list row and the header the list hangs from", () => {
+    // A table flattened to a header sentence and one list item a row: the
+    // horizon is the header's k-th number, the error the row's k-th.
+    const listed = sourceSchema.parse({
+      ...analysis,
+      sections: [
+        ...analysis.sections,
+        {
+          id: "sec90",
+          depth: 2,
+          heading: "L2",
+          text: "表格报告 1 s、2 s、3 s 时的 L2 误差，以及平均值。",
+        },
+        {
+          id: "sec91",
+          depth: 3,
+          heading: "结果",
+          text: "- LHID：0.13、0.48、1.18、0.60\n- DHID：0.17、0.63、1.61、0.80",
+        },
+      ],
+    });
+    const beats = covered();
+    const series = (items: Array<{ label: string; values: string[] }>) =>
+      beatOf("b05-results", "experiments", ["sec7"], {
+        literal: {
+          kind: "place",
+          form: "plane",
+          axes: [
+            { name: "horizon (s)", lowerIsBetter: false },
+            { name: "L2 error", lowerIsBetter: true },
+          ],
+          items,
+        },
+      });
+    beats[5] = series([
+      { label: "LHID", values: ["1", "0.13"] },
+      { label: "LHID", values: ["2", "0.48"] },
+      { label: "DHID", values: ["3", "1.61"] },
+    ]);
+    expect(literalFindings(plan(beats), listed).join("\n")).not.toMatch(/places "(LHID|DHID)"/);
+    // The k-th header number pairs only with the k-th row number.
+    beats[5] = series([{ label: "LHID", values: ["2", "1.18"] }]);
+    expect(literalFindings(plan(beats), listed).join("\n")).toMatch(
+      /places "LHID" at 2, 1.18, and no passage/,
+    );
+  });
+
   it("holds set items to the source's names, and the first set to what has results", () => {
     const beats = covered();
     const sets = (first: string[]) =>
