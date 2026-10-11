@@ -61,7 +61,7 @@ const NEEDS: Record<string, readonly string[]> = {
 export const points = (c: Ctx): MechanismResult => withPushRoom(pointsIn)(c);
 
 /** The widest a key column beside the plot may be, as a share of the scene; wider goes under. */
-const KEY_SHARE = 0.45;
+const KEY_SHARE = 0.55;
 
 /** A plane names each point beside it up to this many; past it, a key (`KEYED`). */
 export const NAMED_MAX = 8;
@@ -237,13 +237,14 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     ? Math.max(...keyLines.map((l) => c.measure(l, TYPE.label))) + 32
     : 0;
   const KEY_LH = 52;
-  // Beside the plot on a wide scene; under it where the column would take more
-  // than `KEY_SHARE` of the width (a portrait or square format).
-  const below = keyW > W * KEY_SHARE;
+  // Beside the plot where the column fits (`KEY_SHARE` of the width) and its
+  // lines fit down the scene; else under the plot, where it costs height.
+  const besideOk = keyW <= W * KEY_SHARE && keyLines.length * KEY_LH <= H - top;
+  const below = keyLines.length > 0 && !besideOk;
   const keyH = below ? keyLines.length * KEY_LH + 16 : 0;
-  if (keyLines.length && (below ? keyW > W - 48 : keyLines.length * KEY_LH > H - top))
+  if (below && keyW > W - 48)
     throw new Error(
-      `place: ${d.items.length} points are too many to name in a key ${below ? "under" : "beside"} the plot; shorten the item names, split the beat or give fewer items`,
+      `place: the key's longest line is ${Math.ceil(keyW)}px, wider than the scene; shorten the item names or give fewer items`,
     );
   const sideW = below ? 0 : keyW;
   // A plane's x-axis name has its own row under the tick values, so no tick
