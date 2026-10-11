@@ -71,8 +71,8 @@ function chain(c: Ctx): MechanismResult {
   // Inside the card. A text prim's y is its line box's top and CJK ink rises
   // about 0.1em above that, so 0.4em puts the glyph tops 0.3em under the edge;
   // lines wrap half an em short of each side, less the 3px halo. r1 set the
-  // label at y+12 in a card as tall as the region: the tops of "当前帧…" and
-  // "CoT" were cut by the region's edge, and the line ran out of the card.
+  // label at y+12 in a card as tall as the region: the glyph tops of a Han
+  // label were cut by the region's edge, and its line ran out of the card.
   const padX = Math.round(size * 0.5);
   const padTop = Math.round(size * 0.4);
   const padBot = Math.round(size * 0.4);

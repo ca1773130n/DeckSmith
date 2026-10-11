@@ -1335,7 +1335,12 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`axes\`) or strip (one): \`items\` ({label, values exactly as
                      the source writes them, one per axis, group}), revealed in
                      spoken order or \`reveal\` groups (a group's points with
-                     \`connect\` are a series: the source's rows over steps);
+                     \`connect\` are a series: the source's rows over steps).
+                     Items that share one label are named by their \`group\`.
+                     \`diagonal\` true when both axes are ONE measure under two
+                     conditions (α at temp 0 against α at temp 1): both axes
+                     share a scale and y = x is drawn, so above or below it is
+                     the finding. Each axis is ticked;
                      \`curves\` ({label, expr, x, fixed params, checks}) draw a
                      stated formula under the points, grounded by checks the
                      source prints. Curves are not only for images: a
@@ -1360,6 +1365,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      first).`,
     slots: {
       caption: { what: "under the scene: what the positions are", optional: true },
+      better: {
+        what: "plane or strip: the word for 'better', at the end of an axis where lower is better",
+        optional: true,
+      },
       ahead: { what: "margin only: where the method leads on every metric", optional: true },
       behind: { what: "margin only: where it trails on every metric", optional: true },
       zero: {
@@ -1638,6 +1647,8 @@ export const literalSchema = z.discriminatedUnion("kind", [
       )
       .default([]),
     connect: z.boolean().default(false),
+    /** plane: both axes are one measure under two conditions; draws y = x on one scale. */
+    diagonal: z.boolean().default(false),
     reveal: z.enum(["items", "groups"]).default("items"),
     curves: z
       .array(

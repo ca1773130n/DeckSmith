@@ -17,7 +17,7 @@ import { widthOf } from "../src/literal/kind.js";
 import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
-import { placeForm, points } from "../src/literal/kinds/place.js";
+import { placeForm, points, ticksOf } from "../src/literal/kinds/place.js";
 import { region } from "../src/literal/kinds/region.js";
 import {
   type Earlier,
@@ -1288,6 +1288,66 @@ describe("what each verb refuses", () => {
     const label = prims.find((p) => p.p === "text" && p.text === "draft") as { y: number };
     expect(label.y - card.y).toBeGreaterThanOrEqual(16);
     expect(prims.filter((p) => p.p === "text" && p.text === "γ+1")).toHaveLength(1);
+  });
+
+  it("place: ticks are round values inside the drawn range", () => {
+    expect(ticksOf([84.1, 89.6], false).map((t) => t.text)).toEqual(["85", "86", "87", "88", "89"]);
+    expect(ticksOf([0.52, 0.91], false).map((t) => t.text)).toEqual(["0.6", "0.7", "0.8", "0.9"]);
+    expect(ticksOf([0.2, 2.3], true).map((t) => t.text)).toEqual(["10", "100"]);
+  });
+
+  it("place: items sharing a label are named by group, with no legend; values never break", () => {
+    const prims =
+      draw({
+        name: "same label",
+        domain: "llm",
+        lit: {
+          kind: "place",
+          form: "strip",
+          axes: [{ name: "speed", lowerIsBetter: false }],
+          items: [
+            { label: "small", values: ["3.4"], group: "task A · temp 0" },
+            { label: "small", values: ["2.6"], group: "task A · temp 1" },
+            { label: "small", values: ["3.1"], group: "task B · temp 0" },
+          ],
+          labels: L({}),
+        },
+      } as never).r.frames[0]?.prims ?? [];
+    const texts = prims.flatMap((p) => (p.p === "text" && p.text ? [p.text] : []));
+    expect(texts).toContain("task A · temp 0");
+    expect(texts).not.toContain("small");
+    expect(texts).toContain("3.4");
+    // No legend dot: every circle is a point.
+    expect(prims.filter((p) => p.p === "circle")).toHaveLength(3);
+  });
+
+  it("place: a diagonal plane shares one scale and draws y = x", () => {
+    const prims =
+      draw({
+        name: "diagonal",
+        domain: "llm",
+        lit: {
+          kind: "place",
+          form: "plane",
+          diagonal: true,
+          axes: [
+            { name: "a at 0", lowerIsBetter: false },
+            { name: "a at 1", lowerIsBetter: false },
+          ],
+          items: [
+            { label: "p", values: ["0.88", "0.89"] },
+            { label: "q", values: ["0.61", "0.57"] },
+          ],
+          labels: L({}),
+        },
+      } as never).r.frames[0]?.prims ?? [];
+    const diag = prims.find((p) => p.p === "line" && p.dash) as
+      | { x1: number; y1: number; x2: number; y2: number }
+      | undefined;
+    expect(diag).toBeDefined();
+    const d = diag as { x1: number; y1: number; x2: number; y2: number };
+    expect(d.x2).toBeGreaterThan(d.x1);
+    expect(d.y2).toBeLessThan(d.y1);
   });
 
   it("flow timeline: totals on some lanes and not others", () => {

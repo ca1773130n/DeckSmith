@@ -9,8 +9,9 @@
  * which is how the source's rows over steps (a loss curve) are shown. A
  * `curve` is a stated formula evaluated across the x axis and drawn under the
  * points, revealed left to right; the gate grounds it by checks the source
- * prints (src/plan/coverage.ts). No tick is drawn and no number is printed
- * that the source does not state.
+ * prints (src/plan/coverage.ts). Each axis carries 3–6 round tick values
+ * (scale marks, not data); a label far from its dot is joined to it by a
+ * leader line; \`diagonal\` puts both axes on one scale under y = x.
  *
  * The word forms keep their own renderers (./place-*.ts): `measure` margin
  * (results against the best other method), `measure` length (quantities to
@@ -80,8 +81,17 @@ export function points(c: Ctx): MechanismResult {
   // rows as it needs: beside the strip's axis name or the plane's, then the full
   // width. Each row past the first moves the plot down by one.
   const nameW = (k: number) => c.measure((d.axes[k] as PlaceLit["axes"][number]).name, TYPE.label);
+  // Items that share one label differ only by group: the group names the
+  // point and there is no legend. r1 labelled four points with one model name and put
+  // the real distinction, and the axis title, in a two-row legend.
+  const byName = groups.every(Boolean) && new Set(d.items.map((it) => it.label)).size === 1;
+  const nameOf = (it: PlaceLit["items"][number]) => (byName ? (it.group as string) : it.label);
+  if (d.diagonal && (!two || d.axes[0]?.lowerIsBetter !== d.axes[1]?.lowerIsBetter))
+    throw new Error("place `diagonal` needs a plane whose two axes agree on lowerIsBetter");
+  if (d.diagonal && !!d.axes[0]?.log !== !!d.axes[1]?.log)
+    throw new Error("place `diagonal` needs both axes linear or both logarithmic");
   const legend = legendOf(
-    groups.length > 1 && groups.every(Boolean) ? groups : [],
+    !byName && groups.length > 1 && groups.every(Boolean) ? groups : [],
     two ? 24 + nameW(1) + 48 : 24,
     two ? W - 24 : W - 24 - nameW(0) - 48,
     { left: 24, right: W - 24 },
@@ -92,6 +102,8 @@ export function points(c: Ctx): MechanismResult {
   const plot = two
     ? { x: 24, y: top, w: W - 48, h: H - top - 64 }
     : { x: 24, y: top, w: W - 48, h: H - top - 24 };
+  // Set once the y axis's ticks are known (`ticksOf`), before anything is placed.
+  let yTickW = 0;
   const tr = (k: number) => {
     const a = d.axes[k] as PlaceLit["axes"][number];
     return (v: number) => {
@@ -140,8 +152,23 @@ export function points(c: Ctx): MechanismResult {
     const pad = (hi - lo || Math.abs(hi) || 1) * 0.12;
     return [lo - pad, hi + pad] as const;
   };
-  const rx = range(0);
-  const ry = two ? range(1) : ([0, 1] as const);
+  let rx = range(0);
+  let ry = two ? range(1) : ([0, 1] as const);
+  if (d.diagonal) {
+    // One scale on both axes, so y = x runs corner to corner at 45°.
+    const both = [Math.min(rx[0], ry[0]), Math.max(rx[1], ry[1])] as const;
+    rx = both;
+    ry = both;
+  }
+  // Ticks: 3–6 round values across each axis's drawn range. Scale marks, not
+  // data — without them r1's planes had positions nobody could read.
+  const xTicks = ticksOf(rx, !!ax0Of(d).log);
+  const yTicks = two ? ticksOf(ry, !!d.axes[1]?.log) : [];
+  if (two && yTicks.length) {
+    yTickW = Math.max(...yTicks.map((t) => c.measure(t.text, TYPE.label))) + 20;
+    plot.x += yTickW;
+    plot.w -= yTickW;
+  }
   const better = (k: number) => !(d.axes[k] as PlaceLit["axes"][number]).lowerIsBetter;
   const X = (v: number) => {
     const t = (tr(0)(v) - rx[0]) / (rx[1] - rx[0]);
@@ -245,6 +272,123 @@ export function points(c: Ctx): MechanismResult {
   }
   // The axis names' boxes (src/literal/kinds/stage.ts draws a text's top at its y).
   const nameH = TYPE.label * 1.2;
+  const tickBoxes: Box[] = [];
+  const x0Name = plot.x + plot.w - c.measure(ax0.name, TYPE.label);
+  const lineY = two ? plot.y + plot.h : plot.y + plot.h / 2;
+  const unX = (v: number) => (ax0.log ? 10 ** v : v);
+  for (const t of xTicks) {
+    const x = X(unX(t.v));
+    const w = c.measure(t.text, TYPE.label);
+    const box = { x0: x - w / 2, y0: lineY + 14, x1: x + w / 2, y1: lineY + 14 + nameH };
+    // A tick under the strip's own name, or under the plane's x-axis name, is dropped.
+    const nameBox = two
+      ? { x0: x0Name - 16, y0: lineY + 12, x1: plot.x + plot.w, y1: lineY + 12 + nameH }
+      : undefined;
+    if (box.x0 < plot.x - yTickW || box.x1 > plot.x + plot.w + 24) continue;
+    if (nameBox && area(box, nameBox) > 0) continue;
+    tickBoxes.push(box);
+    prims.push(
+      { p: "line", x1: x, y1: lineY - 8, x2: x, y2: lineY + 8, role: "rule", width: 3, cam: true },
+      {
+        p: "text",
+        x,
+        y: lineY + 14,
+        size: TYPE.label,
+        role: "muted",
+        anchor: "middle",
+        text: t.text,
+        cam: true,
+      },
+    );
+  }
+  if (two) {
+    const ax1 = d.axes[1] as PlaceLit["axes"][number];
+    const unY = (v: number) => (ax1.log ? 10 ** v : v);
+    for (const t of yTicks) {
+      const y = Y(unY(t.v));
+      if (y < plot.y + nameH || y > plot.y + plot.h - 4) continue;
+      const w = c.measure(t.text, TYPE.label);
+      tickBoxes.push({
+        x0: plot.x - 12 - w,
+        y0: y - nameH / 2,
+        x1: plot.x - 12,
+        y1: y + nameH / 2,
+      });
+      prims.push(
+        {
+          p: "line",
+          x1: plot.x - 8,
+          y1: y,
+          x2: plot.x + 8,
+          y2: y,
+          role: "rule",
+          width: 3,
+          cam: true,
+        },
+        {
+          p: "text",
+          x: plot.x - 12,
+          y: y - TYPE.label * 0.6,
+          size: TYPE.label,
+          role: "muted",
+          anchor: "end",
+          text: t.text,
+          cam: true,
+        },
+      );
+    }
+  }
+  // Where lower is better the axis runs the other way, which the ticks show;
+  // the slot's word for "better" says it at the arrowhead.
+  const betterWord = c.labels.better?.trim();
+  const betterBoxes: Box[] = [];
+  if (betterWord) {
+    const w = c.measure(`${betterWord} →`, TYPE.label);
+    if (ax0.lowerIsBetter) {
+      const y0 = two ? plot.y + plot.h - nameH - 10 : lineY - nameH - 14;
+      betterBoxes.push({ x0: plot.x + plot.w - w, y0, x1: plot.x + plot.w, y1: y0 + nameH });
+      prims.push({
+        p: "text",
+        x: plot.x + plot.w - 8,
+        y: y0,
+        size: TYPE.label,
+        role: "accent",
+        anchor: "end",
+        text: `${betterWord} →`,
+      });
+    }
+    const ax1 = d.axes[1];
+    if (two && ax1?.lowerIsBetter) {
+      const x0 = plot.x + 16;
+      const y0 = plot.y + 4;
+      betterBoxes.push({ x0, y0, x1: x0 + w, y1: y0 + nameH });
+      prims.push({
+        p: "text",
+        x: x0,
+        y: y0,
+        size: TYPE.label,
+        role: "accent",
+        anchor: "start",
+        text: `↑ ${betterWord}`,
+      });
+    }
+  }
+  if (d.diagonal) {
+    const lo = Math.max(rx[0], ry[0]);
+    const hi = Math.min(rx[1], ry[1]);
+    const un = (v: number) => (ax0.log ? 10 ** v : v);
+    prims.push({
+      p: "line",
+      x1: X(un(lo)),
+      y1: Y(un(lo)),
+      x2: X(un(hi)),
+      y2: Y(un(hi)),
+      role: "muted",
+      width: 3,
+      dash: true,
+      cam: true,
+    });
+  }
   const axisBoxes: Box[] = two
     ? [
         {
@@ -319,18 +463,39 @@ export function points(c: Ctx): MechanismResult {
     ...legend.boxes,
     ...axisBoxes,
     ...curveNames,
+    ...tickBoxes,
+    ...betterBoxes,
   ];
   const byGroup = d.reveal === "groups";
   d.items.forEach((it, i) => {
     const { x: px, y: py } = pos[i] as { x: number; y: number };
     const g = groups.indexOf(it.group ?? "");
     const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
-    const words = `${it.label} ${it.values.join(" · ")}`;
-    const lines = wrapBy(words, TYPE.label, Math.min(520, plot.w / 2), c.measure);
+    // The name on its own line(s), the values on one more that never breaks:
+    // r1 wrapped "6.58 ·\n88.29" mid-tuple.
+    const lines = [
+      ...wrapBy(nameOf(it), TYPE.label, Math.min(520, plot.w / 2), c.measure),
+      it.values.join(" · "),
+    ];
     const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
     const h = (lines.length - 1) * LH + TYPE.label * 1.2;
     const box = labelBox(px, py, w, h, two ? "beside" : i % 2 ? "below" : "above", plot, taken);
     taken.push(box);
+    // A label more than LEADER_PX from its dot is tied to it by a line.
+    const nx = Math.max(box.x0, Math.min(px, box.x1));
+    const ny = Math.max(box.y0, Math.min(py, box.y1));
+    if (Math.hypot(nx - px, ny - py) > LEADER_PX)
+      prims.push({
+        p: "line",
+        x1: px,
+        y1: py,
+        x2: nx,
+        y2: ny,
+        role: "muted",
+        width: 2,
+        cam: true,
+        at: a,
+      });
     prims.push({
       p: "circle",
       cx: px,
@@ -424,8 +589,13 @@ export function labelBox(
         box.y1 > plot.y + plot.h
       )
         continue;
-      const cost = taken.reduce((s, t) => s + area(box, t), 0);
-      if (!cost) return box;
+      const overlap = taken.reduce((s, t) => s + area(box, t), 0);
+      if (!overlap) return box;
+      // A far box is a cost too, or the least-covering fallback is any box at
+      // all: r1 set a label 150px from its dot, nearer the empty plot than it.
+      const nx = Math.max(box.x0, Math.min(px, box.x1));
+      const ny = Math.max(box.y0, Math.min(py, box.y1));
+      const cost = overlap + h * Math.hypot(nx - px, ny - py);
       if (!best || cost < best.cost) best = { box, cost };
     }
   if (best) return best.box;
@@ -435,6 +605,40 @@ export function labelBox(
 }
 
 const LEGEND_ROW = 56;
+
+/** Past this many px from its dot, a label is joined to it by a leader line. */
+export const LEADER_PX = 60;
+
+const ax0Of = (d: PlaceLit) => d.axes[0] as PlaceLit["axes"][number];
+
+/**
+ * 3–6 round tick values inside `[lo, hi]` (an axis's drawn range, in log10 on a
+ * log axis, where only powers of ten are ticked), each with its text.
+ */
+export function ticksOf(
+  r: readonly [number, number],
+  log: boolean,
+): Array<{ v: number; text: string }> {
+  const [lo, hi] = r;
+  if (!(hi > lo)) return [];
+  if (log) {
+    const out: Array<{ v: number; text: string }> = [];
+    for (let k = Math.ceil(lo); k <= Math.floor(hi); k++)
+      out.push({ v: k, text: String(Number((10 ** k).toPrecision(6))) });
+    return out.length >= 2 ? out : [];
+  }
+  const raw = (hi - lo) / 4;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / mag;
+  const step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
+  const dp = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  const out: Array<{ v: number; text: string }> = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) {
+    const x = Number(v.toFixed(dp));
+    out.push({ v: x, text: x.toFixed(dp) });
+  }
+  return out;
+}
 
 /**
  * The legend: one dot and name per group, laid right to left by measured width
