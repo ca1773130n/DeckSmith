@@ -441,6 +441,8 @@ const EMPH_DOWN = 0.45;
 export const EMPH_TOTAL = EMPH_UP + EMPH_HOLD + EMPH_DOWN;
 /** Shortest window the deck player is told about. Below this there is nothing to see. */
 const MIN_WINDOW = 0.5;
+/** Two emphases in one segment start at least this far apart. */
+const EMPH_GAP = 3;
 /** A part is emphasised only once its own entrance has had this long to settle. */
 const SETTLED = 0.2;
 
@@ -613,21 +615,45 @@ export function emphasize(
       holds[k] as number,
     );
     if (!subject) continue;
-    const boundaries = [0, ...seg.cues.map((c) => c.start)].map((c) => s + c);
-    let placed = false;
+    // Every part shown so far, in the order it came: after the stop's own subject,
+    // a later sentence of the same segment moves the light along them, so a long
+    // last stretch is not one emphasis and then a still slide (r2: 6–10s runs of
+    // nothing but the lean, which the 1% dead-stretch gate now fails).
+    const shown = [
+      ...new Set(
+        holds
+          .slice(0, k + 1)
+          .map((h, i) => subjectOf(scene, sid, i === 0 ? -1 : (holds[i - 1] as number), h))
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    // The sentences' starts; and through a long sentence, a beat every
+    // `EMPH_GAP` + 1s, so a single 8s sentence still moves the light along.
+    const cues = [0, ...seg.cues.map((c) => c.start)];
+    const fill: number[] = [];
+    for (const [i, c] of cues.entries()) {
+      const next = cues[i + 1] ?? seg.seconds;
+      for (let t = c + EMPH_GAP + 1; t < next - EMPH_GAP; t += EMPH_GAP + 1) fill.push(t);
+    }
+    const boundaries = [...cues, ...fill].map((c) => s + c);
+    let placed = 0;
+    let last = Number.NEGATIVE_INFINITY;
     for (const b of [...new Set(boundaries)].sort((x, y) => x - y)) {
-      if (placed || b >= s + seg.seconds - 0.3) break;
-      if (b < (holds[k] as number) + SETTLED) continue;
+      if (b >= s + seg.seconds - 0.3) break;
+      if (b < (holds[k] as number) + SETTLED || b < last + EMPH_GAP) continue;
       const room = stretch.slice(k).find((w) => b >= w.lo && b + EMPH_TOTAL <= w.hi - 0.05);
       if (!room) continue;
-      for (let q = 0; q < opts.kinds.length && !placed; q++) {
+      const target = placed === 0 ? subject : (shown[(placed - 1) % shown.length] as string);
+      for (let q = 0; q < opts.kinds.length; q++) {
         const kind = opts.kinds[(turn + q) % opts.kinds.length] as Emphasis;
-        const got = emphasisTweens(kind, tl, subject, b, opts.accent);
+        const got = emphasisTweens(kind, tl, target, b, opts.accent);
         if (!got) continue;
         tl = [...tl, ...got.tl];
         if (got.css) css.push(got.css);
-        placed = true;
+        placed++;
+        last = b;
         turn++;
+        break;
       }
     }
   }

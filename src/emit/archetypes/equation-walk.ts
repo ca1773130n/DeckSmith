@@ -900,9 +900,11 @@ ${slide}`;
       ...(grows
         ? [
             `#${sid} .eqslide{justify-content:space-between}`,
-            // One row of up to three entries spanning the box, each wrapping in its column.
-            `#${sid} .legend{display:grid;grid-template-columns:repeat(${Math.max(1, Math.min(3, terms.length))},minmax(0,1fr));gap:36px 56px;width:100%;margin-inline:0}`,
-            `#${sid} .leg{max-width:none}`,
+            // Each entry a row across the box: the symbol at the left edge, its
+            // meaning set to the right edge (a grid of columns broke on a wide TeX chip).
+            `#${sid} .legend{width:100%;margin-inline:0}`,
+            `#${sid} .leg{max-width:none;justify-content:space-between;align-items:center}`,
+            `#${sid} .leg>span:last-child{text-align:right}`,
           ]
         : []),
       // The block, not the term under discussion: which term that is, is a fact

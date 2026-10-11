@@ -357,11 +357,12 @@ describe("design: the switch", () => {
     // Then the r2 layout round (2026-10-12), re-pinned after reading every
     // scene's first hold: parts not yet spoken stand at PREVIEW from the open
     // (previewParts), callout words spread down their box (rows right-aligned),
-    // equation legends span the box in a grid, grids widen into their room,
+    // equation legends span the box as rows (symbol left, meaning right; s6 read
+    // at 47.3s), the emphasis walks the parts on later sentences, grids widen,
     // line-chart values and deltas sit off the line (s12 read at 100.8s), the
     // stack probe moves left.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "9be7fdc1d619123cfc5f1e7be7d6b45064d9aabab8e9fc2db88d93fdd19c5acb",
+      "18a035eaebc300b0996901df6bf4cf832c390bb541a7251328377d2300b02d33",
     );
   });
 
