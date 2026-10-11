@@ -162,7 +162,10 @@ export const priorWorkKind: KindImpl = {
         ),
       ),
     );
-    const vh = even(Math.min(Math.max(cw / 1.5, numbersH + 24), H - vy - gapH - 24));
+    // The caption, when there is one, has its own line under the gaps (r3 of the EM-SNN deck
+    // drew it over the first lane's gap).
+    const captionH = lab(K, spec, "caption") ? 56 : 0;
+    const vh = even(Math.min(Math.max(cw / 1.5, numbersH + 24), H - vy - gapH - 24 - captionH));
     if (vh < 160)
       throw new Error(
         `literal: prior-work's pictures would be ${vh}px tall; shorten the members and gaps, or use fewer lanes`,

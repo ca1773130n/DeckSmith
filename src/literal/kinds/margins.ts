@@ -160,12 +160,40 @@ export const marginsKind: KindImpl = {
         return label(`n${i}`, s.name, Math.max(0, lx), ly, SMALL, theme.fg);
       })
       .join("");
+    // Each corner's words wrapped to their own quadrant, so a long label in the deck's language
+    // never runs into the axis names or the next corner (r3 of the EM-SNN deck: "ahead" ran
+    // across "SSIM ↑", and "behind" into "zero"). `bottom`: the block ends there, growing up.
+    const block = (
+      id: string,
+      text: string,
+      x: number,
+      y: number,
+      maxW: number,
+      color: string,
+      o: { right?: boolean; bottom?: boolean } = {},
+    ) => {
+      const ls = wrap(text, SMALL, maxW, theme);
+      const top = o.bottom ? y - ls.length * 48 : y;
+      return `<div id="SCENEID-${id}" style="position:absolute;left:0;top:0;width:0;height:0">${ls
+        .map((t, j) =>
+          label(
+            `${id}-${j}`,
+            t,
+            o.right ? x - widthOf(t, SMALL, theme) : x,
+            top + j * 48,
+            SMALL,
+            color,
+          ),
+        )
+        .join("")}</div>`;
+    };
+    const quad = pw / 2 - 40;
     const corner = two
-      ? `${label("l-ahead", ahead, pw - widthOf(ahead, SMALL, theme) - 12, 10, SMALL, theme.accent)}
-${label("l-behind", behind, 12, ph - 58, SMALL, theme.muted)}
+      ? `${block("l-ahead", ahead, pw - 12, 64, quad, theme.accent, { right: true })}
+${block("l-behind", behind, 12, ph - 10, quad, theme.muted, { bottom: true })}
 ${label("l-x", `${d.metrics[0]?.name ?? ""} →`, pw - metricW(0) - 60, cy + 10, SMALL, theme.fg)}
 ${label("l-y", `${d.metrics[1]?.name ?? ""} ↑`, cx + 14, 10, SMALL, theme.fg)}
-${label("l-zero", zero, cx + 14, ph - 58, SMALL, theme.muted)}`
+${block("l-zero", zero, cx + 14, ph - 10, quad, theme.muted, { bottom: true })}`
       : `${label("l-ahead", ahead, pw - widthOf(ahead, SMALL, theme) - 12, 0, SMALL, theme.accent)}
 ${label("l-behind", behind, 12, 0, SMALL, theme.muted)}
 ${label("l-zero", zero, cx - widthOf(zero, SMALL, theme) / 2, ph + 4 - LAB_H, SMALL, theme.muted)}

@@ -27,6 +27,7 @@ import {
   label,
   luma,
   mapRgba,
+  ON_PHOTO,
   px,
   quantile,
   r3,
@@ -251,7 +252,7 @@ export const backboneKind: KindImpl = {
       .map((t, i) => label(`dn${i}`, t, dx, H - (depthLines.length - i) * 52, SMALL, theme.muted))
       .join("");
     const markup = `<div id="SCENEID-lit">
-${label("l-in", lab(K, spec, "input"), X[0] as number, yIn - LAB_H, SMALL, theme.fg)}
+${label("l-in", lab(K, spec, "input"), (X[0] as number) + 16, yIn + 12, SMALL, "", ON_PHOTO)}
 ${panel("in", X[0] as number, yIn, full, fullH, img("in-i", href(f.input as string), 0, 0, full, fullH), "lit-dark")}
 ${mapLabel("l0", lab(K, spec, "shallow"), 0)}
 ${panel("m0", X[0] as number, Y[0] as number, full, fullH, `<div id="SCENEID-m0-w" style="position:absolute;left:0;top:0;width:0;height:${px(fullH)};overflow:hidden">${img("m0-i", href(f.shallow as string), 0, 0, full, fullH)}</div>`, "lit-dark")}
@@ -263,7 +264,7 @@ ${mapLabel("l5", lab(K, spec, "decoder"), 5)}${map("m5", f.d1 as string, 5)}
 ${mapLabel("l6", lab(K, spec, "prb"), 6)}
 ${panel("m6", X[6] as number, Y[6] as number, full, fullH, `<div id="SCENEID-m6-cam" style="position:absolute;left:0;top:0;width:${px(full)};height:${px(fullH)}">${img("m6-s", href(f.d0 as string), 0, 0, full, fullH, "image-rendering:pixelated")}${img("m6-c", href(f.prb as string), 0, 0, full, fullH)}</div>`, "lit-dark")}
 <svg id="SCENEID-flow" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="left:0;top:0"><defs><marker id="SCENEID-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${theme.fg}"/></marker></defs>${flow.join("")}${skip(0, 6)}${skip(1, 5)}${skip(2, 4)}</svg>
-${label("l-skip", lab(K, spec, "skip"), (X[2] as number) - 10, (Y[1] as number) + 12 - 54, SMALL, theme.muted)}
+${label("l-skip", lab(K, spec, "skip"), Math.max((X[2] as number) - 10, (X[1] as number) + widthOf(lab(K, spec, "encoder"), SMALL, theme) + 32), (Y[1] as number) + 12 - 54, SMALL, theme.muted)}
 ${label("l-out", lab(K, spec, "output"), X[6] as number, yIn - LAB_H, SMALL, theme.fg)}
 ${outText}
 ${label("l-fixed", note, Math.max(X[1] as number, (W - widthOf(note, SMALL, theme)) / 2), 0, SMALL, theme.muted)}
