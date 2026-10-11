@@ -58,9 +58,9 @@
  *
  *   hollow_at_hold        ERROR: at a hold, the content's box covers under 70%
  *                         of the region's area. Every scene with a body, every
- *                         hold — the title and kinetic slides have no body
- *                         under a title band (their words are the slide) and
- *                         are not graded
+ *                         hold — the title, kinetic and hero-number slides
+ *                         have no body under a title band (their words or
+ *                         number are the slide) and are not graded
  *   fill_model_disagrees  WARNING: |predicted − measured| main-axis fill over
  *                         0.20 at the last hold — the build-time arithmetic and
  *                         the browser disagree, which is a bug in the model
@@ -74,8 +74,18 @@ export const MIN_ROW_INK = 2;
 export const FILL_TOLERANCE = 0.2;
 /** A hold's content box must cover at least this share of its region's area. */
 export const CONTENT_AREA_MIN = 0.7;
-/** Archetypes with no body under a title band: their words are the slide, so there is no region to fill. */
-export const NO_BODY = new Set(["title", "kinetic"]);
+/**
+ * How far (max channel, times alpha) a fill must stand from the page's ground
+ * to be a tile rather than a wash. The deck themes' panel colours sit 10–25
+ * from their ground; a tone at a quarter strength sits past 40.
+ */
+export const TILE_DELTA = 36;
+/**
+ * Archetypes with no body under a title band: their words are the slide (a
+ * title, a kinetic statement, a hero number set at 200px or more), so there is
+ * no region to fill.
+ */
+export const NO_BODY = new Set(["title", "kinetic", "hero-number"]);
 
 /** Device px, in the frame's own coordinates. */
 export interface Box {
@@ -307,7 +317,9 @@ export function hideScenes(on: boolean): void {
  * hidden. That is a card's wash, a figure's plate, a plot's panel, and a
  * full-frame backdrop behind a lone number. What encloses nothing is content: a
  * filled shape (a dot, a tile, a bar), a picture, a glyph — except an HTML leaf
- * with a border and no fill, an empty box, which draws nothing. Classes
+ * with a border and no fill, an empty box, which draws nothing. A container
+ * whose fill stands out from the ground (`TILE_DELTA`: a coloured cell, a chip)
+ * is a tile and stays. Classes
  * and one style element, removed on `false`, so GSAP's inline styles are never
  * touched.
  */
@@ -346,16 +358,38 @@ export function stripContainers(sid: string, on: boolean): void {
     const b = el.getBoundingClientRect();
     return marks.some((m) => m.x > b.left && m.x < b.right && m.y > b.top && m.y < b.bottom);
   };
+  // A fill that stands out from the ground is a TILE — a coloured cell, a chip,
+  // a bar — and is content even with a word on it; one within a wash's distance
+  // of the ground (a card, a panel, a plate's shadow) is a container.
+  const ground = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(
+    getComputedStyle(document.body).backgroundColor,
+  );
+  const g = ground ? [Number(ground[1]), Number(ground[2]), Number(ground[3])] : [0, 0, 0];
+  const tile = (colour: string, alpha: number) => {
+    const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(colour);
+    if (!m) return false;
+    const a = alpha * (m[4] === undefined ? 1 : Number(m[4]));
+    const d = Math.max(
+      Math.abs(Number(m[1]) - (g[0] as number)),
+      Math.abs(Number(m[2]) - (g[1] as number)),
+      Math.abs(Number(m[3]) - (g[2] as number)),
+    );
+    return d * a > 36; // TILE_DELTA: serialised into the page, so inlined
+  };
   for (const el of Array.from(scene.querySelectorAll("*"))) {
     if (el.namespaceURI === SVG) {
-      if (el.tagName.toLowerCase() === "rect" && encloses(el)) el.classList.add("dsfp-h");
+      if (el.tagName.toLowerCase() === "rect" && encloses(el)) {
+        const cs = getComputedStyle(el);
+        const a = Number(cs.fillOpacity) * Number(cs.opacity);
+        if (!tile(cs.fill, Number.isFinite(a) ? a : 1)) el.classList.add("dsfp-h");
+      }
       continue;
     }
     if (["IMG", "CANVAS", "VIDEO"].includes(el.tagName)) continue;
     const text = el.childElementCount === 0 && (el.textContent ?? "").trim() !== "";
     if (text) continue;
     if (encloses(el)) {
-      el.classList.add("dsfp-c");
+      if (!tile(getComputedStyle(el).backgroundColor, 1)) el.classList.add("dsfp-c");
       continue;
     }
     const cs = getComputedStyle(el);

@@ -1238,7 +1238,7 @@ describe("the truth gate grounds every number in its role", () => {
 
   it("advises, once, a plan that draws its mechanism, its numbers or a setup as words", () => {
     expect(slidewareFindings(plan(covered()), analysis)).toEqual([]);
-    const beats = covered();
+    const beats: Array<Record<string, unknown>> = covered();
     const words = { ...beats[3], literal: undefined } as Record<string, unknown>;
     beats[3] = words;
     expect(slidewareFindings(plan(beats), analysis)).toEqual([
@@ -1254,7 +1254,7 @@ describe("the truth gate grounds every number in its role", () => {
     );
     // A figure the build cuts into one panel cannot be walked: the general advice instead.
     expect(slidewareFindings(plan(beats), withFig, { fig1: 1 }).join("\n")).not.toMatch(/fig1/);
-    const plain = covered();
+    const plain: Array<Record<string, unknown>> = covered();
     plain[2] = { ...plain[2], claim: "EM-SNN reaches 30.56 against 29.73." };
     expect(slidewareFindings(plan(plain), analysis)).toEqual([
       expect.stringMatching(/b02-prior states 30\.56, 29\.73 in its claim .* `place` strip/),

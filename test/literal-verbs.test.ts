@@ -1106,7 +1106,13 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
             words.filter((b) => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1).map((b) => b.t);
           for (const p of fr.prims) {
             if (p.p === "circle")
-              for (const [dx, dy] of [[0, 0], [p.r, 0], [-p.r, 0], [0, p.r], [0, -p.r]] as const)
+              for (const [dx, dy] of [
+                [0, 0],
+                [p.r, 0],
+                [-p.r, 0],
+                [0, p.r],
+                [0, -p.r],
+              ] as const)
                 expect(hits(p.cx + dx, p.cy + dy), `${fr.id}: a point under a word`).toEqual(
                   // A key's number sits inside its own dot.
                   hits(p.cx + dx, p.cy + dy).filter((t) => /^\d+$/.test(t)),

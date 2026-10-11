@@ -27,7 +27,9 @@ import {
   changedPixels,
   deadCandidates,
   gradeCuts,
+  DEAD_MIN_CHANGE,
   gradeDeadSpans,
+  pooled,
   gradeErrors,
   gradeLayout,
   gradeMorphs,
@@ -85,6 +87,19 @@ describe("the graders", () => {
     const dead = gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: 0, total }]);
     expect(dead.map((f) => [f.rule, f.severity])).toEqual([["dead_stretch", "error"]]);
     expect(gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: total, total }])).toEqual([]);
+    // A lean of the whole slide changes a few edge pixels: under 1% it is still a still.
+    const lean = Math.floor(total * DEAD_MIN_CHANGE) - 1;
+    expect(gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: lean, total }])).toHaveLength(
+      1,
+    );
+  });
+
+  it("pooled averages a frame down so a one-pixel shimmer is not a change", () => {
+    const f = { width: 8, height: 4, channels: 3, pixels: new Uint8Array(8 * 4 * 3).fill(10) };
+    f.pixels[0] = 250;
+    const p = pooled(f, 4);
+    expect([p.width, p.height]).toEqual([2, 1]);
+    expect(p.pixels[0]).toBe(Math.round((250 + 15 * 10) / 16));
   });
 
   it("graphic_crosses_text and friends: one finding per kind per frame", () => {

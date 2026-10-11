@@ -151,14 +151,41 @@ export function deadCandidates(w: SceneWindow, min = DEAD_SECONDS): Array<[numbe
   return out;
 }
 
-export function gradeDeadSpans(rows: readonly DeadSpan[], min = MIN_CHANGE): Finding[] {
+/**
+ * A long stretch moved when this share of its pixels changed, compared at
+ * 480×270 (`pooled`). Not `MIN_CHANGE`'s "anything at all": a literal scene's
+ * lean — a 1.5% scale breathing over a still slide — changes edge pixels on
+ * every frame and passed r2's runs of 6–10s that a viewer saw as stills.
+ */
+export const DEAD_MIN_CHANGE = 0.01;
+/** The side `pooled` averages a frame down by: 1920×1080 to 480×270. */
+export const DEAD_POOL = 4;
+
+/** A frame averaged down `k`×`k` per pixel: what a viewer sees move, not antialiasing. */
+export function pooled(f: Frame, k = DEAD_POOL): Frame {
+  const w = Math.floor(f.width / k);
+  const h = Math.floor(f.height / k);
+  const out = new Uint8Array(w * h * 3);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let dy = 0; dy < k; dy++)
+          for (let dx = 0; dx < k; dx++)
+            sum += f.pixels[((y * k + dy) * f.width + x * k + dx) * f.channels + c] as number;
+        out[(y * w + x) * 3 + c] = Math.round(sum / (k * k));
+      }
+  return { width: w, height: h, channels: 3, pixels: out };
+}
+
+export function gradeDeadSpans(rows: readonly DeadSpan[], min = DEAD_MIN_CHANGE): Finding[] {
   return rows
     .filter((r) => r.changed / r.total < min)
     .map((r) => ({
       severity: "error" as const,
       gate: "motion",
       rule: "dead_stretch",
-      message: `#${r.sid} ${r.t0.toFixed(2)}–${r.t1.toFixed(2)}s: ${(r.t1 - r.t0).toFixed(1)}s with the picture changed by ${((100 * r.changed) / r.total).toFixed(3)}% — nothing is revealed, panned or replaced for ${DEAD_SECONDS}s or more. Time the scene's steps on its sentences, or give it fewer seconds.`,
+      message: `#${r.sid} ${r.t0.toFixed(2)}–${r.t1.toFixed(2)}s: ${(r.t1 - r.t0).toFixed(1)}s with the picture changed by ${((100 * r.changed) / r.total).toFixed(3)}% at 480×270 (under ${(100 * min).toFixed(0)}%) — nothing is revealed, panned or replaced for ${DEAD_SECONDS}s or more; a lean of the whole slide is not motion. Time the scene's steps on its sentences, or give it fewer seconds.`,
     }));
 }
 
@@ -1353,7 +1380,7 @@ export async function probeScenes(
           for (const t of [t0, round((t0 + t1) / 2), t1]) {
             await deck.seek(w.start + t);
             await settle(deck);
-            shots.push(await decodePng(await deck.shoot()));
+            shots.push(pooled(await decodePng(await deck.shoot())));
           }
           let changed = 0;
           for (let x = 0; x < shots.length; x++)

@@ -1541,9 +1541,11 @@ describe("the sweep's two instruments still register", () => {
     const word = run("OneVL 1 · 0.13", 100);
     // A series through the middle of the word (r2 b13), and a point under its corner.
     const line = { points: [], lines: [{ x: 200, y: 125 }] };
-    expect(wordsOnMarks([word], line)).toEqual([{ word: "OneVL 1 · 0.13", on: "line" }]);
+    expect(wordsOnMarks([word], line)).toEqual([
+      { word: "OneVL 1 · 0.13", on: "line", at: [200, 125] },
+    ]);
     expect(wordsOnMarks([word], { points: [{ x: 110, y: 110, r: 14 }], lines: [] })).toEqual([
-      { word: "OneVL 1 · 0.13", on: "point" },
+      { word: "OneVL 1 · 0.13", on: "point", at: [110, 110] },
     ]);
     // Beside it, clear of the shrunk box: no finding.
     expect(

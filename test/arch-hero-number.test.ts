@@ -251,18 +251,21 @@ describe("hero-number", () => {
       /does not fit across/,
     );
     expect(() => heroNumber(beat({ value: "1234567890".repeat(5) }), ctx())).toThrow(
-      /does not fit across the frame at 56px/,
+      /does not fit across the frame at 200px/,
     );
     expect(() =>
       heroNumber(beat({ headline: "A sentence that goes on ".repeat(8) }), ctx()),
     ).toThrow(/headline sets on \d+ lines/);
   });
 
-  it("v2: sets the figure as a 56px statement, with no reels", () => {
-    // Founder, 2026-10-10: "the fonts are too large" — no 160-560px numerals.
+  it("v2: sets the figure at 200–260px, with no reels", () => {
+    // Founder, 2026-10-10: "the fonts are too large" — no 560px numerals; and
+    // 2026-10-12: a 56px "10K" read as an empty slide. The figure is the slide.
     for (const value of ["1", "43.63", "175.21"]) {
       const scene = heroNumber(beat({ value }), ctx());
-      expect(scene.css).toContain("#s3 .hn-n{font-size:56px;");
+      const px = Number(/#s3 \.hn-n\{font-size:(\d+)px;/.exec(scene.css ?? "")?.[1]);
+      expect(px).toBeGreaterThanOrEqual(200);
+      expect(px).toBeLessThanOrEqual(260);
       expect(scene.html).not.toContain("hn-r");
       expect(scene.html).toContain(`>${value}<span class="hn-u"`);
     }
@@ -283,13 +286,17 @@ describe("hero-number", () => {
     }
   });
 
-  it("v2: keeps every declared size on the confirmed scale, 40 to 56px", () => {
+  it("v2: keeps every declared size but the figure's on the confirmed scale, 40 to 56px", () => {
     for (const id of ["deck-16x9", "short-9x16", "post-1x1"] as const) {
       for (const b of [
         beat({ eyebrow: "Energy", compare: { value: "175.21", label: "SFRDP-Net" } }),
         beat({ value: "30.56", unit: "dB", compare: { value: "29.73", label: "DehazeFormer-b" } }),
       ]) {
-        for (const n of sizes(heroNumber(b, ctx(FORMATS[id] as Format)).css ?? "")) {
+        const css = (heroNumber(b, ctx(FORMATS[id] as Format)).css ?? "").replace(
+          /#s3 \.hn-n\{[^}]*\}/,
+          "",
+        );
+        for (const n of sizes(css)) {
           expect(n, id).toBeGreaterThanOrEqual(MIN_FONT);
           expect(n, id).toBeLessThanOrEqual(56);
         }
