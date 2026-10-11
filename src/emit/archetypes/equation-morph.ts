@@ -23,7 +23,7 @@ import { isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, js } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
-import { repairTex } from "../tex.js";
+import { escapedCommandError, repairTex } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   chipFit,
@@ -71,6 +71,8 @@ export function prepareMorph(
   // `katex.render` that throws.
   const notes: string[] = [];
   const drawable = (eq: { id: string; tex: string }) => {
+    const doubled = escapedCommandError(`equation-morph ${beat.id}`, eq.id, eq.tex);
+    if (doubled) throw new Error(doubled);
     const fixed = repairTex(eq.tex, true);
     if (fixed.error !== null) {
       throw new Error(

@@ -12,7 +12,7 @@ import type { Emitter, Theme, Vars } from "../kit.js";
 import { contentW, esc, js, raw, spotlighter } from "../kit.js";
 import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
-import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
+import { escapedCommandError, repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
 import { TYPE_SCALE } from "../type.js";
 import {
@@ -286,6 +286,8 @@ export function prepareWalk(
   terms: readonly Term[],
   beatId: string,
 ): PreparedWalk {
+  const doubled = escapedCommandError(`equation-walk ${beatId}`, eq.id, eq.tex);
+  if (doubled) throw new Error(doubled);
   const fixed = repairTex(eq.tex, true);
   const notes = fixed.repairs.map((r) => `${eq.id} repaired before drawing: ${r}`);
   const repairedTerms = terms.map((t) => ({ ...t, tex: repairTex(t.tex, false).tex }));

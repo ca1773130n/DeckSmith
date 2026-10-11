@@ -11,7 +11,7 @@
  * `figureId` that exists in no source.
  */
 import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
-import { repairTex } from "../emit/tex.js";
+import { escapedCommand, repairTex } from "../emit/tex.js";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import {
   LITERAL_KIND_DOCS,
@@ -1223,9 +1223,11 @@ export function renderSource(source: Source): string {
   for (const e of source.equations) {
     const fixed = repairTex(e.tex, true);
     const note =
-      fixed.error === null
-        ? ""
-        : " (KaTeX cannot draw this one: a walk shows it as plain source, a morph cannot use it)";
+      escapedCommand(e.tex) !== null
+        ? " (its backslashes were doubled when it was read: no walk or morph can draw it)"
+        : fixed.error === null
+          ? ""
+          : " (KaTeX cannot draw this one: a walk shows it as plain source, a morph cannot use it)";
     out.push(
       `[equation ${e.id}] ${e.display ? "display" : "inline"} — ${fixed.error === null ? fixed.tex : e.tex}${note}`,
     );

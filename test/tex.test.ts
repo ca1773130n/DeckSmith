@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repairTex, texError } from "../src/emit/tex.js";
+import { escapedCommand, repairTex, texError } from "../src/emit/tex.js";
 
 describe("texError", () => {
   it("is null for TeX the deck's KaTeX parses, under the deck's own options", () => {
@@ -79,5 +79,19 @@ describe("repairTex", () => {
   it("is deterministic, so plan reports the repair build will make", () => {
     const tex = "\\left( \\foo{x}";
     expect(repairTex(tex, true)).toEqual(repairTex(tex, true));
+  });
+});
+
+describe("escapedCommand", () => {
+  it("finds a command whose backslash was doubled, which KaTeX would draw as letters", () => {
+    expect(texError("\\\\frac{p(x)}{q(x)}", true)).toBeNull();
+    expect(escapedCommand("\\\\frac{p(x)}{q(x)}")).toBe("\\\\frac");
+    expect(escapedCommand("q(x)\\\\leq p(x)")).toBe("\\\\leq");
+  });
+
+  it("passes row breaks inside an environment and single commands", () => {
+    expect(escapedCommand("\\begin{aligned} a &= b \\\\c &= d \\end{aligned}")).toBeNull();
+    expect(escapedCommand("\\frac{p}{q} \\leq 1")).toBeNull();
+    expect(escapedCommand("a \\\\ b")).toBeNull();
   });
 });

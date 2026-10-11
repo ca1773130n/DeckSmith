@@ -267,10 +267,22 @@ function readTable(node: TableNode) {
   return { columns: head ?? [], rows: body };
 }
 
+/**
+ * TeX with no command and no operator in it: a bare `1`, `n` or `q(x)`.
+ *
+ * A symbol named in a sentence, not an equation; listed as one, it is a formula
+ * the planner may walk that says nothing. Measured on arXiv 2211.17192, where
+ * two of eight equations were the `1` of a table cell.
+ */
+const NOT_AN_EQUATION = /^[\p{L}\p{N}\s.,;:'()]*$/u;
+
 /** Push every math node under `node` in document order. */
 function collectMath(node: Nodes, out: Equation[]): void {
   if (node.type === "math" || node.type === "inlineMath") {
-    out.push({ id: `eq${out.length + 1}`, tex: node.value.trim(), display: node.type === "math" });
+    const tex = node.value.trim();
+    if (!NOT_AN_EQUATION.test(tex)) {
+      out.push({ id: `eq${out.length + 1}`, tex, display: node.type === "math" });
+    }
     return;
   }
   if ("children" in node) for (const child of node.children) collectMath(child, out);

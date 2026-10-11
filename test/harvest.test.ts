@@ -181,6 +181,17 @@ describe("toMarkdown, read back by parseMarkdown", () => {
     ]);
   });
 
+  it("hands math the page left as TeX to remark unescaped", () => {
+    // remark-math never undoes an escape inside `$…$`. Escaped, arXiv
+    // 2211.17192's `\frac{p(x)}{q(x)}` came back `\\frac…` and drew "frac".
+    const md = toMarkdown([
+      { kind: "paragraph", text: "accept if $q(x) > p(x)$ with $\\frac{p(x)}{q(x)}$, else <b>*" },
+    ]);
+    const source = parseMarkdown(md);
+    expect(source.equations.map((e) => e.tex)).toEqual(["q(x) > p(x)", "\\frac{p(x)}{q(x)}"]);
+    expect(source.sections[0]?.text).toContain("else <b>*");
+  });
+
   it("writes a table wide enough for its raggedest row", () => {
     const md = toMarkdown([
       { kind: "table", columns: ["Model", "Score"], rows: [["ours", "91.2", "±0.3"], ["theirs"]] },

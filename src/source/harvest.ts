@@ -1706,15 +1706,39 @@ export function toMarkdown(blocks: readonly Block[]): string {
  */
 function inline(text: string): string {
   return (
-    text
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/([\\`*_[\]<>])/g, "\\$1")
+    escapeOutsideMath(text.replace(/\s+/g, " ").trim())
       .replace(/^(#{1,6}\s|[-+]\s)/, "\\$&")
       // `\1.` is not an escape — CommonMark only escapes ASCII punctuation, so the
       // backslash would survive into the text. Escape the dot instead.
       .replace(/^(\d{1,9})([.)]\s)/, "$1\\$2")
   );
+}
+
+/**
+ * A `$…$` or `$$…$$` span, as remark-math reads one inside a paragraph: an
+ * opening run of dollars closed by a run of the same length.
+ */
+const MATH_SPAN = /(\${1,2})(?!\$)[^$]+?\1(?!\$)/g;
+
+/**
+ * Escape the markdown punctuation in `text`, except inside math spans.
+ *
+ * remark-math keeps a math span's content RAW, the way a code span is kept: no
+ * backslash escape inside it is ever undone. So escaping there is not a
+ * no-op, it rewrites the TeX. Measured on arXiv 2211.17192, whose page carries
+ * TeX the converter left as text: `$\frac{p(x)}{q(x)}$` came back as
+ * `\\frac{p(x)}{q(x)}`, which KaTeX draws as a line break and the word "frac",
+ * and `$q(x)>p(x)$` came back as `q(x)\>p(x)`, a space where the `>` was.
+ */
+function escapeOutsideMath(text: string): string {
+  const esc = (s: string) => s.replace(/([\\`*_[\]<>])/g, "\\$1");
+  let out = "";
+  let at = 0;
+  for (const m of text.matchAll(MATH_SPAN)) {
+    out += esc(text.slice(at, m.index)) + m[0];
+    at = m.index + m[0].length;
+  }
+  return out + esc(text.slice(at));
 }
 
 /**
