@@ -690,6 +690,44 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // OneVL's NAVSIM plane: three points within 2.1s and 1.4 points of each other,
+    // one label wrapping to two lines, and group names that crowd the legend.
+    name: "quality against latency, crowded",
+    domain: "autonomous-driving",
+    lit: {
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "延迟（秒）", lowerIsBetter: true },
+        { name: "PDM-score", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "AR CoT+Answer", values: ["6.58", "88.29"], group: "AR CoT+Answer" },
+        { label: "AR Answer", values: ["4.49", "87.47"], group: "AR CoT+Answer" },
+        { label: "COCONUT", values: ["5.93", "84.84"], group: "AR CoT+Answer" },
+        { label: "CODI", values: ["8.62", "83.92"], group: "AR CoT+Answer" },
+        { label: "SIM-CoT", values: ["10.86", "84.21"], group: "AR CoT+Answer" },
+        { label: "OneVL", values: ["4.46", "88.84"], group: "OneVL" },
+      ],
+      labels: [],
+    },
+  },
+  {
+    name: "text quality on one axis, with a legend",
+    domain: "language-models",
+    lit: {
+      kind: "place",
+      form: "strip",
+      axes: [{ name: "文本质量 Avg.", lowerIsBetter: false }],
+      items: [
+        { label: "AR CoT+Answer", values: ["78.27"], group: "显式 CoT" },
+        { label: "SIM-CoT", values: ["74.10"], group: "潜在 CoT" },
+        { label: "OneVL", values: ["76.13"], group: "潜在 CoT" },
+      ],
+      labels: [],
+    },
+  },
+  {
     name: "expected tokens per call",
     domain: "language-models",
     lit: {
@@ -996,6 +1034,22 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
               expect(p.x + p.w, fr.id).toBeLessThanOrEqual(region_.width + 1);
               expect(p.y + p.h, fr.id).toBeLessThanOrEqual(region_.height + 1);
             }
+      });
+      it("no label covers another", () => {
+        for (const fr of d.r.frames) {
+          const boxes = fr.prims.flatMap((p) => {
+            if (p.p !== "text" || !p.text) return [];
+            const w = measure(p.text, p.size);
+            const x0 = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+            return [{ t: p.text, x0, y0: p.y, x1: x0 + w, y1: p.y + p.size * 1.15 }];
+          });
+          for (const [i, a] of boxes.entries())
+            for (const b of boxes.slice(i + 1))
+              expect(
+                a.x0 < b.x1 - 2 && b.x0 < a.x1 - 2 && a.y0 < b.y1 - 2 && b.y0 < a.y1 - 2,
+                `${fr.id}: "${a.t}" over "${b.t}"`,
+              ).toBe(false);
+        }
       });
       it("is drawable at plan time, by the same run", () => {
         expect(drawProblems(d.lit, region_, theme)).toEqual([]);

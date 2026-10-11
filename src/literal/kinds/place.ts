@@ -231,6 +231,40 @@ export function points(c: Ctx): MechanismResult {
       },
     );
   }
+  // The axis names' boxes, and the legend laid right to left by its measured
+  // words, ending where the strip's axis name begins (src/literal/kinds/stage.ts
+  // draws a text's top at its y).
+  const nameH = TYPE.label * 1.2;
+  const axisBoxes: Box[] = two
+    ? [
+        {
+          x0: plot.x + plot.w - c.measure(ax0.name, TYPE.label),
+          y0: plot.y + plot.h + 12,
+          x1: plot.x + plot.w,
+          y1: plot.y + plot.h + 12 + nameH,
+        },
+        {
+          x0: plot.x,
+          y0: 8,
+          x1: plot.x + c.measure((d.axes[1] as PlaceLit["axes"][number]).name, TYPE.label),
+          y1: 8 + nameH,
+        },
+      ]
+    : [
+        {
+          x0: plot.x + plot.w - c.measure(ax0.name, TYPE.label),
+          y0: 8,
+          x1: plot.x + plot.w,
+          y1: 8 + nameH,
+        },
+      ];
+  const legend = legendOf(
+    groups.length > 1 && groups.every(Boolean) ? groups : [],
+    two ? plot.x + plot.w : (axisBoxes[0] as Box).x0 - 48,
+    roleOf,
+    c.measure,
+  );
+  const curveNames: Box[] = [];
   let at = 0;
   // A curve takes the colour of the group it is named after, so its points and its line agree.
   const curveRole = (label: string, k: number) =>
@@ -250,11 +284,14 @@ export function points(c: Ctx): MechanismResult {
       wipe: true,
     });
     // Named at its left end, unless a group of that name already says it in the legend.
-    if (!groups.includes(cv.label))
+    if (!groups.includes(cv.label)) {
+      const x0 = (pts[0] as number) + 8;
+      const y0 = (pts[1] as number) - 52;
+      curveNames.push({ x0, y0, x1: x0 + c.measure(cv.label, TYPE.label), y1: y0 + nameH });
       prims.push({
         p: "text",
-        x: (pts[0] as number) + 8,
-        y: (pts[1] as number) - 52,
+        x: x0,
+        y: y0,
         size: TYPE.label,
         role: curveRole(cv.label, k),
         anchor: "start",
@@ -262,36 +299,34 @@ export function points(c: Ctx): MechanismResult {
         at,
         cam: true,
       });
+    }
   });
-  // The points, with their words beside them; labels nudged apart so none covers another.
-  const placed: Array<{ x: number; y: number; w: number }> = [];
+  // The points, with their words beside them. Every label is a box that may not
+  // cover another label, any point, the legend or an axis name, and stays inside
+  // the plot: tried right then left of its point, then stepped away from it.
+  const LH = 47;
+  const at0 = at;
+  const pos = vals.map((v) => ({
+    x: X(v[0] as number),
+    y: two ? Y(v[1] as number) : plot.y + plot.h / 2,
+  }));
+  const taken: Box[] = [
+    ...pos.map((q) => ({ x0: q.x - 18, y0: q.y - 18, x1: q.x + 18, y1: q.y + 18 })),
+    ...legend.boxes,
+    ...axisBoxes,
+    ...curveNames,
+  ];
   const byGroup = d.reveal === "groups";
   d.items.forEach((it, i) => {
-    const v = vals[i] as number[];
-    const px = X(v[0] as number);
-    const py = two ? Y(v[1] as number) : plot.y + plot.h / 2;
+    const { x: px, y: py } = pos[i] as { x: number; y: number };
     const g = groups.indexOf(it.group ?? "");
-    const step = byGroup ? at + g + 1 : at + i + 1;
-    const a = Math.min(12, step);
+    const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
     const words = `${it.label} ${it.values.join(" · ")}`;
     const lines = wrapBy(words, TYPE.label, Math.min(520, plot.w / 2), c.measure);
     const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
-    let lx = px + 24;
-    let anchor: "start" | "end" = "start";
-    if (lx + w > plot.x + plot.w) {
-      lx = px - 24;
-      anchor = "end";
-    }
-    let ly = two ? py - 24 : i % 2 ? py + 28 : py - 28 - lines.length * 47;
-    for (let tries = 0; tries < 20; tries++) {
-      const x0 = anchor === "start" ? lx : lx - w;
-      const hit = placed.find(
-        (q) => Math.abs(q.y - ly) < lines.length * 47 && x0 < q.x + q.w && q.x < x0 + w,
-      );
-      if (!hit) break;
-      ly += two ? 48 : i % 2 ? 48 : -48;
-    }
-    placed.push({ x: anchor === "start" ? lx : lx - w, y: ly, w });
+    const h = (lines.length - 1) * LH + TYPE.label * 1.2;
+    const box = labelBox(px, py, w, h, two ? "beside" : i % 2 ? "below" : "above", plot, taken);
+    taken.push(box);
     prims.push({
       p: "circle",
       cx: px,
@@ -301,19 +336,18 @@ export function points(c: Ctx): MechanismResult {
       cam: true,
       at: a,
     });
-    lines.forEach((t, j) => {
+    for (const [j, t] of lines.entries())
       prims.push({
         p: "text",
-        x: lx,
-        y: ly + j * 47,
+        x: box.x0,
+        y: box.y0 + j * LH,
         size: TYPE.label,
         role: "fg",
-        anchor,
+        anchor: "start",
         text: t,
         cam: true,
         at: a,
       });
-    });
   });
   if (d.connect)
     groups.forEach((g, k) => {
@@ -333,15 +367,89 @@ export function points(c: Ctx): MechanismResult {
           wipe: true,
         });
     });
-  if (groups.length > 1 && groups.every(Boolean))
-    groups.forEach((g, k) => {
-      const x = plot.x + plot.w - (groups.length - k) * (W / 6);
-      prims.push(
-        { p: "circle", cx: x, cy: 30, r: 12, fill: roleOf(g) },
-        { p: "text", x: x + 22, y: 8, size: TYPE.label, role: "fg", anchor: "start", text: g },
-      );
-    });
+  prims.push(...legend.prims);
   return { rasters: {}, frames: [{ id: "place", prims, vars: {} }], data: {}, vars: {} };
+}
+
+interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+const area = (a: Box, b: Box) =>
+  Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) *
+  Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+
+/**
+ * Where a point's label goes: the first box, nearest first, that covers nothing
+ * taken and stays inside the plot — beside the point (a plane) or on its side
+ * of the line (a strip), right of it then left, stepping 48px away each try.
+ * When none is free the least-covering box is used, and the overprint gate
+ * (src/verify) names it: a crowded plot fails loudly rather than vanishing.
+ */
+export function labelBox(
+  px: number,
+  py: number,
+  w: number,
+  h: number,
+  side: "beside" | "above" | "below",
+  plot: { x: number; y: number; w: number; h: number },
+  taken: readonly Box[],
+): Box {
+  const xs = [px + 24, px - 24 - w];
+  const ys: number[] = [];
+  for (let k = 0; k <= 12; k++) {
+    if (side === "beside")
+      ys.push(...(k ? [py - h / 2 - 48 * k, py - h / 2 + 48 * k] : [py - h / 2]));
+    else {
+      const near = side === "above" ? py - 28 - h - 48 * k : py + 28 + 48 * k;
+      const far = side === "above" ? py + 28 + 48 * k : py - 28 - h - 48 * k;
+      ys.push(near, far);
+    }
+  }
+  let best: { box: Box; cost: number } | undefined;
+  for (const y0 of ys)
+    for (const x0 of xs) {
+      const box = { x0, y0, x1: x0 + w, y1: y0 + h };
+      if (
+        box.x0 < plot.x ||
+        box.x1 > plot.x + plot.w ||
+        box.y0 < plot.y ||
+        box.y1 > plot.y + plot.h
+      )
+        continue;
+      const cost = taken.reduce((s, t) => s + area(box, t), 0);
+      if (!cost) return box;
+      if (!best || cost < best.cost) best = { box, cost };
+    }
+  if (best) return best.box;
+  const x0 = Math.min(Math.max(plot.x, px + 24), plot.x + plot.w - w);
+  const y0 = Math.min(Math.max(plot.y, py - h / 2), plot.y + plot.h - h);
+  return { x0, y0, x1: x0 + w, y1: y0 + h };
+}
+
+/** The legend: one dot and name per group, laid right to left from `right` by their measured widths. */
+function legendOf(
+  groups: readonly string[],
+  right: number,
+  roleOf: (g: string) => Extract<Prim, { p: "circle" }>["fill"],
+  measure: Ctx["measure"],
+): { prims: Prim[]; boxes: Box[] } {
+  const prims: Prim[] = [];
+  const boxes: Box[] = [];
+  let x1 = right;
+  for (const g of [...groups].reverse()) {
+    const x0 = x1 - measure(g, TYPE.label) - 34;
+    prims.push(
+      { p: "circle", cx: x0 + 12, cy: 30, r: 12, fill: roleOf(g) },
+      { p: "text", x: x0 + 34, y: 8, size: TYPE.label, role: "fg", anchor: "start", text: g },
+    );
+    boxes.push({ x0, y0: 8, x1, y1: 8 + TYPE.label * 1.2 });
+    x1 = x0 - 48;
+  }
+  return { prims, boxes };
 }
 
 const pointsKind = verbKind("place", points, { pictureSide: 0 });
