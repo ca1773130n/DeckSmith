@@ -1014,6 +1014,9 @@ COMPOSE
                                                    citing it: the figure, then
                                                    each panel zoomed on the
                                                    sentence that names it
+      a worked example of the method, in lines ... region rows on the beat
+                                                   citing it, never chips
+                                                   standing in for it
       an architecture, a pipeline ................ flow chain
       earlier approaches, family by family ....... prior-work
     \`table\` only where none is honest, at most once a deck. Each word form
@@ -1025,6 +1028,12 @@ COMPOSE
     beside text: each panel is cut from the figure's own layout and zoomed while
     its sentence is spoken, so nothing is placed by hand. One sentence per panel,
     in the figure's reading order (top to bottom, left to right).
+  - WHEN THE SOURCE HAS A FIGURE THAT WORKS AN EXAMPLE OF THE MECHANISM (its
+    steps written out line by line: tokens proposed, accepted, rejected,
+    corrected; a trace), STEP THROUGH THAT FIGURE with \`region\` cut rows on
+    the beat that cites it — one sentence per group of lines — rather than
+    drawing generic chips (1, 2, …, γ) or an empty shape for what the figure
+    already shows. The paper's own example beats an invented one.
   - A verb that takes \`picture\` names the beat whose picture it runs on: this
     beat or an earlier one carrying a figure or an illustration brief. Use ONE
     picture for the whole deck: give an early beat a brief for a CLEAR,

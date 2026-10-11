@@ -469,14 +469,16 @@ imageFlags(
 
   // Each figure cut as the build will cut it, so a `region` panels walk of a figure with no
   // gutters is repaired at plan time rather than refused by the build after narration.
-  const panels = bespokeFor(prefs, designFor(prefs))
-    ? await figurePanelCounts(source, join(dirname(resolve(src)), "assets"))
-    : undefined;
+  const assetsDir = join(dirname(resolve(src)), "assets");
+  const drawn = bespokeFor(prefs, designFor(prefs));
+  const panels = drawn ? await figurePanelCounts(source, assetsDir) : undefined;
+  const bands = drawn ? await figurePanelCounts(source, assetsDir, "rows") : undefined;
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
   step("plan: this takes a few minutes");
   const planned = await codexPlanner(source, {
     prefs,
     ...(panels ? { panels } : {}),
+    ...(bands ? { bands } : {}),
     onRepair: (broken) => {
       step("plan: the first plan broke the variety or coverage rules, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);

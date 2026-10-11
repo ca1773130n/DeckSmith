@@ -187,6 +187,11 @@ export interface Frame {
    * the op that makes it. Wipes are untouched.
    */
   preview?: boolean;
+  /**
+   * Px the camera's material moves LEFT across the frame's time: a picture wider
+   * than the scene read along (a band of a figure), instead of a push-in.
+   */
+  pan?: number;
   /** The values this frame's slots may name. */
   vars: Record<string, string | number>;
 }

@@ -1454,8 +1454,14 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      into its panels, the whole figure first, then each panel
                      zoomed on its own sentence, in reading order (\`count\`:
                      how many, at most 6). Panels is how an architecture
-                     figure's parts are walked through one by one. Takes
-                     \`picture\`: for panels, the beat that cites the figure.`,
+                     figure's parts are walked through one by one. Or rows —
+                     the source's own figure split along its blank ROWS into
+                     bands (\`count\` groups, at most 6), each stepped through
+                     on its sentence at a readable size and panned along when
+                     wider than the scene: how a WORKED EXAMPLE of the method
+                     (lines of tokens accepted, rejected, corrected) is read
+                     line by line instead of shown small. Takes \`picture\`:
+                     for panels and rows, the beat that cites the figure.`,
     slots: {
       picture: { what: "title of the picture" },
       batch: { what: "title of the gathered batch (required with `gather`)", optional: true },
@@ -1764,7 +1770,7 @@ export const literalSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("region"),
     picture: z.string(),
-    cut: z.enum(["crops", "grid", "panels"]),
+    cut: z.enum(["crops", "grid", "panels", "rows"]),
     /** crops and grid: the piece's side. panels takes none. */
     size: numSchema.optional(),
     count: numSchema.optional(),

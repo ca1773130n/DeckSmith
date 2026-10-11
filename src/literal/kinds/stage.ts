@@ -574,6 +574,20 @@ export function stagedFragment(
     // The tour: after the last reveal, each sentence pushes in on one step's material,
     // the last step first — the payoff, then back through what led to it.
     const tour = tourOf(frames[i] as Frame, K).map((b) => originOf(b.x - cam.x, b.y - cam.y));
+    // A frame wider than the scene is read along: one pan across all of its time.
+    const pan = (frames[i] as Frame).pan;
+    if (pan && pan > 0) {
+      const from = Math.max(...(last as number[]));
+      const to = t1 - 0.4;
+      if (to - from > 0.3)
+        tl.fromTo(
+          `f${i}-cam`,
+          { x: 0 },
+          { x: -pan, duration: r3(to - from), ease: "sine.inOut" },
+          r3(from),
+        );
+      return;
+    }
     // After each sentence's parts are out the camera pushes in while it is spoken, and is
     // back at rest before the next sentence: a hold is the frame as drawn, never mid-push
     // (r3 C: four planes' tick labels pushed onto their axis names at the hold).

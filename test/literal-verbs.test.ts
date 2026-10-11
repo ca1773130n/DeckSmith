@@ -890,6 +890,27 @@ const FIXTURES: Fixture[] = [
       labels: L({ picture: "grain growth" }),
     },
   },
+  {
+    name: "a worked decoding example, line by line",
+    domain: "language-models",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "rows",
+      count: { value: "3" },
+      labels: L({ picture: "accepted, rejected, corrected" }),
+    },
+  },
+  {
+    name: "a proof's steps, line by line",
+    domain: "mathematics",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "rows",
+      labels: L({ picture: "the derivation" }),
+    },
+  },
 ];
 
 /** A fixture as the plan would carry it, defaults filled. */
@@ -1018,6 +1039,8 @@ const FILL: Record<string, number> = {
   // A panel is drawn at its own aspect, full height: a tall one in a wide
   // region cannot cover more, and stretching it would change the figure.
   "region:panels": 0.3,
+  // A band of a figure is wide and short: it fills the height it is given and pans.
+  "region:rows": 0.25,
 };
 const floorOf = (form: string) =>
   FILL[form.split(":").slice(0, 2).join(":")] ?? FILL[form.split(":")[0] as string] ?? 0;
@@ -1074,7 +1097,10 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
             if (p.p === "image" || p.p === "rect") {
               expect(p.x, fr.id).toBeGreaterThanOrEqual(-1);
               expect(p.y, fr.id).toBeGreaterThanOrEqual(-1);
-              expect(p.x + p.w, fr.id).toBeLessThanOrEqual(region_.width + 1);
+              // A panned picture runs past the right edge by exactly its pan, clipped there.
+              expect(p.x + p.w, fr.id).toBeLessThanOrEqual(
+                region_.width + 1 + (p.cam ? (fr.pan ?? 0) : 0),
+              );
               expect(p.y + p.h, fr.id).toBeLessThanOrEqual(region_.height + 1);
             }
       });
@@ -1177,6 +1203,8 @@ describe("the library holds only what is general", () => {
       "place:points:strip",
       "region:crops",
       "region:grid",
+      "region:panels",
+      "region:rows",
     ];
     const domains = new Map<string, Set<string>>();
     for (const f of FIXTURES)

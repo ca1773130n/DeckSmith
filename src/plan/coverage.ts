@@ -1420,9 +1420,9 @@ function verbGrounding(
       break;
     }
     case "region":
-      // Panels are the source's own figure cut along its own gutters: no stated
-      // size, nothing example about it, and `count` is how many to walk through.
-      if (lit.cut === "panels") break;
+      // Panels and rows are the source's own figure cut along its own gutters: no
+      // stated size, nothing example about it, and `count` is how many to walk through.
+      if (lit.cut === "panels" || lit.cut === "rows") break;
       role(lit.size, LITERAL_ROLE_NOUNS.cut, "the piece size");
       role(lit.count, LITERAL_ROLE_NOUNS.batch, "the number of crops");
       role(lit.resize, LITERAL_ROLE_NOUNS.resize, "the training size");
@@ -1631,7 +1631,12 @@ export function literalFindings(
   storyboard: Storyboard,
   source: Source,
   /** `panels`: each source figure's panel count as the build finds it (`figurePanels`). */
-  opts: { takeaways?: boolean; panels?: Readonly<Record<string, number>> } = {},
+  opts: {
+    takeaways?: boolean;
+    panels?: Readonly<Record<string, number>>;
+    /** Each source figure's band count as \`region\` rows finds it (`figureBands`). */
+    bands?: Readonly<Record<string, number>>;
+  } = {},
 ): string[] {
   const out: string[] = [];
   const beats = storyboard.beats;
@@ -1720,28 +1725,30 @@ export function literalFindings(
         );
       else if (
         lit.kind === "region" &&
-        lit.cut === "panels" &&
+        (lit.cut === "panels" || lit.cut === "rows") &&
         !figureIds(owner).some(
           (id) =>
             !id.startsWith(GENERATED_FIGURE_PREFIX) && source.figures.some((f) => f.id === id),
         )
       )
         out.push(
-          `${at} walks the panels of "${pic}", which shows none of the source's own figures. Panels are cut from the paper's figure: name the beat that cites it.`,
+          `${at} walks the ${lit.cut} of "${pic}", which shows none of the source's own figures. They are cut from the paper's figure: name the beat that cites it.`,
         );
-      else if (lit.kind === "region" && lit.cut === "panels" && opts.panels) {
-        // Cut as the build cuts it: a figure with no blank gutters is one panel, and the build
-        // refuses it — after narration, at the end of the run (r2: a one-row trace diagram).
-        const fig = figureIds(owner).find((id) => opts.panels?.[id] !== undefined);
-        const n = fig === undefined ? undefined : opts.panels[fig];
+      else if (lit.kind === "region" && (lit.cut === "panels" || lit.cut === "rows")) {
+        // Cut as the build cuts it: a figure with no blank gutters is one panel (or band), and
+        // the build refuses it — after narration, at the end of the run (r2: a one-row trace diagram).
+        const counts = lit.cut === "panels" ? opts.panels : opts.bands;
+        const what = lit.cut === "panels" ? "panel" : "band";
+        const fig = figureIds(owner).find((id) => counts?.[id] !== undefined);
+        const n = fig === undefined ? undefined : counts?.[fig];
         const want = lit.count ? Number(lit.count.value) : undefined;
         if (n !== undefined && n < 2)
           out.push(
-            `${at} walks ${fig} panel by panel, and ${fig} has no blank gutters to split it by (1 panel). Walk it with \`region\` boxes the source names, or draw it as a figure.`,
+            `${at} walks ${fig} ${what} by ${what}, and ${fig} has no blank ${lit.cut === "panels" ? "gutters" : "rows"} to split it by (1 ${what}). Walk it ${lit.cut === "panels" ? "as rows" : "as panels"}, or draw it as a figure.`,
           );
         else if (n !== undefined && want !== undefined && want > n)
           out.push(
-            `${at} walks ${want} panels of ${fig}, which has ${n}. Give \`count\` ${n} or fewer.`,
+            `${at} walks ${want} ${what}s of ${fig}, which has ${n}. Give \`count\` ${n} or fewer.`,
           );
       }
     }
