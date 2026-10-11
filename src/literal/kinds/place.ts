@@ -179,7 +179,7 @@ export function points(c: Ctx): MechanismResult {
     return plot.y + plot.h * (better(1) ? 1 - t : t);
   };
   const prims: Prim[] = [];
-  // The axes: lines and their names, no ticks.
+  // The axes: lines and their names; ticks follow, once the names are placed.
   const ax0 = d.axes[0] as PlaceLit["axes"][number];
   if (two) {
     const ax1 = d.axes[1] as PlaceLit["axes"][number];
