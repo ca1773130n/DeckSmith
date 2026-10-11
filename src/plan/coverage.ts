@@ -255,6 +255,89 @@ export function pictureFindings(storyboard: Storyboard, source: Source): string[
   ];
 }
 
+/** Archetypes that draw a beat as words in boxes or columns. */
+const WORD_ARCHETYPES = new Set([
+  "split-compare",
+  "callout",
+  "stack",
+  "pipeline",
+  "grid",
+  "kinetic",
+]);
+
+/**
+ * Advice for a plan that draws its MECHANISM as slideware, sent back once with
+ * the other findings (as `pictureFindings` is): r2 never chose \`operate\` or
+ * \`evolve\` on two papers and drew their method beats as two bullet columns, a
+ * chain of name cards and a 2×2 grid of numbers.
+ *
+ *  - a beat of part "method" with no \`literal\`, drawn as words, is routed to
+ *    the verb its evidence allows: region panels on a figure it cites, place
+ *    curves or evolve on an equation, else operate on example vectors, evolve
+ *    or a flow timeline;
+ *  - a flow chain whose stages are mostly names (no count, figure or layer);
+ *  - a beat whose claim states two or more of the source's numbers, drawn as
+ *    words, is a place strip, plane or combos;
+ *  - a split-compare with two lines or fewer a side is a setup detail: a
+ *    caption of the result beat that uses it.
+ *
+ * Advice, not a refusal: whether a verb is honest for a beat depends on what the
+ * source prints, which a heuristic cannot settle; the planner gets one look.
+ */
+export function slidewareFindings(
+  storyboard: Storyboard,
+  source: Source,
+  panels?: Readonly<Record<string, number>>,
+): string[] {
+  const out: string[] = [];
+  const stated = sourceNumbers(source);
+  for (const beat of storyboard.beats) {
+    const lit = beat.literal;
+    const words = !lit && WORD_ARCHETYPES.has(beat.archetype);
+    if (words && beat.part === "method") {
+      const figs = [
+        ...figureIds(beat),
+        ...beat.evidence.filter((e) => e.kind === "figure").map((e) => e.id),
+      ].filter(
+        (id) =>
+          !id.startsWith(GENERATED_FIGURE_PREFIX) &&
+          source.figures.some((f) => f.id === id) &&
+          (panels?.[id] ?? 2) >= 2,
+      );
+      const eq = beat.evidence.some((e) => e.kind === "equation");
+      out.push(
+        figs.length
+          ? `${beat.id} explains the method as ${beat.archetype} words while it cites ${figs[0]}: walk that figure with \`region\` cut panels on a beat that shows it (each panel on the sentence that names it), or draw the mechanism with a verb. Words in columns are slideware for a mechanism.`
+          : eq
+            ? `${beat.id} explains the method as ${beat.archetype} words while it cites an equation: when the source prints values the rule produces, draw it as a \`place\` plane with \`curves\` (one per stated value of the fixed parameter) or an \`evolve\` formula grounded by its checks; a rule over distributions or arrays is \`operate\` on example \`vectors\`.`
+            : `${beat.id} explains the method as ${beat.archetype} words. Draw it with a verb: \`operate\` on example \`vectors\` for a rule over distributions or arrays, \`evolve\` for an update over steps, a \`flow\` timeline for serial against parallel work — or keep it only if none is honest.`,
+      );
+    }
+    if (lit?.kind === "flow" && lit.form === "chain") {
+      const bare = lit.stages.filter(
+        (st) => !(st.show || st.figure || (st.shape && tokenChips(st.shape))),
+      );
+      if (bare.length * 2 > lit.stages.length)
+        out.push(
+          `${beat.id}'s flow chain is mostly name cards (${bare.map((st) => `"${st.label}"`).join(", ")} hold nothing): give each stage what it holds (a stated count, the source's figure, an earlier computed layer), or draw the mechanism as a \`flow\` timeline, an \`evolve\` or \`region\` panels.`,
+        );
+    }
+    const nums = ((beat.claim ?? "").match(/\d+(?:[.,]\d+)?/g) ?? []).filter((n) => stated.has(n));
+    if (words && beat.part !== "method" && new Set(nums).size >= 2)
+      out.push(
+        `${beat.id} states ${[...new Set(nums)].slice(0, 4).join(", ")} in its claim and draws them as ${beat.archetype} words: place them — a \`place\` strip (one axis, one dot per setting: an ablation), a plane, or combos.`,
+      );
+    if (!lit && beat.archetype === "split-compare") {
+      const p = beat.params as { left?: { lines?: string[] }; right?: { lines?: string[] } };
+      if ((p.left?.lines?.length ?? 0) <= 2 && (p.right?.lines?.length ?? 0) <= 2)
+        out.push(
+          `${beat.id} is a split-compare of two lines a side: a setup detail, not a beat. Say it in the \`caption\` of the result beat that uses it, or draw it with a verb.`,
+        );
+    }
+  }
+  return out;
+}
+
 /** Whether a beat carries a picture a literal scene can run on: a figure or a brief for one. */
 function hasPicture(beat: Beat): boolean {
   const p = beat.params as Record<string, unknown>;

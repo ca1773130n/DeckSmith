@@ -957,6 +957,40 @@ COMPOSE
     split-compare and not an equation-walk alone: that is slideware for a paper
     whose point is the rule. This holds for language-model, systems and
     optimisation papers as much as for image operations.
+  - A MECHANISM BEAT IS NEVER WORDS IN COLUMNS. A beat of part "method"
+    drawn as a split-compare, a callout, a stack or a pipeline of named boxes
+    is slideware when a verb shows it, and it is sent back. Work through
+    these, in order, for every method beat:
+      the source prints a rule and values it produces .... place plane with
+                                                          curves (one curve
+                                                          per stated value of
+                                                          the fixed parameter:
+                                                          γ = 2, 3, 5 is three
+                                                          curves) or evolve
+                                                          formula
+      a sampling, acceptance or selection rule over
+        distributions or arrays ......................... operate on example
+                                                          \`vectors\` (see
+                                                          operate), tagged
+      an update over steps ................................ evolve
+      serial against parallel work, a latency budget ...... flow timeline
+      a figure of the method, or a worked example of it
+        (a trace of steps, rows of tokens accepted and
+        rejected) ......................................... region panels on
+                                                          the beat citing it,
+                                                          one panel per
+                                                          sentence
+      an architecture whose stages hold something ......... flow chain (each
+                                                          stage a count, a
+                                                          figure or an earlier
+                                                          layer — never a
+                                                          chain of names)
+    Only a method beat none of these fits keeps \`literal\` null.
+  - A setup detail (a protocol, a model size, a split) is not a beat: say it in
+    the \`caption\` of the result beat that uses it. An ablation is \`place\`
+    strip (one axis, one dot per setting) or combos; a plane names at most 8
+    points beside them (more are keyed), so give the ones the beat is about.
+    \`place\` sets only where what was and was not evaluated are the point.
   - Learned components are never computed: a \`flow\` stage with \`learned\`
     true, a box, that may show the source's own \`figure\`.
   - A timeline lane is as long as its stated total or Σ count·dur; with

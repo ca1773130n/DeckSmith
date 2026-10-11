@@ -22,7 +22,13 @@ import { z } from "zod";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
 import { paperArcRequested } from "./arc.js";
-import { coverageFindings, literalFindings, pictureFindings, sourceParts } from "./coverage.js";
+import {
+  coverageFindings,
+  literalFindings,
+  pictureFindings,
+  slidewareFindings,
+  sourceParts,
+} from "./coverage.js";
 import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
 import { sizeFindings, varietyFindings } from "./variety.js";
@@ -289,7 +295,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
           ...(opts.panels ? { panels: opts.panels } : {}),
         }),
       ],
-      advice: pictureFindings(plan, source),
+      advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source, opts.panels)],
     });
     const broken = findings(first);
     const all = [...broken.size, ...broken.variety, ...broken.coverage, ...broken.advice];

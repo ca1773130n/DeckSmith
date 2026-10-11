@@ -17,6 +17,7 @@ import {
   paramProblem,
   partOfHeading,
   pictureFindings,
+  slidewareFindings,
   sourceParts,
 } from "../src/plan/coverage.js";
 import { sourceBlocks } from "../src/plan/prompt.js";
@@ -1233,6 +1234,44 @@ describe("the truth gate grounds every number in its role", () => {
     ]);
     expect(pictureFindings(plan(covered()), pics)).toEqual([]);
     expect(pictureFindings(plan(beats as never), analysis)).toEqual([]);
+  });
+
+  it("advises, once, a plan that draws its mechanism, its numbers or a setup as words", () => {
+    expect(slidewareFindings(plan(covered()), analysis)).toEqual([]);
+    const beats = covered();
+    const words = { ...beats[3], literal: undefined } as Record<string, unknown>;
+    beats[3] = words;
+    expect(slidewareFindings(plan(beats), analysis)).toEqual([
+      expect.stringMatching(/b03-method explains the method as stack words\. Draw it with a verb/),
+    ]);
+    const withFig = sourceSchema.parse({
+      ...analysis,
+      figures: [{ id: "fig1", src: "f1.png", caption: "Figure 1", width: 900, height: 600 }],
+    });
+    beats[3] = { ...words, evidence: [sec("sec4"), { kind: "figure", id: "fig1" }] };
+    expect(slidewareFindings(plan(beats), withFig).join("\n")).toMatch(
+      /cites fig1: walk that figure with `region` cut panels/,
+    );
+    // A figure the build cuts into one panel cannot be walked: the general advice instead.
+    expect(slidewareFindings(plan(beats), withFig, { fig1: 1 }).join("\n")).not.toMatch(/fig1/);
+    const plain = covered();
+    plain[2] = { ...plain[2], claim: "EM-SNN reaches 30.56 against 29.73." };
+    expect(slidewareFindings(plan(plain), analysis)).toEqual([
+      expect.stringMatching(/b02-prior states 30\.56, 29\.73 in its claim .* `place` strip/),
+    ]);
+    plain[2] = {
+      ...plain[2],
+      claim: "c",
+      archetype: "split-compare",
+      params: {
+        headline: "s",
+        left: { label: "a", lines: ["x"] },
+        right: { label: "b", lines: ["y", "z"] },
+      },
+    };
+    expect(slidewareFindings(plan(plain), analysis)).toEqual([
+      expect.stringMatching(/b02-prior is a split-compare of two lines a side: a setup detail/),
+    ]);
   });
 
   it("refuses a chain of empty boxes, and takes one whose stage holds a stated count", () => {

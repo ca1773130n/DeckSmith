@@ -1253,7 +1253,20 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`amount\`) degrades the input as an EXAMPLE; \`compare\`
                      condition shows the chain on the clean and the degraded
                      input side by side, \`compare\` params runs \`alt\` (another
-                     parameterisation of step \`alt.step\`) beside it.`,
+                     parameterisation of step \`alt.step\`) beside it.
+                     NOT ONLY PICTURES. A sampling or acceptance rule the
+                     source states over two distributions — keep min(p, q),
+                     resample from the residual max(0, p − q) normalised — is
+                     \`vectors\` [{label "p", values [0.1, 0.4, 0.3, 0.2]},
+                     {label "q", values [0.3, 0.3, 0.1, 0.3]}] over \`bins\`
+                     ["a", "b", "c", "d"], \`chain\` [{op combine, how min, of
+                     [0, 1]}, {op combine, how posdiff, of [0, 1]}, {op
+                     normalise, how sum}], each step labelled with the
+                     source's own name for it. The distributions are example
+                     input, so \`example\` is set and no computed value is
+                     printed: the rule is shown bin by bin, for real. The same
+                     holds for any stated rule over an array: a top-k, a
+                     softmax, a cumulative sum, a threshold.`,
     slots: {
       input: { what: "title of the input" },
       output: { what: "title of the last output", vars: ["max", "sum", "mean"] },
@@ -1282,7 +1295,16 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      beat whose computed tiles stream in (\`stat\` mean · var ·
                      std of each). \`phases\` ({from, label, freeze}) split the
                      run: a frozen phase keeps receiving inputs while the state
-                     holds. Every number is the source's, in its role.`,
+                     holds. Every number is the source's, in its role. A
+                     STATED UPDATE IN ANY FIELD: a running average the source
+                     prints as s' = β·s + (1 − β)·x with β = 0.9 and the
+                     inputs it lists is \`rule\` recur, \`how\` ema, \`params\`
+                     [{name "a", value "0.9", symbol "β"}], \`input\`
+                     values as printed; a recurrence the source writes out
+                     with the values it produces is \`rule\` formula, \`expr\`
+                     over s and x, grounded by its \`checks\`. A closed-form
+                     rule of one variable with the values it produces is a
+                     \`place\` plane with \`curves\` instead.`,
     slots: {
       state: { what: "title of the state (the tiles streaming in, or the picture)" },
       trace: { what: "title of the trace of the state over the steps" },
