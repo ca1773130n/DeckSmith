@@ -15,8 +15,11 @@ import { repairTex } from "../emit/tex.js";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import {
   LITERAL_KIND_DOCS,
+  LITERAL_OPS,
+  LITERAL_RULES,
   type LiteralKind,
   type LiteralKindDoc,
+  type LiteralOpDoc,
   literalSlotsOf,
   prefsSchema,
   type Source,
@@ -829,7 +832,6 @@ function slotDocs(kind: LiteralKind): string {
     .map(([slot, d]) => {
       const tags = [
         d.optional ? "optional" : "required",
-        ...(d.number ? ["a number the source states"] : []),
         ...(d.vars?.length ? [`may name ${d.vars.map((v) => `{${v}}`).join(", ")}`] : []),
       ];
       return `                     · ${slot} (${tags.join(", ")}): ${d.what}`;
@@ -838,88 +840,150 @@ function slotDocs(kind: LiteralKind): string {
 }
 
 /**
- * A kind's truth rules (src/types.ts `LiteralKindDoc`), under its slots:
+ * A kind's claim bans (src/types.ts `LiteralKindDoc`), under its slots:
  * `literalFindings` checks the same entries, so the planner is told exactly
  * what will be refused. Empty for a kind with none.
  */
-export function ruleDocs(d: Pick<LiteralKindDoc, "requires" | "mustNotClaim">): string {
+export function ruleDocs(d: Pick<LiteralKindDoc, "mustNotClaim">): string {
   const pad = " ".repeat(21);
-  const unless = (fields: readonly string[] | undefined) =>
-    fields?.length ? ` (unless the plan gives ${fields.map((f) => `\`${f}\``).join(" or ")})` : "";
-  return [
-    ...(d.requires ?? []).map((r) => `${pad}! only when the source gives ${r.what}`),
-    ...(d.mustNotClaim ?? []).map(
-      (b) =>
-        `${pad}! takeaway and labels never claim ${b.what}${unless(b.unlessGiven)}: ${b.because}`,
-    ),
-  ]
-    .map((l) => `\n${l}`)
+  return (d.mustNotClaim ?? [])
+    .map((b) => `\n${pad}! takeaway and labels never claim ${b.what}: ${b.because}`)
     .join("");
+}
+
+/** One op (or rule) of the library as the prompt lists it, from the table the gate reads. */
+function opDoc(name: string, d: LiteralOpDoc): string {
+  const pad = " ".repeat(15);
+  const lines = [`  ${name.padEnd(12)} ${d.doc}`];
+  if (d.how)
+    lines.push(
+      `${pad}how: ${Object.entries(d.how)
+        .map(([k, v]) => `${k} (${v.what})`)
+        .join(" · ")}${d.defaultHow ? `; absent: ${d.defaultHow}` : ""}`,
+    );
+  if (d.params)
+    lines.push(
+      `${pad}params: ${Object.entries(d.params)
+        .map(([k, v]) => `${k} (${v.what}${v.optional ? ", optional" : ""})`)
+        .join(" · ")}`,
+    );
+  for (const [field, vs] of Object.entries(d.enums ?? {}))
+    lines.push(`${pad}${field}: ${Object.keys(vs).join(" · ")}`);
+  return lines.join("\n");
 }
 
 /**
  * Shown when the build draws scenes (`bespokeFor`). The planner prefers a
- * literal kind and falls back to a bespoke scene only when none fits.
+ * literal verb and falls back to a bespoke scene only when none fits. Every
+ * list here is generated from the tables the build and the gate read
+ * (src/types.ts `LITERAL_KIND_DOCS`, `LITERAL_OPS`, `LITERAL_RULES`), so the
+ * prompt, the gate and the build cannot drift.
  */
 function literalScenes(): string {
   const kinds = (Object.entries(LITERAL_KIND_DOCS) as Array<[LiteralKind, LiteralKindDoc]>)
     .map(([k, d]) => `  ${k.padEnd(18)} ${d.doc}\n${slotDocs(k)}${ruleDocs(d)}`)
     .join("\n");
+  const ops = Object.entries(LITERAL_OPS as Record<string, LiteralOpDoc>)
+    .map(([k, d]) => opDoc(k, d))
+    .join("\n");
+  const rules = Object.entries(LITERAL_RULES as Record<string, LiteralOpDoc>)
+    .map(([k, d]) => opDoc(k, d))
+    .join("\n");
   return `
 
-LITERAL SCENES — THE MECHANISM ITSELF, COMPUTED, NEVER A METAPHOR
+LITERAL SCENES — THE MECHANISM AS A VERB, COMPUTED, NEVER A METAPHOR
 
-The build can draw a beat as the source's own mechanism acting on real
-material: it computes the layers at build time and the scene shows them
-changing, one causal step per narration sentence. PREFER THIS. When a kind
-below shows what a beat explains, set \`literal\` on that beat; its archetype
-stays as the fallback. Only a beat no kind fits leaves \`literal\` null, and is
-drawn as a bespoke scene. Never use a kind for a point it does not show.
+The build can draw a beat as the source's own mechanism: a VERB composes
+general operations on the source's OWN NUMBERS, the build computes every layer,
+and the scene reveals them one causal step per narration sentence. PREFER
+THIS. When a verb below shows what a beat explains, set \`literal\` on that
+beat; its archetype stays as the fallback. Only a beat no verb fits leaves
+\`literal\` null, and is drawn as a bespoke scene. Never use a verb for a point
+it does not show.
 
 ${kinds}
 
-  - A kind that takes \`picture\` names the beat whose picture it runs on: this
+THE OP LIBRARY — the steps of an \`operate\` chain (\`op\`, \`how\`, \`params\`
+as {name, value, symbol}, \`stat\`, \`over\`, \`weights\`, \`of\`, \`expr\`,
+\`checks\`, \`label\`):
+${ops}
+
+THE RULES an \`evolve\` steps under (\`rule\`, \`how\`, \`params\`, \`reset\`,
+\`schedule\`, \`expr\`, \`checks\`):
+${rules}
+
+THE GROUNDING LADDER. Every value a verb computes with is exactly one of:
+  stated ......... printed in the source IN ITS ROLE: the value, or the symbol
+                   the source binds to it ("α=0.6" → value 0.6, symbol α),
+                   stands next to the role's name ("threshold", "patch size",
+                   "momentum"). A number printed in another role is not this
+                   one: a momentum is never a σ.
+  definitional ... fixed by an operator's NAME the source uses: the Sobel,
+                   Prewitt and Laplacian kernels, Rec. 709 luma.
+  example ........ the scene's own material: a picture (ALWAYS — it is never
+                   the method's own intermediate), a vector or matrix the
+                   source does not print, a \`condition\`, a split of a stated
+                   total. The scene carries the \`example\` tag, and prints no
+                   computed value.
+  unstated ....... a parameter of the method the source leaves out (a patch
+                   size, a leak, a rounding, a learned weight): NEVER FILLED.
+                   Draw that step as a \`flow\` stage, or leave \`literal\` null.
+
+COMPOSE
+  - One beat = one verb. Break a method into the operations the source names,
+    in its order, as one chain; a degraded input is \`compare\` condition on the
+    SAME chain, not a second beat.
+  - A variant (\`how\`, \`stat\`, \`over\`, \`reset\`, \`schedule\`, a rounding) is
+    used only when a passage naming the operation names it too ("variance",
+    "soft reset", "cosine", "floor"). A quantiser needs its step AND its
+    rounding stated; with only its levels it is a \`flow\` stage.
+  - A formula (a \`formula\` step, an \`evolve\` formula, a \`place\` curve) is
+    grounded by \`checks\` the source prints: each check's inputs and output in
+    one passage, in order, two checks or more, every variable varying. When two
+    checks come from one table, EVERY row of that table must fit it.
+  - Learned components are never computed: a \`flow\` stage with \`learned\`
+    true, a box, that may show the source's own \`figure\`.
+  - A timeline lane is as long as its stated total or Σ count·dur; with
+    neither, all lanes have one length and the runs show the difference.
+  - A TABLE IS THE LAST RESORT. Route instead:
+      results against the best other method ..... place, measure margin
+      several methods on one or two metrics ...... place plane or strip (one
+                                                   item per method, its
+                                                   values from its own passage)
+      reported costs (energy, parameters) ........ place, measure length
+      datasets evaluated, limits of a claim ...... place sets
+      future work, ablations not run ............. place combos
+      a loss or a metric over steps .............. place plane, reveal groups,
+                                                   connect
+      a stated formula's behaviour ............... place plane with curves
+      latency, serial against parallel ........... flow timeline
+      an architecture, a pipeline ................ flow chain
+      earlier approaches, family by family ....... prior-work
+    \`table\` only where none is honest, at most once a deck. Each word form
+    (place strip, margin, length, combos, sets) at most ONCE a deck, and two
+    beats in a row never draw the same verb, form and operand.
+  - A verb that takes \`picture\` names the beat whose picture it runs on: this
     beat or an earlier one carrying a figure or an illustration brief. Use ONE
-    picture for the whole deck: give an early beat a brief for a CLEAR, detailed
-    photograph of the material the method works on (the build computes the
-    degradation itself), with real edges and texture, and point every picture
-    kind at that beat.
-  - \`labels\` are the scene's few words, in the deck's language, by slot: every
-    required slot listed under the kind, and no slot it does not list. There
-    are no defaults. A number slot is a value the scene computes with — the
-    paper's own, written as the source writes it — and every number in any
-    label is one the source states. \`{name}\` puts a value the scene computes
-    into a text, where the slot says it may.
-  - NEVER FABRICATE. A scene shows what the build computes or what the source
-    states. A method the build cannot run is shown by the numbers the source
-    reports for it, never by a picture of its output.
-  - A TABLE IS THE LAST RESORT. A table reads like a report; these kinds show
-    the thing it would list:
-      earlier approaches, family by family ..... prior-work (a classical
-                                                 method is RUN on the picture;
-                                                 a learned one by its numbers)
-      results against the best other methods ... margins
-      datasets evaluated, limits of a claim,
-      what was and was not tested .............. scope
-      future work, ablations not run ........... ablation
-      reported costs (energy, parameters) ...... scale
-    Use \`table\` only where none of these is honest, at most once a deck.
-    \`scale\`, \`margins\`, \`scope\` and \`ablation\` draw no picture: each at
-    most ONCE a deck — a second is the same slide again. Two beats in a row
-    never use the same kind.
-  - NAMES ARE THE SOURCE'S. Every method, dataset and condition a visual kind
-    names is written as the source writes it (several separated by ·), and a
-    number is credited only to a name the source states it beside: a prior-work
-    lane's numbers beside its members, a margin's two values beside its setting,
-    the method and the rival. A lane RUNS a method only when its family or
-    members name that method (dark-channel: the dark channel prior; sobel: a
-    Sobel filter). An ablation cell with a component removed holds only an
-    ablation the source reports; the first scope part holds only what the
-    source gives a result for.
+    picture for the whole deck: give an early beat a brief for a CLEAR,
+    detailed photograph of the material the method works on, with real edges
+    and texture, and point every picture verb at that beat. It is example
+    material: say so with \`example\`, and on \`operate\` with \`caption\`.
+  - \`labels\` are the scene's few words, in the deck's language, by slot:
+    every required slot listed under the verb, and no slot it does not list.
+    There are no defaults. Every number in any label or step name is one the
+    source states. \`{name}\` puts a computed value into a text, where the slot
+    says it may and only when every input is stated.
+  - NAMES ARE THE SOURCE'S. Every method, dataset and condition is written as
+    the source writes it (several separated by ·), and a number is credited
+    only to a name the source states it beside: a lane's numbers beside its
+    members, a margin's two values beside its setting, the method and the
+    rival, a point's values beside its item. A combos cell with a component
+    removed holds only an ablation the source reports; the first set holds
+    only what the source gives a result for.
 
 TAKEAWAY. Every beat but the title carries \`takeaway\`: ONE sentence naming
 what the viewer can now explain — a cause, a mechanism, a number and what it
-means. Not a topic ("the SSM module"), and not two points joined by "and": a
+means. Not a topic ("the module"), and not two points joined by "and": a
 beat with two takeaways is two beats.`;
 }
 

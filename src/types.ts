@@ -751,50 +751,32 @@ export const beatPartSchema = z.enum([
 ]);
 
 /**
- * The mechanisms a literal scene can draw (src/literal/), by name. One list,
- * read by the schema, the planner's prompt and the build, which draws every
- * one: each kind is a module in src/literal/kinds/, listed in
- * src/literal/registry.ts (picture kinds compute from the deck's picture;
- * table, scale and recap draw what the source states or what earlier scenes
- * computed).
+ * The literal scenes a beat can be drawn as (src/literal/), by name: five VERBS
+ * that compose the paper's own operations on its own numbers, and three
+ * cross-cutting kinds. One list, read by the schema, the planner's prompt and
+ * the build, which draws every one (src/literal/registry.ts). No name here is a
+ * paper's topic: a new paper is planned with these and needs no new code.
  */
 export const LITERAL_KIND_NAMES = [
-  "haze",
-  "spikes",
-  "sobel",
-  "dark-channel",
-  "channel-threshold",
-  "ema-threshold",
-  "backbone",
-  "fixed-filters",
-  "crops",
-  "table",
-  "scale",
+  "operate",
+  "evolve",
+  "flow",
+  "place",
+  "region",
   "recap",
   "prior-work",
-  "margins",
-  "scope",
-  "ablation",
-  "attention",
-  "diffusion",
-  "optimization",
-  "splatting",
-  "message-passing",
-  "rl-rollout",
-  "retrieval",
+  "table",
 ] as const;
 
 /**
- * One label slot of a literal scene. Required unless `optional`. A `number`
- * slot is a value the scene COMPUTES with (α, a crop size), so it is a fact of
- * the paper and comes from the plan, checked against the source; no kind has a
- * paper's numbers built in. A text may name the scene's computed values as
- * `{name}` (the kind says which), filled in at build time.
+ * One label slot of a literal scene. Required unless `optional`. A text may
+ * name the scene's computed values as `{name}` (the kind says which), filled
+ * in at build time — and only where every input of the scene is stated
+ * (src/plan/coverage.ts refuses it on example material).
  */
 export interface LiteralSlot {
   what: string;
   optional?: true;
-  number?: true;
   /** The computed values the text may name as `{name}`. */
   vars?: readonly string[];
 }
@@ -807,6 +789,12 @@ export const LITERAL_COMMON_SLOTS: Readonly<Record<string, LiteralSlot>> = {
   },
 };
 
+/** The tag that says a scene runs on example material, in the deck's languages. */
+const EXAMPLE_SLOT: LiteralSlot = {
+  what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required whenever any input is example material (a picture, an unprinted vector, a `condition`, a split the source does not state)",
+  optional: true,
+};
+
 /** Everything the planner is told, and checked against, for one literal kind. */
 export interface LiteralKindDoc {
   /**
@@ -816,36 +804,15 @@ export interface LiteralKindDoc {
   doc: string;
   /**
    * EVERY SLOT THE KIND READS, and nothing else: the planner is shown them,
-   * `literalFindings` refuses a slot not listed, a required one missing or a
-   * number slot that is not a number, and a fragment reading a slot not listed
-   * here throws. No text has a default: a scene's words are in the deck's
-   * language, and a default would be in one language and, for a fact, one
-   * paper.
+   * `literalFindings` refuses a slot not listed or a required one missing, and
+   * a fragment reading a slot not listed here throws. No text has a default.
    */
   slots: Readonly<Record<string, LiteralSlot>>;
-  /**
-   * What the source must give before the planner may use the kind at all, each
-   * shown in the prompt and checked against the source's text. A kind that
-   * computes from material the source does not have shows nothing true.
-   */
-  requires?: readonly LiteralRequirement[];
   /**
    * What the scene's takeaway and labels must not claim, each shown in the
    * prompt and checked against them: what the scene computes cannot back it.
    */
   mustNotClaim?: readonly LiteralClaimBan[];
-}
-
-/**
- * One thing the source must give. LEXICAL: it is met when any of `anyOf` is
- * found in the source's text (headings, sections, tables, captions), so it
- * tells a source that never mentions the material from one that does; it
- * cannot tell whether what is mentioned is concrete enough to show.
- */
-export interface LiteralRequirement {
-  /** What the source must give, in the planner's words. */
-  what: string;
-  anyOf: readonly RegExp[];
 }
 
 /** One claim a kind's takeaway and labels must not make. */
@@ -856,670 +823,572 @@ export interface LiteralClaimBan {
   because: string;
   /** Words that make the claim, in the deck's languages (en, ko, ja, zh). */
   pattern: RegExp;
-  /**
-   * Fields of the beat's `literal` that lift the ban when present and
-   * non-empty: the plan carries the source's own material, so the scene
-   * computes the real thing.
-   */
-  unlessGiven?: readonly string[];
 }
 
-/**
- * Truth rules for `attention` (src/literal/kinds/attention.ts), spread into
- * its `LITERAL_KIND_DOCS` entry. Without
- * the source's Q/K or embeddings each head's Q = K is a surface feature of the
- * input (character trigrams, pixels, position), so it shows how attention
- * weighs, never what a trained model attends to.
- */
-export const ATTENTION_RULES = {
-  requires: [
-    {
-      what: "real queries and keys, embeddings, or a concrete token sequence or image patches to run attention over",
-      anyOf: [
-        /\b(?:quer(?:y|ies)|keys?|embeddings?|tokens?|patch(?:es)?)\b/i,
-        /\bQ\s*K\b|QK\^?[⊤ᵀT]/,
-        /쿼리|임베딩|토큰|패치/,
-        /クエリ|埋め込み|トークン|パッチ/,
-        /查询|嵌入|词元|令牌|图块/,
-      ],
+/** A verb computes known operations: it never shows what a trained model outputs. */
+const NO_LEARNED_OUTPUT: LiteralClaimBan = {
+  what: "what a trained model or network outputs, predicts or has learned",
+  because:
+    "the scene runs only operations whose every parameter the source states; a learned component is a `flow` stage drawn as a box, never computed",
+  pattern:
+    /\b(?:predict(?:s|ed|ion)?|learn(?:s|ed|t)|trained (?:model|network|weights)|network(?:'s)? output)\b|예측(?:한|된)|학습된|学習済み|予測(?:した|された)|预测(?:的|出)|训练好的|学到的/i,
+};
+
+/* ---------------------------------------------------------- the op library */
+
+/** One parameter an op or rule takes: a number the source states, in a ROLE. */
+export interface LiteralParamDoc {
+  what: string;
+  /**
+   * The role's nouns, en/ko/ja/zh. A value is grounded for the role only when
+   * it (or the symbol the source binds it to) sits within 40 characters of one.
+   */
+  nouns: RegExp;
+  optional?: true;
+  /** A whole number (a size, a count). */
+  int?: true;
+}
+
+/** One variant (`how`, `stat`, `over`, `reset`, `schedule`) and the words that name it. */
+export interface LiteralVariantDoc {
+  what: string;
+  /** Some passage naming the op must also hold one of these words. */
+  words: RegExp;
+}
+
+/** One operation of the library (src/literal/ops.ts), as the planner and the gate see it. */
+export interface LiteralOpDoc {
+  doc: string;
+  /** The words that name the op; a passage holding one grounds its variants. */
+  nouns: RegExp;
+  how?: Readonly<Record<string, LiteralVariantDoc>>;
+  /** The variant used when `how` is absent (definitional, needs no word). */
+  defaultHow?: string;
+  params?: Readonly<Record<string, LiteralParamDoc>>;
+  /** Further enum fields the op reads (`stat`, `over`). */
+  enums?: Readonly<Record<string, Readonly<Record<string, LiteralVariantDoc>>>>;
+}
+
+const W = {
+  mean: /\bmean\b|averag|평균|平均|均值/i,
+  min: /\bmin(?:imum)?\b|최소|最小|min\s*\(/i,
+  max: /\bmax(?:imum)?\b|최대|最大|max\s*\(/i,
+  sum: /\bsum\b|\badd(?:s|ed|ing)?\b|\btotal\b|합|더하|더한|総和|加算|求和|总和|相加/i,
+  variance: /varian|분산|分散|方差/i,
+  std: /standard deviation|\bstd\b|표준편차|標準偏差|标准差/i,
+  channel: /channel|채널|チャネル|チャンネル|通道/i,
+  row: /\brow|\btoken|행별|각 행|토큰|行ごと|トークン|每行|词元/i,
+  threshold: /threshold|임계|閾値|阈值|门限/i,
+};
+
+export const LITERAL_OPS = {
+  channels: {
+    doc: "collapse the colour channels of a picture to one map",
+    nouns: W.channel,
+    how: {
+      mean: { what: "their mean", words: W.mean },
+      min: { what: "their minimum", words: W.min },
+      max: { what: "their maximum", words: W.max },
+      luma: {
+        what: "Rec. 709 luma",
+        words: /luma|luminance|gr[ae]yscale|brightness|휘도|밝기|輝度|明るさ|亮度|灰度/i,
+      },
     },
-  ],
-  mustNotClaim: [
-    {
-      what: "what a trained model attends to or has learned",
-      because:
-        "without the source's own Q/K or embeddings, each head compares surface features of the input, not a trained model's projections",
-      pattern:
-        /\b(?:learn(?:s|ed|t|ing)?|trained|training|models?|model's|networks?|network's|semantic(?:s|ally)?)\b|학습|모델|네트워크|의미|学習|モデル|ネットワーク|意味|学习|训练|模型|网络|语义/i,
-      unlessGiven: ["heads", "embeddings"],
+  },
+  conv: {
+    doc: "2-D convolution of every channel (1-D along a vector), edges replicated",
+    nouns:
+      /convol|filter|kernel|합성곱|컨볼루션|필터|커널|畳み込み|フィルタ|カーネル|卷积|滤波|算子/i,
+    how: {
+      "sobel-x": { what: "the horizontal Sobel kernel", words: /sobel|소벨|ソーベル|索贝尔/i },
+      "sobel-y": { what: "the vertical Sobel kernel", words: /sobel|소벨|ソーベル|索贝尔/i },
+      laplacian: { what: "the 3×3 Laplacian", words: /laplac|라플라시안|ラプラシアン|拉普拉斯/i },
+      "prewitt-x": { what: "the horizontal Prewitt kernel", words: /prewitt|프리윗|プレヴィット/i },
+      "prewitt-y": { what: "the vertical Prewitt kernel", words: /prewitt|프리윗|プレヴィット/i },
+      box: {
+        what: "a box (mean) filter of side `size`",
+        words:
+          /\bbox\b|mean filter|average filter|평균 필터|박스|ボックス|平均フィルタ|均值滤波|方框/i,
+      },
+      gaussian: { what: "a Gaussian of `sigma`", words: /gauss|가우시안|가우스|ガウス|高斯/i },
+      weights: {
+        what: "the `weights` matrix, every row printed in the source",
+        words: /kernel|weights?|matrix|커널|가중치|행렬|カーネル|重み|行列|核|权重|矩阵/i,
+      },
     },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
+    params: {
+      size: {
+        what: "the kernel side",
+        nouns: /size|kernel|window|크기|커널|サイズ|大小|尺寸|×/i,
+        optional: true,
+        int: true,
+      },
+      sigma: {
+        what: "the Gaussian's σ",
+        nouns: /σ|sigma|standard deviation|표준편차|標準偏差|标准差/i,
+        optional: true,
+      },
+    },
+  },
+  reduce: {
+    doc: "a statistic over a window of side `window`: sliding (stride 1) or pooled (`stride` = window)",
+    nouns:
+      /patch|window|pool|neighbou?rhood|local|패치|윈도|창|풀링|국소|이웃|パッチ|窓|プーリング|局所|近傍|块|窗口|池化|局部|邻域/i,
+    how: {
+      min: { what: "the minimum", words: W.min },
+      max: { what: "the maximum", words: W.max },
+      mean: { what: "the mean", words: W.mean },
+    },
+    params: {
+      window: {
+        what: "the window side, in pixels or elements",
+        nouns: /patch|window|pool|size|kernel|패치|윈도|창|크기|パッチ|窓|サイズ|块|窗口|大小/i,
+        int: true,
+      },
+      stride: {
+        what: "the stride",
+        nouns: /stride|step|보폭|스트라이드|ストライド|步长|步幅/i,
+        optional: true,
+        int: true,
+      },
+    },
+  },
+  combine: {
+    doc: "an elementwise combination of two earlier outputs (`of`: their indexes, 0 = the input)",
+    nouns:
+      /absolute|magnitude|\bsum\b|\badd|\bmin\b|\bmax\b|product|multipl|differen|subtract|residual|절댓값|절대값|크기|합|더하|최소|최대|곱|차이|빼|잔차|絶対値|大きさ|和|積|差|最小|最大|绝对值|幅值|乘|最小值|最大值/i,
+    how: {
+      "abs-sum": {
+        what: "|a| + |b|",
+        words: /absolute|\|[^|]{1,12}\|\s*\+|절댓값|절대값|絶対値|绝对值/i,
+      },
+      magnitude: {
+        what: "√(a² + b²)",
+        words: /magnitude|euclidean|hypot|√|크기|大きさ|幅值|模长/i,
+      },
+      min: { what: "min(a, b)", words: W.min },
+      max: { what: "max(a, b)", words: W.max },
+      sum: { what: "a + b", words: W.sum },
+      product: { what: "a · b", words: /product|multipl|곱|積|乘/i },
+      diff: { what: "a − b", words: /differen|subtract|차이|빼|差/i },
+      posdiff: {
+        what: "max(0, a − b), the positive part",
+        words: /max\s*\(\s*0|positive part|\)_?\+|양수 부분|正の部分|正部/i,
+      },
+    },
+  },
+  normalise: {
+    doc: "divide or rescale by a statistic",
+    nouns: /normali[sz]|정규화|正規化|归一化|标准化|softmax|소프트맥스|ソフトマックス/i,
+    how: {
+      mean: { what: "by the mean", words: W.mean },
+      max: { what: "by the maximum", words: W.max },
+      range: { what: "to [0, 1] between min and max", words: /range|min.?max|범위|範囲|范围/i },
+      sum: { what: "to sum to 1", words: /\bsum|total|합|総和|求和|总和/i },
+      std: { what: "by the standard deviation", words: W.std },
+      softmax: { what: "softmax", words: /softmax|소프트맥스|ソフトマックス/i },
+    },
+    enums: {
+      over: {
+        all: { what: "over everything", words: /./ },
+        channel: { what: "each channel", words: W.channel },
+        row: { what: "each row", words: W.row },
+      },
+    },
+  },
+  threshold: {
+    doc: "keep or fire where x ≥ θ: a stated `theta`, or θ = `scale` × a statistic (`stat`) of the input, `over` all or per channel",
+    nouns: W.threshold,
+    how: {
+      binary: {
+        what: "1 where x ≥ θ, else 0 (fire)",
+        words: /fire|spike|binary|발화|스파이크|이진|発火|二値|发放|二值/i,
+      },
+      keep: {
+        what: "x where x ≥ θ, else 0",
+        words: /keep|pass|retain|suppress|유지|통과|억제|保持|抑制|通过/i,
+      },
+    },
+    defaultHow: "binary",
+    params: {
+      theta: { what: "the threshold θ", nouns: W.threshold, optional: true },
+      scale: {
+        what: "the scale θ is proportional with",
+        nouns: /scal|factor|proportional|비례|스케일|계수|比例|係数|系数/i,
+        optional: true,
+      },
+    },
+    enums: {
+      stat: {
+        mean: { what: "the mean", words: W.mean },
+        var: { what: "the variance", words: W.variance },
+        std: { what: "the standard deviation", words: W.std },
+      },
+      over: {
+        all: { what: "over everything", words: /./ },
+        channel: { what: "per channel", words: W.channel },
+      },
+    },
+  },
+  quantize: {
+    doc: "clip(rounding(x / step), 0, levels) / levels: integer levels",
+    nouns: /quanti[sz]|level|양자화|수준|레벨|量子化|レベル|量化|级别/i,
+    how: {
+      floor: {
+        what: "rounded down",
+        words: /floor|⌊|round(?:ed|s)? down|truncat|내림|버림|切り捨て|向下取整/i,
+      },
+      round: {
+        what: "rounded to the nearest",
+        words: /round(?:ing|ed|s)? to (?:the )?nearest|nearest integer|반올림|四捨五入|四舍五入/i,
+      },
+    },
+    params: {
+      levels: {
+        what: "the number of levels D",
+        nouns: /level|quanti[sz]|수준|레벨|양자화|レベル|量子化|级|量化/i,
+        int: true,
+      },
+      step: {
+        what: "the step (the threshold one level spans)",
+        nouns: /step|threshold|interval|간격|임계|間隔|閾値|步长|阈值/i,
+      },
+    },
+  },
+  formula: {
+    doc: "an elementwise expression (`expr`: + − × ÷ ^ min max abs exp log sqrt clip, `x` the previous output, `x0`… the earlier ones, named params), grounded by `checks` the source prints",
+    nouns: /./,
+  },
+  matmul: {
+    doc: "a matrix product: two earlier outputs (`of`), or the previous output times the stated `weights`",
+    nouns: /matri|multipl|product|행렬|곱|行列|積|矩阵|乘/i,
+  },
+  select: {
+    doc: "pick by rank along each row (`over` row) or over all",
+    nouns:
+      /top-?\s?k|\btop\b|argmax|arg\s?max|sort|rank|cumulative|cumsum|상위|정렬|순위|누적|上位|並べ|累積|排序|累积|前\s?k/i,
+    how: {
+      topk: {
+        what: "keep the top `k`, zero the rest",
+        words: /top-?\s?k|\btop\b|상위|上位|前\s?k/i,
+      },
+      argmax: { what: "one-hot at the largest", words: /argmax|arg\s?max|가장 큰|最大/i },
+      sort: { what: "sort descending", words: /sort|rank|정렬|순위|並べ|排序/i },
+      cumsum: { what: "running sum", words: /cumulative|cumsum|누적|累積|累积/i },
+    },
+    params: {
+      k: { what: "how many are kept", nouns: /\bk\b|top|상위|上位|前/i, optional: true, int: true },
+    },
+    enums: {
+      over: { row: { what: "each row", words: /./ }, all: { what: "over everything", words: /./ } },
+    },
+  },
+  transform: {
+    doc: "the magnitude spectrum |DFT| of each row",
+    nouns:
+      /fourier|\bFFT\b|\bDFT\b|spectr|frequenc|푸리에|스펙트럼|주파수|フーリエ|スペクトル|周波数|傅里叶|频谱|频率/i,
+    how: {
+      fft: {
+        what: "|DFT|, bins 0..n/2",
+        words: /fourier|\bFFT\b|\bDFT\b|spectr|푸리에|스펙트럼|フーリエ|スペクトル|傅里叶|频谱/i,
+      },
+    },
+    defaultHow: "fft",
+  },
+} as const satisfies Readonly<Record<string, LiteralOpDoc>>;
+
+export type LiteralOpName = keyof typeof LITERAL_OPS;
+export const LITERAL_OP_NAMES = Object.keys(LITERAL_OPS) as [LiteralOpName, ...LiteralOpName[]];
+
+/** Every variant name any op takes: the schema's `how`. */
+const OP_HOWS = [
+  ...new Set(
+    Object.values(LITERAL_OPS as Record<string, LiteralOpDoc>).flatMap((o) =>
+      Object.keys(o.how ?? {}),
+    ),
+  ),
+] as [string, ...string[]];
+
+/** The update rules `evolve` runs: the presets and the general one. */
+export const LITERAL_RULES = {
+  recur: {
+    doc: "s' = a·s + b·x (`how` ema: b = 1−a; leaky: b = 1; linear: `b` stated), with an optional threshold (`theta`, or θ = `scale`·s) and `reset`",
+    nouns:
+      /moving average|\bEMA\b|momentum|leak|integrat|decay|recurren|이동평균|모멘텀|누설|적분|감쇠|移動平均|モーメンタム|リーク|積分|減衰|滑动平均|动量|泄漏|积分|衰减/i,
+    how: {
+      ema: {
+        what: "b = 1 − a",
+        words: /moving average|\bEMA\b|이동평균|移動平均|滑动平均|指数平均/i,
+      },
+      leaky: { what: "b = 1", words: /leak|integrat|누설|적분|リーク|積分|泄漏|积分/i },
+      linear: { what: "`b` stated", words: /./ },
+    },
+    params: {
+      a: {
+        what: "the factor on the old state (momentum, decay, leak)",
+        nouns:
+          /momentum|decay|leak|\bEMA\b|moving average|smooth|모멘텀|감쇠|누설|이동평균|モーメンタム|減衰|リーク|移動平均|动量|衰减|泄漏|滑动平均/i,
+      },
+      b: {
+        what: "the factor on the input",
+        nouns: /gain|input|weight|이득|입력|ゲイン|入力|增益|输入/i,
+        optional: true,
+      },
+      theta: { what: "a fixed threshold the state fires at", nouns: W.threshold, optional: true },
+      scale: {
+        what: "θ = scale · state: inputs are compared with it",
+        nouns: /scal|factor|proportional|비례|스케일|계수|比例|係数|系数/i,
+        optional: true,
+      },
+    },
+    enums: {
+      reset: {
+        none: { what: "no reset", words: /./ },
+        soft: {
+          what: "subtract θ on firing",
+          words: /soft reset|subtract|residual|잔여|뺄셈|減算|残差|软重置|减去|残余/i,
+        },
+        hard: {
+          what: "back to 0 on firing",
+          words: /hard reset|reset to (?:zero|0)|하드 리셋|0으로|ゼロに|硬重置|归零/i,
+        },
+      },
+    },
+  },
+  noise: {
+    doc: "the forward noising of the picture, x_t = √ᾱ_t·x₀ + √(1−ᾱ_t)·ε, on a stated schedule (`T`, `betaStart`, `betaEnd`)",
+    nouns: /diffusion|noise|denois|확산|노이즈|拡散|ノイズ|扩散|噪声/i,
+    params: {
+      T: {
+        what: "the number of steps T",
+        nouns: /steps?|timesteps?|\bT\b|단계|스텝|ステップ|步/i,
+        int: true,
+      },
+      betaStart: {
+        what: "β₁",
+        nouns: /β|beta|noise|variance|노이즈|분산|ノイズ|分散|噪声|方差/i,
+        optional: true,
+      },
+      betaEnd: {
+        what: "β_T",
+        nouns: /β|beta|noise|variance|노이즈|분산|ノイズ|分散|噪声|方差/i,
+        optional: true,
+      },
+    },
+    enums: {
+      schedule: {
+        linear: { what: "β linear in t", words: /linear|선형|線形|线性/i },
+        cosine: { what: "ᾱ on a cosine", words: /cosine|코사인|コサイン|余弦/i },
+      },
+    },
+  },
+  formula: {
+    doc: "s' = `expr` over `s` (the state), `x` (the input) and named params, grounded by `checks` or printed verbatim in the source",
+    nouns: /./,
+  },
+} as const satisfies Readonly<Record<string, LiteralOpDoc>>;
+
+export type LiteralRuleName = keyof typeof LITERAL_RULES;
+
+/** The nouns a few non-op numbers are grounded by (src/plan/coverage.ts). */
+export const LITERAL_ROLE_NOUNS = {
+  /** A count of runs or tokens on a timeline. */
+  count:
+    /token|step|run|draft|pass|iteration|position|토큰|단계|스텝|횟수|トークン|ステップ|回|词元|步|令牌|次/i,
+  /** A stated duration: a lane's total, a run's cost. */
+  duration:
+    /latency|time|second|\bms\b|\bs\b|cost|지연|시간|초|비용|遅延|時間|秒|コスト|延迟|时间|成本/i,
+  /** A crop, patch or grid cell side. */
+  cut: /crop|patch|cell|grid|tile|크롭|패치|셀|격자|타일|クロップ|パッチ|セル|グリッド|裁剪|块|网格|切片/i,
+  /** How many crops a batch holds. */
+  batch: /batch|crops?|배치|크롭|バッチ|批|个/i,
+  /** The side training pictures are resized to. */
+  resize: /resiz|size|해상도|크기|サイズ|尺寸|分辨率/i,
+  /** A stream's statistic (mean, variance, std). */
+  stat: /./,
+} as const;
+
+/* ------------------------------------------------------------ kinds' docs */
 
 /**
- * Truth rules for `diffusion` (src/literal/kinds/diffusion.ts), spread into
- * its `LITERAL_KIND_DOCS` entry. The
- * reverse path is an ORACLE that knows x₀, so the scene is exact about the
- * noise schedule and the process and says nothing about a trained denoiser.
- * "Denoising" alone names the process and is allowed; "model" is not banned,
- * since "a diffusion model adds noise" describes the process too.
- */
-export const DIFFUSION_RULES = {
-  requires: [
-    {
-      what: "a diffusion or denoising process: a noise schedule, forward noising, or reverse (denoising) steps",
-      anyOf: [
-        /\b(?:diffusion|denois(?:e|es|ed|ing)|noise schedules?|DDPM|DDIM|score[- ]based|forward process|reverse process)\b/i,
-        /확산|디노이징|노이즈 스케줄|拡散|ノイズスケジュール|扩散|去噪|噪声调度/,
-      ],
-    },
-  ],
-  mustNotClaim: [
-    {
-      what: "what a trained denoiser does: predicting the noise, learning, generating",
-      because:
-        "the reverse steps use an oracle that knows the clean picture x₀; they show the noise schedule and the process, not a network's behaviour",
-      pattern:
-        /\b(?:denoisers?|denoising (?:networks?|models?)|networks?|U-?Net|learn(?:s|ed|t|ing)?|trained|predict(?:s|ed|ing|ion)?|generat(?:es?|ed|ing|ion))\b|ε_?θ|epsilon_theta|디노이저|네트워크|학습|예측|생성|ネットワーク|学習|予測|生成|网络|学习|训练|预测/i,
-    },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
-
-/**
- * Truth rules for `optimization`: the landscape mode runs textbook optimizers
- * on an analytic function chosen to show the update rule, so it is never the
- * paper's own loss surface; the curves mode draws only the rows the plan gives.
- */
-export const OPTIMIZATION_RULES = {
-  requires: [
-    {
-      what: "an optimizer, a training procedure or loss curves to draw (SGD, momentum, Adam, a learning rate, a loss over steps)",
-      anyOf: [
-        /\b(?:optimi[sz](?:er|ation)|SGD|Adam(?:W)?|RMSProp|momentum|learning rate|gradient descent|loss|converge(?:s|nce|d)?|training curves?)\b/i,
-        /최적화|옵티마이저|학습률|손실|경사 하강|収束|最適化|学習率|損失|勾配降下|优化|学习率|损失|梯度下降|收敛/,
-      ],
-    },
-  ],
-  mustNotClaim: [
-    {
-      what: "that the drawn surface is the paper's or a model's real loss landscape",
-      because:
-        "the landscape is an analytic function (quadratic, Rosenbrock, Himmelblau) that shows the optimizer's update rule, not any network's loss",
-      pattern:
-        /\b(?:(?:our|the|its|this) (?:model|network)'s loss (?:landscape|surface)|loss (?:landscape|surface) of (?:our|the|this) (?:model|network))\b|모델의 손실 지형|モデルの損失地形|模型的损失曲面/i,
-      unlessGiven: ["series"],
-    },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
-
-/**
- * Truth rules for `splatting`: the Gaussians come from the plan's points (or
- * the picture laid on a plane) and are rendered by exact EWA splatting; nothing
- * was optimised against photographs, so no reconstruction quality is shown.
- */
-export const SPLATTING_RULES = {
-  requires: [
-    {
-      what: "Gaussian splatting, point clouds or 3D points rendered by splatting",
-      anyOf: [
-        /\b(?:gaussians?|splat(?:s|ting)?|point[- ]clouds?|3D points?|radiance fields?|EWA)\b/i,
-        /가우시안|스플래팅|포인트 클라우드|ガウシアン|スプラッティング|点群|高斯|泼溅|点云/,
-      ],
-    },
-  ],
-  mustNotClaim: [
-    {
-      what: "optimised or trained Gaussians, or the paper's reconstruction quality",
-      because:
-        "the Gaussians are made from the plan's points by their neighbours' covariance and rendered as they are; nothing is fitted to photographs",
-      pattern:
-        /\b(?:trained|optimi[sz](?:ed|es|ing|ation)|learn(?:s|ed|t|ing)?|photorealistic|PSNR|SSIM|LPIPS|state[- ]of[- ]the[- ]art)\b|학습|최적화된|学習|最適化された|训练|优化后/i,
-      unlessGiven: ["gaussians"],
-    },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
-
-/**
- * Truth rules for `message-passing`: without the source's weights the layers
- * are pure propagation (W = I), so the scene shows aggregation, not what a
- * trained network learns or predicts.
- */
-export const MESSAGE_PASSING_RULES = {
-  requires: [
-    {
-      what: "a graph and message passing over it (a GNN, graph convolution, neighbours, aggregation)",
-      anyOf: [
-        /\b(?:graphs?|GNNs?|GCNs?|graph (?:neural )?networks?|message[- ]passing|neighbou?rs?|nodes?|edges?|aggregat(?:e|es|ed|ion))\b/i,
-        /그래프|노드|이웃|메시지 전달|グラフ|ノード|近傍|メッセージパッシング|图神经|节点|邻居|消息传递/,
-      ],
-    },
-  ],
-  mustNotClaim: [
-    {
-      what: "what a trained network learns, predicts or classifies",
-      because:
-        "without the source's weights each layer is W = I: pure aggregation of the given features",
-      pattern:
-        /\b(?:learn(?:s|ed|t|ing)?|trained|predict(?:s|ed|ing|ion)?|classif(?:y|ies|ied|ication))\b|학습|예측|분류|学習|予測|分類|学习|训练|预测|分类/i,
-      unlessGiven: ["weights"],
-    },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
-
-/**
- * Truth rules for `rl-rollout`: the gridworld is the plan's own small MDP,
- * solved exactly (or by tabular Q-learning); it is not the paper's environment.
- */
-export const RL_ROLLOUT_RULES = {
-  requires: [
-    {
-      what: "a reinforcement-learning setting: states, actions, rewards, a policy or a value function",
-      anyOf: [
-        /\b(?:reinforcement learning|RL|polic(?:y|ies)|rewards?|value (?:function|iteration)|Q-?learning|MDPs?|agents?|Bellman)\b/i,
-        /강화학습|정책|보상|가치 함수|強化学習|方策|報酬|価値関数|强化学习|策略|奖励|价值函数/,
-      ],
-    },
-  ],
-  mustNotClaim: [
-    {
-      what: "results on the paper's own environment or benchmark",
-      because:
-        "the scene solves the plan's small gridworld; it shows how values and a policy arise, not the paper's results",
-      pattern:
-        /\b(?:benchmarks?|Atari|MuJoCo|outperform(?:s|ed)?|state[- ]of[- ]the[- ]art|SOTA|human[- ]level)\b|벤치마크|능가|ベンチマーク|上回|基准|超越/i,
-    },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
-
-/**
- * Truth rules for `retrieval`: BM25 and TF-IDF are lexical; only the source's
- * own vectors make a scene about dense or learned retrieval.
- */
-export const RETRIEVAL_RULES = {
-  requires: [
-    {
-      what: "retrieval, search or ranking of items against a query",
-      anyOf: [
-        /\b(?:retriev(?:e|es|al|ed|er)|search|rank(?:s|ed|ing)?|BM25|TF-?IDF|similarity|nearest neighbou?rs?|top-?k|recall@)\b/i,
-        /검색|순위|유사도|検索|ランキング|類似度|检索|排序|相似度/,
-      ],
-    },
-  ],
-  mustNotClaim: [
-    {
-      what: "dense, neural, learned or vector (cosine) retrieval",
-      because: "without the source's vectors the scores are BM25: word overlap between texts",
-      pattern:
-        /\b(?:dense|neural|learned|trained|semantic(?:s|ally)?|embeddings?|embedding models?|vectors?|cosine|DPR|ColBERT)\b|의미 검색|신경망|학습된|임베딩|코사인|ニューラル|学習済み|埋め込み|コサイン|语义|神经|训练好|嵌入|余弦/i,
-      unlessGiven: ["vectors"],
-    },
-  ],
-} as const satisfies Pick<LiteralKindDoc, "requires" | "mustNotClaim">;
-
-/**
- * THE PLANNER'S LIST OF KINDS: one entry per name in `LITERAL_KIND_NAMES`, a
- * `Record` so a name added there does not compile until it has an entry here,
- * and the build draws it (src/literal/registry.ts). Listed in the order the
- * prompt shows them. One table, so the docs, the checks and the build cannot
- * drift apart.
+ * THE PLANNER'S LIST: one entry per name in `LITERAL_KIND_NAMES`, a `Record` so
+ * a name added there does not compile until it has an entry here, and the
+ * build draws it (src/literal/registry.ts). Listed in the order the prompt
+ * shows them. Every example is generic: no paper's facts live in src/.
  */
 export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = {
-  haze: {
-    doc: `the atmospheric scattering model I = J·t + A·(1−t) computed onto
-                     the picture: haze rises, and the picture's contrast and its
-                     edge (Sobel) map fade before any network sees them. Exact.
-                     Takes \`picture\`.`,
-    slots: {
-      clear: { what: "on the clear picture" },
-      hazy: { what: "on the picture once the haze has risen" },
-      edges: { what: "title of the edge (Sobel) map" },
-      profile: { what: "title of the brightness along one line" },
-    },
-  },
-  "dark-channel": {
-    doc: `the classical Dark Channel Prior, computed for real on the
-                     hazy picture: dark channel, then transmission, then the
-                     recovered picture. Prior work, labelled as that classical
-                     prior — never as the paper's method or another model's
-                     output. Takes \`picture\`.`,
-    slots: {
-      hazy: { what: "title of the hazy input" },
-      dark: { what: "title of the classical prior's dark channel" },
-      transmission: { what: "title of the estimated transmission" },
-      recovered: { what: "title of the classical prior's recovered picture" },
-      miss: { what: "on the regions where the estimate misses the true transmission", vars: ["t"] },
-      profile: { what: "title of the transmission along one line" },
-      truth: { what: "legend of the true transmission line", vars: ["t"] },
-      estimate: { what: "legend of the estimate line" },
-      premise: { what: "the prior's assumption, in words" },
-      premiseValue: { what: "what this picture gives for it", vars: ["v"] },
-      missShare: {
-        what: "how much of the picture the estimate missed, in percent",
-        vars: ["p"],
-      },
-    },
-  },
-  spikes: {
-    doc: `leaky integrate-and-fire neurons, one per feature cell of the hazy
-                     picture: a cell passes on only when its membrane crosses
-                     the threshold, so weak cells go dark downstream. Threshold
-                     and gain are ILLUSTRATIVE, and the narration says so. Takes
-                     \`picture\`.`,
-    slots: {
-      features: { what: "title of the input feature map" },
-      membrane: { what: "title of the membrane traces" },
-      threshold: { what: "the threshold line's word; say it is illustrative" },
-      output: { what: "title of the map the next layer receives" },
-      noLeak: { what: "the dashed trace: the same input without the leak" },
-    },
-  },
-  "channel-threshold": {
-    doc: `one fixed threshold against a threshold per channel set
-                     from that channel's own membrane statistics: channels with a
-                     small scale fall silent under the fixed one and fire under
-                     their own. Values ILLUSTRATIVE, and the narration says so.
-                     Takes \`picture\`.`,
-    slots: {
-      alpha: { what: "the paper's threshold scale α, as the source writes it", number: true },
-      levels: { what: "the paper's number of integer spike levels D", number: true },
-      channels: { what: "title of the row of channels" },
-      channelNames: {
-        what: 'names of the five channels drawn, in order, joined by " · ": luma, horizontal Sobel, R−B colour difference, Laplacian, high-pass',
-      },
-      note: { what: "the constants used", vars: ["alpha", "D"] },
-      fixed: { what: "title while ONE threshold serves every channel" },
-      calibrated: { what: "title once each channel has its own; say the values are illustrative" },
-      standIn: { what: "says the channels are fixed filter responses, not the trained network's" },
-    },
-  },
-  "ema-threshold": {
-    doc: `a threshold calibrated during training and frozen at
-                     inference: random crops of the picture stream in, each one's
-                     variance moves an exponential moving average, the
-                     threshold (proportional to it) follows; then crops of a
-                     test picture arrive, each measured, and the line does not
-                     move. Values ILLUSTRATIVE. Takes \`picture\`.`,
-    slots: {
-      alpha: { what: "the paper's threshold scale α", number: true },
-      momentum: { what: "the paper's EMA momentum μ", number: true },
-      crop: { what: "the training crop size in pixels the source states", number: true },
-      train: { what: "title of the training half" },
-      infer: {
-        what: "title of the inference half; the picture shown is the SAME scene under denser haze, so say so",
-      },
-      formula: { what: "legend of the threshold line, as the source states the rule" },
-      own: { what: "legend of the dots: each crop's own value; say it is illustrative" },
-      frozen: { what: "on the frozen threshold at inference" },
-      test: { what: "on the test crops' own values, which do not recalibrate the threshold" },
-    },
-  },
-  backbone: {
-    doc: `an encoder-decoder computed on the picture with FIXED
-                     operations (3×3 filter, 2× downsampling, spike quantization,
-                     upsampling with skip connections, spike levels back to a
-                     continuous map): the maps at their true relative sizes. Not
-                     the trained network; its output is never drawn. Takes
-                     \`picture\`.`,
+  operate: {
+    doc: `an input run through a CHAIN of known operations (the op library
+                     below), each output computed for real at build time and
+                     revealed on its sentence. The input is a \`picture\` (a beat
+                     carrying one), \`vectors\` over \`bins\` (1–2, e.g. two
+                     distributions) or a \`matrix\`. Each \`chain\` step names an
+                     \`op\`, its \`how\`, its \`params\` ({name, value, symbol}
+                     exactly as the source writes them) and a \`label\` in the
+                     deck's language. \`condition\` (contrast · noise · blur,
+                     \`amount\`) degrades the input as an EXAMPLE; \`compare\`
+                     condition shows the chain on the clean and the degraded
+                     input side by side, \`compare\` params runs \`alt\` (another
+                     parameterisation of step \`alt.step\`) beside it.`,
     slots: {
       input: { what: "title of the input" },
-      shallow: { what: "title of the shallow features" },
-      encoder: { what: "on the first encoder level" },
-      decoder: { what: "on the last decoder level" },
-      skip: { what: "on the skip connections" },
-      prb: { what: "title of the continuous map the spike features become" },
-      output: { what: "title of the output convolution" },
-      untrained: {
-        what: "where the output would be: it needs trained weights, so it is not drawn",
-      },
-      note: { what: "says these are fixed operations, not the trained network" },
-      depth: {
-        what: "says the number of levels and the 2× steps are illustrative when the source does not state them",
-      },
-    },
-  },
-  "fixed-filters": {
-    doc: `the two fixed Sobel kernels with their numbers and their
-                     responses on the picture, then the structure map their sum
-                     makes: nothing in it is learned. Takes \`picture\`.`,
-    slots: {
-      kernels: { what: "title of the fixed kernels and their responses" },
-      structure: { what: "title of the structure map" },
-      formula: { what: "how the structure map is formed, as the source states it" },
-      params: { what: "says the filter numbers are fixed and learn nothing" },
-      learned: { what: "the small learned part, as the source names it", optional: true },
-    },
-  },
-  crops: {
-    doc: `the training picture (at the size the source says images are
-                     resized to, else its own) with random training crops of
-                     the stated size drawn to scale, then gathered into one
-                     batch of the stated size, and fresh random batches cut for
-                     the next training steps. Takes \`picture\`.`,
-    slots: {
-      crop: { what: "the training crop size in pixels", number: true },
-      batch: { what: "the batch size", number: true },
-      size: {
-        what: "the side the source says training images are resized to; absent: the picture's own size",
-        number: true,
+      output: { what: "title of the last output", vars: ["max", "sum", "mean"] },
+      condition: {
+        what: "title of the degraded input (required with `condition`)",
         optional: true,
       },
-      picture: { what: "title of the picture; say the scene is an example when it is" },
-      batchLabel: { what: "title of the batch" },
-    },
-  },
-  sobel: {
-    doc: `the real Sobel structure map of the hazy picture, gating and
-                     reweighting the smoothed features so edges and texture come
-                     back. Takes \`picture\`.`,
-    slots: {
-      hazy: { what: "on the hazy picture" },
-      structure: { what: "on the Sobel structure map" },
-      feature: { what: "title of the smoothed feature" },
-      reweighted: { what: "title of the feature reweighted by the structure map" },
-    },
-  },
-  "prior-work": {
-    doc: `earlier approaches shown by what they DO, one lane per family
-                     (2–4), side by side, lit in spoken order. A lane the build
-                     can run is run for real on the deck's picture: \`shows\`
-                     dark-channel (the classical prior, exact; only in a lane
-                     whose family or members name it), sobel (a fixed filter,
-                     exact; likewise) or spikes (the binary spikes any spiking
-                     network fires, illustrative). A family of LEARNED methods
-                     is never drawn as an output: \`shows\` numbers, with
-                     \`numbers\` ({label, value}) the source reports for its
-                     members, each stated beside one of them. Each lane has
-                     \`family\`, \`members\` (the source's own names, separated
-                     by ·) and \`gap\` (where the source says it runs out).
-                     Takes \`lanes\`, and \`picture\` when a lane runs.`,
-    slots: {
-      computed: {
-        what: "on a lane that runs a classical method: it is computed on this picture (required when a lane shows dark-channel or sobel)",
-        optional: true,
-      },
-      example: {
-        what: "on a spikes lane: it is an example, in the deck's language (example · 예시 · 例 · 示例); required when a lane shows spikes",
-        optional: true,
-      },
-      reported: {
-        what: "over a numbers lane: these are the source's reported values (required when a lane shows numbers)",
+      alt: {
+        what: "title of the alternative's output (required with `compare` params)",
         optional: true,
       },
       caption: {
-        what: "under the lanes: what this is (prior work as the source groups it)",
+        what: "under the scene: what is computed on what; required on a picture: say the stated operations run on an example image",
         optional: true,
       },
+      example: EXAMPLE_SLOT,
     },
+    mustNotClaim: [NO_LEARNED_OUTPUT],
   },
-  margins: {
-    doc: `results against the best OTHER method as positions, not cells:
-                     each setting (dataset, split) placed by its margin on one
-                     metric (a strip) or two (a plane, quadrants), zero being
-                     level with the best other method, so where the method
-                     leads and trails is a place. Per setting and metric, the
-                     method's value, the best other method's value and its
-                     name, exactly as the source writes them; the margin is
-                     their difference — the two values, the setting, the
-                     method and the rival all named in one passage of the
-                     source. Use it for a results table. Takes \`ours\`,
-                     \`metrics\` ({name, lowerIsBetter}: always given; PSNR,
-                     SSIM, accuracy are higher-is-better, LPIPS, FID, errors,
-                     energy and parameters lower), \`settings\` ({name,
-                     values: [{ours, best, rival}] one per metric}).`,
+  evolve: {
+    doc: `a state stepping through iterations under a stated \`rule\`:
+                     recur (EMA, leaky integration, with a threshold and a
+                     reset), noise (forward noising of a \`picture\`) or formula
+                     (any update the source prints). Its \`input\` is \`values\`
+                     the source prints, or \`from\` an earlier operate or region
+                     beat whose computed tiles stream in (\`stat\` mean · var ·
+                     std of each). \`phases\` ({from, label, freeze}) split the
+                     run: a frozen phase keeps receiving inputs while the state
+                     holds. Every number is the source's, in its role.`,
     slots: {
-      ahead: { what: "the region where the method leads on every metric" },
-      behind: { what: "the region where it trails on every metric" },
-      zero: { what: "on the zero line(s): level with the best other method" },
-      scaled: { what: "says each axis is scaled to its own largest margin" },
-    },
-  },
-  scope: {
-    doc: `what a claim rests on and what lies outside it, as one region
-                     split into 2–4 parts side by side (\`rings\`, most evidence
-                     first, each a \`label\` and its \`items\`): the first holds
-                     only what the source states a result for, each next what
-                     it shows less of (only a qualitative comparison, only a
-                     mention), the last what it never tested. Items are the
-                     source's own names, short. Use it for the datasets
-                     evaluated or the limits of a conclusion — once a deck —
-                     each part lit as it is spoken. Takes \`rings\`.`,
-    slots: { caption: { what: "under the regions: what they are", optional: true } },
-  },
-  ablation: {
-    doc: `the experiments a paper did not run, as the holes they leave:
-                     every on/off combination of its \`components\` (one or two)
-                     is a square, the ones the source reports (\`reported\`: the
-                     components each keeps, \`with\`, and its \`result\`) are
-                     filled and their result shown, the rest visibly empty. A
-                     combination with a component removed is reported only when
-                     the source reports that ablation. Each setting the
-                     source fixes (\`settings\`: name, value — a number, a word or
-                     a list, as the source writes it) is a line with its ONE
-                     tested point. A proposal to vary something the source
-                     fixed IS a setting (its structure cue, its hardware, the
-                     datasets it measured); \`others\` only for what fits
-                     neither, outlined. The grid on the first sentence, then the
-                     settings and others in order over the next ones: order them
-                     as they are spoken. Use it for future work and missing
-                     ablations.`,
-    slots: {
-      on: { what: "beside a component that is kept" },
-      off: { what: "beside a component that is removed" },
-      missing: {
-        what: "beside the one mark for an empty square: a combination the source reports no result for",
+      state: { what: "title of the state (the tiles streaming in, or the picture)" },
+      trace: { what: "title of the trace of the state over the steps" },
+      threshold: {
+        what: "legend of the threshold line (required with a threshold)",
+        optional: true,
       },
+      caption: { what: "under the scene: what steps and what the state is", optional: true },
+      example: EXAMPLE_SLOT,
+    },
+    mustNotClaim: [NO_LEARNED_OUTPUT],
+  },
+  flow: {
+    doc: `data passing through stages. \`form\` chain: \`stages\` ({id,
+                     label, learned, shape as the source writes it, \`show\` an
+                     earlier verb beat's computed layer, \`figure\` the source's
+                     own figure id, \`phase\` train · infer · both}) joined by
+                     \`edges\` ({from, to, skip}), revealed in order; \`phases\`
+                     true draws the training graph, then inference without the
+                     train-only stages. A learned stage is a box: it never
+                     shows a computed layer. \`form\` graph: \`nodes\`, \`edges\`,
+                     \`aggregate\`, \`layers\` — message passing run for real.
+                     \`form\` timeline: \`lanes\` ({label, total, runs: [{label,
+                     count, dur, parallel}]}) — serial runs one after another,
+                     a parallel run covering its count at once; a lane is as
+                     long as its stated \`total\` (or Σ count·dur), else every
+                     lane has one length and the runs show the difference.`,
+    slots: {
+      learned: { what: "the word on a learned stage (required when one is)", optional: true },
+      train: { what: "title of the training graph (required with `phases`)", optional: true },
+      infer: { what: "title of the inference graph (required with `phases`)", optional: true },
+      unit: { what: "timeline only: what one run is", optional: true },
+      layer: { what: "graph only: which layer the colours show", vars: ["l", "L"], optional: true },
+      field: { what: "graph only: the focus node's outline", vars: ["count", "l"], optional: true },
+      caption: { what: "under the scene: what flows", optional: true },
+      example: EXAMPLE_SLOT,
+    },
+    mustNotClaim: [NO_LEARNED_OUTPUT],
+  },
+  place: {
+    doc: `items positioned by the source's numbers. \`form\` plane (two
+                     \`axes\`) or strip (one): \`items\` ({label, values exactly as
+                     the source writes them, one per axis, group}), revealed in
+                     spoken order or \`reveal\` groups (a group's points with
+                     \`connect\` are a series: the source's rows over steps);
+                     \`curves\` ({label, expr, x, fixed params, checks}) draw a
+                     stated formula under the points, grounded by checks the
+                     source prints. \`measure\` margin: the method against the
+                     best OTHER method (\`margins\`: ours, metrics {name,
+                     lowerIsBetter}, settings {name, values [{ours, best,
+                     rival}]}) — a strip for one metric, a plane for two.
+                     \`measure\` length: reported quantities as lengths to scale
+                     (\`lengths\`: groups {label, unit, items}, tile). \`form\`
+                     combos: experiments not run as empty cells (\`combos\`:
+                     components, reported {with, result}, settings {name,
+                     value}, others). \`form\` sets: what was and was not
+                     evaluated (\`sets\`: rings {label, items}, most evidence
+                     first).`,
+    slots: {
+      caption: { what: "under the scene: what the positions are", optional: true },
+      ahead: { what: "margin only: where the method leads on every metric", optional: true },
+      behind: { what: "margin only: where it trails on every metric", optional: true },
+      zero: {
+        what: "margin only: on the zero line(s), level with the best other method",
+        optional: true,
+      },
+      scaled: {
+        what: "margin only: says each axis is scaled to its own largest margin",
+        optional: true,
+      },
+      on: { what: "combos only: beside a component kept", optional: true },
+      off: { what: "combos only: beside a component removed", optional: true },
+      missing: { what: "combos only: beside the mark of an empty square", optional: true },
       tested: {
-        what: "title of the settings: each was tested at one value (required when there are settings)",
+        what: "combos only: title of the settings, each tested at one value",
         optional: true,
       },
     },
   },
-  table: {
-    doc: `numbers or claims the source reports, as a quiet table; rows lit
-                     in the order they are spoken (\`highlight\`, row indexes
-                     from 0), and \`marks\` ({row, col}) emphasise the cells that
-                     win or are missing. Every number in a cell is one the
-                     source states, written exactly as it does. THE LAST
-                     RESORT: results are \`margins\`, datasets and limits
-                     \`scope\`, future work \`ablation\`, earlier approaches
-                     \`prior-work\`; a table only where none is honest, at most
-                     one a deck. Takes \`columns\`, \`rows\`, \`highlight\`,
-                     \`marks\`.`,
-    slots: { caption: { what: "under the table: what the numbers are", optional: true } },
-  },
-  scale: {
-    doc: `reported quantities as lengths to scale, quiet, never growing: one
-                     group per narration sentence, each scaled to its own
-                     largest, so groups compare ratios; \`tile\` lays the
-                     smallest along the largest. Values exactly as the source
-                     writes them. Takes \`groups\`, \`tile\`.`,
-    slots: { caption: { what: "under the lengths: what they are", optional: true } },
+  region: {
+    doc: `parts of a picture picked out by a RULE with stated numbers, never
+                     by coordinates: \`cut\` crops (\`count\` crops of side \`size\`
+                     at the training size \`resize\`, \`gather\` lifting them into
+                     one batch) or grid (cells of side \`size\`, lit row by row).
+                     Takes \`picture\`.`,
+    slots: {
+      picture: { what: "title of the picture" },
+      batch: { what: "title of the gathered batch (required with `gather`)", optional: true },
+      caption: { what: "under the scene: what is cut", optional: true },
+      example: EXAMPLE_SLOT,
+    },
   },
   recap: {
     doc: `the layers the deck's earlier literal scenes computed, in order:
                      each a tile, the one being spoken also large, then the
-                     \`result\` in its place — the summary told with the
-                     pictures the viewer has already seen. Takes \`beats\`
-                     (earlier literal beats that computed a picture: haze,
-                     spikes, dark-channel, backbone, channel-threshold,
-                     fixed-filters, sobel, or a prior-work that runs a lane —
-                     never a data kind such as scale or margins).`,
+                     \`result\` in its place. Takes \`beats\` (earlier operate,
+                     evolve, region or flow-with-show beats, or a prior-work
+                     with a \`from\` lane).`,
     slots: {
       caption: { what: 'one word per tile, joined by "→"', optional: true },
       result: { what: "what the source reports came of it, in its own numbers", optional: true },
     },
   },
-  attention: {
-    doc: `scaled dot-product attention, softmax(QKᵀ/√d), computed for
-                     real over the plan's \`tokens\` (or, with a \`picture\`, its
-                     patches): every query's weights over the keys as lines and
-                     as each head's matrix, the query walking \`path\` (token
-                     indexes from 0). With \`heads\` (per-head \`q\`/\`k\` rows) or
-                     \`embeddings\` from the source, they are used; without them a
-                     head compares letters or pixels (\`content\`) or positions
-                     (\`position\`), never a trained model's projections.`,
+  "prior-work": {
+    doc: `earlier approaches by what they do, one lane per family (2–4),
+                     lit in spoken order: \`family\`, \`members\` (the source's
+                     names, separated by ·), \`gap\` (where the source says it
+                     runs out), and either \`numbers\` ({label, value}) the
+                     source reports beside a member, or \`from\` an earlier verb
+                     beat whose computed layer shows what the family does. A
+                     learned family is shown only by its numbers.`,
     slots: {
-      content: {
-        what: "under the content head: what it compares (the tokens' letters, or the patches' pixels); needed when no heads or embeddings are given",
-        optional: true,
-      },
-      position: {
-        what: "under the position head: what it compares (where tokens or patches sit); needed when no heads or embeddings are given",
-        optional: true,
-      },
-      head: {
-        what: "under each of the source's own heads, by number",
-        vars: ["h"],
+      reported: {
+        what: "over a numbers lane: these are the source's reported values (required with numbers)",
         optional: true,
       },
       example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required when no `heads` or `embeddings` from the source are given (the weights are then the letters' or pixels' similarity, not a model's)",
+        what: "on a `from` lane computed on example material: it is an example (example · 예시 · 例 · 示例)",
         optional: true,
       },
-      query: {
-        what: "patches only, under the large picture: the outlined patch is the query and the bright patches are what it weights",
-        optional: true,
-      },
+      caption: { what: "under the lanes: what this is", optional: true },
     },
-    ...ATTENTION_RULES,
   },
-  diffusion: {
-    doc: `the forward noising of the picture on a real DDPM schedule (β
-                     linear from \`betaStart\` to \`betaEnd\` over \`steps\` steps;
-                     absent: 1e-4 → 0.02 over 1000), then the reverse steps back
-                     to the picture, with √ᾱ (signal) and √(1−ᾱ) (noise) against
-                     t. The reverse path knows the clean picture: it shows the
-                     schedule and the process, not a denoiser, and says so on
-                     screen (\`oracle\`). \`schedule\` linear · cosine. Takes
-                     \`picture\`.`,
-    slots: {
-      steps: { what: "the diffusion steps T the source states", number: true, optional: true },
-      betaStart: {
-        what: "the first noise level β₁ the source states",
-        number: true,
-        optional: true,
-      },
-      betaEnd: { what: "the last noise level β_T the source states", number: true, optional: true },
-      forward: { what: "while noise is added: the step", vars: ["t", "T"] },
-      reverse: { what: "while noise is removed: the step", vars: ["t", "T"] },
-      signal: { what: "legend of the signal curve √ᾱ_t" },
-      noise: { what: "legend of the noise curve √(1−ᾱ_t)" },
-      oracle: {
-        what: "on the reverse steps: they are computed from the clean picture (an oracle), not by a trained denoiser",
-      },
-      example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required when the source does not state `steps`, `betaStart` and `betaEnd` (the scene then draws DDPM's defaults)",
-        optional: true,
-      },
-    },
-    ...DIFFUSION_RULES,
-  },
-  optimization: {
-    doc: `how training moves. With \`series\` (each a \`label\` and
-                     \`points\` of {x, y}, exactly the source's rows), the curves
-                     draw step by step, \`logY\` on a log axis. Otherwise
-                     \`optimizers\` (each a \`label\`, a \`rule\` sgd · momentum ·
-                     rmsprop · adam, and \`lr\`) run for real from \`start\` for
-                     \`steps\` on an analytic \`landscape\` (quadratic ·
-                     rosenbrock · himmelblau): paths, momentum arrows and loss
-                     per step. The landscape is illustrative, never the paper's
-                     loss surface.`,
-    slots: {
-      xAxis: { what: "the x axis: what a step is (iteration, epoch)" },
-      yAxis: { what: "the y axis: the quantity (training loss, accuracy)" },
-      landscape: {
-        what: "landscape mode only: what the surface is; say it is illustrative of the optimizer",
-        optional: true,
-      },
-      example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required in landscape mode (an analytic surface, not the paper's loss)",
-        optional: true,
-      },
-    },
-    ...OPTIMIZATION_RULES,
-  },
-  splatting: {
-    doc: `3D Gaussian splatting computed for real: the plan's \`points\`
-                     ({x, y, z, r, g, b}) become anisotropic Gaussians from their
-                     neighbours (or the source's own \`gaussians\`; with neither,
-                     the picture laid on a plane), projected by EWA, sorted by
-                     depth and alpha-blended along a camera orbit: points, then
-                     splats, then renders.`,
-    slots: {
-      points: { what: "stage 1: the input points", vars: ["n"] },
-      splats: { what: "stage 2: each point as an anisotropic Gaussian, drawn at 2σ", vars: ["n"] },
-      render: {
-        what: "stage 3: sorted by depth and alpha-blended, from one camera",
-        vars: ["pose", "poses"],
-      },
-      path: { what: "the inset: the camera path seen from above" },
-      example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required unless the source's own `gaussians` are given",
-        optional: true,
-      },
-    },
-    ...SPLATTING_RULES,
-  },
-  "message-passing": {
-    doc: `a graph network's layers run for real on the plan's small graph
-                     (\`nodes\`: id, label, 1–4 \`features\`; \`edges\`: from, to):
-                     each of \`layers\` rounds every node aggregates its
-                     neighbours (\`aggregate\`: sum · mean · max · gcn), and the
-                     features spread as colour hop by hop; \`focus\`'s receptive
-                     field is outlined. With the source's \`weights\` (one d_out ×
-                     d_in matrix per layer) and \`activation\` (none · relu)
-                     each layer is σ(W·AGG); without them W = I: aggregation
-                     only.`,
-    slots: {
-      layer: { what: "which layer the colours show", vars: ["l", "L"] },
-      field: {
-        what: "the focus node's outline: how many nodes its features now come from",
-        vars: ["count", "l"],
-      },
-      example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required unless every node is named in the source and its `weights` are the source's",
-        optional: true,
-      },
-    },
-    ...MESSAGE_PASSING_RULES,
-  },
-  "rl-rollout": {
-    doc: `a policy computed for real in the plan's gridworld (\`width\`,
-                     \`height\`, \`walls\`, \`terminals\` with rewards, \`stepReward\`,
-                     \`gamma\`, \`slip\`): value iteration (or tabular Q-learning)
-                     spreads value back from the reward, then the agent walks
-                     from \`start\` along the arrows, its reward per step beside
-                     the grid. A small example MDP, not the paper's environment.`,
-    slots: {
-      sweep: { what: "while the values converge: which sweep (or episode)", vars: ["k"] },
-      step: { what: "while the agent walks: the step and the return so far", vars: ["t", "G"] },
-      reward: { what: "title of the reward-per-step bars" },
-      example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例): the gridworld is always the plan's own",
-      },
-    },
-    ...RL_ROLLOUT_RULES,
-  },
-  retrieval: {
-    doc: `a query scored against every item for real, ranked, and the
-                     top \`k\` kept: BM25 over the \`query\` and the \`items\`' texts,
-                     or cosine over the source's \`vectors\` (one per item) and
-                     \`queryVector\`; each score a plain value, its bar split by
-                     what each query term contributed. Item texts as the source
-                     gives them (titles, passages).`,
-    slots: {
-      query: { what: "over the query: what it is" },
-      score: {
-        what: "over the scores: name the method as {method}, which the scene fills with the one it computed (BM25 or cosine)",
-        vars: ["method"],
-      },
-      topk: { what: "over the kept items: the cut", vars: ["k"] },
-      example: {
-        what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required unless every item is quoted from the source",
-        optional: true,
-      },
-    },
-    ...RETRIEVAL_RULES,
+  table: {
+    doc: `numbers or claims the source reports, as a quiet table; rows lit
+                     in the order they are spoken (\`highlight\`, row indexes
+                     from 0), \`marks\` ({row, col}) emphasise cells. Every number
+                     in a cell is the source's. THE LAST RESORT, at most one a
+                     deck. Takes \`columns\`, \`rows\`, \`highlight\`, \`marks\`.`,
+    slots: { caption: { what: "under the table: what the numbers are", optional: true } },
   },
 };
 
@@ -1533,8 +1402,8 @@ export function literalSlotsOf(
 /**
  * What is wrong with a scene's labels against its kind's slots: a slot the
  * kind does not have (the planner invented it, and it would be dropped
- * silently), a required one missing, a number slot that is not a number, a
- * `{name}` the slot does not compute. Empty when they are right.
+ * silently), a required one missing, a `{name}` the slot does not compute.
+ * Empty when they are right.
  */
 export function literalSlotProblems(
   kind: (typeof LITERAL_KIND_NAMES)[number],
@@ -1549,8 +1418,6 @@ export function literalSlotProblems(
       out.push(`has no slot "${slot}" (its slots: ${Object.keys(slots).join(", ")})`);
       continue;
     }
-    if (decl.number && text.trim() && !Number.isFinite(Number(text.trim())))
-      out.push(`slot "${slot}" is a number, written as the source writes it; got "${text}"`);
     for (const m of text.matchAll(/\{(\w+)\}/g))
       if (!decl.vars?.includes(m[1] as string))
         out.push(
@@ -1562,16 +1429,50 @@ export function literalSlotProblems(
   return out;
 }
 
+/* ----------------------------------------------------------------- schema */
+
 /** One of a literal scene's few on-screen words, by the slot the scene puts it in. */
 const literalLabelSchema = z.object({ slot: z.string(), text: z.string() });
 const literalLabels = { labels: z.array(literalLabelSchema).default([]) };
-/** A kind computed from a picture: `picture` names the beat whose picture it runs on. */
-const pictureKind = <K extends (typeof LITERAL_KIND_NAMES)[number]>(kind: K) =>
-  z.object({ kind: z.literal(kind), picture: z.string(), ...literalLabels });
+
+/** A number exactly as the source writes it, with the symbol the source binds it to. */
+const numSchema = z.object({ value: z.string(), symbol: z.string().optional() });
+/** A named number in a role (an op's `window`, a rule's `a`). */
+const paramSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+  symbol: z.string().optional(),
+});
+/** One case of a formula the source prints: its inputs and its output, as written. */
+const checkSchema = z.object({
+  inputs: z.array(z.object({ name: z.string(), value: z.string() })),
+  output: z.string(),
+});
+
+/** One step of an `operate` chain: an op of the library and its grounded parameters. */
+const opSchema = z.object({
+  op: z.enum(LITERAL_OP_NAMES),
+  /** The variant (LITERAL_OPS[op].how). */
+  how: z.enum(OP_HOWS).optional(),
+  /** threshold: the statistic θ is proportional with. */
+  stat: z.enum(["mean", "var", "std"]).optional(),
+  /** normalise, threshold, select: over everything, per channel or per row. */
+  over: z.enum(["all", "channel", "row"]).optional(),
+  params: z.array(paramSchema).default([]),
+  /** conv weights or matmul's right-hand matrix, every row as the source prints it. */
+  weights: z.array(z.array(z.number())).default([]),
+  /** combine and matmul: the outputs combined, by index (0 = the input, k = step k). */
+  of: z.array(z.int()).default([]),
+  /** formula: the expression. */
+  expr: z.string().optional(),
+  checks: z.array(checkSchema).default([]),
+  /** The step's title, in the deck's language. */
+  label: z.string(),
+});
 
 /**
  * A beat drawn as the paper's own mechanism acting on real material, instead of
- * a metaphor. ARRAYS, NOT RECORDS, for `labels`: strict structured output sets
+ * a metaphor. ARRAYS, NOT RECORDS: strict structured output sets
  * `additionalProperties: false` on every object, which would forbid every key of
  * a record. NO BOUNDS either (no `min`, no `.int().min(0)`): the backend strips
  * them, so the model cannot see them, and crossing one would fail the parse and
@@ -1579,15 +1480,200 @@ const pictureKind = <K extends (typeof LITERAL_KIND_NAMES)[number]>(kind: K) =>
  * instead, where a miss is sent back for repair.
  */
 export const literalSchema = z.discriminatedUnion("kind", [
-  pictureKind("haze"),
-  pictureKind("spikes"),
-  pictureKind("sobel"),
-  pictureKind("dark-channel"),
-  pictureKind("channel-threshold"),
-  pictureKind("ema-threshold"),
-  pictureKind("backbone"),
-  pictureKind("fixed-filters"),
-  pictureKind("crops"),
+  z.object({
+    kind: z.literal("operate"),
+    /** The beat whose picture is the input (example material, always). */
+    picture: z.string().optional(),
+    /** 1–2 vectors over `bins`, as the source prints them (else example). */
+    vectors: z.array(z.object({ label: z.string(), values: z.array(z.number()) })).default([]),
+    bins: z.array(z.string()).default([]),
+    /** A matrix input, every row as the source prints it (else example). */
+    matrix: z.array(z.array(z.number())).default([]),
+    /** An example degradation of the input. */
+    condition: z
+      .object({ how: z.enum(["contrast", "noise", "blur"]), amount: z.number() })
+      .optional(),
+    chain: z.array(opSchema),
+    compare: z.enum(["none", "condition", "params"]).default("none"),
+    /** compare params: step `step` (1-based) with these params instead. */
+    alt: z
+      .object({ step: z.int(), how: z.enum(OP_HOWS).optional(), params: z.array(paramSchema) })
+      .optional(),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("evolve"),
+    rule: z.enum(["recur", "noise", "formula"]),
+    /** recur's variant (LITERAL_RULES.recur.how). */
+    how: z.enum(["ema", "leaky", "linear"]).optional(),
+    params: z.array(paramSchema).default([]),
+    reset: z.enum(["none", "soft", "hard"]).default("none"),
+    schedule: z.enum(["linear", "cosine"]).optional(),
+    /** formula: the next state over `s`, `x` and the params. */
+    expr: z.string().optional(),
+    checks: z.array(checkSchema).default([]),
+    /** noise: the beat whose picture is noised. */
+    picture: z.string().optional(),
+    input: z
+      .object({
+        /** Values the source prints, in order. */
+        values: z.array(numSchema).default([]),
+        /** An earlier operate or region beat whose computed tiles stream in. */
+        from: z.string().optional(),
+        stat: z.enum(["mean", "var", "std"]).optional(),
+      })
+      .optional(),
+    phases: z
+      .array(z.object({ from: z.int(), label: z.string(), freeze: z.boolean() }))
+      .default([]),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("flow"),
+    form: z.enum(["chain", "graph", "timeline"]),
+    stages: z
+      .array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          learned: z.boolean(),
+          /** As the source writes it ("256×256"); absent: drawn at a uniform size. */
+          shape: z.string().optional(),
+          /** An earlier verb beat whose computed layer this stage shows. */
+          show: z.string().optional(),
+          /** The source's own figure, shown unedited. */
+          figure: z.string().optional(),
+          phase: z.enum(["train", "infer", "both"]).optional(),
+        }),
+      )
+      .default([]),
+    edges: z
+      .array(z.object({ from: z.string(), to: z.string(), skip: z.boolean().optional() }))
+      .default([]),
+    phases: z.boolean().default(false),
+    nodes: z
+      .array(z.object({ id: z.string(), label: z.string(), features: z.array(z.number()) }))
+      .default([]),
+    aggregate: z.enum(["sum", "mean", "max", "gcn"]).default("mean"),
+    layers: z.int().default(2),
+    weights: z.array(z.array(z.array(z.number()))).default([]),
+    directed: z.boolean().default(false),
+    focus: z.string().optional(),
+    lanes: z
+      .array(
+        z.object({
+          label: z.string(),
+          total: numSchema.optional(),
+          runs: z.array(
+            z.object({
+              label: z.string(),
+              count: numSchema.optional(),
+              dur: numSchema.optional(),
+              parallel: z.boolean(),
+            }),
+          ),
+        }),
+      )
+      .default([]),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("place"),
+    form: z.enum(["plane", "strip", "combos", "sets"]),
+    measure: z.enum(["value", "margin", "length"]).default("value"),
+    axes: z
+      .array(
+        z.object({ name: z.string(), lowerIsBetter: z.boolean(), log: z.boolean().optional() }),
+      )
+      .default([]),
+    items: z
+      .array(
+        z.object({ label: z.string(), values: z.array(z.string()), group: z.string().optional() }),
+      )
+      .default([]),
+    connect: z.boolean().default(false),
+    reveal: z.enum(["items", "groups"]).default("items"),
+    curves: z
+      .array(
+        z.object({
+          label: z.string(),
+          expr: z.string(),
+          /** The variable along the x axis. */
+          x: z.string(),
+          fixed: z.array(paramSchema).default([]),
+          checks: z.array(checkSchema).default([]),
+        }),
+      )
+      .default([]),
+    margins: z
+      .object({
+        ours: z.string(),
+        metrics: z.array(z.object({ name: z.string(), lowerIsBetter: z.boolean() })),
+        settings: z.array(
+          z.object({
+            name: z.string(),
+            values: z.array(z.object({ ours: z.string(), best: z.string(), rival: z.string() })),
+          }),
+        ),
+      })
+      .optional(),
+    lengths: z
+      .object({
+        groups: z.array(
+          z.object({
+            label: z.string(),
+            unit: z.string(),
+            items: z.array(z.object({ label: z.string(), value: z.string() })),
+          }),
+        ),
+        tile: z.boolean().default(false),
+      })
+      .optional(),
+    combos: z
+      .object({
+        components: z.array(z.string()),
+        reported: z.array(z.object({ with: z.array(z.string()), result: z.string() })).default([]),
+        settings: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
+        others: z.array(z.string()).default([]),
+      })
+      .optional(),
+    sets: z
+      .object({ rings: z.array(z.object({ label: z.string(), items: z.array(z.string()) })) })
+      .optional(),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("region"),
+    picture: z.string(),
+    cut: z.enum(["crops", "grid"]),
+    size: numSchema,
+    count: numSchema.optional(),
+    resize: numSchema.optional(),
+    gather: z.boolean().default(false),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("recap"),
+    /** Earlier literal beats whose computed layers come back, in order. */
+    beats: z.array(z.string()),
+    ...literalLabels,
+  }),
+  z.object({
+    kind: z.literal("prior-work"),
+    lanes: z.array(
+      z.object({
+        family: z.string(),
+        members: z.string(),
+        /** The source's reported values for the members, exactly as written. */
+        numbers: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
+        /** An earlier verb beat whose computed layer shows what the family does. */
+        from: z.string().optional(),
+        /** Where the source says the family runs out. */
+        gap: z.string(),
+      }),
+    ),
+    ...literalLabels,
+  }),
   z.object({
     kind: z.literal("table"),
     /** Every cell holding a number holds one the source states (src/plan/coverage.ts). */
@@ -1600,206 +1686,6 @@ export const literalSchema = z.discriminatedUnion("kind", [
     highlight: z.array(z.int()).default([]),
     /** Cells that win or matter (a best value, a missing result), emphasised when their row is lit. */
     marks: z.array(z.object({ row: z.int(), col: z.int() })).default([]),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("scale"),
-    /**
-     * Reported quantities drawn as lengths to scale, one group per narration
-     * cue; each group is scaled to its own largest value, so two groups compare
-     * RATIOS. `value` is written exactly as the source states it.
-     */
-    groups: z.array(
-      z.object({
-        label: z.string(),
-        unit: z.string(),
-        items: z.array(z.object({ label: z.string(), value: z.string() })),
-      }),
-    ),
-    /** Lay copies of a group's smallest length along its largest: "about a quarter" made visible. */
-    tile: z.boolean().default(false),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("recap"),
-    /** Earlier literal beats whose computed layers come back, in order. */
-    beats: z.array(z.string()),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("prior-work"),
-    /** The beat whose picture the lanes that run a method run on. */
-    picture: z.string().optional(),
-    lanes: z.array(
-      z.object({
-        family: z.string(),
-        members: z.string(),
-        shows: z.enum(["dark-channel", "sobel", "spikes", "numbers"]),
-        /** A `numbers` lane's values, exactly as the source reports them. */
-        numbers: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
-        /** Where the source says the family runs out. */
-        gap: z.string(),
-      }),
-    ),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("margins"),
-    /** The method the margins are of, as the source names it. */
-    ours: z.string(),
-    metrics: z.array(z.object({ name: z.string(), lowerIsBetter: z.boolean() })),
-    settings: z.array(
-      z.object({
-        name: z.string(),
-        /** One per metric: the method's value, the best other method's, and its name. */
-        values: z.array(z.object({ ours: z.string(), best: z.string(), rival: z.string() })),
-      }),
-    ),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("scope"),
-    /** Inner to outer: what the source shows results for, then less, then never tested. */
-    rings: z.array(z.object({ label: z.string(), items: z.array(z.string()) })),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("ablation"),
-    components: z.array(z.string()),
-    /** The combinations the source reports a result for: the components each keeps, and the result. */
-    reported: z.array(z.object({ with: z.array(z.string()), result: z.string() })).default([]),
-    /** Settings the source fixes, each tested at one value. */
-    settings: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
-    /** Further proposals that are neither a combination nor a setting. */
-    others: z.array(z.string()).default([]),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("attention"),
-    /** The tokens attention runs over, as the source writes them. */
-    tokens: z.array(z.string()).default([]),
-    /** Query indexes (from 0) the scene walks, in spoken order; empty: every token. */
-    path: z.array(z.int()).default([]),
-    /** The source's own per-head queries and keys, one row per token. */
-    heads: z
-      .array(z.object({ q: z.array(z.array(z.number())), k: z.array(z.array(z.number())) }))
-      .default([]),
-    /** The source's own token vectors, one per token: used as both Q and K. */
-    embeddings: z.array(z.array(z.number())).default([]),
-    causal: z.boolean().default(false),
-    /** A beat whose picture is cut into patches, instead of `tokens`. */
-    picture: z.string().optional(),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("diffusion"),
-    picture: z.string(),
-    /** The source's noise schedule: linear β (Ho et al.) or cosine ᾱ (Nichol & Dhariwal). */
-    schedule: z.enum(["linear", "cosine"]).default("linear"),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("optimization"),
-    /** The source's own curves, exactly its rows. */
-    series: z
-      .array(
-        z.object({
-          label: z.string(),
-          points: z.array(z.object({ x: z.number(), y: z.number() })),
-        }),
-      )
-      .default([]),
-    logY: z.boolean().default(false),
-    /** Without `series`: optimizers run on an analytic landscape. */
-    landscape: z.enum(["quadratic", "rosenbrock", "himmelblau"]).default("rosenbrock"),
-    optimizers: z
-      .array(
-        z.object({
-          label: z.string(),
-          rule: z.enum(["sgd", "momentum", "rmsprop", "adam"]),
-          lr: z.number(),
-        }),
-      )
-      .default([]),
-    start: z.object({ x: z.number(), y: z.number() }).default({ x: -1.6, y: 2.4 }),
-    steps: z.int().default(300),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("splatting"),
-    points: z
-      .array(
-        z.object({
-          x: z.number(),
-          y: z.number(),
-          z: z.number(),
-          r: z.number(),
-          g: z.number(),
-          b: z.number(),
-        }),
-      )
-      .default([]),
-    /** The source's own Gaussians: mean, scale, rotation quaternion (w, x, y, z), colour, opacity. */
-    gaussians: z
-      .array(
-        z.object({
-          x: z.number(),
-          y: z.number(),
-          z: z.number(),
-          sx: z.number(),
-          sy: z.number(),
-          sz: z.number(),
-          qw: z.number(),
-          qx: z.number(),
-          qy: z.number(),
-          qz: z.number(),
-          r: z.number(),
-          g: z.number(),
-          b: z.number(),
-          opacity: z.number(),
-        }),
-      )
-      .default([]),
-    /** With neither, the picture of this beat laid on a plane. */
-    picture: z.string().optional(),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("message-passing"),
-    nodes: z.array(z.object({ id: z.string(), label: z.string(), features: z.array(z.number()) })),
-    edges: z.array(z.object({ from: z.string(), to: z.string() })),
-    directed: z.boolean().default(false),
-    layers: z.int().default(3),
-    aggregate: z.enum(["sum", "mean", "max", "gcn"]).default("mean"),
-    /** The source's own weights, one d_out × d_in matrix per layer; empty: W = I. */
-    weights: z.array(z.array(z.array(z.number()))).default([]),
-    /** σ after each layer, the source's; "none" without weights. */
-    activation: z.enum(["none", "relu"]).default("none"),
-    /** The node whose receptive field is outlined; empty: the first. */
-    focus: z.string().default(""),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("rl-rollout"),
-    width: z.int(),
-    height: z.int(),
-    walls: z.array(z.object({ x: z.int(), y: z.int() })).default([]),
-    terminals: z.array(z.object({ x: z.int(), y: z.int(), reward: z.number() })),
-    stepReward: z.number().default(0),
-    gamma: z.number().default(0.9),
-    slip: z.number().default(0),
-    start: z.object({ x: z.int(), y: z.int() }),
-    algorithm: z.enum(["value-iteration", "q-learning"]).default("value-iteration"),
-    ...literalLabels,
-  }),
-  z.object({
-    kind: z.literal("retrieval"),
-    query: z.string(),
-    items: z.array(z.object({ label: z.string(), text: z.string() })),
-    /** The source's own vectors, one per item, and the query's: cosine instead of BM25. */
-    vectors: z.array(z.array(z.number())).default([]),
-    queryVector: z.array(z.number()).default([]),
-    k: z.int().default(3),
     ...literalLabels,
   }),
 ]);

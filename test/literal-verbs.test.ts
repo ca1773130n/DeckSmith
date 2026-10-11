@@ -1,0 +1,1270 @@
+/**
+ * The literal VERBS (src/literal/kinds/{operate,evolve,flow,place,region}.ts)
+ * on fixtures from many unrelated domains: every op, variant, rule and form is
+ * run for real on the stage, and held to the deck's invariants (fromTo only,
+ * scoped, no clock, type ≥ 40px), to motion (never more than STILL_MAX seconds
+ * without a tween while narrated), and to a fill floor per form. The registry
+ * also holds the generality rule: every op variant, rule and form has fixtures
+ * from at least two unrelated domains, or it does not belong in the library.
+ * And src/literal names no paper. Synthetic material; no ffmpeg, no browser.
+ */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import type { Theme } from "../src/emit/kit.js";
+import { drawProblems } from "../src/literal/check.js";
+import { widthOf } from "../src/literal/kind.js";
+import { evolve } from "../src/literal/kinds/evolve.js";
+import { flow } from "../src/literal/kinds/flow.js";
+import { operate } from "../src/literal/kinds/operate.js";
+import { placeForm, points } from "../src/literal/kinds/place.js";
+import { region } from "../src/literal/kinds/region.js";
+import {
+  type Earlier,
+  frameFill,
+  placeholderPicture,
+  runVerb,
+  stagedFragment,
+  type VerbRun,
+} from "../src/literal/kinds/stage.js";
+import { type Cue, stillSpans } from "../src/literal/kit.js";
+import {
+  LITERAL_KIND_DOCS,
+  LITERAL_OPS,
+  type Literal,
+  type LiteralOpDoc,
+  literalSchema,
+} from "../src/types.js";
+
+const theme: Theme = {
+  bg: "#14110d",
+  fg: "#f2eadc",
+  muted: "#a89f90",
+  dim: "#6b6458",
+  rule: "#3a342b",
+  panel: "#1d1913",
+  accent: "#e8a33d",
+  tones: { a: "#e8a33d", b: "#8fc1e8", c: "#e88fa3", d: "#a3e88f" },
+  fontStack: "Inter, sans-serif",
+};
+const region_ = { width: 1700, height: 747 };
+const STILL_MAX = 4;
+const measure = (t: string, s: number) => widthOf(t, s, theme);
+
+/* ------------------------------------------------------------- fixtures */
+
+type P = Record<string, string>;
+const params = (p: P = {}) => Object.entries(p).map(([name, value]) => ({ name, value }));
+const op = (o: string, how?: string, p: P = {}, extra: Record<string, unknown> = {}) => ({
+  op: o,
+  ...(how ? { how } : {}),
+  params: params(p),
+  label: `${o}${how ? ` ${how}` : ""}`,
+  ...extra,
+});
+const L = (slots: P) => Object.entries(slots).map(([slot, text]) => ({ slot, text }));
+const pic = {
+  input: "the picture",
+  output: "the result",
+  example: "example",
+  caption: "the stated operations on an example image",
+};
+const vec = (n: number, f: (i: number) => number) =>
+  Array.from({ length: n }, (_, i) => Math.round(f(i) * 1000) / 1000);
+const mat = (h: number, w: number, f: (r: number, c: number) => number) =>
+  Array.from({ length: h }, (_, r) => vec(w, (c) => f(r, c)));
+
+interface Fixture {
+  name: string;
+  domain: string;
+  lit: Record<string, unknown>;
+}
+
+const FIXTURES: Fixture[] = [
+  /* operate on pictures */
+  {
+    name: "edge-enhanced lesion map",
+    domain: "medical-imaging",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      chain: [
+        op("channels", "luma"),
+        op("conv", "gaussian", { sigma: "1.5" }),
+        op("conv", "laplacian"),
+        op("threshold", "keep", { theta: "0.02" }),
+        op("normalise", "range"),
+      ],
+      compare: "params",
+      alt: { step: 4, how: "binary", params: params({ theta: "0.02" }) },
+      labels: L({ ...pic, alt: "binary instead" }),
+    },
+  },
+  {
+    name: "star detection",
+    domain: "astronomy",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      condition: { how: "noise", amount: 0.03 },
+      chain: [
+        op("channels", "max"),
+        op("reduce", "max", { window: "3" }),
+        op("conv", "box", { size: "3" }),
+        op("threshold", "binary", { scale: "2" }, { stat: "std" }),
+        op("combine", "product", {}, { of: [3, 4] }),
+        op("normalise", "max"),
+      ],
+      labels: L({ ...pic, condition: "with sensor noise" }),
+    },
+  },
+  {
+    name: "structure map under a degradation",
+    domain: "remote-sensing",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      condition: { how: "contrast", amount: 0.6 },
+      compare: "condition",
+      chain: [
+        op("channels", "mean"),
+        op("conv", "sobel-x"),
+        op("conv", "sobel-y", {}, { of: [1] }),
+        op("combine", "abs-sum", {}, { of: [2, 3] }),
+        op("normalise", "mean"),
+      ],
+      labels: L({ ...pic, condition: "lower contrast" }),
+    },
+  },
+  {
+    name: "page binarisation",
+    domain: "document-ocr",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      chain: [
+        op("channels", "min"),
+        op("reduce", "min", { window: "5" }),
+        op("conv", "prewitt-x"),
+        op("conv", "prewitt-y", {}, { of: [2] }),
+        op("combine", "magnitude", {}, { of: [3, 4] }),
+        op("quantize", "floor", { levels: "4", step: "0.25" }),
+      ],
+      compare: "params",
+      alt: { step: 6, how: "round", params: params({ levels: "4", step: "0.25" }) },
+      labels: L({ ...pic, alt: "rounded" }),
+    },
+  },
+  {
+    name: "background subtraction",
+    domain: "microscopy",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      condition: { how: "noise", amount: 0.05 },
+      chain: [
+        op("channels", "luma"),
+        op("reduce", "mean", { window: "3" }),
+        op("combine", "diff", {}, { of: [1, 2] }),
+        op("formula", undefined, {}, { expr: "x * x" }),
+        op("normalise", "std"),
+      ],
+      labels: L({ ...pic, condition: "with noise" }),
+    },
+  },
+  {
+    name: "crop vigour",
+    domain: "agriculture",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      condition: { how: "blur", amount: 2 },
+      chain: [
+        op("channels", "mean"),
+        op("conv", "gaussian", { sigma: "1" }),
+        op("conv", "laplacian"),
+        op("combine", "min", {}, { of: [2, 3] }),
+        op("combine", "max", {}, { of: [2, 3] }),
+        op("normalise", "sum"),
+      ],
+      labels: L({ ...pic, condition: "blurred" }),
+    },
+  },
+  {
+    name: "hot spots",
+    domain: "thermal-imaging",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      condition: { how: "contrast", amount: 0.4 },
+      chain: [op("channels", "max"), op("normalise", "range")],
+      labels: L({ ...pic, condition: "low contrast" }),
+    },
+  },
+  {
+    name: "shadow floor",
+    domain: "underwater-imaging",
+    lit: {
+      kind: "operate",
+      picture: "b1",
+      condition: { how: "blur", amount: 2 },
+      compare: "condition",
+      chain: [op("channels", "min"), op("reduce", "min", { window: "3" }), op("normalise", "max")],
+      labels: L({ ...pic, condition: "blurred" }),
+    },
+  },
+  /* operate on matrices */
+  {
+    name: "onsets on a spectrogram",
+    domain: "audio",
+    lit: {
+      kind: "operate",
+      matrix: mat(6, 10, (r, c) => (c > 4 ? 1 : 0) * (r + 1)),
+      chain: [
+        op("conv", "sobel-x"),
+        op("conv", "sobel-y", {}, { of: [0] }),
+        op("combine", "sum", {}, { of: [1, 2] }),
+        op("threshold", "binary", { theta: "2" }),
+        op("select", "cumsum", {}, { over: "row" }),
+      ],
+      labels: L({ input: "spectrogram", output: "onsets", example: "example" }),
+    },
+  },
+  {
+    name: "attention weights",
+    domain: "language-models",
+    lit: {
+      kind: "operate",
+      matrix: mat(4, 3, (r, c) => ((r + c) % 3) / 2),
+      chain: [
+        op("matmul", undefined, {}, { weights: mat(3, 4, (r, c) => (r === c % 3 ? 1 : 0)) }),
+        op("normalise", "softmax", {}, { over: "row" }),
+        op("select", "topk", { k: "2" }, { over: "row" }),
+        op("select", "argmax", {}, { over: "row" }),
+      ],
+      labels: L({ input: "queries", output: "weights", example: "example" }),
+    },
+  },
+  {
+    name: "latency heat",
+    domain: "distributed-systems",
+    lit: {
+      kind: "operate",
+      matrix: mat(5, 6, (r, c) => r * c),
+      chain: [
+        op("conv", "prewitt-x"),
+        op("conv", "prewitt-y", {}, { of: [0] }),
+        op("combine", "magnitude", {}, { of: [1, 2] }),
+        op("normalise", "range"),
+        op("quantize", "round", { levels: "4", step: "0.25" }),
+        op("select", "sort", {}, { over: "row" }),
+      ],
+      labels: L({ input: "latencies", output: "levels", example: "example" }),
+    },
+  },
+  {
+    name: "correlation pruning",
+    domain: "finance",
+    lit: {
+      kind: "operate",
+      matrix: mat(4, 4, (r, c) => (r === c ? 1 : 0.3)),
+      chain: [
+        op("matmul", undefined, {}, { weights: mat(4, 4, (r, c) => (r === c ? 1 : 0.1)) }),
+        op("normalise", "max"),
+        op("threshold", "keep", { theta: "0.5" }),
+        op("select", "argmax", {}, { over: "all" }),
+        op("formula", undefined, {}, { expr: "1 - x" }),
+      ],
+      labels: L({ input: "correlations", output: "kept", example: "example" }),
+    },
+  },
+  {
+    name: "weight quantisation",
+    domain: "language-models",
+    lit: {
+      kind: "operate",
+      matrix: mat(4, 4, (r, c) => (r + c) / 6),
+      chain: [op("quantize", "floor", { levels: "8", step: "0.125" })],
+      labels: L({ input: "weights", output: "quantised", example: "example" }),
+    },
+  },
+  /* operate on vectors */
+  {
+    name: "accepted mass",
+    domain: "language-models",
+    lit: {
+      kind: "operate",
+      vectors: [
+        { label: "p", values: [0.1, 0.4, 0.3, 0.2] },
+        { label: "q", values: [0.3, 0.3, 0.1, 0.3] },
+      ],
+      bins: ["a", "b", "c", "d"],
+      chain: [
+        op("combine", "min", {}, { of: [0, 1] }),
+        op("combine", "posdiff", {}, { of: [0, 1] }),
+        op("normalise", "sum"),
+      ],
+      labels: L({ input: "two distributions", output: "the residual", example: "example" }),
+    },
+  },
+  {
+    name: "momentum signal",
+    domain: "finance",
+    lit: {
+      kind: "operate",
+      vectors: [{ label: "price", values: vec(12, (i) => 10 + Math.sin(i / 2) * 2 + i * 0.2) }],
+      bins: vec(12, (i) => i + 1).map(String),
+      chain: [
+        op("conv", "weights", {}, { weights: [[0.25, 0.5, 0.25]] }),
+        op("combine", "diff", {}, { of: [0, 1] }),
+        op("combine", "posdiff", {}, { of: [0, 1] }),
+        op("combine", "product", {}, { of: [3, 3] }),
+        op("combine", "sum", {}, { of: [3, 4] }),
+        op("select", "cumsum"),
+      ],
+      labels: L({ input: "prices", output: "gains", example: "example" }),
+    },
+  },
+  {
+    name: "coverage peaks",
+    domain: "genomics",
+    lit: {
+      kind: "operate",
+      vectors: [{ label: "reads", values: vec(16, (i) => 5 + 4 * Math.exp(-((i - 7) ** 2) / 4)) }],
+      bins: vec(16, (i) => i).map(String),
+      chain: [
+        op("conv", "box", { size: "3" }),
+        op("normalise", "std"),
+        op("combine", "abs-sum", {}, { of: [0, 1] }),
+        op("combine", "max", {}, { of: [0, 1] }),
+        op("reduce", "max", { window: "3" }),
+        op("select", "topk", { k: "3" }),
+      ],
+      labels: L({ input: "coverage", output: "peaks", example: "example" }),
+    },
+  },
+  {
+    name: "tremor spectrum",
+    domain: "seismology",
+    lit: {
+      kind: "operate",
+      vectors: [
+        { label: "ground motion", values: vec(16, (i) => Math.sin((2 * Math.PI * 3 * i) / 16)) },
+      ],
+      bins: vec(16, (i) => i).map(String),
+      chain: [
+        op("transform", "fft"),
+        op("normalise", "mean"),
+        op("reduce", "mean", { window: "3" }),
+        op("conv", "weights", {}, { weights: [[1, -1]] }),
+        op("normalise", "softmax"),
+      ],
+      labels: L({ input: "signal", output: "spectrum", example: "example" }),
+    },
+  },
+  {
+    name: "pitch floor",
+    domain: "audio",
+    lit: {
+      kind: "operate",
+      vectors: [{ label: "frame", values: vec(16, (i) => Math.cos((2 * Math.PI * 2 * i) / 16)) }],
+      bins: vec(16, (i) => i).map(String),
+      chain: [op("transform", "fft"), op("reduce", "min", { window: "3" }), op("select", "sort")],
+      labels: L({ input: "a frame", output: "floor", example: "example" }),
+    },
+  },
+  /* evolve */
+  {
+    name: "calibrated threshold, frozen",
+    domain: "neuromorphic",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "ema",
+      params: params({ a: "0.9", scale: "0.6" }),
+      input: { from: "b2", stat: "var" },
+      phases: [
+        { from: 0, label: "train", freeze: false },
+        { from: 5, label: "test", freeze: true },
+      ],
+      labels: L({
+        state: "crops",
+        trace: "running variance",
+        threshold: "threshold",
+        example: "example",
+      }),
+    },
+  },
+  {
+    name: "price average",
+    domain: "finance",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "ema",
+      params: params({ a: "0.8" }),
+      input: { values: ["10", "12", "11", "15", "14", "13", "16"].map((value) => ({ value })) },
+      labels: L({ state: "prices", trace: "average" }),
+    },
+  },
+  {
+    name: "integrate and fire",
+    domain: "neuroscience",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "leaky",
+      params: params({ a: "0.5", theta: "1" }),
+      reset: "soft",
+      input: { values: ["0.6", "0.6", "0.6", "0.6", "0.6", "0.6"].map((value) => ({ value })) },
+      labels: L({ state: "input", trace: "potential", threshold: "threshold" }),
+    },
+  },
+  {
+    name: "integrator wind-up",
+    domain: "control",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "leaky",
+      params: params({ a: "0.95", theta: "2" }),
+      reset: "hard",
+      input: {
+        values: ["0.5", "0.7", "0.4", "0.9", "0.3", "0.8", "0.6"].map((value) => ({ value })),
+      },
+      labels: L({ state: "error", trace: "integral", threshold: "limit" }),
+    },
+  },
+  {
+    name: "sigma-delta modulator",
+    domain: "electronics",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "leaky",
+      params: params({ a: "1", theta: "1" }),
+      reset: "soft",
+      input: {
+        values: ["0.3", "0.3", "0.3", "0.3", "0.3", "0.3", "0.3", "0.3"].map((value) => ({
+          value,
+        })),
+      },
+      labels: L({ state: "input", trace: "accumulator", threshold: "one bit" }),
+    },
+  },
+  {
+    name: "reorder point",
+    domain: "operations-research",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "leaky",
+      params: params({ a: "1", theta: "10" }),
+      reset: "hard",
+      input: { values: ["3", "4", "2", "5", "3", "4"].map((value) => ({ value })) },
+      labels: L({ state: "demand", trace: "since last order", threshold: "reorder" }),
+    },
+  },
+  {
+    name: "autoregression",
+    domain: "economics",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "linear",
+      params: params({ a: "0.7", b: "0.3" }),
+      input: { values: ["1", "0", "2", "1", "3"].map((value) => ({ value })) },
+      labels: L({ state: "shocks", trace: "output" }),
+    },
+  },
+  {
+    name: "value trace",
+    domain: "reinforcement-learning",
+    lit: {
+      kind: "evolve",
+      rule: "recur",
+      how: "linear",
+      params: params({ a: "0.9", b: "0.1" }),
+      input: { values: ["0", "1", "0", "0", "1", "1"].map((value) => ({ value })) },
+      labels: L({ state: "rewards", trace: "trace" }),
+    },
+  },
+  {
+    name: "forward noising",
+    domain: "image-generation",
+    lit: {
+      kind: "evolve",
+      rule: "noise",
+      picture: "b1",
+      schedule: "linear",
+      params: params({ T: "1000", betaStart: "0.0001", betaEnd: "0.02" }),
+      labels: L({ state: "x_t", trace: "signal and noise", example: "example" }),
+    },
+  },
+  {
+    name: "cosine noising",
+    domain: "medical-imaging",
+    lit: {
+      kind: "evolve",
+      rule: "noise",
+      picture: "b1",
+      schedule: "cosine",
+      params: params({ T: "200" }),
+      labels: L({ state: "x_t", trace: "signal and noise", example: "example" }),
+    },
+  },
+  {
+    name: "logistic growth",
+    domain: "epidemiology",
+    lit: {
+      kind: "evolve",
+      rule: "formula",
+      expr: "s + r * s * (1 - s) + x",
+      params: params({ r: "0.5" }),
+      input: { values: ["0.01", "0", "0", "0", "0", "0", "0"].map((value) => ({ value })) },
+      labels: L({ state: "imports", trace: "share infected" }),
+    },
+  },
+  {
+    name: "heavy-ball",
+    domain: "optimisation",
+    lit: {
+      kind: "evolve",
+      rule: "formula",
+      expr: "β * s + x",
+      params: params({ β: "0.9" }),
+      input: { values: ["1", "0.5", "0.25", "0.125"].map((value) => ({ value })) },
+      labels: L({ state: "gradients", trace: "velocity" }),
+    },
+  },
+  /* flow */
+  {
+    name: "encoder–decoder",
+    domain: "computer-vision",
+    lit: {
+      kind: "flow",
+      form: "chain",
+      stages: [
+        { id: "in", label: "input", learned: false, shape: "256×256" },
+        { id: "enc", label: "encoder", learned: true },
+        { id: "dec", label: "decoder", learned: true },
+        { id: "out", label: "output", learned: false, show: "b1" },
+      ],
+      edges: [
+        { from: "in", to: "enc" },
+        { from: "enc", to: "dec" },
+        { from: "dec", to: "out" },
+        { from: "in", to: "out", skip: true },
+      ],
+      labels: L({ learned: "learned", example: "example" }),
+    },
+  },
+  {
+    name: "retrieval pipeline",
+    domain: "language-models",
+    lit: {
+      kind: "flow",
+      form: "chain",
+      phases: true,
+      stages: [
+        { id: "q", label: "query", learned: false },
+        { id: "r", label: "retriever", learned: true, phase: "train" },
+        { id: "rank", label: "reranker", learned: true },
+        { id: "gen", label: "generator", learned: true },
+        { id: "aux", label: "auxiliary decoder", learned: true, phase: "train" },
+        { id: "ans", label: "answer", learned: false },
+      ],
+      labels: L({ learned: "learned", train: "training", infer: "inference" }),
+    },
+  },
+  {
+    name: "molecule messages",
+    domain: "chemistry",
+    lit: {
+      kind: "flow",
+      form: "graph",
+      nodes: [
+        { id: "a", label: "C1", features: [1, 0] },
+        { id: "b", label: "C2", features: [0, 1] },
+        { id: "c", label: "O", features: [1, 1] },
+        { id: "d", label: "N", features: [0, 0] },
+      ],
+      edges: [
+        { from: "a", to: "b" },
+        { from: "b", to: "c" },
+        { from: "c", to: "d" },
+      ],
+      labels: L({ layer: "layer {l} of {L}", field: "{count} atoms", example: "example" }),
+    },
+  },
+  {
+    name: "friend features",
+    domain: "social-networks",
+    lit: {
+      kind: "flow",
+      form: "graph",
+      aggregate: "sum",
+      layers: 3,
+      nodes: [
+        { id: "a", label: "Ann", features: [1] },
+        { id: "b", label: "Bo", features: [0] },
+        { id: "c", label: "Cy", features: [0] },
+        { id: "d", label: "Di", features: [0] },
+        { id: "e", label: "Ed", features: [0] },
+      ],
+      edges: [
+        { from: "a", to: "b" },
+        { from: "b", to: "c" },
+        { from: "c", to: "d" },
+        { from: "d", to: "e" },
+      ],
+      labels: L({ layer: "layer {l} of {L}", field: "{count} people", example: "example" }),
+    },
+  },
+  {
+    name: "draft then verify",
+    domain: "language-models",
+    lit: {
+      kind: "flow",
+      form: "timeline",
+      lanes: [
+        {
+          label: "one model",
+          runs: [{ label: "decode", count: { value: "8" }, dur: { value: "1" }, parallel: false }],
+        },
+        {
+          label: "draft + verify",
+          runs: [
+            { label: "draft", count: { value: "7" }, dur: { value: "0.05" }, parallel: false },
+            { label: "verify", count: { value: "8" }, dur: { value: "1" }, parallel: true },
+          ],
+        },
+      ],
+      labels: L({ unit: "one model call" }),
+    },
+  },
+  {
+    name: "pipeline stages",
+    domain: "distributed-systems",
+    lit: {
+      kind: "flow",
+      form: "timeline",
+      lanes: [
+        {
+          label: "sequential",
+          total: { value: "6.5" },
+          runs: [
+            { label: "fetch", parallel: false },
+            { label: "compute", parallel: false },
+          ],
+        },
+        {
+          label: "pipelined",
+          total: { value: "4.4" },
+          runs: [
+            { label: "fetch", count: { value: "4" }, parallel: true },
+            { label: "compute", parallel: false },
+          ],
+        },
+      ],
+      labels: L({ unit: "one batch", example: "example" }),
+    },
+  },
+  /* place */
+  {
+    name: "quality against latency",
+    domain: "autonomous-driving",
+    lit: {
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "latency (s)", lowerIsBetter: true },
+        { name: "score", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "A", values: ["4.46", "88.84"] },
+        { label: "B", values: ["6.58", "88.29"] },
+        { label: "C", values: ["4.49", "87.47"] },
+      ],
+      labels: [],
+    },
+  },
+  {
+    name: "expected tokens per call",
+    domain: "language-models",
+    lit: {
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "α", lowerIsBetter: false },
+        { name: "speed", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "γ=2", values: ["0.6", "1.96"], group: "2" },
+        { label: "γ=2", values: ["0.8", "2.44"], group: "2" },
+        { label: "γ=5", values: ["0.8", "3.69"], group: "5" },
+      ],
+      curves: [
+        { label: "γ=2", expr: "(1 - α^(γ+1)) / (1 - α)", x: "α", fixed: params({ γ: "2" }) },
+        { label: "γ=5", expr: "(1 - α^(γ+1)) / (1 - α)", x: "α", fixed: params({ γ: "5" }) },
+      ],
+      reveal: "groups",
+      labels: [],
+    },
+  },
+  {
+    name: "loss over epochs",
+    domain: "optimisation",
+    lit: {
+      kind: "place",
+      form: "plane",
+      connect: true,
+      reveal: "groups",
+      axes: [
+        { name: "epoch", lowerIsBetter: false },
+        { name: "loss", lowerIsBetter: true },
+      ],
+      items: ["2.1", "1.4", "1.1", "0.9"]
+        .map((y, i) => ({ label: `e${i + 1}`, values: [String(i + 1), y], group: "train" }))
+        .concat(
+          ["2.3", "1.7", "1.5", "1.4"].map((y, i) => ({
+            label: `v${i + 1}`,
+            values: [String(i + 1), y],
+            group: "val",
+          })),
+        ),
+      labels: [],
+    },
+  },
+  {
+    name: "ablation ranking",
+    domain: "reinforcement-learning",
+    lit: {
+      kind: "place",
+      form: "strip",
+      axes: [{ name: "return", lowerIsBetter: false }],
+      items: [
+        { label: "full", values: ["88.84"] },
+        { label: "no aux", values: ["87.97"] },
+        { label: "no curriculum", values: ["67.13"] },
+      ],
+      labels: [],
+    },
+  },
+  {
+    name: "ablation ranking",
+    domain: "computer-vision",
+    lit: {
+      kind: "place",
+      form: "strip",
+      axes: [{ name: "mAP", lowerIsBetter: false }],
+      items: [
+        { label: "full", values: ["41.2"] },
+        { label: "no FPN", values: ["38.0"] },
+      ],
+      labels: [],
+    },
+  },
+  /* region */
+  {
+    name: "training crops",
+    domain: "image-restoration",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "crops",
+      size: { value: "64" },
+      count: { value: "4" },
+      gather: true,
+      labels: L({ picture: "training picture", batch: "one batch", example: "example" }),
+    },
+  },
+  {
+    name: "tissue patches",
+    domain: "pathology",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "crops",
+      size: { value: "96" },
+      count: { value: "6" },
+      labels: L({ picture: "slide", example: "example" }),
+    },
+  },
+  {
+    name: "patch grid",
+    domain: "image-classification",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "grid",
+      size: { value: "32" },
+      labels: L({ picture: "image as patches", example: "example" }),
+    },
+  },
+  {
+    name: "map tiles",
+    domain: "cartography",
+    lit: {
+      kind: "region",
+      picture: "b1",
+      cut: "grid",
+      size: { value: "48" },
+      labels: L({ picture: "tiles", example: "example" }),
+    },
+  },
+];
+
+/** A fixture as the plan would carry it, defaults filled. */
+const parse = (f: Fixture) => literalSchema.parse(f.lit) as Literal;
+
+const RUNS: Record<string, VerbRun<never>> = {
+  operate: operate as unknown as VerbRun<never>,
+  evolve: evolve as unknown as VerbRun<never>,
+  flow: flow as unknown as VerbRun<never>,
+  place: points as unknown as VerbRun<never>,
+  region: region as unknown as VerbRun<never>,
+};
+
+/** One cue per sentence, ~7s each, as narration gives them. */
+const cuesFor = (n: number): Cue[] =>
+  Array.from({ length: n }, (_, i) => ({ t0: 0.95 + i * 7.2, t1: 0.95 + i * 7.2 + 7 }));
+
+/** An earlier region scene, for a stream `from` it. */
+function earlierFor(): Map<string, Earlier> {
+  const r = runVerb(region as VerbRun<"region">, {
+    lit: literalSchema.parse({
+      kind: "region",
+      picture: "b1",
+      cut: "crops",
+      size: { value: "32" },
+      count: { value: "8" },
+      labels: L({ picture: "p", example: "example" }),
+    }) as Extract<Literal, { kind: "region" }>,
+    labels: { picture: "p", example: "example" },
+    region: region_,
+    theme,
+    measure,
+    dry: true,
+    earlier: new Map(),
+    assets: {},
+  });
+  return new Map([
+    [
+      "b2",
+      {
+        kind: "region",
+        layers: {
+          files: { thumb: "t.jpg" },
+          data: {},
+          ...(r.material ? { material: r.material } : {}),
+        },
+        labels: {},
+      },
+    ],
+  ]);
+}
+
+function draw(f: Fixture) {
+  const lit = parse(f);
+  const labels = Object.fromEntries(lit.labels.map((l) => [l.slot, l.text]));
+  const r = runVerb(RUNS[lit.kind] as VerbRun<never>, {
+    lit: lit as never,
+    labels,
+    region: region_,
+    theme,
+    measure,
+    dry: true,
+    image: placeholderPicture(192, 128),
+    earlier: earlierFor(),
+    assets: {},
+  });
+  const files: Record<string, string> = Object.fromEntries(
+    Object.keys(r.rasters).map((k) => [k, `${k}.png`]),
+  );
+  for (const fr of r.frames)
+    for (const p of fr.prims)
+      if (p.p === "image") files[p.layer] ??= `${p.layer.replace(/:/g, "-")}.png`;
+  const cues = cuesFor(Math.max(2, r.frames.length));
+  const frag = stagedFragment(
+    lit.kind,
+    { files, data: { frames: r.frames, paints: {}, vars: r.vars } },
+    region_,
+    cues,
+    { labels, data: lit },
+    theme,
+    (x) => x,
+  );
+  return { lit, r, frag, cues };
+}
+
+/** The form a fixture exercises, for the fill floors and the registry. */
+function formOf(lit: Literal): string {
+  if (lit.kind === "operate")
+    return `operate:${lit.picture ? "map" : lit.vectors.length ? "profile" : "grid"}`;
+  if (lit.kind === "evolve") return `evolve:${lit.rule}${lit.how ? `:${lit.how}` : ""}`;
+  if (lit.kind === "flow") return `flow:${lit.form}`;
+  if (lit.kind === "place") return `place:${placeForm(lit)}:${lit.form}`;
+  if (lit.kind === "region") return `region:${lit.cut}`;
+  return lit.kind;
+}
+
+/** Everything a fixture exercises: its form, and each op and variant of a chain (an `alt` too). */
+function covers(lit: Literal): string[] {
+  const out = [formOf(lit)];
+  if (lit.kind === "operate") {
+    for (const s of lit.chain) {
+      const doc = LITERAL_OPS[s.op] as LiteralOpDoc;
+      out.push(`op:${s.op}${doc.how ? `:${s.how ?? doc.defaultHow}` : ""}`);
+    }
+    if (lit.alt?.how) out.push(`op:${lit.chain[lit.alt.step - 1]?.op}:${lit.alt.how}`);
+    if (lit.condition) out.push(`condition:${lit.condition.how}`);
+    if (lit.compare !== "none") out.push(`compare:${lit.compare}`);
+  }
+  if (lit.kind === "evolve" && lit.input?.from) out.push("evolve:input:from");
+  if (lit.kind === "evolve" && lit.reset !== "none") out.push(`evolve:reset:${lit.reset}`);
+  return out;
+}
+
+/** The least share of the region a form's frames cover once revealed (`frameFill`). */
+const FILL: Record<string, number> = {
+  "operate:map": 0.45,
+  "operate:profile": 0.5,
+  "operate:grid": 0.3,
+  evolve: 0.45,
+  "flow:chain": 0.35,
+  // Nodes and edges only, spread over the region by the layout: the least of any form.
+  "flow:graph": 0.05,
+  "flow:timeline": 0.35,
+  place: 0.5,
+  region: 0.4,
+};
+const floorOf = (form: string) =>
+  FILL[form.split(":").slice(0, 2).join(":")] ?? FILL[form.split(":")[0] as string] ?? 0;
+
+/* ----------------------------------------------------------------- tests */
+
+describe("every verb fixture runs, and keeps the deck's invariants", () => {
+  for (const f of FIXTURES) {
+    describe(`${f.domain}: ${f.name}`, () => {
+      let memo: ReturnType<typeof draw> | undefined;
+      const d = new Proxy({} as ReturnType<typeof draw>, {
+        get: (_, k) => {
+          memo ??= draw(f);
+          return memo[k as keyof typeof memo];
+        },
+      });
+      it("every tween is fromTo, scoped, rounded; no callbacks, clock or randomness", () => {
+        const lines = d.frag.script.split("\n").filter(Boolean);
+        expect(lines.length).toBeGreaterThan(0);
+        for (const l of lines)
+          expect(l).toMatch(
+            /^tl\.fromTo\("#SCENEID-[\w-]+", \{.*\}, \{.*\}, -?\d+(?:\.\d{1,3})?\);$/,
+          );
+        expect(d.frag.script).not.toMatch(
+          /onUpdate|onStart|onComplete|Date\.now|Math\.random|fetch\(/,
+        );
+        for (const m of d.frag.script.matchAll(/"duration":(\d+(?:\.\d+)?)/g))
+          expect((m[1] as string).split(".")[1]?.length ?? 0).toBeLessThanOrEqual(3);
+      });
+      it("every element a tween names exists in the markup", () => {
+        for (const m of d.frag.script.matchAll(/"#SCENEID-([\w-]+)"/g))
+          expect(d.frag.markup, m[1]).toContain(`id="SCENEID-${m[1]}"`);
+      });
+      it("no text under 40px (invariant 5)", () => {
+        for (const fr of d.r.frames)
+          for (const p of fr.prims)
+            if (p.p === "text") expect(p.size, fr.id).toBeGreaterThanOrEqual(40);
+      });
+      it(`never more than ${STILL_MAX}s without a tween while it is narrated`, () => {
+        const from = (d.cues[0] as Cue).t0 + 1;
+        const to = (d.cues.at(-1) as Cue).t1 - 0.5;
+        const long = stillSpans(d.frag.script, from, to).filter(([a, b]) => b - a > STILL_MAX);
+        expect(long, JSON.stringify(long)).toEqual([]);
+      });
+      it("fills its region: the form's floor at every step", () => {
+        const floor = floorOf(formOf(d.lit));
+        for (const fr of d.r.frames)
+          expect(frameFill(fr, region_), `${fr.id}`).toBeGreaterThanOrEqual(floor);
+      });
+      it("pictures and shapes stay inside the region", () => {
+        for (const fr of d.r.frames)
+          for (const p of fr.prims)
+            if (p.p === "image" || p.p === "rect") {
+              expect(p.x, fr.id).toBeGreaterThanOrEqual(-1);
+              expect(p.y, fr.id).toBeGreaterThanOrEqual(-1);
+              expect(p.x + p.w, fr.id).toBeLessThanOrEqual(region_.width + 1);
+              expect(p.y + p.h, fr.id).toBeLessThanOrEqual(region_.height + 1);
+            }
+      });
+      it("is drawable at plan time, by the same run", () => {
+        expect(drawProblems(d.lit, region_, theme)).toEqual([]);
+      });
+    });
+  }
+});
+
+describe("the library holds only what is general", () => {
+  it("every op variant, rule and form has fixtures from at least two unrelated domains", () => {
+    const universe = [
+      ...Object.entries(LITERAL_OPS as Record<string, LiteralOpDoc>).flatMap(([name, d]) =>
+        d.how ? Object.keys(d.how).map((h) => `op:${name}:${h}`) : [`op:${name}`],
+      ),
+      "operate:map",
+      "operate:profile",
+      "operate:grid",
+      "condition:contrast",
+      "condition:noise",
+      "condition:blur",
+      "compare:condition",
+      "compare:params",
+      "evolve:recur:ema",
+      "evolve:recur:leaky",
+      "evolve:recur:linear",
+      "evolve:noise",
+      "evolve:formula",
+      "evolve:reset:soft",
+      "evolve:reset:hard",
+      "flow:chain",
+      "flow:graph",
+      "flow:timeline",
+      "place:points:plane",
+      "place:points:strip",
+      "region:crops",
+      "region:grid",
+    ];
+    const domains = new Map<string, Set<string>>();
+    for (const f of FIXTURES)
+      for (const c of covers(parse(f))) domains.set(c, (domains.get(c) ?? new Set()).add(f.domain));
+    const thin = universe
+      .filter((u) => (domains.get(u)?.size ?? 0) < 2)
+      .map((u) => `${u} (${[...(domains.get(u) ?? [])].join(", ") || "none"})`);
+    expect(
+      thin,
+      "options with fewer than two unrelated domains: cut them or add a fixture",
+    ).toEqual([]);
+  });
+
+  it("src/literal and the planner's verb docs name no paper", () => {
+    const DENY =
+      /EM-SNN|TM-LIF|\bSSM\b|[Hh]az(?:e|y)|[Dd]ehaz|[Aa]irlight|[Dd]ark[ -]?[Cc]hannel|\bDCP\b|[Ss]pik(?:e|ing)|OneVL|NAVSIM|[Ss]peculative|\bT5\b|\bRICE\d?\b|LHID|DHID|SFRDP|SFSNiD|DehazeFormer|COCONUT|ROADWork/;
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir)) {
+        const p = join(dir, e);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (p.endsWith(".ts")) files.push(p);
+      }
+    };
+    walk("src/literal");
+    const hits = files.flatMap((p) =>
+      readFileSync(p, "utf8")
+        .split("\n")
+        .map((l, i) => [i, l] as const)
+        .filter(([, l]) => DENY.test(l))
+        .map(([i, l]) => `${p}:${i + 1}: ${l.trim()}`),
+    );
+    const docs = Object.entries(LITERAL_KIND_DOCS).flatMap(([k, d]) =>
+      [d.doc, ...Object.values(d.slots).map((s) => s.what)]
+        .filter((t) => DENY.test(t))
+        .map((t) => `${k}: ${t}`),
+    );
+    const ops = Object.entries(LITERAL_OPS as Record<string, LiteralOpDoc>).flatMap(([k, d]) =>
+      [d.doc].filter((t) => DENY.test(t)).map((t) => `${k}: ${t}`),
+    );
+    expect([...hits, ...docs, ...ops]).toEqual([]);
+  });
+});
+
+describe("what each verb refuses", () => {
+  const problems = (lit: Record<string, unknown>) =>
+    drawProblems(literalSchema.parse(lit) as Literal, region_, theme);
+
+  it("operate: a parameter the op does not take, a variant it does not have, two inputs", () => {
+    expect(
+      problems({
+        kind: "operate",
+        picture: "b1",
+        chain: [op("conv", "sobel-x", { theta: "1" })],
+        labels: L(pic),
+      })[0],
+    ).toMatch(/takes no parameter "theta"/);
+    expect(() =>
+      literalSchema.parse({
+        kind: "operate",
+        picture: "b1",
+        chain: [op("reduce", "median", { window: "3" })],
+        labels: L(pic),
+      }),
+    ).toThrow();
+    expect(
+      problems({
+        kind: "operate",
+        picture: "b1",
+        chain: [op("reduce", "sobel-x", { window: "3" })],
+        labels: L(pic),
+      })[0],
+    ).toMatch(/no variant "sobel-x"/);
+    expect(
+      problems({
+        kind: "operate",
+        picture: "b1",
+        vectors: [{ label: "p", values: [1, 2] }],
+        bins: ["a", "b"],
+        chain: [op("normalise", "sum")],
+        labels: L(pic),
+      })[0],
+    ).toMatch(/exactly one input/);
+  });
+
+  it("operate: a quantiser without its rounding, and a compare without what it compares", () => {
+    expect(
+      problems({
+        kind: "operate",
+        picture: "b1",
+        chain: [op("quantize", undefined, { levels: "4", step: "0.25" })],
+        labels: L(pic),
+      })[0],
+    ).toMatch(/how/);
+    expect(
+      problems({
+        kind: "operate",
+        picture: "b1",
+        compare: "condition",
+        chain: [op("channels", "mean")],
+        labels: L(pic),
+      })[0],
+    ).toMatch(/needs a `condition`/);
+  });
+
+  it("evolve: a reset with no threshold, and too few inputs", () => {
+    expect(
+      problems({
+        kind: "evolve",
+        rule: "recur",
+        how: "leaky",
+        params: params({ a: "0.5" }),
+        reset: "soft",
+        input: { values: ["1", "2", "3"].map((value) => ({ value })) },
+        labels: L({ state: "s", trace: "t" }),
+      })[0],
+    ).toMatch(/reset/);
+    expect(
+      problems({
+        kind: "evolve",
+        rule: "recur",
+        how: "ema",
+        params: params({ a: "0.5" }),
+        input: { values: [{ value: "1" }] },
+        labels: L({ state: "s", trace: "t" }),
+      })[0],
+    ).toMatch(/3–24 inputs/);
+  });
+
+  it("flow: a learned stage that shows a computed layer is a box, never an output", () => {
+    expect(
+      problems({
+        kind: "flow",
+        form: "chain",
+        stages: [
+          { id: "a", label: "a", learned: false },
+          { id: "b", label: "net", learned: true, show: "b1" },
+        ],
+        labels: L({ learned: "learned" }),
+      })[0],
+    ).toMatch(/learned/);
+  });
+
+  it("flow timeline: totals on some lanes and not others", () => {
+    expect(
+      problems({
+        kind: "flow",
+        form: "timeline",
+        lanes: [
+          { label: "x", total: { value: "2" }, runs: [{ label: "r", parallel: false }] },
+          { label: "y", runs: [{ label: "r", parallel: false }] },
+        ],
+        labels: L({ unit: "u" }),
+      })[0],
+    ).toMatch(/every lane a `total`/);
+  });
+
+  it("region: a crop larger than the training picture", () => {
+    expect(
+      problems({
+        kind: "region",
+        picture: "b1",
+        cut: "crops",
+        size: { value: "512" },
+        count: { value: "2" },
+        resize: { value: "256" },
+        labels: L({ picture: "p", example: "example" }),
+      })[0],
+    ).toMatch(/resize|does not fit/);
+  });
+
+  it("place: a curve on a strip, and an item with the wrong number of values", () => {
+    expect(
+      problems({
+        kind: "place",
+        form: "strip",
+        axes: [{ name: "x", lowerIsBetter: false }],
+        items: [
+          { label: "a", values: ["1"] },
+          { label: "b", values: ["2"] },
+        ],
+        curves: [{ label: "c", expr: "x", x: "x" }],
+        labels: [],
+      })[0],
+    ).toMatch(/curves on a plane/);
+    expect(
+      problems({
+        kind: "place",
+        form: "plane",
+        axes: [
+          { name: "x", lowerIsBetter: false },
+          { name: "y", lowerIsBetter: false },
+        ],
+        items: [
+          { label: "a", values: ["1"] },
+          { label: "b", values: ["2", "3"] },
+        ],
+        labels: [],
+      })[0],
+    ).toMatch(/gives 1 values/);
+  });
+});
+
+describe("what each verb computes", () => {
+  it("operate on two distributions: min + residual is the first, exactly", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "accepted mass") as Fixture);
+    expect(d.r.vars.sum).toBe("1");
+  });
+
+  it("evolve: an EMA starts at its first input, and a frozen phase holds the state while inputs arrive", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "calibrated threshold, frozen") as Fixture);
+    // Two phases, two frames; the frozen phase reveals its inputs one by one.
+    expect(d.r.frames.map((f) => f.id)).toEqual(["p0", "p1"]);
+    expect(d.r.frames[1]?.prims.filter((p) => p.p === "circle" && p.at).length).toBeGreaterThan(0);
+  });
+
+  it("flow timeline: lane lengths are Σ count·dur when every duration is stated", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "draft then verify") as Fixture);
+    const track = d.r.frames[0]?.prims.filter((p) => p.p === "rect" && p.h === 4) as Array<{
+      w: number;
+    }>;
+    // 8·1 against 7·0.05 + 1·1 = 1.35.
+    expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1.35 / 8, 3);
+  });
+
+  it("place: a curve is the stated formula across the axis, drawn under the points", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "expected tokens per call") as Fixture);
+    const curves = d.r.frames[0]?.prims.filter((p) => p.p === "path" && p.wipe) ?? [];
+    expect(curves).toHaveLength(2);
+  });
+
+  it("region crops leave their pieces for a later stream", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "training crops") as Fixture);
+    expect(d.r.material?.tiles).toHaveLength(4);
+  });
+});

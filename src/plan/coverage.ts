@@ -22,19 +22,38 @@
  * lexicon does not know is not required; it is still in the source, and the
  * planner may cover it where it fits.
  *
- * Also here, because they share the repair round: the literal-scene checks a
- * schema cannot express (a picture that names a beat with no picture, a table
- * cell holding a number the source never states, a claim a kind's truth rules
- * forbid).
+ * Also here, because they share the repair round: the literal-scene truth
+ * gate (a number on screen the source never states, an op parameter not
+ * stated IN ITS ROLE, a variant the source never names, example material
+ * without its tag, a formula its table does not bear out, a picture that
+ * names a beat with no picture).
  */
 
 import { bespokeRegion } from "../bespoke/scene.js";
 import { deckLook } from "../emit/theme.js";
-import { isVisual, visualProblems } from "../literal/check.js";
-import { isMechanism, mechanismProblems } from "../literal/kinds/mechanisms.js";
-import { RECAPPABLE } from "../literal/kinds/recap.js";
-import type { Beat, BeatPart, Literal, LiteralKindDoc, Source, Storyboard } from "../types.js";
-import { beatPartSchema, FORMATS, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
+import { drawProblems } from "../literal/check.js";
+import { checkPasses, GREEK, normalizeExpr, parseFormula, printed } from "../literal/formula.js";
+import { placeForm } from "../literal/kinds/place.js";
+import { leavesPicture } from "../literal/kinds/recap.js";
+import type {
+  Beat,
+  BeatPart,
+  Literal,
+  LiteralKindDoc,
+  LiteralOpDoc,
+  Source,
+  Storyboard,
+} from "../types.js";
+import {
+  beatPartSchema,
+  FORMATS,
+  GENERATED_FIGURE_PREFIX,
+  LITERAL_KIND_DOCS,
+  LITERAL_OPS,
+  LITERAL_ROLE_NOUNS,
+  LITERAL_RULES,
+  literalSlotProblems,
+} from "../types.js";
 
 /** The order a deck covers its parts in. */
 export const PART_ORDER: readonly BeatPart[] = beatPartSchema.options;
@@ -230,31 +249,16 @@ function sourceText(source: Source): string {
 }
 
 /**
- * What breaks a kind's truth rules (src/types.ts `LiteralKindDoc`): a
- * requirement the source's text never meets, and a banned claim in `said`
- * (the beat's takeaway and the scene's labels) that no `unlessGiven` field of
- * `lit` lifts. Generic over the rules, so a kind gets its checks by carrying
- * them in its entry. Empty when it keeps them.
+ * What breaks a kind's claim bans (src/types.ts `LiteralKindDoc.mustNotClaim`):
+ * a banned claim in `said` (the beat's takeaway and the scene's labels). Empty
+ * when it keeps them.
  */
 export function literalTruthProblems(
-  rules: Pick<LiteralKindDoc, "requires" | "mustNotClaim">,
-  lit: object,
+  rules: Pick<LiteralKindDoc, "mustNotClaim">,
   said: readonly string[],
-  source: string,
 ): string[] {
   const out: string[] = [];
-  for (const r of rules.requires ?? [])
-    if (!r.anyOf.some((re) => re.test(source)))
-      out.push(`needs the source to give ${r.what}, and the source never does`);
-  // A field lifts a ban only when it is GROUNDED: every row of it is printed in the
-  // source, whole, in order, signs included (`groundedField`). Present is not enough.
-  let seq: readonly number[] | undefined;
-  const given = (field: string) => {
-    seq ??= numberSequence(source);
-    return groundedField(field, (lit as Record<string, unknown>)[field], seq);
-  };
   for (const b of rules.mustNotClaim ?? []) {
-    if (b.unlessGiven?.some(given)) continue;
     const hits = [
       ...new Set(
         said.flatMap((t) =>
@@ -278,7 +282,7 @@ export function literalTruthProblems(
  * "不需要训练" — so a plan that states the scene's limit honestly is not
  * refused for it. Conservative: the negator must stand directly before the
  * banned word (one auxiliary or article between at most), or directly after it
- * in Korean and Japanese. "Given no labels GCN predicts" keeps its ban.
+ * in Korean and Japanese.
  */
 function negated(text: string, at: number, len: number): boolean {
   const before = text.slice(Math.max(0, at - 40), at);
@@ -297,14 +301,10 @@ function negated(text: string, at: number, len: number): boolean {
 const REFERENCE =
   /(?:section|sec\.|figure|fig\.|table|tab\.|eq\.|equation|chapter|appendix|algorithm|line|page|§|그림|표|図|表|节|章|第)\s*$/iu;
 
-/**
- * The source's numbers in reading order, signs kept, references left out. A
- * list "[0.5,0.25]" or "1,2,3" is its numbers one by one; "1,000" is one
- * thousand; "1e-3" is one number.
- */
-export function numberSequence(source: string): number[] {
+/** The numbers a text states in reading order, as written, signs kept, references left out. */
+function numberTokens(source: string): Array<{ v: number; s: string }> {
   const text = source.replace(/\\[A-Za-z]+/g, " ");
-  const out: number[] = [];
+  const out: Array<{ v: number; s: string }> = [];
   const re = /(?<![\p{L}\d.])(\d{1,3}(?:,\d{3})+(?![\d.])|\d+(?:\.\d+)?(?:e[-+]?\d+)?)/giu;
   for (const m of text.matchAll(re)) {
     const at = m.index ?? 0;
@@ -312,42 +312,20 @@ export function numberSequence(source: string): number[] {
     // A sign is the character directly before, when that is not a range's dash ("1-2").
     const prev = text[at - 1] ?? "";
     const signed = (prev === "-" || prev === "−") && !/[\p{L}\d)]/u.test(text[at - 2] ?? "");
-    const v = Number((m[1] as string).replace(/,/g, ""));
-    if (Number.isFinite(v)) out.push(signed ? -v : v);
+    const s = (m[1] as string).replace(/,/g, "");
+    const v = Number(s);
+    if (Number.isFinite(v)) out.push({ v: signed ? -v : v, s: signed ? `-${s}` : s });
   }
   return out;
 }
 
-/** The rows a field's numbers come in: each matrix row, each vector, each series point (x, y). */
-function rowsOf(field: string, v: unknown): number[][] {
-  const nums = (x: unknown): number[] =>
-    Array.isArray(x) ? x.filter((n): n is number => typeof n === "number") : [];
-  // A one-column matrix is read as its column, in every field: a lone number is no evidence.
-  const matrix = (m: unknown): number[][] => {
-    const rows = (Array.isArray(m) ? m : []).map(nums);
-    return rows.length && rows.every((r) => r.length === 1) ? [rows.flat()] : rows;
-  };
-  if (!Array.isArray(v)) return [];
-  switch (field) {
-    case "heads":
-      return v.flatMap((h) => [...matrix(h?.q), ...matrix(h?.k)]);
-    case "weights":
-      return v.flatMap(matrix);
-    case "series":
-      return v.flatMap((s) =>
-        ((s?.points ?? []) as Array<{ x: number; y: number }>).map((p) => [p.x, p.y]),
-      );
-    case "gaussians":
-      return v.map((g) =>
-        Object.values(g as Record<string, unknown>).filter(
-          (n): n is number => typeof n === "number",
-        ),
-      );
-    case "queryVector":
-      return [nums(v)];
-    default:
-      return matrix(v);
-  }
+/**
+ * The source's numbers in reading order, signs kept, references left out. A
+ * list "[0.5,0.25]" or "1,2,3" is its numbers one by one; "1,000" is one
+ * thousand; "1e-3" is one number.
+ */
+export function numberSequence(source: string): number[] {
+  return numberTokens(source).map((t) => t.v);
 }
 
 /** Whether `row` appears in `seq` whole, in order, with its signs. */
@@ -359,10 +337,14 @@ function containsRow(seq: readonly number[], row: readonly number[]): boolean {
   return false;
 }
 
-/** A field of "the source's own" numbers is grounded when every row of it is printed in the source. */
-function groundedField(field: string, v: unknown, seq: readonly number[]): boolean {
-  const rows = rowsOf(field, v);
-  // A row of one number (a 1×1 matrix, a 1-dim vector) is never evidence: any "1" in the text would match.
+/**
+ * A field of "the source's own" numbers is grounded when every row of it is
+ * printed in the source, whole, in order, signs included. A one-column matrix
+ * is read as its column, and a row of one number is never evidence: any "1" in
+ * the text would match.
+ */
+function groundedRows(v: readonly (readonly number[])[], seq: readonly number[]): boolean {
+  const rows = v.length && v.every((r) => r.length === 1) ? [v.flat()] : v.map((r) => [...r]);
   return rows.length > 0 && rows.every((r) => r.length > 1 && containsRow(seq, r));
 }
 
@@ -376,17 +358,57 @@ function unstated(texts: readonly string[], stated: ReadonlySet<string>): string
 /** Every word a literal scene puts on screen, whatever its kind. */
 function literalTexts(lit: Literal): string[] {
   const own = lit.labels.map((l) => l.text);
-  if (lit.kind === "table") return [...own, ...lit.columns, ...lit.rows.flat()];
-  if (lit.kind === "scale")
-    return [
-      ...own,
-      ...lit.groups.flatMap((g) => [
-        g.label,
-        g.unit,
-        ...g.items.flatMap((it) => [it.label, it.value]),
-      ]),
-    ];
   switch (lit.kind) {
+    case "operate":
+      return [
+        ...own,
+        ...lit.chain.map((s) => s.label),
+        ...lit.vectors.map((v) => v.label),
+        ...lit.bins,
+      ];
+    case "evolve":
+      return [...own, ...lit.phases.map((p) => p.label)];
+    case "flow":
+      return [
+        ...own,
+        ...lit.stages.flatMap((s) => [s.label, s.shape ?? ""]),
+        ...lit.nodes.map((n) => n.label),
+        ...lit.lanes.flatMap((l) => [
+          l.label,
+          ...l.runs.flatMap((r) => [r.label, r.count?.value ?? ""]),
+        ]),
+      ];
+    case "place":
+      return [
+        ...own,
+        ...lit.axes.map((a) => a.name),
+        ...lit.items.flatMap((it) => [it.label, ...it.values, it.group ?? ""]),
+        ...lit.curves.map((c) => c.label),
+        ...(lit.margins
+          ? [
+              lit.margins.ours,
+              ...lit.margins.metrics.map((m) => m.name),
+              ...lit.margins.settings.flatMap((st) => [
+                st.name,
+                ...st.values.flatMap((v) => [v.ours, v.best, v.rival]),
+              ]),
+            ]
+          : []),
+        ...(lit.lengths?.groups.flatMap((g) => [
+          g.label,
+          g.unit,
+          ...g.items.flatMap((it) => [it.label, it.value]),
+        ]) ?? []),
+        ...(lit.combos
+          ? [
+              ...lit.combos.components,
+              ...lit.combos.reported.flatMap((r) => [...r.with, r.result]),
+              ...lit.combos.settings.flatMap((st) => [st.name, st.value]),
+              ...lit.combos.others,
+            ]
+          : []),
+        ...(lit.sets?.rings.flatMap((r) => [r.label, ...r.items]) ?? []),
+      ];
     case "prior-work":
       return [
         ...own,
@@ -397,71 +419,23 @@ function literalTexts(lit: Literal): string[] {
           ...l.numbers.flatMap((n) => [n.label, n.value]),
         ]),
       ];
-    case "margins":
-      return [
-        ...own,
-        lit.ours,
-        ...lit.metrics.map((m) => m.name),
-        ...lit.settings.flatMap((st) => [
-          st.name,
-          ...st.values.flatMap((v) => [v.ours, v.best, v.rival]),
-        ]),
-      ];
-    case "scope":
-      return [...own, ...lit.rings.flatMap((r) => [r.label, ...r.items])];
-    case "ablation":
-      return [
-        ...own,
-        ...lit.components,
-        ...lit.reported.flatMap((r) => [...r.with, r.result]),
-        ...lit.settings.flatMap((st) => [st.name, st.value]),
-        ...lit.others,
-      ];
-    case "attention":
-      return [...own, ...lit.tokens];
-    case "optimization":
-      return [...own, ...lit.series.map((s) => s.label), ...lit.optimizers.map((o) => o.label)];
-    case "message-passing":
-      return [...own, ...lit.nodes.map((n) => n.label)]; // ids are never drawn
-    case "retrieval":
-      return [...own, lit.query, ...lit.items.flatMap((it) => [it.label, it.text])];
+    case "table":
+      return [...own, ...lit.columns, ...lit.rows.flat()];
     default:
       return own;
   }
 }
 
-/**
- * The fields of a mechanism kind that claim to be the SOURCE'S numbers: each must
- * be numbers the source states, or the scene shows invented results as the paper's.
- */
-const SOURCE_NUMBERS: Readonly<Record<string, readonly string[]>> = {
-  attention: ["heads", "embeddings"],
-  optimization: ["series"],
-  splatting: ["gaussians"],
-  "message-passing": ["weights"],
-  retrieval: ["vectors", "queryVector"],
-};
-
-/** Literal kinds that draw no picture, only the source's words and numbers laid out (`table` has its own rule). */
-const WORD_KINDS = ["scale", "margins", "scope", "ablation"] as const;
-
 /** A word that marks a scene as an example, in the deck's languages. */
 const EXAMPLE_WORD =
   /\b(?:example|illustrative|illustration|toy|hypothetical)\b|예시|예제|가상|例|示例|示意|イメージ/i;
 
-/** A title or passage counts as the source's only when it is long enough to be one and printed in it. */
-const quoted = (source: string, t: string) => {
-  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, " ").trim();
-  const n = norm(t);
-  return [...n].length >= 8 && norm(source).includes(n);
-};
-
 /**
  * A name counts as the source's when it is at least two characters and a whole
  * word of it. "Whole" is per script: a Latin name ends where Latin letters and
- * digits do, so Korean's attached particles ("SFRDP-Net이", "LHID에서") do not
- * hide it, and "Net" is still not found in "Network"; a Hangul name ends
- * anywhere, for the same particles; Han and kana have no word boundaries.
+ * digits do, so Korean's attached particles do not hide it, and "Net" is still
+ * not found in "Network"; a Hangul name ends anywhere, for the same particles;
+ * Han and kana have no word boundaries.
  */
 const named = (source: string, t: string) => {
   const n = t.trim();
@@ -483,9 +457,9 @@ const named = (source: string, t: string) => {
 /**
  * The source as PASSAGES: each paragraph and each list item of a section, and
  * each table whole. A number is attributed to a name only when both sit in one
- * passage — the source saying "SFRDP-Net: 5.08 M" is evidence that 5.08 M is
- * SFRDP-Net's; the two anywhere in the text is not (review, 2026-10-11: a
- * scene credited the source's 5.08 M to an invented "FooNet").
+ * passage — the source saying "X: 5.08 M" is evidence that 5.08 M is X's; the
+ * two anywhere in the text is not (review, 2026-10-11: a scene credited a
+ * source's number to an invented method).
  */
 function passages(source: Source): string[] {
   const out: string[] = [];
@@ -520,16 +494,12 @@ function sentences(source: Source): string[] {
 /** The number tokens a text states, as written (`NUMBER`). */
 const numbersIn = (t: string): string[] => t.replace(/\\[A-Za-z]+/g, " ").match(NUMBER) ?? [];
 
-/** The names a list of them holds: "SFSNiD · SFRDP-Net", "LHID/DHID", "A, B" → each one. */
+/** The names a list of them holds: "A · B", "A/B", "A, B" → each one. */
 const namesIn = (t: string): string[] =>
   t
     .split(/\s*(?:[·•/,、;&|]|\s(?:and|및|und|et)\s)\s*/u)
     .map((x) => x.trim())
     .filter(Boolean);
-
-/** The classical methods a prior-work lane can run, by the words that name them. */
-const DCP_WORD = /dark[ -]?channel|\bDCP\b|다크 ?채널|암흑 ?채널|暗通道|ダーク ?チャネル/iu;
-const SOBEL_WORD = /sobel|소벨|ソーベル|索贝尔/iu;
 
 /** A word that says a result was measured WITHOUT a component: an ablation. */
 const ABLATION_WORD =
@@ -541,19 +511,314 @@ const ABLATION_WORD =
  * A metric named in neither is the plan's call.
  */
 const HIGHER_IS_BETTER =
-  /\b(?:PSNR|SSIM|MS-SSIM|accuracy|acc|precision|recall|F1|mAP|AP|IoU|mIoU|BLEU|ROUGE|AUC|top-?[15])\b|정확도|정밀도|재현율|精度|准确率|正解率/iu;
+  /\b(?:PSNR|SSIM|MS-SSIM|accuracy|acc|precision|recall|F1|mAP|AP|IoU|mIoU|BLEU|ROUGE|AUC|top-?[15]|speed ?up|throughput)\b|정확도|정밀도|재현율|精度|准确率|正解率/iu;
 const LOWER_IS_BETTER =
-  /\b(?:LPIPS|NIQE|BRISQUE|FID|KID|MSE|RMSE|MAE|error|loss|energy|params?|parameters|latency|FLOPs|MACs|SOPs?|mJ|ms|perplexity|PPL|WER|CER|EPE)\b|오차|손실|에너지|파라미터|지연|誤差|損失|能耗|参数|エネルギー|パラメータ/iu;
+  /\b(?:LPIPS|NIQE|BRISQUE|FID|KID|MSE|RMSE|MAE|ADE|FDE|error|loss|energy|params?|parameters|latency|FLOPs|MACs|SOPs?|mJ|ms|perplexity|PPL|WER|CER|EPE)\b|오차|손실|에너지|파라미터|지연|誤差|損失|能耗|参数|エネルギー|パラメータ|延迟/iu;
+
+/* ------------------------------------------------------ parameter grounding */
 
 /**
- * What ties a visual kind's names and numbers to the source, beyond each number
- * being stated somewhere: a lane runs the method its family names, a reported
- * value sits beside the name it is credited to, an ablation result is one the
- * source reports as an ablation, a margin's values are the setting's own and its
- * rival is named beside them, the innermost scope ring holds only what the source
- * gives a result for. Each a sentence a repair can act on; empty when it holds.
+ * The source as one text the binding rules read: TeX Greek as letters
+ * (`\alpha` → α), `{=}` as `=`, math delimiters dropped. `1\times10^{-3}` keeps
+ * its digits.
  */
-function visualGrounding(lit: Literal, source: Source, text: string): string[] {
+function bindingText(source: Source): string {
+  return passages(source).map(normalizeTex).join("\n\n");
+}
+
+function normalizeTex(t: string): string {
+  return t
+    .replace(
+      /\\(alpha|beta|gamma|delta|epsilon|varepsilon|theta|lambda|mu|sigma|tau|rho|eta|kappa|omega|phi|psi|xi|pi)\b/g,
+      (_, g: string) => GREEK[g.replace(/^var/, "")] ?? g,
+    )
+    .replace(/\{=\}/g, "=")
+    .replace(/[{}$]/g, "")
+    .replace(/\\[,;!]/g, " ");
+}
+
+/** A planner's symbol as the source would write it: "alpha" or "\alpha" → α. */
+function symbolOf(s: string | undefined): string | undefined {
+  if (!s?.trim()) return undefined;
+  const t = s.trim().replace(/^\\/, "");
+  return GREEK[t.toLowerCase()] ?? t;
+}
+
+const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Every place a symbol stands alone: not inside a Latin or Greek word, whatever follows in another script. */
+function symbolAt(text: string, sym: string): number[] {
+  // A particle of another script may follow it ("α이다", "θ는"); a letter of its own may not.
+  const own = "\\p{Script=Latin}\\p{Script=Greek}\\p{N}_";
+  const re = new RegExp(`(?<![${own}])${reEsc(sym)}(?![${own}])`, "gu");
+  return [...text.matchAll(re)].map((m) => m.index ?? 0);
+}
+
+/** A window of `r` characters around [at, at+len) holds one of `nouns`. */
+const near = (text: string, at: number, len: number, nouns: RegExp, r = 40) =>
+  nouns.test(text.slice(Math.max(0, at - r), at + len + r));
+
+/** The symbol a value is bound to where it stands ("α=0.6", "α: 0.6"), or undefined. */
+function boundSymbol(text: string, at: number): string | undefined {
+  const before = text.slice(Math.max(0, at - 16), at);
+  const m = /([\p{L}][\p{L}\p{N}_^']{0,5})\s*(?:=|＝|:|≈)\s*$/u.exec(before);
+  if (!m) return undefined;
+  const s = m[1] as string;
+  // A symbol, not a word: a Greek letter, a subscripted name, or at most two Latin letters.
+  return /[Ͱ-Ͽ]|_/.test(s) || s.length <= 2 ? s : undefined;
+}
+
+/**
+ * Whether a number is grounded IN ITS ROLE: some occurrence of the value, as a
+ * whole token, either carries the symbol the source binds to it there (then
+ * the plan must give that symbol, and the symbol must stand within 40
+ * characters of the role's nouns somewhere), or is unbound and itself stands
+ * within 40 characters of them. `mustBind`: only a binding grounds it (a
+ * formula's own symbol). Returns why not, or undefined.
+ */
+export function paramProblem(
+  value: string,
+  symbol: string | undefined,
+  nouns: RegExp,
+  role: string,
+  text: string,
+  mustBind = false,
+): string | undefined {
+  const v = value.trim().replace(/,/g, "");
+  if (!/^-?\d+(?:\.\d+)?(?:e[-+]?\d+)?$/i.test(v))
+    return `${role} "${value}" is not one number as the source writes it`;
+  const sym = symbolOf(symbol);
+  const re = new RegExp(`(?<![\\p{L}\\d.,])${reEsc(v)}(?![\\d]|\\.\\d)`, "gu");
+  const at = [...text.matchAll(re)].map((m) => m.index ?? 0);
+  if (!at.length) return `${role} ${value} is not stated in the source`;
+  const others = new Set<string>();
+  for (const i of at) {
+    const b = boundSymbol(text, i);
+    if (b) {
+      if (sym !== b) {
+        others.add(b);
+        continue;
+      }
+      if (symbolAt(text, b).some((j) => near(text, j, b.length, nouns))) return undefined;
+      continue;
+    }
+    if (mustBind) continue;
+    if (sym && !symbolAt(text, sym).some((j) => near(text, j, sym.length, nouns))) continue;
+    if (near(text, i, v.length, nouns)) return undefined;
+  }
+  if (others.size && !sym)
+    return `${role} ${value} is printed only as ${[...others].map((o) => `${o}=${value}`).join(", ")}: give that symbol, and only if the source names it as the ${role}`;
+  if (others.size)
+    return `${role} ${value} is printed as ${[...others].map((o) => `${o}=${value}`).join(", ")}, not as ${sym}`;
+  if (mustBind) return `${role} ${value} is never printed bound to ${sym ?? "its symbol"}`;
+  return `${role} ${value} is printed, but never as the ${role}${sym ? ` (${sym} never stands beside its name)` : ""}`;
+}
+
+/** The passages that name an op (or rule), normalised. */
+const passagesNaming = (ps: readonly string[], nouns: RegExp) => ps.filter((p) => nouns.test(p));
+
+/** Why an op step is not grounded, as sentences. */
+function opProblems(
+  step: Extract<Literal, { kind: "operate" }>["chain"][number],
+  k: number,
+  text: string,
+  ps: readonly string[],
+  seq: readonly number[],
+): string[] {
+  const doc = LITERAL_OPS[step.op] as LiteralOpDoc;
+  const out: string[] = [];
+  const where = `step ${k} (${step.op}${step.how ? ` ${step.how}` : ""})`;
+  const naming = passagesNaming(ps, doc.nouns);
+  const hint = "draw that step as a `flow` stage, or leave `literal` null";
+  if (step.op !== "formula" && !naming.length) {
+    out.push(`${where}: the source never names this operation; ${hint}`);
+    return out;
+  }
+  const how = step.how ?? doc.defaultHow;
+  const variant = how ? doc.how?.[how] : undefined;
+  if (variant && step.how && !naming.some((p) => variant.words.test(p)))
+    out.push(`${where}: no passage that names the operation says ${variant.what}; ${hint}`);
+  for (const [field, v] of [
+    ["stat", step.stat],
+    ["over", step.over],
+  ] as const) {
+    const w = v ? doc.enums?.[field]?.[v] : undefined;
+    if (w && !naming.some((p) => w.words.test(p)))
+      out.push(
+        `${where}: no passage that names the operation says ${w.what} (\`${field}\` ${v}); ${hint}`,
+      );
+  }
+  if (step.op === "quantize" && !step.how)
+    out.push(`${where}: \`how\` (floor or round) must be given and stated; ${hint}`);
+  if (step.op === "formula") {
+    if (step.expr)
+      out.push(
+        ...formulaProblems(step.expr, step.checks, step.params, text, ps).map(
+          (p) => `${where}: ${p}`,
+        ),
+      );
+    for (const p of step.params) {
+      const why = paramProblem(p.value, p.symbol ?? p.name, /./, p.name, text, true);
+      if (why) out.push(`${where}: ${why}`);
+    }
+    return out;
+  }
+  for (const p of step.params) {
+    const decl = doc.params?.[p.name];
+    if (!decl) continue;
+    const why = paramProblem(p.value, p.symbol, decl.nouns, decl.what, text);
+    if (why) out.push(`${where}: ${why}; ${hint}`);
+  }
+  if (step.weights.length && !groundedRows(step.weights, seq))
+    out.push(
+      `${where}: its \`weights\` are not printed in the source row by row; give them exactly, or draw it as a \`flow\` stage`,
+    );
+  return out;
+}
+
+/* --------------------------------------------------------- formula grounding */
+
+/** The number positions of a check in a passage, in order inside a window of 6 numbers, or undefined. */
+function locate(tokens: readonly { v: number }[], want: readonly number[]): number[] | undefined {
+  const eq = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  for (let s = 0; s < tokens.length; s++) {
+    if (!eq((tokens[s] as { v: number }).v, want[0] as number)) continue;
+    const pos = [s];
+    let j = s;
+    for (const w of want.slice(1)) {
+      let found = -1;
+      for (let q = j + 1; q < Math.min(tokens.length, s + 6); q++)
+        if (eq((tokens[q] as { v: number }).v, w)) {
+          found = q;
+          break;
+        }
+      if (found < 0) break;
+      pos.push(found);
+      j = found;
+    }
+    if (pos.length === want.length) return pos;
+  }
+  return undefined;
+}
+
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+const isInt = (s: string) => !/\./.test(s);
+
+/**
+ * Why a formula is not grounded by its checks: each check passes under
+ * interval arithmetic (src/literal/formula.ts) with its numbers in order in
+ * one passage; every variable takes two values or more; and where two checks
+ * or more sit in one passage (a flattened table), EVERY row of it at their
+ * period, shaped like them, passes too — a plan cannot pick the rows that fit.
+ */
+export function formulaProblems(
+  expr: string,
+  checks: ReadonlyArray<{ inputs: ReadonlyArray<{ name: string; value: string }>; output: string }>,
+  fixed: ReadonlyArray<{ name: string; value: string }>,
+  _text: string,
+  ps: readonly string[],
+): string[] {
+  let ast: ReturnType<typeof parseFormula>;
+  try {
+    ast = parseFormula(expr);
+  } catch (e) {
+    return [(e as Error).message.replace(/^formula: /, "")];
+  }
+  const out: string[] = [];
+  if (checks.length < 2)
+    return [
+      `formula "${expr}" needs two checks or more the source prints, so each variable is seen to vary`,
+    ];
+  const fx: Record<string, readonly [number, number]> = {};
+  for (const f of fixed) {
+    const iv = printed(f.value, true);
+    if (!iv) return [`fixed ${f.name} "${f.value}" is not one number`];
+    fx[f.name] = iv;
+  }
+  const names = [...new Set(checks.flatMap((c) => c.inputs.map((i) => i.name)))];
+  for (const n of names) {
+    const vals = new Set(checks.map((c) => c.inputs.find((i) => i.name === n)?.value));
+    if (vals.size < 2)
+      out.push(
+        `formula "${expr}": ${n} takes one value across the checks, so nothing shows the formula depends on it`,
+      );
+  }
+  const toks = ps.map((p) => numberTokens(normalizeTex(p)));
+  const byPassage = new Map<number, Array<{ pos: number[]; check: (typeof checks)[number] }>>();
+  checks.forEach((c, k) => {
+    const want = [...c.inputs.map((i) => Number(i.value)), Number(c.output)];
+    const r = checkPasses(ast, c, fx);
+    if (!r.ok) out.push(`formula "${expr}", check ${k + 1}: ${r.why}`);
+    const hit = toks.map((t, j) => [j, locate(t, want)] as const).find(([, pos]) => pos);
+    if (!hit) {
+      out.push(
+        `formula "${expr}", check ${k + 1}: ${want.join(", ")} are not printed together, in order, in one passage of the source`,
+      );
+      return;
+    }
+    const [j, pos] = hit as readonly [number, number[]];
+    byPassage.set(j, [...(byPassage.get(j) ?? []), { pos, check: c }]);
+  });
+  // Every row of a table the checks cite, at their period.
+  for (const [j, cs] of byPassage) {
+    if (cs.length < 2) continue;
+    const t = toks[j] as Array<{ v: number; s: string }>;
+    const first = cs[0] as (typeof cs)[number];
+    const off = first.pos.map((p) => p - (first.pos[0] as number));
+    if (!cs.every((c) => c.pos.every((p, q) => p - (c.pos[0] as number) === off[q]))) continue;
+    const starts = cs.map((c) => c.pos[0] as number).sort((a, b) => a - b);
+    const g = starts.slice(1).reduce((acc, x, q) => gcd(acc, x - (starts[q] as number)), 0);
+    const shape = first.pos.map((p) => isInt((t[p] as { s: string }).s));
+    const fits = (s0: number) =>
+      s0 >= 0 &&
+      s0 + (off.at(-1) as number) < t.length &&
+      off.every((o, q) => isInt((t[s0 + o] as { s: string }).s) === shape[q]);
+    // The row period: the smallest divisor of the checks' spacing past one row's span whose
+    // next row is shaped like theirs.
+    let P = 0;
+    for (let d = (off.at(-1) as number) + 1; d <= g; d++)
+      if (g % d === 0 && fits((starts[0] as number) + d)) {
+        P = d;
+        break;
+      }
+    if (!P) continue;
+    const names_ = first.check.inputs.map((i) => i.name);
+    const test = (s0: number) => {
+      const row = off.map((o) => t[s0 + o] as { v: number; s: string });
+      const check = {
+        inputs: names_.map((n, q) => ({ name: n, value: (row[q] as { s: string }).s })),
+        output: (row.at(-1) as { s: string }).s,
+      };
+      const r = checkPasses(ast, check, fx);
+      if (!r.ok)
+        out.push(
+          `formula "${expr}": the row ${row.map((x) => x.s).join(", ")} of the table its checks come from does not fit (${r.why}); a curve is grounded by every row of its table, not the rows that fit`,
+        );
+    };
+    // Every row of the table, outward from the first check's while rows keep their shape.
+    for (const dir of [-1, 1])
+      for (let s0 = (starts[0] as number) + dir * P; fits(s0); s0 += dir * P) test(s0);
+  }
+  return out;
+}
+
+/** Whether an expression is printed verbatim in the source, spaces, operators and TeX braces aside. */
+function verbatim(expr: string, text: string): boolean {
+  const e = normalizeExpr(expr).replace(/[{}$]/g, "");
+  return e.length >= 5 && normalizeExpr(text).replace(/[{}$]/g, "").includes(e);
+}
+
+/* ------------------------------------------------------------ the word forms */
+
+/**
+ * What ties a word form's names and numbers to the source, beyond each number
+ * being stated somewhere: a reported value sits beside the name it is credited
+ * to, an ablation result is one the source reports as an ablation, a margin's
+ * values are the setting's own and its rival is named beside them, the first
+ * set holds only what the source gives a result for, a point's values sit with
+ * its label. Each a sentence a repair can act on; empty when it holds.
+ */
+function wordGrounding(lit: Literal, source: Source, text: string): string[] {
   const out: string[] = [];
   const ps = passages(source);
   const has = (p: string, name: string) => named(p, name);
@@ -563,158 +828,319 @@ function visualGrounding(lit: Literal, source: Source, text: string): string[] {
     return want.length > 0 && want.every((n) => got.has(n));
   };
   const unnamed = (names: readonly string[]) => names.filter((n) => !named(text, n));
-  switch (lit.kind) {
-    case "prior-work":
-      for (const lane of lit.lanes) {
-        const members = namesIn(lane.members);
-        const missing = unnamed(members);
-        if (missing.length)
-          out.push(
-            `names ${missing.map((m) => `"${m}"`).join(", ")} in lane "${lane.family}", which the source never names. A lane's \`members\` are the source's own names for the methods, separated by ·`,
-          );
-        const words = `${lane.family} ${lane.members}`;
-        const run =
-          lane.shows === "dark-channel"
-            ? { re: DCP_WORD, what: "the dark channel prior" }
-            : lane.shows === "sobel"
-              ? { re: SOBEL_WORD, what: "a Sobel filter" }
-              : undefined;
-        if (run) {
-          // The picture IS that method's output: the lane must be that method, and its
-          // members the ones the source names beside it — never a learned family's names.
-          if (!run.re.test(words))
-            out.push(
-              `lane "${lane.family}" shows ${lane.shows}, a real output of ${run.what}, under a family and members that do not name it. Run a method only in the lane of the method that IS it; show any other family by its numbers`,
-            );
-          const apart = members.filter(
-            (m) => !run.re.test(m) && !ps.some((p) => run.re.test(p) && has(p, m)),
-          );
-          if (apart.length)
-            out.push(
-              `lane "${lane.family}" shows ${lane.shows} and names ${apart.map((m) => `"${m}"`).join(", ")}, which the source never names beside ${run.what}. The picture would be credited to them`,
-            );
-        } else if (lane.shows === "numbers") {
-          if (DCP_WORD.test(words) || SOBEL_WORD.test(words))
-            out.push(
-              `lane "${lane.family}" names a classical method the build can run, and shows it by numbers. Run it: \`shows\` ${DCP_WORD.test(words) ? "dark-channel" : "sobel"}`,
-            );
-          for (const n of lane.numbers)
-            if (!ps.some((p) => states(p, n.value) && members.some((m) => has(p, m))))
-              out.push(
-                `credits "${n.value}" to lane "${lane.family}" (${lane.members}), and the source never states it beside any of those names`,
-              );
-        }
-      }
-      break;
-    case "margins": {
-      const missing = unnamed([lit.ours, ...lit.settings.map((s) => s.name)]);
-      if (missing.length)
-        out.push(`names ${missing.map((m) => `"${m}"`).join(", ")}, which the source never names`);
-      lit.metrics.forEach((m, i) => {
-        const conv = LOWER_IS_BETTER.test(m.name)
-          ? true
-          : HIGHER_IS_BETTER.test(m.name)
-            ? false
-            : undefined;
-        if (conv !== undefined && m.lowerIsBetter !== conv)
-          out.push(
-            `gives ${m.name} lowerIsBetter ${m.lowerIsBetter}; ${m.name} is ${conv ? "lower" : "higher"} is better, so every margin would flip sign`,
-          );
-        for (const st of lit.settings) {
-          const v = st.values[i];
-          if (!v) continue;
-          const rivals = namesIn(v.rival);
-          const ok = ps.some(
-            (p) =>
-              has(p, st.name) &&
-              has(p, lit.ours) &&
-              states(p, v.ours) &&
-              states(p, v.best) &&
-              rivals.length > 0 &&
-              rivals.every((r) => has(p, r)),
-          );
-          if (!ok)
-            out.push(
-              `places ${st.name} on ${m.name} by ${lit.ours} ${v.ours} against ${v.rival} ${v.best}, and no passage of the source states both values with ${st.name}, ${lit.ours} and ${v.rival} named. Give that setting's own values and the method the source names as best beside them`,
-            );
-        }
-      });
-      break;
-    }
-    case "scope": {
-      const missing = unnamed(lit.rings.flatMap((r) => r.items.flatMap(namesIn)));
+  if (lit.kind === "prior-work") {
+    for (const lane of lit.lanes) {
+      const members = namesIn(lane.members);
+      const missing = unnamed(members);
       if (missing.length)
         out.push(
-          `holds ${missing.map((m) => `"${m}"`).join(", ")}, which the source never names. An item is the source's own name for a dataset, a condition or a setting, as it writes it`,
+          `names ${missing.map((m) => `"${m}"`).join(", ")} in lane "${lane.family}", which the source never names. A lane's \`members\` are the source's own names for the methods, separated by ·`,
         );
-      // The innermost ring is "what the source shows results for": a result is a measured
-      // number (a decimal or a percentage) in one sentence with the item.
-      const result = (s: string) => /%/.test(s) || numbersIn(s).some((n) => /\.\d/.test(n));
-      const ss = sentences(source);
-      const bare = (lit.rings[0]?.items ?? [])
-        .flatMap(namesIn)
-        .filter((it) => named(text, it) && !ss.some((s) => has(s, it) && result(s)));
-      if (bare.length)
-        out.push(
-          `puts ${bare.map((m) => `"${m}"`).join(", ")} in its innermost ring, which holds what the source shows results for, and the source states no result beside it. Move it out a ring`,
-        );
-      break;
+      for (const n of lane.numbers)
+        if (!ps.some((p) => states(p, n.value) && members.some((m) => has(p, m))))
+          out.push(
+            `credits "${n.value}" to lane "${lane.family}" (${lane.members}), and the source never states it beside any of those names`,
+          );
     }
-    case "ablation":
-      for (const r of lit.reported) {
-        if (r.with.length >= lit.components.length) continue;
-        // A cell with a component removed is an ablation: the source must report it as one,
-        // its number beside the removed component's name and a word saying it was removed.
-        const removed = lit.components.filter((c) => !r.with.includes(c));
+    return out;
+  }
+  if (lit.kind !== "place") return out;
+  const axesConv = (name: string, lower: boolean) => {
+    const conv = LOWER_IS_BETTER.test(name)
+      ? true
+      : HIGHER_IS_BETTER.test(name)
+        ? false
+        : undefined;
+    if (conv !== undefined && lower !== conv)
+      out.push(
+        `gives ${name} lowerIsBetter ${lower}; ${name} is ${conv ? "lower" : "higher"} is better, so the scene would read backwards`,
+      );
+  };
+  const form = placeForm(lit);
+  if (form === "points") {
+    for (const a of lit.axes) axesConv(a.name, a.lowerIsBetter);
+    for (const it of lit.items)
+      if (!ps.some((p) => has(p, it.label) && it.values.every((v) => states(p, v))))
+        out.push(
+          `places "${it.label}" at ${it.values.join(", ")}, and no passage of the source states ${it.values.length > 1 ? "those values" : "that value"} with "${it.label}" named. Each item's values sit in one passage with its name`,
+        );
+  }
+  if (form === "margins" && lit.margins) {
+    const m = lit.margins;
+    const missing = unnamed([m.ours, ...m.settings.map((s) => s.name)]);
+    if (missing.length)
+      out.push(`names ${missing.map((x) => `"${x}"`).join(", ")}, which the source never names`);
+    m.metrics.forEach((met, i) => {
+      axesConv(met.name, met.lowerIsBetter);
+      for (const st of m.settings) {
+        const v = st.values[i];
+        if (!v) continue;
+        const rivals = namesIn(v.rival);
         const ok = ps.some(
-          (p) => states(p, r.result) && ABLATION_WORD.test(p) && removed.every((c) => has(p, c)),
+          (p) =>
+            has(p, st.name) &&
+            has(p, m.ours) &&
+            states(p, v.ours) &&
+            states(p, v.best) &&
+            rivals.length > 0 &&
+            rivals.every((r) => has(p, r)),
         );
         if (!ok)
           out.push(
-            `reports "${r.result}" for ${r.with.length ? r.with.join(" + ") : "none of its components"} (without ${removed.join(", ")}), and the source never reports that number as a result without ${removed.join(", ")}. An ablation cell holds only an ablation the source reports; leave it empty`,
+            `places ${st.name} on ${met.name} by ${m.ours} ${v.ours} against ${v.rival} ${v.best}, and no passage of the source states both values with ${st.name}, ${m.ours} and ${v.rival} named. Give that setting's own values and the method the source names as best beside them, or use \`place\` plane with each method grounded in its own passage`,
           );
       }
-      break;
-    default:
-      break;
+    });
+    const bad = m.settings.flatMap((st) =>
+      st.values.flatMap((v) => [v.ours, v.best]).filter((x) => !/^-?\d+(\.\d+)?$/.test(x.trim())),
+    );
+    if (bad.length)
+      out.push(
+        `gives ${bad.map((x) => `"${x}"`).join(", ")} as margin values; each is one number, exactly as the source writes it (the metric's name goes in \`metrics\`)`,
+      );
+  }
+  if (form === "sets" && lit.sets) {
+    const missing = unnamed(lit.sets.rings.flatMap((r) => r.items.flatMap(namesIn)));
+    if (missing.length)
+      out.push(
+        `holds ${missing.map((m) => `"${m}"`).join(", ")}, which the source never names. An item is the source's own name for a dataset, a condition or a setting`,
+      );
+    const result = (s: string) => /%/.test(s) || numbersIn(s).some((n) => /\.\d/.test(n));
+    const ss = sentences(source);
+    const bare = (lit.sets.rings[0]?.items ?? [])
+      .flatMap(namesIn)
+      .filter((it) => named(text, it) && !ss.some((s) => has(s, it) && result(s)));
+    if (bare.length)
+      out.push(
+        `puts ${bare.map((m) => `"${m}"`).join(", ")} in its first set, which holds what the source shows results for, and the source states no result beside it. Move it out a set`,
+      );
+  }
+  if (form === "combos" && lit.combos) {
+    const cb = lit.combos;
+    for (const r of cb.reported) {
+      if (r.with.length >= cb.components.length) continue;
+      const removed = cb.components.filter((c) => !r.with.includes(c));
+      const ok = ps.some(
+        (p) => states(p, r.result) && ABLATION_WORD.test(p) && removed.every((c) => has(p, c)),
+      );
+      if (!ok)
+        out.push(
+          `reports "${r.result}" for ${r.with.length ? r.with.join(" + ") : "none of its components"} (without ${removed.join(", ")}), and the source never reports that number as a result without ${removed.join(", ")}. A cell holds only an ablation the source reports; leave it empty`,
+        );
+    }
   }
   return out;
 }
 
-/**
- * Whether a mechanism scene's material is the plan's own rather than the
- * source's, so the frames must say "example": derived attention heads, a
- * schedule the source does not state, an analytic landscape, plan-made
- * splats, a graph or a corpus the source does not print, and every gridworld.
- */
-function illustrative(lit: Literal, source: string, seq: () => readonly number[]): boolean {
-  const has = (field: string, v: unknown) => groundedField(field, v, seq());
+/* ---------------------------------------------------------- the verbs' rules */
+
+/** Why a verb's numbers, variants and inputs are not grounded, and whether it runs on example material. */
+function verbGrounding(
+  lit: Literal,
+  source: Source,
+  ctx: { text: string; ps: readonly string[]; seq: readonly number[]; stated: ReadonlySet<string> },
+): { problems: string[]; example: boolean } {
+  const { text, ps, seq } = ctx;
+  const out: string[] = [];
+  let example = false;
+  const role = (
+    n: { value: string; symbol?: string | undefined } | undefined,
+    nouns: RegExp,
+    what: string,
+  ) => {
+    if (!n) return;
+    const why = paramProblem(n.value, n.symbol, nouns, what, text);
+    if (why) out.push(`${why}; show it as a \`flow\` diagram, or leave \`literal\` null`);
+  };
   switch (lit.kind) {
-    case "attention":
-      return !(has("heads", lit.heads) || has("embeddings", lit.embeddings));
-    case "diffusion": {
-      const l = new Set(lit.labels.filter((x) => x.text.trim()).map((x) => x.slot));
-      // The schedule the scene draws: cosine reads only T; linear also reads the betas.
-      const needs = lit.schedule === "cosine" ? ["steps"] : ["steps", "betaStart", "betaEnd"];
-      return !needs.every((n) => l.has(n));
+    case "operate": {
+      lit.chain.forEach((s, k) => {
+        out.push(...opProblems(s, k + 1, text, ps, seq));
+      });
+      if (lit.compare === "params" && lit.alt) {
+        const src = lit.chain[lit.alt.step - 1];
+        if (src)
+          out.push(
+            ...opProblems(
+              { ...src, how: lit.alt.how ?? src.how, params: lit.alt.params },
+              lit.alt.step,
+              text,
+              ps,
+              seq,
+            ).map((p) => `alt ${p}`),
+          );
+      }
+      const vecs =
+        lit.vectors.length > 0 &&
+        !groundedRows(
+          lit.vectors.map((v) => v.values),
+          seq,
+        );
+      const mat = lit.matrix.length > 0 && !groundedRows(lit.matrix, seq);
+      example = !!lit.picture || vecs || mat || !!lit.condition;
+      if (lit.picture && !lit.labels.find((l) => l.slot === "caption")?.text.trim())
+        out.push(
+          "runs on a picture, which is example material: give `caption`, saying the stated operations run on an example image",
+        );
+      break;
     }
-    case "optimization":
-      return !lit.series.length;
-    case "splatting":
-      return !has("gaussians", lit.gaussians);
-    case "message-passing":
-      return !(has("weights", lit.weights) && lit.nodes.every((n) => named(source, n.label)));
-    case "rl-rollout":
-      return true;
-    case "retrieval":
-      return !lit.items.every((it) => quoted(source, it.label) && quoted(source, it.text));
+    case "evolve": {
+      const doc = LITERAL_RULES[lit.rule] as LiteralOpDoc;
+      if (lit.rule !== "formula" && !passagesNaming(ps, doc.nouns).length)
+        out.push(`the source never names the ${lit.rule} rule; draw it as a \`flow\` diagram`);
+      const naming = passagesNaming(ps, doc.nouns);
+      const variant = lit.how ? doc.how?.[lit.how] : undefined;
+      if (lit.rule === "recur" && variant && !naming.some((p) => variant.words.test(p)))
+        out.push(`no passage that names the rule says ${variant.what} (\`how\` ${lit.how})`);
+      for (const [field, v] of [
+        ["reset", lit.reset],
+        ["schedule", lit.schedule],
+      ] as const) {
+        const w = v ? doc.enums?.[field]?.[v] : undefined;
+        if (w && !naming.some((p) => w.words.test(p)))
+          out.push(`no passage that names the rule says ${w.what} (\`${field}\` ${v})`);
+      }
+      for (const p of lit.params) {
+        const decl = doc.params?.[p.name];
+        const why =
+          lit.rule === "formula"
+            ? paramProblem(p.value, p.symbol ?? p.name, /./, p.name, text, true)
+            : decl
+              ? paramProblem(p.value, p.symbol, decl.nouns, decl.what, text)
+              : undefined;
+        if (why) out.push(`${why}; show it as a \`flow\` diagram, or leave \`literal\` null`);
+      }
+      if (lit.rule === "formula" && lit.expr && !verbatim(lit.expr, text))
+        out.push(...formulaProblems(lit.expr, lit.checks, lit.params, text, ps));
+      if (
+        lit.input?.stat &&
+        !naming.some((p) =>
+          (lit.input?.stat === "var"
+            ? /varian|분산|分散|方差/i
+            : lit.input?.stat === "std"
+              ? /standard deviation|\bstd\b|표준편차|標準偏差|标准差/i
+              : /\bmean\b|averag|평균|平均|均值/i
+          ).test(p),
+        )
+      )
+        out.push(
+          `no passage that names the rule says the ${lit.input.stat} of its input (\`stat\`)`,
+        );
+      const values = lit.input?.values ?? [];
+      if (
+        values.length &&
+        !groundedRows([values.map((v) => Number(v.value.replace(/,/g, "")))], seq)
+      )
+        out.push(
+          "gives input `values` the source does not print in that order; give its own values, or stream `from` an earlier beat",
+        );
+      example = lit.rule === "noise" || !!lit.input?.from;
+      break;
+    }
+    case "flow": {
+      if (lit.form === "chain") {
+        example = lit.stages.some((s) => !!s.show);
+        for (const s of lit.stages) {
+          if (s.show && s.learned)
+            out.push(
+              `stage "${s.label}" is learned and shows a computed layer; a learned stage is drawn as a box, never as an output`,
+            );
+          if (s.figure) {
+            const fig = source.figures.find((f) => f.id === s.figure);
+            if (!fig || s.figure.startsWith(GENERATED_FIGURE_PREFIX))
+              out.push(
+                `stage "${s.label}" shows figure "${s.figure}", which is not one of the source's own figures`,
+              );
+          }
+        }
+      } else if (lit.form === "graph") {
+        const w = lit.weights.length > 0 && lit.weights.every((m) => groundedRows(m, seq));
+        example = !(
+          w &&
+          lit.nodes.every((n) => named(text, n.label)) &&
+          groundedRows(
+            lit.nodes.map((n) => n.features),
+            seq,
+          )
+        );
+        if (lit.weights.length && !w)
+          out.push(
+            "gives `weights` the source does not print row by row; give them exactly, or none (W = I)",
+          );
+      } else {
+        for (const l of lit.lanes) {
+          role(l.total, LITERAL_ROLE_NOUNS.duration, `lane "${l.label}"'s total`);
+          for (const r of l.runs) {
+            role(r.count, LITERAL_ROLE_NOUNS.count, `run "${r.label}"'s count`);
+            role(r.dur, LITERAL_ROLE_NOUNS.duration, `run "${r.label}"'s duration`);
+          }
+        }
+        const allDur = lit.lanes.every((l) =>
+          l.runs.every((r) => r.dur && (r.parallel || r.count)),
+        );
+        example =
+          !allDur &&
+          (lit.lanes.some((l) => l.runs.length > 1 && !!l.total) ||
+            lit.lanes.some((l) => l.runs.some((r) => !r.count)));
+      }
+      break;
+    }
+    case "region":
+      role(lit.size, LITERAL_ROLE_NOUNS.cut, "the piece size");
+      role(lit.count, LITERAL_ROLE_NOUNS.batch, "the number of crops");
+      role(lit.resize, LITERAL_ROLE_NOUNS.resize, "the training size");
+      example = true;
+      break;
+    case "place":
+      for (const c of lit.curves) {
+        out.push(
+          ...formulaProblems(c.expr, c.checks, c.fixed, text, ps).map(
+            (p) => `curve "${c.label}": ${p}`,
+          ),
+        );
+        for (const f of c.fixed) {
+          const why = paramProblem(f.value, f.symbol ?? f.name, /./, f.name, text, true);
+          if (why) out.push(`curve "${c.label}": ${why}`);
+        }
+      }
+      break;
+    case "prior-work":
+      example = lit.lanes.some((l) => !!l.from);
+      break;
     default:
-      return false;
+      break;
+  }
+  return { problems: out, example };
+}
+
+/** What makes two consecutive beats the same slide: the verb, its form and its operand. */
+function repetitionKey(lit: Literal): string {
+  switch (lit.kind) {
+    case "operate":
+      return `operate|${lit.picture ?? (lit.vectors.length ? "vectors" : "matrix")}`;
+    case "evolve":
+      return `evolve|${lit.rule}|${lit.input?.from ?? lit.picture ?? "values"}`;
+    case "flow":
+      return `flow|${lit.form}`;
+    case "place":
+      return `place|${placeForm(lit)}|${lit.axes.map((a) => a.name).join("·")}`;
+    case "region":
+      return `region|${lit.picture}`;
+    default:
+      return lit.kind;
   }
 }
 
+/** The forms that draw words and numbers only: once a deck each. */
+function wordForm(lit: Literal): string | undefined {
+  if (lit.kind !== "place") return undefined;
+  const f = placeForm(lit);
+  if (f !== "points") return `place ${f}`;
+  return lit.form === "strip" ? "place strip" : undefined;
+}
+
 /**
- * A mechanism kind's own checks at plan time, run as the build runs it: the
+ * A literal scene's own checks at plan time, run as the build runs it: the
  * scene's region (`bespokeRegion`, from the beat's headline and eyebrow) and the
  * deck's theme and language face, once per format size a deck can be built in.
  * Each problem once, with the formats it fails in.
@@ -734,13 +1160,27 @@ function gateProblems(beat: Beat, lit: Literal, storyboard: Storyboard): string[
     const key = `${region.width}x${region.height}`;
     if (sizes.has(key)) continue;
     sizes.add(key);
-    for (const p of [
-      ...mechanismProblems(lit, region, theme),
-      ...visualProblems(lit, region, theme),
-    ])
+    for (const p of drawProblems(lit, region, theme))
       seen.set(p, [...(seen.get(p) ?? []), format.id]);
   }
   return [...seen].map(([p, ids]) => ` in ${ids.join(", ")}: ${p}`);
+}
+
+/** The earlier beat a scene names (`from`, `show`, a recap's), checked to have drawn what it needs. */
+function earlierProblem(
+  beats: readonly Beat[],
+  i: number,
+  id: string,
+  what: string,
+  ok: (prior: Literal) => boolean,
+  need: string,
+): string | undefined {
+  const j = beats.findIndex((b) => b.id === id);
+  const prior = beats[j]?.literal;
+  if (j < 0 || j >= i || !prior)
+    return `${what} names "${id}", which is not an earlier beat drawn as a literal scene`;
+  if (!ok(prior)) return `${what} names "${id}", a ${prior.kind} scene, which leaves ${need}`;
+  return undefined;
 }
 
 /**
@@ -764,127 +1204,112 @@ export function literalFindings(
         `Beats ${bare.map((b) => b.id).join(", ")} carry no \`takeaway\`. Every beat but the title states the one thing the viewer can explain after it.`,
       );
   }
-  let stated: ReadonlySet<string> | undefined;
-  let text: string | undefined;
+  let ctx: { text: string; ps: string[]; seq: number[]; stated: ReadonlySet<string> } | undefined;
+  const ctxOf = () => {
+    ctx ??= {
+      text: bindingText(source),
+      ps: passages(source).map(normalizeTex),
+      seq: numberSequence(sourceText(source)),
+      stated: sourceNumbers(source),
+    };
+    return ctx;
+  };
+  let prevKey: { id: string; key: string } | undefined;
   beats.forEach((beat, i) => {
     const lit: Literal | undefined = beat.literal;
-    if (!lit) return;
-    stated ??= sourceNumbers(source);
-    // Every word on screen — labels, cells, scale names and values — carries only the source's numbers.
-    const said = unstated(literalTexts(lit), stated);
+    if (!lit) {
+      prevKey = undefined;
+      return;
+    }
+    const c = ctxOf();
+    const at = `${beat.id}'s ${lit.kind} scene`;
+    // Every word on screen — labels, step names, items, cells — carries only the source's numbers.
+    const said = unstated(literalTexts(lit), c.stated);
     if (said.length)
       out.push(
-        `${beat.id}'s ${lit.kind} scene says ${said.map((n) => `"${n}"`).join(", ")}, which the source never states. A scene's words carry only the source's numbers.`,
+        `${at} says ${said.map((n) => `"${n}"`).join(", ")}, which the source never states. A scene's words carry only the source's numbers.`,
       );
-    for (const p of literalSlotProblems(lit.kind, lit.labels))
-      out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
+    for (const p of literalSlotProblems(lit.kind, lit.labels)) out.push(`${at} ${p}.`);
     const rules = LITERAL_KIND_DOCS[lit.kind];
-    if (rules.requires?.length || rules.mustNotClaim?.length) {
-      text ??= sourceText(source);
-      // The words the scene draws count too (item titles, tokens, node and series
-      // labels), unless quoted from the source: those are its words, not the plan's claim.
-      const src = text.toLowerCase();
+    if (rules.mustNotClaim?.length) {
+      const src = sourceText(source).toLowerCase();
       const drawn = literalTexts(lit).filter(
         (t) => t.trim() && !src.includes(t.trim().toLowerCase()),
       );
-      const said = [beat.takeaway ?? "", ...lit.labels.map((l) => l.text), ...drawn];
-      for (const p of literalTruthProblems(rules, lit, said, text))
-        out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
+      for (const p of literalTruthProblems(rules, [
+        beat.takeaway ?? "",
+        ...lit.labels.map((l) => l.text),
+        ...drawn,
+      ]))
+        out.push(`${at} ${p}.`);
     }
-    if (isMechanism(lit.kind)) {
-      text ??= sourceText(source);
-      const src = text;
-      let sq: readonly number[] | undefined;
-      const seqOf = () => {
-        sq ??= numberSequence(src);
-        return sq;
-      };
-      // "The source's own" numbers must be printed in the source, row by row.
-      for (const field of SOURCE_NUMBERS[lit.kind] ?? []) {
-        const v = (lit as Record<string, unknown>)[field];
-        if (Array.isArray(v) && v.length && !groundedField(field, v, seqOf()))
-          out.push(
-            `${beat.id}'s ${lit.kind} scene gives \`${field}\` the source does not print. These fields are the source's own: every row must appear in it as written (in order, signs included); give its rows exactly, or leave the field empty.`,
-          );
-      }
-      if (
-        lit.kind === "message-passing" &&
-        lit.activation === "relu" &&
-        !/\bReLU\b|rectifi/i.test(src)
-      )
-        out.push(
-          `${beat.id}'s message-passing scene gives \`activation\` relu, which the source never names; give the source's own, or none.`,
-        );
-      // Material that is the plan's own is drawn as an example, and says so.
-      const tag = lit.labels.find((l) => l.slot === "example")?.text.trim();
-      if (illustrative(lit, src, seqOf) && !tag)
-        out.push(
-          `${beat.id}'s ${lit.kind} scene draws material that is not the source's own, so it needs the \`example\` slot: a tag in the deck's language saying it is an example.`,
-        );
-      if (tag && !EXAMPLE_WORD.test(tag))
-        out.push(
-          `${beat.id}'s ${lit.kind} scene's \`example\` tag "${tag}" does not say "example" (example · 예시 · 例 · 示例).`,
-        );
-      if (lit.kind === "retrieval") {
-        const score = lit.labels.find((l) => l.slot === "score")?.text ?? "";
-        if (score.trim() && !score.includes("{method}"))
-          out.push(
-            `${beat.id}'s retrieval scene names its method in its own words ("${score}"); write {method}, which the scene fills with the method it computed.`,
-          );
-      }
-      // The kind's own checks, run now, in every format the deck can be built in, at the
-      // region and in the face the build lays it out with: a gate pass means the build draws it.
-      for (const p of gateProblems(beat, lit, storyboard))
-        out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn${p}.`);
-    }
-    if (isVisual(lit.kind)) {
-      // The visual kinds' own checks, drawn as the build draws them, in every format.
-      for (const p of gateProblems(beat, lit, storyboard))
-        out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn${p}.`);
-      text ??= sourceText(source);
-      for (const p of visualGrounding(lit, source, text))
-        out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
-      if (lit.kind === "prior-work") {
-        if (lit.lanes.some((l) => l.shows !== "numbers") && !lit.picture)
-          out.push(
-            `${beat.id}'s prior-work scene runs a method on the picture and names none; give \`picture\` (a beat carrying the deck's picture), or show that family by its numbers.`,
-          );
-        const tag = lit.labels.find((l) => l.slot === "example")?.text.trim();
-        if (lit.lanes.some((l) => l.shows === "spikes") && !(tag && EXAMPLE_WORD.test(tag)))
-          out.push(
-            `${beat.id}'s prior-work scene shows spikes, which are illustrative: its \`example\` slot must say "example" in the deck's language (example · 예시 · 例 · 示例).`,
-          );
-      }
-      if (lit.kind === "margins") {
-        const bad = lit.settings.flatMap((st) =>
-          st.values
-            .flatMap((v) => [v.ours, v.best])
-            .filter((x) => !/^-?\d+(\.\d+)?$/.test(x.trim())),
-        );
-        if (bad.length)
-          out.push(
-            `${beat.id}'s margins scene gives ${bad.map((x) => `"${x}"`).join(", ")} as values; each is one number, exactly as the source writes it (the metric's name goes in \`metrics\`).`,
-          );
-      }
-    }
+    // The numbers in their roles, the variants in their words, the inputs by where they come from.
+    const g = verbGrounding(lit, source, c);
+    for (const p of g.problems) out.push(`${at}: ${p}.`);
+    const tag = lit.labels.find((l) => l.slot === "example")?.text.trim();
+    if (g.example && !tag)
+      out.push(
+        `${at} runs on example material (a picture, an unprinted input, a degradation, a split the source does not state), so it needs the \`example\` slot: a tag in the deck's language saying it is an example.`,
+      );
+    if (tag && !EXAMPLE_WORD.test(tag))
+      out.push(
+        `${at}'s \`example\` tag "${tag}" does not say "example" (example · 예시 · 例 · 示例).`,
+      );
+    // A computed value is printed only where every input is the source's.
+    const vars = lit.labels.filter((l) => /\{(?:max|sum|mean)\}/.test(l.text));
+    if (vars.length && g.example)
+      out.push(
+        `${at} prints a computed value (${vars.map((l) => l.slot).join(", ")}) on example material; that number would read as the paper's. Remove it, or give inputs the source prints.`,
+      );
     if (beat.archetype === "title") {
       out.push(
         `${beat.id} is the title and carries \`literal\`. A title names the deck; it draws no mechanism.`,
       );
       return;
     }
-    if ("picture" in lit && lit.picture !== undefined) {
-      const j = beats.findIndex((b) => b.id === lit.picture);
+    // The picture it runs on, and the earlier scenes it brings back.
+    const pic = "picture" in lit ? lit.picture : undefined;
+    if (pic !== undefined) {
+      const j = beats.findIndex((b) => b.id === pic);
       const owner = beats[j];
       if (!owner || j > i)
         out.push(
-          `${beat.id}'s ${lit.kind} scene runs on the picture of "${lit.picture}", which is ${owner ? "a later beat" : "not a beat in this plan"}. Name this beat or an earlier one that carries the picture.`,
+          `${at} runs on the picture of "${pic}", which is ${owner ? "a later beat" : "not a beat in this plan"}. Name this beat or an earlier one that carries the picture.`,
         );
       else if (!hasPicture(owner))
         out.push(
-          `${beat.id}'s ${lit.kind} scene runs on the picture of "${lit.picture}", which has none. Give that beat a figure or an illustration brief, or name a beat that has one.`,
+          `${at} runs on the picture of "${pic}", which has none. Give that beat a figure or an illustration brief, or name a beat that has one.`,
         );
-    } else if (lit.kind === "table") {
+    }
+    const refs: Array<[string, string, (p: Literal) => boolean, string]> = [];
+    if (lit.kind === "evolve" && lit.input?.from)
+      refs.push([
+        lit.input.from,
+        "its input",
+        (p) => p.kind === "region" || p.kind === "operate",
+        "no computed tiles to stream (name an operate or region beat)",
+      ]);
+    if (lit.kind === "flow")
+      for (const s of lit.stages)
+        if (s.show) refs.push([s.show, `stage "${s.label}"`, leavesPicture, "no picture to show"]);
+    if (lit.kind === "prior-work")
+      for (const l of lit.lanes)
+        if (l.from) refs.push([l.from, `lane "${l.family}"`, leavesPicture, "no picture to show"]);
+    if (lit.kind === "recap") {
+      if (!lit.beats.length) out.push(`${beat.id}'s recap names no beats.`);
+      for (const id of lit.beats)
+        refs.push([
+          id,
+          "the recap",
+          leavesPicture,
+          "no picture to bring back. Name earlier scenes that computed a picture",
+        ]);
+    }
+    for (const [id, what, ok, need] of refs) {
+      const why = earlierProblem(beats, i, id, what, ok, need);
+      if (why) out.push(`${at}: ${why}.`);
+    }
+    if (lit.kind === "table") {
       if (!lit.columns.length || !lit.rows.length)
         out.push(`${beat.id}'s table has no ${lit.columns.length ? "rows" : "columns"}.`);
       const bad = lit.highlight.filter(
@@ -901,51 +1326,41 @@ export function literalFindings(
         out.push(
           `${beat.id}'s table marks ${off.map((m) => `(${m.row}, ${m.col})`).join(", ")}, which is no cell of it (rows and columns count from 0).`,
         );
-    } else if (lit.kind === "scale") {
-      const items = lit.groups.flatMap((g) => g.items);
-      if (!items.length) out.push(`${beat.id}'s scale has no values.`);
-      const bad = items.filter(
-        (it) => !/^\d+(\.\d+)?$/.test(it.value) || !(stated as ReadonlySet<string>).has(it.value),
-      );
+    }
+    if (lit.kind === "place" && placeForm(lit) === "lengths") {
+      const items = lit.lengths?.groups.flatMap((gr) => gr.items) ?? [];
+      if (!items.length) out.push(`${beat.id}'s lengths have no values.`);
+      const bad = items.filter((it) => !/^\d+(\.\d+)?$/.test(it.value) || !c.stated.has(it.value));
       if (bad.length)
         out.push(
-          `${beat.id}'s scale draws ${bad.map((it) => `"${it.value}"`).join(", ")}, which the source never states as a number. A scale draws only values the source reports, written as it writes them.`,
+          `${beat.id}'s lengths draw ${bad.map((it) => `"${it.value}"`).join(", ")}, which the source never states as a number. Lengths draw only values the source reports, written as it writes them.`,
         );
-    } else if (lit.kind === "recap") {
-      if (!lit.beats.length) out.push(`${beat.id}'s recap names no beats.`);
-      for (const id of lit.beats) {
-        const j = beats.findIndex((b) => b.id === id);
-        const prior = beats[j]?.literal;
-        if (j < 0 || j >= i || !prior)
-          out.push(
-            `${beat.id}'s recap names "${id}", which is not an earlier beat drawn as a literal scene.`,
-          );
-        else if (
-          !(RECAPPABLE as readonly string[]).includes(prior.kind) ||
-          (prior.kind === "prior-work" && !prior.lanes.some((l) => l.shows !== "numbers"))
-        )
-          out.push(
-            `${beat.id}'s recap names "${id}", a ${prior.kind} scene, which leaves no picture to bring back. Name earlier scenes that computed a picture (${RECAPPABLE.join(", ")}).`,
-          );
-      }
     }
+    for (const p of wordGrounding(lit, source, c.text)) out.push(`${at} ${p}.`);
+    // Drawn as the build draws it, in every format: a gate pass means the build draws it.
+    for (const p of gateProblems(beat, lit, storyboard)) out.push(`${at} cannot be drawn${p}.`);
+    // Two beats in a row with the same verb, form and operand are the same slide.
+    const key = repetitionKey(lit);
+    if (prevKey && prevKey.key === key)
+      out.push(
+        `${beat.id} draws the same scene as ${prevKey.id} (${key.replace(/\|/g, " ")}). Merge them into one scene (a longer chain, a \`compare\`), or draw the second another way.`,
+      );
+    prevKey = { id: beat.id, key };
   });
-  // A table reads like a report: the visual kinds show what it would list. One may remain,
-  // where no visual form is honest.
   const tables = beats.filter((b) => b.literal?.kind === "table");
   if (tables.length > 1)
     out.push(
-      `The plan draws ${tables.length} tables (${tables.map((b) => b.id).join(", ")}). A table reads like a report: keep at most one, and draw the others as what they list — results as \`margins\`, what was and was not evaluated as \`scope\`, experiments not run as \`ablation\`, earlier approaches as \`prior-work\`, reported costs as \`scale\` — or leave \`literal\` null where no kind is honest.`,
+      `The plan draws ${tables.length} tables (${tables.map((b) => b.id).join(", ")}). A table reads like a report: keep at most one, and draw the others as what they list — results as \`place\` (margin or plane), what was and was not evaluated as \`place\` sets, experiments not run as \`place\` combos, earlier approaches as \`prior-work\`, reported costs as \`place\` length — or leave \`literal\` null where nothing is honest.`,
     );
-  // The kinds that draw no picture are words and numbers laid out one way: twice in a deck is
-  // the same slide twice (r2 of the EM-SNN plan drew `scope` four beats apart, two slides that
-  // looked alike). Each at most once; the second beat says its point another way or with none.
-  for (const kind of WORD_KINDS) {
-    const same = beats.filter((b) => b.literal?.kind === kind);
-    if (same.length > 1)
-      out.push(
-        `The plan draws \`${kind}\` ${same.length} times (${same.map((b) => b.id).join(", ")}). It draws no picture, so a second one is the same slide again: keep it on one beat, and draw the others with another kind or with \`literal\` null.`,
-      );
+  const forms = new Map<string, string[]>();
+  for (const b of beats) {
+    const f = b.literal && wordForm(b.literal);
+    if (f) forms.set(f, [...(forms.get(f) ?? []), b.id]);
   }
+  for (const [f, ids] of forms)
+    if (ids.length > 1)
+      out.push(
+        `The plan draws \`${f}\` ${ids.length} times (${ids.join(", ")}). It draws no picture, so a second one is the same slide again: keep it on one beat, and draw the others another way or with \`literal\` null.`,
+      );
   return out;
 }

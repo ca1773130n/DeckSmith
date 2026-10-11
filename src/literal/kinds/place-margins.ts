@@ -70,14 +70,16 @@ export function axisSpan(margins: readonly Margin[][], m: number): number {
   return top > 0 ? top * 1.18 : 1;
 }
 
-export const marginsKind: KindImpl = {
+/** place, measure margin: results against the best other method, as positions. */
+export const marginsForm: KindImpl = {
   picture: false,
   async layers() {
     return { files: {}, data: {} };
   },
   fragment(_L, { width: W, height: H }, cues, spec, theme) {
-    const K = "margins";
-    const d = spec.data as MarginsData;
+    const K = "place";
+    const d = (spec.data as { margins?: MarginsData }).margins;
+    if (!d) throw new Error("literal: place measure margin needs `margins`");
     const M = marginsOf(d);
     const two = d.metrics.length === 2;
     const n = d.settings.length;
@@ -99,8 +101,8 @@ export const marginsKind: KindImpl = {
     const rw = Math.min(readW, W * 0.34);
     const scaledLines = wrap(scaled, SMALL, W - rw - 64, theme);
     // On the plane the regions are named in a legend UNDER it, each beside a swatch of its
-    // tint: words inside a quadrant sit where the points land (r3 of the EM-SNN deck drew
-    // "ahead" across RICE2's dot and name). Entries flow in rows across the plot's width.
+    // tint: words inside a quadrant sit where the points land (an early deck drew
+    // "ahead" across one setting's dot and name). Entries flow in rows across the plot's width.
     const legendW = W - rw - 64;
     const legend = two
       ? [
@@ -275,7 +277,7 @@ ${scaledLines.map((t, i) => label(`sc${i}`, t, 0, ph + 10 + legendH + i * 50, SM
     // One setting per sentence: its point lands where its margins put it, the guides tie it to
     // the axes, and its numbers are read out line by line while it is said. The settings
     // already placed stay, quieter, so the pattern builds up.
-    d.settings.forEach((s, i) => {
+    d.settings.forEach((_s, i) => {
       const t0 = Math.max(1.0, (at[i] as number) + 0.2);
       const t1 = (at[i + 1] as number | undefined) ?? end;
       tl.fromTo(

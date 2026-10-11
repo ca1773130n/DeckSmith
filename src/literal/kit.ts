@@ -1,9 +1,9 @@
 /**
  * The shared kit of the literal scenes (src/literal/index.ts and every kind
- * under src/literal/kinds/): decoding and writing rasters through ffmpeg,
- * the plain-TypeScript maths every layer is computed with, and the fragment
- * helpers that keep each scene inside the deck's invariants (fromTo only,
- * scoped selectors, 3-decimal times, type never under 40px).
+ * under src/literal/kinds/): decoding and writing rasters through ffmpeg, and
+ * the fragment helpers that keep each scene inside the deck's invariants
+ * (fromTo only, scoped selectors, 3-decimal times, type never under 40px). The
+ * maths is in ./ops.ts.
  */
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -126,155 +126,22 @@ export function clamp255(x: number): number {
   return Math.max(0, Math.min(255, Math.round(x * 255)));
 }
 
-/* ------------------------------------------------------------------ the maths */
-
-/** Rec. 709 luma. */
-export function luma(img: Rgb): Float32Array {
-  const l = new Float32Array(img.w * img.h);
-  for (let i = 0, j = 0; i < l.length; i++, j += 3)
-    l[i] =
-      0.2126 * (img.d[j] as number) +
-      0.7152 * (img.d[j + 1] as number) +
-      0.0722 * (img.d[j + 2] as number);
-  return l;
-}
-
-/** The atmospheric scattering model with a uniform transmission t and airlight A. */
-export function haze(img: Rgb, t: number, A: readonly [number, number, number]): Rgb {
-  const d = new Float32Array(img.d.length);
-  for (let i = 0; i < d.length; i++)
-    d[i] = (img.d[i] as number) * t + (A[i % 3] as number) * (1 - t);
-  return { w: img.w, h: img.h, d };
-}
-
-/** 3×3 Sobel gradient magnitude, edges replicated. */
-export function sobel(l: Float32Array, w: number, h: number): Float32Array {
-  const at = (x: number, y: number) =>
-    l[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))] as number;
-  const m = new Float32Array(w * h);
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      const gx =
-        -at(x - 1, y - 1) +
-        at(x + 1, y - 1) -
-        2 * at(x - 1, y) +
-        2 * at(x + 1, y) -
-        at(x - 1, y + 1) +
-        at(x + 1, y + 1);
-      const gy =
-        -at(x - 1, y - 1) -
-        2 * at(x, y - 1) -
-        at(x + 1, y - 1) +
-        at(x - 1, y + 1) +
-        2 * at(x, y + 1) +
-        at(x + 1, y + 1);
-      m[y * w + x] = Math.hypot(gx, gy);
-    }
-  return m;
-}
-
-/** Separable box blur of radius r. */
-export function boxBlur(l: Float32Array, w: number, h: number, r: number): Float32Array {
-  const pass = (src: Float32Array, horizontal: boolean) => {
-    const out = new Float32Array(src.length);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        let s = 0;
-        let n = 0;
-        for (let k = -r; k <= r; k++) {
-          const xx = horizontal ? x + k : x;
-          const yy = horizontal ? y : y + k;
-          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-          s += src[yy * w + xx] as number;
-          n++;
-        }
-        out[y * w + x] = s / n;
-      }
-    return out;
-  };
-  return pass(pass(l, true), false);
-}
-
-/** The q-quantile (0..1) of a list, by sorting a copy. */
-export function quantile(v: ArrayLike<number>, q: number): number {
-  const s = Array.from(v).sort((a, b) => a - b);
-  if (s.length === 0) return 0;
-  return s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))] as number;
-}
-
-export function scale(v: Float32Array, k: number): Float32Array {
-  const o = new Float32Array(v.length);
-  for (let i = 0; i < v.length; i++) o[i] = (v[i] as number) * k;
-  return o;
-}
-
-/** Mean of a map over a cols×rows grid of cells. */
-export function cellMeans(
-  v: Float32Array,
-  w: number,
-  h: number,
-  cols: number,
-  rows: number,
-): number[] {
-  const out: number[] = [];
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++) {
-      const x0 = Math.floor((c * w) / cols);
-      const x1 = Math.floor(((c + 1) * w) / cols);
-      const y0 = Math.floor((r * h) / rows);
-      const y1 = Math.floor(((r + 1) * h) / rows);
-      let s = 0;
-      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) s += v[y * w + x] as number;
-      out.push(s / Math.max(1, (x1 - x0) * (y1 - y0)));
-    }
-  return out;
-}
-
-/** One leaky integrate-and-fire neuron, constant input, soft reset. */
-export interface LifRun {
-  /** Membrane potential at each step BEFORE any reset — what the trace draws. */
-  pre: number[];
-  /** Potential after the step's reset. */
-  post: number[];
-  /** The steps it fired on. */
-  spikes: number[];
-}
-
-export function lif(x: number, steps: number, leak: number, theta: number): LifRun {
-  let v = 0;
-  const pre: number[] = [];
-  const post: number[] = [];
-  const spikes: number[] = [];
-  for (let k = 0; k < steps; k++) {
-    v = leak * v + x;
-    pre.push(v);
-    if (v >= theta) {
-      spikes.push(k);
-      v -= theta;
-    }
-    post.push(v);
-  }
-  return { pre, post, spikes };
-}
-
-/** SNN time steps simulated, and the neuron's constants. */
-export const STEPS = 8;
-export const LEAK = 0.5;
-export const THETA = 1;
-
-/** Haze constants: the picture keeps 35% of its own light; the rest is airlight. */
-export const T_HAZE = 0.35;
-export const AIRLIGHT: readonly [number, number, number] = [0.84, 0.86, 0.88];
-
 export interface Layers {
   /** File names under `LITERAL_DIR`. */
   files: Record<string, string>;
   /** Numbers the fragment draws (profiles, grids, traces). */
   data: Record<string, unknown>;
+  /** The arrays a verb computed, in memory, for a later verb to stream (`evolve` from). */
+  material?: Material;
 }
 
-/** Edge colour on a dimmed photograph: a warm white that reads on any pack. */
-export const EDGE: [number, number, number] = [255, 226, 120];
+/** What a verb computed that a later one may take as input. */
+export interface Material {
+  /** The last output. */
+  final?: import("./ops.js").Tensor;
+  /** Pieces of it (crops, tiles), in order. */
+  tiles?: import("./ops.js").Tensor[];
+}
 
 /* ---------------------------------------------------------------- fragments */
 
@@ -337,8 +204,8 @@ export interface Cue {
  * what a viewer sees as the picture standing still. Read off the emitted
  * script (`tl.fromTo(..., {...duration...}, at)`), so it measures what ships.
  * A tween with no duration runs GSAP's default 0.5s. Pure; the tests hold
- * every kind to a ceiling with it (r1 of the EM-SNN deck had 13 stretches of
- * 6–9s where nothing moved).
+ * every kind to a ceiling with it (r1 of an early literal deck had 13 stretches
+ * of 6–9s where nothing moved).
  */
 export function stillSpans(script: string, from: number, to: number): Array<[number, number]> {
   const runs: Array<[number, number]> = [];
@@ -372,7 +239,7 @@ export function stillSpans(script: string, from: number, to: number): Array<[num
  * region. Pure, read off what ships; panels are taken at the scene's top level,
  * so it is for kinds whose pictures are panels (the step-by-step kinds).
  *
- * r2 of the EM-SNN deck opened the dark channel on two small tiles in a corner
+ * r2 of an early literal deck opened a scene on two small tiles in a corner
  * with ~70% of the frame empty for 13s; the stillness test could not see it.
  */
 export function pictureFill(
@@ -466,8 +333,6 @@ export function slotText(
     throw new Error(
       `literal: ${kind} reads slot "${slot}", which its LITERAL_KIND_DOCS entry does not declare`,
     );
-  if (decl.number)
-    throw new Error(`literal: ${kind} slot "${slot}" is a number; read it with slotNumber`);
   const text = labels[slot];
   if (text === undefined || !text.trim()) {
     if (decl.optional) return "";
@@ -480,34 +345,6 @@ export function slotText(
       );
     return String(vars[name]);
   });
-}
-
-/** A number slot's value: a fact of the paper the scene computes with. Undefined only when optional and absent. */
-export function slotNumber(
-  kind: LiteralKindName,
-  labels: Readonly<Record<string, string>>,
-  slot: string,
-): number | undefined {
-  const decl = literalSlotsOf(kind)[slot];
-  if (!decl?.number) throw new Error(`literal: ${kind} has no number slot "${slot}"`);
-  const text = labels[slot];
-  if (text === undefined || !text.trim()) {
-    if (decl.optional) return undefined;
-    throw new Error(`literal: ${kind} needs the number slot "${slot}" (${decl.what})`);
-  }
-  const v = Number(text.trim());
-  if (!Number.isFinite(v))
-    throw new Error(`literal: ${kind} slot "${slot}" must be a number, got "${text}"`);
-  return v;
-}
-
-/** `slotNumber` for a required slot. */
-export function needNumber(
-  kind: LiteralKindName,
-  labels: Readonly<Record<string, string>>,
-  slot: string,
-): number {
-  return slotNumber(kind, labels, slot) as number;
 }
 
 export const LABEL = TYPE_SCALE.body; // 44

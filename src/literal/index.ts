@@ -4,7 +4,7 @@
  *
  * WHY THIS EXISTS. The bespoke pass asks Codex for a unique *metaphor* per beat
  * (`devicePrompt`), so "weak features are suppressed" came back as a red gate
- * in a canyon. A viewer watching it learns nothing about spikes. Here the beat
+ * in a canyon. A viewer watching it learns nothing about the mechanism. Here the beat
  * names a mechanism (`kind`) and the one thing the viewer must be able to
  * explain afterwards (`takeaway`); the build computes the mechanism's real
  * intermediate layers from the deck's own picture, and the scene shows them
@@ -15,9 +15,12 @@
  * is plain TypeScript, and the layers are written back as files under
  * `assets/literal/`. Nothing here runs in the page but tweens.
  *
- * WHAT IS EXACT AND WHAT IS ILLUSTRATIVE is stated in each kind's own module
- * (src/literal/kinds/<name>.ts); the kinds are listed in `registry.ts` and
- * share the contract in `kind.ts` and the raster maths in `kit.ts`.
+ * WHAT IS EXACT AND WHAT IS EXAMPLE is stated in each verb's own module
+ * (src/literal/kinds/<verb>.ts); the verbs and kinds are listed in
+ * `registry.ts`, share the contract in `kind.ts`, the op library in `ops.ts`
+ * and the stage they are drawn on in `kinds/stage.ts`. No module knows a
+ * paper: a verb's parameters are the source's numbers, grounded by the truth
+ * gate (src/plan/coverage.ts).
  *
  * The emitted fragment goes through the same shell as a Codex-written scene
  * (`bespokeScene`): the deck keeps its chrome, holds and handoffs.
@@ -39,13 +42,13 @@ import { planTiming, type Timing } from "../render/timing.js";
 import {
   type Beat,
   type Format,
+  GENERATED_FIGURE_PREFIX,
   LITERAL_KIND_NAMES,
   type LiteralKind,
   literalSlotProblems,
   type Source,
   type Storyboard,
 } from "../types.js";
-import { isMechanism } from "./kinds/mechanisms.js";
 import { type Cue, type Layers, round3 } from "./kit.js";
 import { KINDS } from "./registry.js";
 
@@ -59,8 +62,10 @@ const specSchema = z.object({
   labels: z.record(z.string(), z.string()).default({}),
   /** This scene's picture, relative to the plan file; absent means the plan's `image`. */
   image: z.string().min(1).optional(),
-  /** A data kind's own content (table rows, scale values, recap beats): the storyboard's `literal`. */
+  /** The storyboard's `literal`: the scene's own content. */
   data: z.unknown().optional(),
+  /** The source's own figures a scene may show, by id → absolute file. */
+  assets: z.record(z.string(), z.string()).optional(),
 });
 export type LiteralSpec = z.infer<typeof specSchema> & { kind: LiteralKind };
 
@@ -99,30 +104,42 @@ export function literalPlanOf(
   const byId = new Map(storyboard.beats.map((b) => [b.id, b]));
   const figures = new Map(source.figures.map((f) => [f.id, f]));
   const beats: LiteralPlan["beats"] = {};
+  // The source's own figures (never one `illustrate` drew): what a flow stage may show unedited.
+  const own = Object.fromEntries(
+    source.figures
+      .filter((f) => !f.id.startsWith(GENERATED_FIGURE_PREFIX))
+      .map((f) => [f.id, resolve(assetsDir, f.src)]),
+  );
   for (const beat of storyboard.beats) {
     const lit = beat.literal;
     if (!lit) continue;
     let image: string | undefined;
-    // A picture kind always names one; attention and splatting may (patches, a plane of pixels).
-    if ("picture" in lit && lit.picture) {
-      const owner = byId.get(lit.picture);
+    const pic = "picture" in lit ? lit.picture : undefined;
+    if (pic) {
+      const owner = byId.get(pic);
       const fig = owner && figures.get(figureOf(owner) ?? "");
       if (!fig)
         throw new Error(
-          `literal: ${beat.id} runs on the picture of "${lit.picture}", which has no figure in the source. Run \`decksmith illustrate\` first, or fix \`picture\`.`,
+          `literal: ${beat.id} runs on the picture of "${pic}", which has no figure in the source. Run \`decksmith illustrate\` first, or fix \`picture\`.`,
         );
       image = resolve(assetsDir, fig.src);
     }
+    const shows =
+      lit.kind === "flow" ? lit.stages.flatMap((s) => (s.figure ? [s.figure] : [])) : [];
+    for (const id of shows)
+      if (!own[id])
+        throw new Error(
+          `literal: ${beat.id} shows figure "${id}", which is not one of the source's own figures`,
+        );
     beats[beat.id] = {
       kind: lit.kind,
       takeaway: beat.takeaway?.trim() || beat.intent,
       labels: Object.fromEntries(lit.labels.map((l) => [l.slot, l.text])),
       ...(image ? { image } : {}),
-      // The literal itself for every kind that reads it: the data kinds and the mechanism
-      // kinds (src/literal/kinds/mechanisms.ts), whose `layers` read their fields with or
-      // without a picture. Decided by the kind, never by which fields a schema happens to
-      // default; the other picture kinds' plans are as they were.
-      ...(image && KINDS[lit.kind].picture && !isMechanism(lit.kind) ? {} : { data: lit }),
+      data: lit,
+      ...(shows.length
+        ? { assets: Object.fromEntries(shows.map((id) => [id, own[id] as string])) }
+        : {}),
     };
   }
   return { beats };
@@ -275,9 +292,7 @@ export async function literalPass(
     const region = bespokeRegion(beat, ctxFor("s0"), eyebrow);
     const cues = cuesOf.get(beat.id) ?? [];
     const impl = KINDS[spec.kind];
-    const rel = spec.image ?? plan.image;
-    if (impl.picture && !rel)
-      throw new Error(`literal: ${beat.id} (${spec.kind}) has no picture to compute from`);
+    const rel = spec.image;
     const image = rel ? resolve(input.planDir, rel) : undefined;
     const layers = await impl.layers({
       beatId: beat.id,

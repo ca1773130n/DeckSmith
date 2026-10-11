@@ -57,6 +57,15 @@ interface Paint {
   /** Stable across frames, so the framework can tween one primitive from frame to frame. */
   id?: string;
   opacity?: number;
+  /**
+   * STAGING (src/literal/kinds/stage.ts). `at` ≥ 1: hidden when its frame
+   * opens, revealed as the frame's `at`-th sub-step, spread over the frame's
+   * sentence; `wipe`: revealed left to right by a clip, not a fade; `cam`: part
+   * of the frame's material the camera moves over once the reveals are done.
+   */
+  at?: number;
+  wipe?: boolean;
+  cam?: boolean;
 }
 
 export type Prim =
@@ -153,6 +162,8 @@ export type Prim =
       layer: string;
       /** Nearest-neighbour upscaling (a patch grid stays a grid). */
       pixelated?: boolean;
+      /** Keep the picture's own aspect inside the box (a figure, a layer of unknown size). */
+      fit?: boolean;
     });
 
 /** A raster layer: a picture, or a scalar map drawn in a theme colour with alpha = value × `alpha`. */
@@ -172,6 +183,8 @@ export interface MechanismResult {
   data: Record<string, unknown>;
   /** Values the takeaway template names. */
   vars: Record<string, string | number>;
+  /** What a later verb may take as input (src/literal/kit.ts `Material`). */
+  material?: import("../kit.js").Material;
 }
 
 export interface Region {

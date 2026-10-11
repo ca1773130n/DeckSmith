@@ -200,7 +200,7 @@ export function textHalo(prims: readonly Prim[], index: number, theme: Theme): R
 /** How a raster layer is drawn: a picture as itself, a heat mask in a theme colour at an opacity. */
 export type LayerPaint = { mask: Role; alpha: number } | undefined;
 
-interface Draw {
+export interface Draw {
   theme: Theme;
   href: (layer: string) => string;
   text: (slot: string, vars: Readonly<Record<string, string | number>>) => string;
@@ -209,7 +209,8 @@ interface Draw {
   ids: string;
 }
 
-function prim(prims: readonly Prim[], index: number, d: Draw): string {
+/** One primitive as SVG; `prims` and `index` place it among what is drawn under it. */
+export function primSvg(prims: readonly Prim[], index: number, d: Draw): string {
   const { theme, href, text } = d;
   const p = prims[index] as Prim;
   const op = p.opacity !== undefined ? ` opacity="${n2(p.opacity)}"` : "";
@@ -267,7 +268,7 @@ function prim(prims: readonly Prim[], index: number, d: Draw): string {
     case "image": {
       const box = `x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}"`;
       const pix = p.pixelated ? ' style="image-rendering:pixelated"' : "";
-      const img = `<image ${box} preserveAspectRatio="none" href="${esc(href(p.layer))}"${pix}/>`;
+      const img = `<image ${box} preserveAspectRatio="${p.fit ? "xMidYMid meet" : "none"}" href="${esc(href(p.layer))}"${pix}/>`;
       const paint = d.paint(p.layer);
       if (!paint) return img.replace("/>", `${op}/>`);
       // A heat layer: white where the value is, alpha = value; the theme colours it.
@@ -303,7 +304,7 @@ export function frameSvg(
     paint: opts.paint ?? (() => undefined),
     ids: opts.ids ?? `${frame.id}-`,
   };
-  const body = frame.prims.map((_, i) => prim(frame.prims, i, d)).join("\n");
+  const body = frame.prims.map((_, i) => primSvg(frame.prims, i, d)).join("\n");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${esc(theme.fontStack)}"${opts.attrs ?? ""}>
 ${opts.ground ? `<rect width="100%" height="100%" fill="${theme.bg}"/>\n` : ""}<g transform="translate(${pad} ${pad})">
 ${body}

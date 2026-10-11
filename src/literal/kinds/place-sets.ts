@@ -117,15 +117,17 @@ function ruleStyle(k: number, R: number, theme: Theme) {
   return { rule: `8px solid ${theme.muted}`, ink: theme.fg };
 }
 
-export const scopeKind: KindImpl = {
+/** place, form sets: what a claim rests on and what lies outside it. */
+export const setsForm: KindImpl = {
   picture: false,
   async layers() {
     return { files: {}, data: {} };
   },
   fragment(_L, { width: W, height: H }, cues, spec, theme) {
-    const d = spec.data as ScopeData;
+    const d = (spec.data as { sets?: ScopeData }).sets;
+    if (!d) throw new Error("literal: place form sets needs `sets`");
     const R = d.rings.length;
-    const caption = lab("scope", spec, "caption");
+    const caption = lab("place", spec, "caption");
     const L = scopeLayout(d, W, H, (t, s) => widthOf(t, s, theme), caption ? 56 : 0);
     const bottom = H - (caption ? 56 : 0) - 8;
     const parts = L.parts

@@ -10,13 +10,15 @@ interface ScaleData {
   tile: boolean;
 }
 
-export const scaleKind: KindImpl = {
+/** place, measure length: reported quantities as lengths to scale. */
+export const lengthsForm: KindImpl = {
   picture: false,
   async layers() {
     return { files: {}, data: {} };
   },
   fragment(_L, { width: W, height: H }, cues, spec, theme) {
-    const s = spec.data as ScaleData;
+    const s = (spec.data as { lengths?: ScaleData }).lengths;
+    if (!s) throw new Error("literal: place measure length needs `lengths`");
     const tones = [theme.tones.a, theme.tones.b, theme.tones.c, theme.tones.d];
     const nameW =
       Math.max(...s.groups.flatMap((g) => g.items.map((it) => widthOf(it.label, LABEL, theme)))) +
@@ -30,7 +32,7 @@ export const scaleKind: KindImpl = {
     const barX = nameW;
     const barW = W - nameW - valW;
     const tileH = 120;
-    const caption = lab("scale", spec, "caption");
+    const caption = lab("place", spec, "caption");
     const tiled = (g: ScaleData["groups"][number]) =>
       s.tile && tiles(g.items.map((it) => Number(it.value))) ? tileH : 0;
     // A row is as tall as the region allows, between a label's height and a generous 150px, and

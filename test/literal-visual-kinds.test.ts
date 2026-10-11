@@ -1,24 +1,20 @@
 /**
- * The visual forms a table would otherwise take (src/literal/kinds/): prior-work,
- * margins, scope and ablation. Their pure computation, their layout (text never
+ * The word forms a table would otherwise take (src/literal/kinds/place-*.ts and
+ * prior-work): place margin, place sets, place combos and prior-work. Their pure computation, their layout (text never
  * under 40px, everything inside the region, every element a tween names
  * exists), and their pacing on the EM-SNN deck's own sentence cues for the
  * beats they replace. Synthetic layers; ffmpeg only for prior-work's pictures.
  */
-import { execFile } from "node:child_process";
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { Theme } from "../src/emit/kit.js";
-import { visualProblems } from "../src/literal/check.js";
+import { drawProblems } from "../src/literal/check.js";
 import { literalFragment } from "../src/literal/index.js";
 import { widthOf } from "../src/literal/kind.js";
-import { combinations, resultOf } from "../src/literal/kinds/ablation.js";
-import { axisSpan, marginOf, marginsOf } from "../src/literal/kinds/margins.js";
-import { binarySpikes, checkLanes } from "../src/literal/kinds/prior-work.js";
-import { type ScopePart, scopeLayout } from "../src/literal/kinds/scope.js";
-import { type Cue, type Layers, stillSpans, toRgba, writeRaster } from "../src/literal/kit.js";
+import { combinations, resultOf } from "../src/literal/kinds/place-combos.js";
+import { axisSpan, marginOf, marginsOf } from "../src/literal/kinds/place-margins.js";
+import { type ScopePart, scopeLayout } from "../src/literal/kinds/place-sets.js";
+import { checkLanes } from "../src/literal/kinds/prior-work.js";
+import { type Cue, type Layers, stillSpans } from "../src/literal/kit.js";
 import { KINDS } from "../src/literal/registry.js";
 import { type Literal, type LiteralKind, literalSchema } from "../src/types.js";
 import { slotsFor } from "./literal-fixtures.js";
@@ -42,113 +38,129 @@ const c = (pairs: Array<[number, number]>): Cue[] => pairs.map(([t0, t1]) => ({ 
 
 const PRIOR = literalSchema.parse({
   kind: "prior-work",
-  picture: "b02-haze",
   lanes: [
     {
       family: "사전 기반",
-      members: "DCP · Color Attenuation Prior · Hazelines",
-      shows: "dark-channel",
+      members: "Prior-A · Prior-B · Prior-C",
+      from: "b04-structure",
       gap: "가정이 깨지면 실패할 수 있음",
     },
     {
       family: "딥러닝",
-      members: "DehazeNet · DehazeFormer · SFRDP-Net",
-      shows: "numbers",
+      members: "Net-A · Net-B · Net-C",
       numbers: [
-        { label: "SFRDP-Net 보고 에너지", value: "175.21 mJ" },
-        { label: "SFRDP-Net 파라미터", value: "5.08 M" },
+        { label: "Net-C 보고 에너지", value: "175.21 mJ" },
+        { label: "Net-C 파라미터", value: "5.08 M" },
       ],
       gap: "상당한 연산량 · 경량화하면 표현력 희생 가능",
     },
     {
       family: "SNN",
       members: "빗줄기 제거 · 초해상도 · 탐지",
-      shows: "spikes",
-      gap: "밀집 복원, 특히 원격탐사 안개 제거는 덜 탐구됨",
+      from: "b06-stream",
+      gap: "밀집 복원은 덜 탐구됨",
     },
   ],
   labels: [],
 });
 
 const MARGINS = literalSchema.parse({
-  kind: "margins",
-  ours: "EM-SNN",
-  metrics: [
-    { name: "PSNR", lowerIsBetter: false },
-    { name: "SSIM", lowerIsBetter: false },
-  ],
-  settings: [
-    {
-      name: "LHID",
-      values: [
-        { ours: "30.56", best: "29.73", rival: "DehazeFormer-b" },
-        { ours: "0.9106", best: "0.8964", rival: "DehazeFormer-b" },
-      ],
-    },
-    {
-      name: "DHID",
-      values: [
-        { ours: "28.83", best: "28.89", rival: "SFRDP-Net" },
-        { ours: "0.9073", best: "0.9070", rival: "SFRDP-Net" },
-      ],
-    },
-    {
-      name: "RICE1",
-      values: [
-        { ours: "35.99", best: "37.38", rival: "SFRDP-Net" },
-        { ours: "0.9630", best: "0.9650", rival: "SFSNiD · SFRDP-Net" },
-      ],
-    },
-    {
-      name: "RICE2",
-      values: [
-        { ours: "36.25", best: "35.45", rival: "SFRDP-Net" },
-        { ours: "0.9406", best: "0.9140", rival: "4KDehazing" },
-      ],
-    },
-  ],
+  kind: "place",
+  form: "plane",
+  measure: "margin",
+  margins: {
+    ours: "EM-SNN",
+    metrics: [
+      { name: "PSNR", lowerIsBetter: false },
+      { name: "SSIM", lowerIsBetter: false },
+    ],
+    settings: [
+      {
+        name: "LHID",
+        values: [
+          { ours: "30.56", best: "29.73", rival: "DehazeFormer-b" },
+          { ours: "0.9106", best: "0.8964", rival: "DehazeFormer-b" },
+        ],
+      },
+      {
+        name: "DHID",
+        values: [
+          { ours: "28.83", best: "28.89", rival: "SFRDP-Net" },
+          { ours: "0.9073", best: "0.9070", rival: "SFRDP-Net" },
+        ],
+      },
+      {
+        name: "RICE1",
+        values: [
+          { ours: "35.99", best: "37.38", rival: "SFRDP-Net" },
+          { ours: "0.9630", best: "0.9650", rival: "SFSNiD · SFRDP-Net" },
+        ],
+      },
+      {
+        name: "RICE2",
+        values: [
+          { ours: "36.25", best: "35.45", rival: "SFRDP-Net" },
+          { ours: "0.9406", best: "0.9140", rival: "4KDehazing" },
+        ],
+      },
+    ],
+  },
   labels: [],
 });
 
 const DATASETS = literalSchema.parse({
-  kind: "scope",
-  rings: [
-    { label: "수치 결과", items: ["LHID", "DHID", "RICE1", "RICE2"] },
-    { label: "정성 비교만", items: ["SateHaze1K"] },
-    { label: "결과 없음", items: ["RRSHID"] },
-  ],
+  kind: "place",
+  form: "sets",
+  sets: {
+    rings: [
+      { label: "수치 결과", items: ["LHID", "DHID", "RICE1", "RICE2"] },
+      { label: "정성 비교만", items: ["SateHaze1K"] },
+      { label: "결과 없음", items: ["RRSHID"] },
+    ],
+  },
   labels: [],
 });
 
 const LIMITS = literalSchema.parse({
-  kind: "scope",
-  rings: [
-    { label: "표로 뒷받침", items: ["LHID", "DHID", "RICE1", "RICE2"] },
-    {
-      label: "보고되지 않음",
-      items: ["분포 변화 시험", "구성 요소 제거 실험", "반복 실행 분산", "에너지 산출 절차"],
-    },
-    { label: "입증되지 않음", items: ["다른 센서", "다른 지역", "다른 영상 크기", "실제 안개"] },
-  ],
+  kind: "place",
+  form: "sets",
+  sets: {
+    rings: [
+      { label: "표로 뒷받침", items: ["LHID", "DHID", "RICE1", "RICE2"] },
+      {
+        label: "보고되지 않음",
+        items: ["분포 변화 시험", "구성 요소 제거 실험", "반복 실행 분산", "에너지 산출 절차"],
+      },
+      { label: "입증되지 않음", items: ["다른 센서", "다른 지역", "다른 영상 크기", "실제 안개"] },
+    ],
+  },
   labels: [],
 });
 
 const FUTURE = literalSchema.parse({
-  kind: "ablation",
-  components: ["TM-LIF", "SSM"],
-  reported: [{ with: ["TM-LIF", "SSM"], result: "LHID 30.56 · 0.9106" }],
-  settings: [
-    { name: "T", value: "1" },
-    { name: "D", value: "4" },
-    { name: "α", value: "0.6" },
-    { name: "β", value: "0.25" },
-    { name: "μ", value: "0.9" },
-    { name: "구조 단서", value: "Sobel" },
-    { name: "하드웨어", value: "RTX 4090 GPU" },
-    { name: "정량 평가", value: "LHID · DHID · RICE1 · RICE2" },
-  ],
+  kind: "place",
+  form: "combos",
+  combos: {
+    components: ["TM-LIF", "SSM"],
+    reported: [{ with: ["TM-LIF", "SSM"], result: "LHID 30.56 · 0.9106" }],
+    settings: [
+      { name: "T", value: "1" },
+      { name: "D", value: "4" },
+      { name: "α", value: "0.6" },
+      { name: "β", value: "0.25" },
+      { name: "μ", value: "0.9" },
+      { name: "구조 단서", value: "Sobel" },
+      { name: "하드웨어", value: "RTX 4090 GPU" },
+      { name: "정량 평가", value: "LHID · DHID · RICE1 · RICE2" },
+    ],
+  },
   labels: [],
 });
+
+type PlaceLit = Extract<Literal, { kind: "place" }>;
+/** The word form's own data, as its renderer reads it. */
+const sub = <K extends "margins" | "combos" | "sets">(lit: Literal, k: K) =>
+  (lit as PlaceLit)[k] as NonNullable<PlaceLit[K]>;
 
 const labelsOf = (kind: LiteralKind): Record<string, string> => {
   const all = slotsFor(kind);
@@ -162,7 +174,9 @@ const draw = (lit: Literal, cues: Cue[], layers?: Layers, r = region) =>
     layers ?? {
       files:
         lit.kind === "prior-work"
-          ? { in: "in.jpg", ...Object.fromEntries(lit.lanes.map((_, k) => [`l${k}`, `l${k}.png`])) }
+          ? Object.fromEntries(
+              lit.lanes.flatMap((l, k) => (l.from ? [[`l${k}`, `l${k}.png`]] : [])),
+            )
           : {},
       data: {},
     },
@@ -237,7 +251,7 @@ describe("margins: the source's numbers, as positions", () => {
   });
 
   it("refuses a setting with a value missing, one metric too many, or a single setting", () => {
-    const d = MARGINS as Extract<Literal, { kind: "margins" }>;
+    const d = sub(MARGINS, "margins");
     expect(marginsOf(d).map((r) => r.map((m) => m.text))).toEqual([
       ["+0.83", "+0.0142"],
       ["−0.06", "+0.0003"],
@@ -259,7 +273,7 @@ describe("margins: the source's numbers, as positions", () => {
   });
 
   it("scales each axis to its own largest margin", () => {
-    const M = marginsOf(MARGINS as never);
+    const M = marginsOf(sub(MARGINS, "margins"));
     expect(axisSpan(M, 0)).toBeCloseTo(1.39 * 1.18, 6);
     expect(axisSpan(M, 1)).toBeCloseTo(0.0266 * 1.18, 6);
   });
@@ -288,13 +302,15 @@ describe("margins: the source's numbers, as positions", () => {
   });
 
   it("draws one metric as a strip, one row per setting", () => {
+    const m = sub(MARGINS, "margins");
     const one = literalSchema.parse({
       ...MARGINS,
-      metrics: [{ name: "PSNR", lowerIsBetter: false }],
-      settings: (MARGINS as Extract<Literal, { kind: "margins" }>).settings.map((s) => ({
-        name: s.name,
-        values: [s.values[0]],
-      })),
+      form: "strip",
+      margins: {
+        ...m,
+        metrics: [{ name: "PSNR", lowerIsBetter: false }],
+        settings: m.settings.map((s) => ({ name: s.name, values: [s.values[0]] })),
+      },
     });
     const f = draw(one, CASES[1]?.[2] as Cue[]);
     expect(f.markup).not.toContain('id="SCENEID-l-y"');
@@ -304,7 +320,7 @@ describe("margins: the source's numbers, as positions", () => {
 
 describe("scope: one region split into parts that exclude each other", () => {
   it("draws the parts side by side, never one inside another, each item inside its own part", () => {
-    const d = LIMITS as Extract<Literal, { kind: "scope" }>;
+    const d = sub(LIMITS, "sets");
     const L = scopeLayout(d, region.width, region.height, (t, s) => widthOf(t, s, theme));
     for (let k = 0; k < L.parts.length - 1; k++) {
       const a = L.parts[k] as ScopePart;
@@ -358,7 +374,7 @@ describe("ablation: the experiments not run, as holes", () => {
     expect(combinations(["A", "B"])).toEqual([["A", "B"], ["A"], ["B"], []]);
     expect(combinations(["A"])).toEqual([["A"], []]);
     expect(() => combinations(["A", "B", "C"])).toThrow(/one or two components/);
-    const d = FUTURE as Extract<Literal, { kind: "ablation" }>;
+    const d = sub(FUTURE, "combos");
     expect(resultOf(d, ["SSM", "TM-LIF"])).toBe("LHID 30.56 · 0.9106");
     expect(resultOf(d, ["SSM"])).toBeUndefined();
     expect(() => resultOf({ ...d, reported: [{ with: ["PRB"], result: "x" }] }, [])).toThrow(
@@ -381,7 +397,10 @@ describe("ablation: the experiments not run, as holes", () => {
   });
 
   it("outlines a proposal that is neither a combination nor a setting, after the settings", () => {
-    const lit = literalSchema.parse({ ...FUTURE, others: ["뉴로모픽 하드웨어 측정"] });
+    const lit = literalSchema.parse({
+      ...FUTURE,
+      combos: { ...sub(FUTURE, "combos"), others: ["뉴로모픽 하드웨어 측정"] },
+    });
     const f = draw(lit, CASES[4]?.[2] as Cue[]);
     expect(f.markup).toMatch(/id="SCENEID-o0" style="[^"]*border:3px dashed/);
     const at = (id: string) =>
@@ -405,7 +424,7 @@ describe("prior-work: families by what they do", () => {
         ...d,
         lanes: [{ ...(lanes[1] as object), numbers: [] } as never, lanes[0] as never],
       }),
-    ).toThrow(/shows the source's numbers and gives none/);
+    ).toThrow(/shows neither an earlier scene/);
     expect(() =>
       checkLanes({
         ...d,
@@ -417,19 +436,6 @@ describe("prior-work: families by what they do", () => {
     ).toThrow(/its numbers would not be drawn/);
   });
 
-  it("draws the family's binary spikes, not the paper's own multi-level quantizer", () => {
-    const w = 32;
-    const h = 24;
-    const l = new Float32Array(w * h).map(
-      (_, i) => (i % w > w / 2 ? 0.8 : 0.2) + ((i * 7) % 5) / 50,
-    );
-    const s = binarySpikes(l);
-    // Fired or not: two levels only, and the bright half fires.
-    expect([...new Set(s)].sort()).toEqual([0, 1]);
-    expect(s[w - 1]).toBe(1);
-    expect(s[0]).toBe(0);
-  });
-
   it("draws no output for a learned family: only its numbers", () => {
     const f = draw(PRIOR, CASES[0]?.[2] as Cue[]);
     const lane1 = /id="SCENEID-lane1"[\s\S]*?(?=<div id="SCENEID-lane2")/.exec(f.markup)?.[0] ?? "";
@@ -439,13 +445,13 @@ describe("prior-work: families by what they do", () => {
     expect(f.markup).toContain('id="SCENEID-v2-out"');
   });
 
-  it("asks for its tags: computed on a classical lane, example on spikes, reported on numbers", () => {
+  it("asks for its tags: example on a lane computed on example material, reported on numbers", () => {
     const labels = { ...labelsOf("prior-work") };
     delete labels.example;
     expect(() =>
       literalFragment(
         "prior-work",
-        { files: { in: "a", l0: "b", l2: "c" }, data: {} },
+        { files: { l0: "b", l2: "c" }, data: {} },
         region,
         [],
         { labels, data: PRIOR } as never,
@@ -521,81 +527,53 @@ describe("every visual kind obeys the deck's invariants and fits its region", ()
 
     it(`${name}: the plan-time check passes what the build draws`, () => {
       const labels = Object.entries(labelsOf(lit.kind)).map(([slot, text]) => ({ slot, text }));
-      expect(visualProblems({ ...lit, labels } as Literal, region, theme)).toEqual([]);
+      expect(drawProblems({ ...lit, labels } as Literal, region, theme)).toEqual([]);
     });
   }
 
   it("the plan-time check names what the build would refuse", () => {
-    const labels = Object.entries(labelsOf("margins")).map(([slot, text]) => ({ slot, text }));
+    const labels = Object.entries(labelsOf("place")).map(([slot, text]) => ({ slot, text }));
+    const m = sub(MARGINS, "margins");
     const bad = {
       ...MARGINS,
-      settings: (MARGINS as Extract<Literal, { kind: "margins" }>).settings.slice(0, 1),
+      margins: { ...m, settings: m.settings.slice(0, 1) },
       labels,
     } as Literal;
-    expect(visualProblems(bad, region, theme)).toEqual([
+    expect(drawProblems(bad, region, theme)).toEqual([
       expect.stringMatching(/at least two settings/),
     ]);
   });
 });
 
-/* ------------------------------------- prior-work's pictures, through ffmpeg */
+/* ------------------------------------------- prior-work's earlier layers */
 
-const ffmpeg = await new Promise<boolean>((done) =>
-  execFile("ffmpeg", ["-version"], (err) => done(!err)),
-);
-
-describe.skipIf(!ffmpeg)(
-  "prior-work runs its classical lanes on a real picture",
-  { timeout: 60_000 },
-  () => {
-    let dir = "";
-    let pic = "";
-    beforeAll(async () => {
-      dir = await mkdtemp(join(tmpdir(), "literal-prior-"));
-      const w = 640;
-      const h = 480;
-      const d = new Float32Array(w * h * 3);
-      for (let i = 0; i < w * h; i++) {
-        const v = (((i % w) * 7 + Math.floor(i / w) * 13) % 17) / 16;
-        d.set([v, 0.6 * v, 0.3], i * 3);
-      }
-      pic = join(dir, "pic.png");
-      await writeRaster(pic, w, h, toRgba({ w, h, d }));
-    });
-    afterAll(async () => {
-      await rm(dir, { recursive: true, force: true });
+describe("prior-work brings back what earlier scenes computed", () => {
+  const earlier = new Map([
+    [
+      "b04-structure",
+      { kind: "operate", layers: { files: { thumb: "b04-s5.png" }, data: {} }, labels: {} },
+    ],
+    [
+      "b06-stream",
+      { kind: "evolve", layers: { files: { thumb: "b06-t7.jpg" }, data: {} }, labels: {} },
+    ],
+  ]);
+  const run = (data: unknown, e = earlier) =>
+    KINDS["prior-work"].layers({
+      beatId: "b",
+      dir: "/nowhere",
+      region,
+      spec: { labels: labelsOf("prior-work"), data },
+      theme,
+      earlier: e,
     });
 
-    it("writes the hazy input and one output per running lane, and nothing for a learned one", async () => {
-      const L = await KINDS["prior-work"].layers({
-        beatId: "b",
-        image: pic,
-        dir,
-        region,
-        spec: { labels: labelsOf("prior-work"), data: PRIOR },
-        theme,
-        earlier: new Map(),
-      });
-      expect(Object.keys(L.files).sort()).toEqual(["in", "l0", "l2", "thumb"]);
-      for (const f of Object.values(L.files))
-        await expect(stat(join(dir, f))).resolves.toBeTruthy();
-    });
+  it("takes each `from` lane's layer, and nothing for a numbers lane", async () => {
+    const L = await run(PRIOR);
+    expect(L.files).toEqual({ l0: "b04-s5.png", l2: "b06-t7.jpg", thumb: "b04-s5.png" });
+  });
 
-    it("needs no picture when every lane shows numbers, and refuses a running lane without one", async () => {
-      const d = PRIOR as Extract<Literal, { kind: "prior-work" }>;
-      const numbersOnly = { ...d, lanes: [d.lanes[1], { ...(d.lanes[1] as object), family: "x" }] };
-      const run = (data: unknown, image?: string) =>
-        KINDS["prior-work"].layers({
-          beatId: "b",
-          ...(image ? { image } : {}),
-          dir,
-          region,
-          spec: { labels: labelsOf("prior-work"), data },
-          theme,
-          earlier: new Map(),
-        });
-      await expect(run(numbersOnly)).resolves.toEqual({ files: {}, data: {} });
-      await expect(run(PRIOR)).rejects.toThrow(/runs a method on the picture and has none/);
-    });
-  },
-);
+  it("refuses a lane that names a scene which computed no picture", async () => {
+    await expect(run(PRIOR, new Map())).rejects.toThrow(/computed no picture before it/);
+  });
+});

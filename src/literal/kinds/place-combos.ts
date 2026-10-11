@@ -43,14 +43,16 @@ export function resultOf(d: AblationData, keep: readonly string[]): string | und
   return undefined;
 }
 
-export const ablationKind: KindImpl = {
+/** place, form combos: the experiments a source did not run, as empty cells. */
+export const combosForm: KindImpl = {
   picture: false,
   async layers() {
     return { files: {}, data: {} };
   },
   fragment(_L, { width: W, height: H }, cues, spec, theme) {
-    const K = "ablation";
-    const d = spec.data as AblationData;
+    const K = "place";
+    const d = (spec.data as { combos?: AblationData }).combos;
+    if (!d) throw new Error("literal: place form combos needs `combos`");
     const combos = combinations(d.components);
     const on = lab(K, spec, "on");
     const off = lab(K, spec, "off");

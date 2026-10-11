@@ -11,7 +11,7 @@ import type { Fragment } from "../bespoke/contract.js";
 import type { Theme } from "../emit/kit.js";
 import { faceOf, textWidth } from "../emit/svg.js";
 import type { LiteralKind } from "../types.js";
-import { type Cue, type Layers, label, needNumber, px, r3, slotText, type Tl } from "./kit.js";
+import { type Cue, type Layers, label, px, r3, slotText, type Tl } from "./kit.js";
 
 /** What a kind is given: its picture (picture kinds), its data (data kinds), the earlier scenes (recap). */
 export interface KindInput {
@@ -33,8 +33,10 @@ export interface KindInput {
 
 export interface KindSpec {
   labels: Record<string, string>;
-  /** The storyboard's `literal` object, for a data kind. */
+  /** The storyboard's `literal` object. */
   data?: unknown;
+  /** The source's own figures a scene may show, by id → absolute file. */
+  assets?: Record<string, string>;
 }
 
 export interface KindImpl {
@@ -60,8 +62,6 @@ export const lab = (
   slot: string,
   vars?: Readonly<Record<string, string | number>>,
 ) => slotText(kind, spec.labels, slot, vars);
-export const num = (kind: LiteralKind, spec: KindSpec, slot: string) =>
-  needNumber(kind, spec.labels, slot);
 export const LAB_H = 60;
 export const even = (n: number) => 2 * Math.round(n / 2);
 
@@ -164,7 +164,7 @@ export function wrap(
   theme: Theme,
   weight = 600,
 ): string[] {
-  // A separator never starts a line: "SFSNiD · SFRDP-Net" breaks after the "·".
+  // A separator never starts a line: "Method-A · Method-B" breaks after the "·".
   const words = text
     .split(/\s+/)
     .filter(Boolean)
