@@ -1359,10 +1359,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      best OTHER method (\`margins\`: ours, metrics {name,
                      lowerIsBetter}, settings {name, values [{ours, best,
                      rival}]}) — a strip for one metric, a plane for two.
-                     \`measure\` length: reported quantities as lengths to scale
-                     (\`lengths\`: groups {label, unit, items}, tile — copies of
-                     the shortest laid along the longest with their quotient,
-                     only where the source states that ratio). \`form\`
+                     \`measure\` length: reported quantities as AREAS to scale,
+                     never bars (\`lengths\`: groups {label, unit, items}): whole
+                     counts up to 100 as that many unit cells, other values as
+                     squares; \`tile\` prints the quotient of the largest by the
+                     smallest, only where the source states that ratio. \`form\`
                      combos: experiments not run as empty cells (\`combos\`:
                      components, reported {with, result}, settings {name,
                      value}, others). \`form\` sets: what was and was not
