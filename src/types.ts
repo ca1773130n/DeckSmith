@@ -1340,7 +1340,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      each a tile, the one being spoken also large, then the
                      \`result\` in its place — the summary told with the
                      pictures the viewer has already seen. Takes \`beats\`
-                     (earlier literal beats).`,
+                     (earlier literal beats that computed a picture: haze,
+                     spikes, dark-channel, backbone, channel-threshold,
+                     fixed-filters, sobel, or a prior-work that runs a lane —
+                     never a data kind such as scale or margins).`,
     slots: {
       caption: { what: 'one word per tile, joined by "→"', optional: true },
       result: { what: "what the source reports came of it, in its own numbers", optional: true },

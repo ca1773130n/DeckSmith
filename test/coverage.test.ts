@@ -683,6 +683,22 @@ describe("literalFindings", () => {
     ]);
   });
 
+  it("refuses a recap of a scene that leaves no picture to bring back", () => {
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "scale",
+        groups: [{ label: "PSNR", unit: "dB", items: [{ label: "EM-SNN", value: "30.56" }] }],
+      },
+    });
+    beats[8] = beatOf("b08-summary", "summary", ["sec10"], {
+      literal: { kind: "recap", beats: ["b01-problem", "b05-results"] },
+    });
+    expect(literalFindings(plan(beats), analysis)).toEqual([
+      expect.stringMatching(/recap names "b05-results", a scale scene, which leaves no picture/),
+    ]);
+  });
+
   it("asks for a takeaway on every beat but the title, only when asked to", () => {
     const beats = covered();
     beats[2] = { ...(beats[2] as object), takeaway: " " } as never;

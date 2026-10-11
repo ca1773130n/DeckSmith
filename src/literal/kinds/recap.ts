@@ -5,6 +5,26 @@
 import { drift, even, img, type KindImpl, lab, panel, stepStarts, wrap } from "../kind.js";
 import { baseCss, LABEL, label, ON_PHOTO, px, SMALL, Tl } from "../kit.js";
 
+/**
+ * The kinds whose scene leaves a picture a recap can bring back (`files.thumb`):
+ * a data kind (scale, margins, scope, ablation, table) and a scene that computes
+ * no layer of the deck's picture have none. prior-work leaves one only when a
+ * lane runs on the picture. The plan check holds a recap to this list
+ * (src/plan/coverage.ts), so a plan the build would refuse goes back to the
+ * planner: r1 of the EM-SNN pure-planner deck named a `scale` beat and failed
+ * `build --literal` after planning and narration had both passed.
+ */
+export const RECAPPABLE = [
+  "haze",
+  "spikes",
+  "dark-channel",
+  "backbone",
+  "channel-threshold",
+  "fixed-filters",
+  "sobel",
+  "prior-work",
+] as const;
+
 export const recapKind: KindImpl = {
   picture: false,
   async layers({ spec, earlier }) {

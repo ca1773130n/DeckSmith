@@ -32,6 +32,7 @@ import { bespokeRegion } from "../bespoke/scene.js";
 import { deckLook } from "../emit/theme.js";
 import { isVisual, visualProblems } from "../literal/check.js";
 import { isMechanism, mechanismProblems } from "../literal/kinds/mechanisms.js";
+import { RECAPPABLE } from "../literal/kinds/recap.js";
 import type { Beat, BeatPart, Literal, LiteralKindDoc, Source, Storyboard } from "../types.js";
 import { beatPartSchema, FORMATS, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
 
@@ -914,9 +915,17 @@ export function literalFindings(
       if (!lit.beats.length) out.push(`${beat.id}'s recap names no beats.`);
       for (const id of lit.beats) {
         const j = beats.findIndex((b) => b.id === id);
-        if (j < 0 || j >= i || !beats[j]?.literal)
+        const prior = beats[j]?.literal;
+        if (j < 0 || j >= i || !prior)
           out.push(
             `${beat.id}'s recap names "${id}", which is not an earlier beat drawn as a literal scene.`,
+          );
+        else if (
+          !(RECAPPABLE as readonly string[]).includes(prior.kind) ||
+          (prior.kind === "prior-work" && !prior.lanes.some((l) => l.shows !== "numbers"))
+        )
+          out.push(
+            `${beat.id}'s recap names "${id}", a ${prior.kind} scene, which leaves no picture to bring back. Name earlier scenes that computed a picture (${RECAPPABLE.join(", ")}).`,
           );
       }
     }
