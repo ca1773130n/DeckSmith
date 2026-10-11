@@ -904,7 +904,18 @@ ${kinds}
       future work, ablations not run ........... ablation
       reported costs (energy, parameters) ...... scale
     Use \`table\` only where none of these is honest, at most once a deck.
-    Two beats in a row never use the same kind.
+    \`scale\`, \`margins\`, \`scope\` and \`ablation\` draw no picture: each at
+    most ONCE a deck — a second is the same slide again. Two beats in a row
+    never use the same kind.
+  - NAMES ARE THE SOURCE'S. Every method, dataset and condition a visual kind
+    names is written as the source writes it (several separated by ·), and a
+    number is credited only to a name the source states it beside: a prior-work
+    lane's numbers beside its members, a margin's two values beside its setting,
+    the method and the rival. A lane RUNS a method only when its family or
+    members name that method (dark-channel: the dark channel prior; sobel: a
+    Sobel filter). An ablation cell with a component removed holds only an
+    ablation the source reports; the first scope part holds only what the
+    source gives a result for.
 
 TAKEAWAY. Every beat but the title carries \`takeaway\`: ONE sentence naming
 what the viewer can now explain — a cause, a mechanism, a number and what it

@@ -441,6 +441,9 @@ const SOURCE_NUMBERS: Readonly<Record<string, readonly string[]>> = {
   retrieval: ["vectors", "queryVector"],
 };
 
+/** Literal kinds that draw no picture, only the source's words and numbers laid out (`table` has its own rule). */
+const WORD_KINDS = ["scale", "margins", "scope", "ablation"] as const;
+
 /** A word that marks a scene as an example, in the deck's languages. */
 const EXAMPLE_WORD =
   /\b(?:example|illustrative|illustration|toy|hypothetical)\b|예시|예제|가상|例|示例|示意|イメージ/i;
@@ -452,13 +455,230 @@ const quoted = (source: string, t: string) => {
   return [...n].length >= 8 && norm(source).includes(n);
 };
 
-/** A node name counts as the source's when it is at least two characters and a whole word of it. */
+/**
+ * A name counts as the source's when it is at least two characters and a whole
+ * word of it. "Whole" is per script: a Latin name ends where Latin letters and
+ * digits do, so Korean's attached particles ("SFRDP-Net이", "LHID에서") do not
+ * hide it, and "Net" is still not found in "Network"; a Hangul name ends
+ * anywhere, for the same particles; Han and kana have no word boundaries.
+ */
 const named = (source: string, t: string) => {
   const n = t.trim();
   if ([...n].length < 2) return false;
   const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "iu").test(source);
+  const latin = (c: string) => /[\p{Script=Latin}\p{N}]/u.test(c);
+  const first = [...n][0] as string;
+  const last = [...n].at(-1) as string;
+  const cjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+  const before = latin(first)
+    ? "(?<![\\p{Script=Latin}\\p{N}])"
+    : cjk.test(first)
+      ? ""
+      : "(?<![\\p{L}\\p{N}])";
+  const after = latin(last) ? "(?![\\p{Script=Latin}\\p{N}])" : "";
+  return new RegExp(`${before}${esc}${after}`, "iu").test(source);
 };
+
+/**
+ * The source as PASSAGES: each paragraph and each list item of a section, and
+ * each table whole. A number is attributed to a name only when both sit in one
+ * passage — the source saying "SFRDP-Net: 5.08 M" is evidence that 5.08 M is
+ * SFRDP-Net's; the two anywhere in the text is not (review, 2026-10-11: a
+ * scene credited the source's 5.08 M to an invented "FooNet").
+ */
+function passages(source: Source): string[] {
+  const out: string[] = [];
+  for (const s of source.sections)
+    for (const block of s.text.split(/\n\s*\n/))
+      out.push(...block.split(/\n(?=\s*(?:[-*•]|\d+[.)])\s)/));
+  for (const t of source.tables)
+    out.push([t.caption ?? "", ...t.columns, ...t.rows.map((r) => r.join(" | "))].join("\n"));
+  for (const f of source.figures) out.push(f.caption);
+  return out.map((p) => p.trim()).filter(Boolean);
+}
+
+/**
+ * The source's sentences: a passage split where a sentence ends ("다. ", ". ",
+ * "。"). A decimal point is no end, having no space after it. A table is one
+ * sentence: its cells are read together.
+ */
+function sentences(source: Source): string[] {
+  const tables = source.tables.map((t) =>
+    [t.caption ?? "", ...t.columns, ...t.rows.map((r) => r.join(" | "))].join("\n"),
+  );
+  return [
+    ...passages(source)
+      .filter((p) => !tables.includes(p))
+      .flatMap((p) => p.split(/(?<=[.!?])\s+|(?<=[。！？])/)),
+    ...tables,
+  ]
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** The number tokens a text states, as written (`NUMBER`). */
+const numbersIn = (t: string): string[] => t.replace(/\\[A-Za-z]+/g, " ").match(NUMBER) ?? [];
+
+/** The names a list of them holds: "SFSNiD · SFRDP-Net", "LHID/DHID", "A, B" → each one. */
+const namesIn = (t: string): string[] =>
+  t
+    .split(/\s*(?:[·•/,、;&|]|\s(?:and|및|und|et)\s)\s*/u)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/** The classical methods a prior-work lane can run, by the words that name them. */
+const DCP_WORD = /dark[ -]?channel|\bDCP\b|다크 ?채널|암흑 ?채널|暗通道|ダーク ?チャネル/iu;
+const SOBEL_WORD = /sobel|소벨|ソーベル|索贝尔/iu;
+
+/** A word that says a result was measured WITHOUT a component: an ablation. */
+const ABLATION_WORD =
+  /\bwithout\b|\bw\/o\b|ablat|\bremov|\bexclud|\bdrop|제거|빼고|없이|除去|去掉|去除|消融|なし|除い|抜い/iu;
+
+/**
+ * Metrics whose better direction is a convention, so a plan cannot flip it:
+ * higher for a quality or an accuracy, lower for a distance, an error or a cost.
+ * A metric named in neither is the plan's call.
+ */
+const HIGHER_IS_BETTER =
+  /\b(?:PSNR|SSIM|MS-SSIM|accuracy|acc|precision|recall|F1|mAP|AP|IoU|mIoU|BLEU|ROUGE|AUC|top-?[15])\b|정확도|정밀도|재현율|精度|准确率|正解率/iu;
+const LOWER_IS_BETTER =
+  /\b(?:LPIPS|NIQE|BRISQUE|FID|KID|MSE|RMSE|MAE|error|loss|energy|params?|parameters|latency|FLOPs|MACs|SOPs?|mJ|ms|perplexity|PPL|WER|CER|EPE)\b|오차|손실|에너지|파라미터|지연|誤差|損失|能耗|参数|エネルギー|パラメータ/iu;
+
+/**
+ * What ties a visual kind's names and numbers to the source, beyond each number
+ * being stated somewhere: a lane runs the method its family names, a reported
+ * value sits beside the name it is credited to, an ablation result is one the
+ * source reports as an ablation, a margin's values are the setting's own and its
+ * rival is named beside them, the innermost scope ring holds only what the source
+ * gives a result for. Each a sentence a repair can act on; empty when it holds.
+ */
+function visualGrounding(lit: Literal, source: Source, text: string): string[] {
+  const out: string[] = [];
+  const ps = passages(source);
+  const has = (p: string, name: string) => named(p, name);
+  const states = (p: string, value: string) => {
+    const want = numbersIn(value);
+    const got = new Set(numbersIn(p));
+    return want.length > 0 && want.every((n) => got.has(n));
+  };
+  const unnamed = (names: readonly string[]) => names.filter((n) => !named(text, n));
+  switch (lit.kind) {
+    case "prior-work":
+      for (const lane of lit.lanes) {
+        const members = namesIn(lane.members);
+        const missing = unnamed(members);
+        if (missing.length)
+          out.push(
+            `names ${missing.map((m) => `"${m}"`).join(", ")} in lane "${lane.family}", which the source never names. A lane's \`members\` are the source's own names for the methods, separated by ·`,
+          );
+        const words = `${lane.family} ${lane.members}`;
+        const run =
+          lane.shows === "dark-channel"
+            ? { re: DCP_WORD, what: "the dark channel prior" }
+            : lane.shows === "sobel"
+              ? { re: SOBEL_WORD, what: "a Sobel filter" }
+              : undefined;
+        if (run) {
+          // The picture IS that method's output: the lane must be that method, and its
+          // members the ones the source names beside it — never a learned family's names.
+          if (!run.re.test(words))
+            out.push(
+              `lane "${lane.family}" shows ${lane.shows}, a real output of ${run.what}, under a family and members that do not name it. Run a method only in the lane of the method that IS it; show any other family by its numbers`,
+            );
+          const apart = members.filter(
+            (m) => !run.re.test(m) && !ps.some((p) => run.re.test(p) && has(p, m)),
+          );
+          if (apart.length)
+            out.push(
+              `lane "${lane.family}" shows ${lane.shows} and names ${apart.map((m) => `"${m}"`).join(", ")}, which the source never names beside ${run.what}. The picture would be credited to them`,
+            );
+        } else if (lane.shows === "numbers") {
+          if (DCP_WORD.test(words) || SOBEL_WORD.test(words))
+            out.push(
+              `lane "${lane.family}" names a classical method the build can run, and shows it by numbers. Run it: \`shows\` ${DCP_WORD.test(words) ? "dark-channel" : "sobel"}`,
+            );
+          for (const n of lane.numbers)
+            if (!ps.some((p) => states(p, n.value) && members.some((m) => has(p, m))))
+              out.push(
+                `credits "${n.value}" to lane "${lane.family}" (${lane.members}), and the source never states it beside any of those names`,
+              );
+        }
+      }
+      break;
+    case "margins": {
+      const missing = unnamed([lit.ours, ...lit.settings.map((s) => s.name)]);
+      if (missing.length)
+        out.push(`names ${missing.map((m) => `"${m}"`).join(", ")}, which the source never names`);
+      lit.metrics.forEach((m, i) => {
+        const conv = LOWER_IS_BETTER.test(m.name)
+          ? true
+          : HIGHER_IS_BETTER.test(m.name)
+            ? false
+            : undefined;
+        if (conv !== undefined && m.lowerIsBetter !== conv)
+          out.push(
+            `gives ${m.name} lowerIsBetter ${m.lowerIsBetter}; ${m.name} is ${conv ? "lower" : "higher"} is better, so every margin would flip sign`,
+          );
+        for (const st of lit.settings) {
+          const v = st.values[i];
+          if (!v) continue;
+          const rivals = namesIn(v.rival);
+          const ok = ps.some(
+            (p) =>
+              has(p, st.name) &&
+              has(p, lit.ours) &&
+              states(p, v.ours) &&
+              states(p, v.best) &&
+              rivals.length > 0 &&
+              rivals.every((r) => has(p, r)),
+          );
+          if (!ok)
+            out.push(
+              `places ${st.name} on ${m.name} by ${lit.ours} ${v.ours} against ${v.rival} ${v.best}, and no passage of the source states both values with ${st.name}, ${lit.ours} and ${v.rival} named. Give that setting's own values and the method the source names as best beside them`,
+            );
+        }
+      });
+      break;
+    }
+    case "scope": {
+      const missing = unnamed(lit.rings.flatMap((r) => r.items.flatMap(namesIn)));
+      if (missing.length)
+        out.push(
+          `holds ${missing.map((m) => `"${m}"`).join(", ")}, which the source never names. An item is the source's own name for a dataset, a condition or a setting, as it writes it`,
+        );
+      // The innermost ring is "what the source shows results for": a result is a measured
+      // number (a decimal or a percentage) in one sentence with the item.
+      const result = (s: string) => /%/.test(s) || numbersIn(s).some((n) => /\.\d/.test(n));
+      const ss = sentences(source);
+      const bare = (lit.rings[0]?.items ?? [])
+        .flatMap(namesIn)
+        .filter((it) => named(text, it) && !ss.some((s) => has(s, it) && result(s)));
+      if (bare.length)
+        out.push(
+          `puts ${bare.map((m) => `"${m}"`).join(", ")} in its innermost ring, which holds what the source shows results for, and the source states no result beside it. Move it out a ring`,
+        );
+      break;
+    }
+    case "ablation":
+      for (const r of lit.reported) {
+        if (r.with.length >= lit.components.length) continue;
+        // A cell with a component removed is an ablation: the source must report it as one,
+        // its number beside the removed component's name and a word saying it was removed.
+        const removed = lit.components.filter((c) => !r.with.includes(c));
+        const ok = ps.some(
+          (p) => states(p, r.result) && ABLATION_WORD.test(p) && removed.every((c) => has(p, c)),
+        );
+        if (!ok)
+          out.push(
+            `reports "${r.result}" for ${r.with.length ? r.with.join(" + ") : "none of its components"} (without ${removed.join(", ")}), and the source never reports that number as a result without ${removed.join(", ")}. An ablation cell holds only an ablation the source reports; leave it empty`,
+          );
+      }
+      break;
+    default:
+      break;
+  }
+  return out;
+}
 
 /**
  * Whether a mechanism scene's material is the plan's own rather than the
@@ -620,6 +840,9 @@ export function literalFindings(
       // The visual kinds' own checks, drawn as the build draws them, in every format.
       for (const p of gateProblems(beat, lit, storyboard))
         out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn${p}.`);
+      text ??= sourceText(source);
+      for (const p of visualGrounding(lit, source, text))
+        out.push(`${beat.id}'s ${lit.kind} scene ${p}.`);
       if (lit.kind === "prior-work") {
         if (lit.lanes.some((l) => l.shows !== "numbers") && !lit.picture)
           out.push(
@@ -705,5 +928,15 @@ export function literalFindings(
     out.push(
       `The plan draws ${tables.length} tables (${tables.map((b) => b.id).join(", ")}). A table reads like a report: keep at most one, and draw the others as what they list — results as \`margins\`, what was and was not evaluated as \`scope\`, experiments not run as \`ablation\`, earlier approaches as \`prior-work\`, reported costs as \`scale\` — or leave \`literal\` null where no kind is honest.`,
     );
+  // The kinds that draw no picture are words and numbers laid out one way: twice in a deck is
+  // the same slide twice (r2 of the EM-SNN plan drew `scope` four beats apart, two slides that
+  // looked alike). Each at most once; the second beat says its point another way or with none.
+  for (const kind of WORD_KINDS) {
+    const same = beats.filter((b) => b.literal?.kind === kind);
+    if (same.length > 1)
+      out.push(
+        `The plan draws \`${kind}\` ${same.length} times (${same.map((b) => b.id).join(", ")}). It draws no picture, so a second one is the same slide again: keep it on one beat, and draw the others with another kind or with \`literal\` null.`,
+      );
+  }
   return out;
 }

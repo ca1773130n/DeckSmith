@@ -1222,13 +1222,16 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     doc: `earlier approaches shown by what they DO, one lane per family
                      (2–4), side by side, lit in spoken order. A lane the build
                      can run is run for real on the deck's picture: \`shows\`
-                     dark-channel (the classical prior, exact), sobel (a fixed
-                     filter, exact) or spikes (spike quantization of the edges,
-                     illustrative). A family of LEARNED methods is never drawn
-                     as an output: \`shows\` numbers, with \`numbers\` ({label,
-                     value}) the source reports for its members. Each lane has
-                     \`family\`, \`members\` and \`gap\` (where the source says it
-                     runs out). Takes \`lanes\`, and \`picture\` when a lane runs.`,
+                     dark-channel (the classical prior, exact; only in a lane
+                     whose family or members name it), sobel (a fixed filter,
+                     exact; likewise) or spikes (the binary spikes any spiking
+                     network fires, illustrative). A family of LEARNED methods
+                     is never drawn as an output: \`shows\` numbers, with
+                     \`numbers\` ({label, value}) the source reports for its
+                     members, each stated beside one of them. Each lane has
+                     \`family\`, \`members\` (the source's own names, separated
+                     by ·) and \`gap\` (where the source says it runs out).
+                     Takes \`lanes\`, and \`picture\` when a lane runs.`,
     slots: {
       computed: {
         what: "on a lane that runs a classical method: it is computed on this picture (required when a lane shows dark-channel or sobel)",
@@ -1256,9 +1259,13 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      leads and trails is a place. Per setting and metric, the
                      method's value, the best other method's value and its
                      name, exactly as the source writes them; the margin is
-                     their difference. Use it for a results table. Takes
-                     \`ours\`, \`metrics\` ({name, lowerIsBetter}), \`settings\`
-                     ({name, values: [{ours, best, rival}] one per metric}).`,
+                     their difference — the two values, the setting, the
+                     method and the rival all named in one passage of the
+                     source. Use it for a results table. Takes \`ours\`,
+                     \`metrics\` ({name, lowerIsBetter}: always given; PSNR,
+                     SSIM, accuracy are higher-is-better, LPIPS, FID, errors,
+                     energy and parameters lower), \`settings\` ({name,
+                     values: [{ours, best, rival}] one per metric}).`,
     slots: {
       ahead: { what: "the region where the method leads on every metric" },
       behind: { what: "the region where it trails on every metric" },
@@ -1267,22 +1274,25 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     },
   },
   scope: {
-    doc: `what a claim rests on and what lies outside it, as nested
-                     regions (2–4 \`rings\`, inner to outer, each a \`label\` and
-                     its \`items\`): the innermost holds what the source shows
-                     results for, each ring out what it shows less of (only a
-                     qualitative comparison, only a mention), the outermost what
-                     it never tested. Use it for the datasets evaluated, the
-                     limits of a conclusion, the reach of a method — each ring
-                     lit as it is spoken. Takes \`rings\`.`,
+    doc: `what a claim rests on and what lies outside it, as one region
+                     split into 2–4 parts side by side (\`rings\`, most evidence
+                     first, each a \`label\` and its \`items\`): the first holds
+                     only what the source states a result for, each next what
+                     it shows less of (only a qualitative comparison, only a
+                     mention), the last what it never tested. Items are the
+                     source's own names, short. Use it for the datasets
+                     evaluated or the limits of a conclusion — once a deck —
+                     each part lit as it is spoken. Takes \`rings\`.`,
     slots: { caption: { what: "under the regions: what they are", optional: true } },
   },
   ablation: {
     doc: `the experiments a paper did not run, as the holes they leave:
                      every on/off combination of its \`components\` (one or two)
-                     is a cell, the ones the source reports (\`reported\`: the
-                     components each keeps, \`with\`, and its \`result\`) carry
-                     the result, the rest are visibly empty. Each setting the
+                     is a square, the ones the source reports (\`reported\`: the
+                     components each keeps, \`with\`, and its \`result\`) are
+                     filled and their result shown, the rest visibly empty. A
+                     combination with a component removed is reported only when
+                     the source reports that ablation. Each setting the
                      source fixes (\`settings\`: name, value — a number, a word or
                      a list, as the source writes it) is a line with its ONE
                      tested point. A proposal to vary something the source
@@ -1295,7 +1305,9 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     slots: {
       on: { what: "beside a component that is kept" },
       off: { what: "beside a component that is removed" },
-      missing: { what: "in a combination the source reports no result for" },
+      missing: {
+        what: "beside the one mark for an empty square: a combination the source reports no result for",
+      },
       tested: {
         what: "title of the settings: each was tested at one value (required when there are settings)",
         optional: true,
@@ -1632,7 +1644,7 @@ export const literalSchema = z.discriminatedUnion("kind", [
     kind: z.literal("margins"),
     /** The method the margins are of, as the source names it. */
     ours: z.string(),
-    metrics: z.array(z.object({ name: z.string(), lowerIsBetter: z.boolean().default(false) })),
+    metrics: z.array(z.object({ name: z.string(), lowerIsBetter: z.boolean() })),
     settings: z.array(
       z.object({
         name: z.string(),

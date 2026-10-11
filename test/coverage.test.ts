@@ -59,12 +59,23 @@ const analysis = sourceSchema.parse({
       text: "TM-LIF와 SSM.",
     },
     { id: "sec5", depth: 2, heading: "Q4: 논문에서는 어떤 실험을 수행했는가?", text: "" },
-    { id: "sec6", depth: 3, heading: "데이터셋, 설정 및 지표", text: "LHID, DHID." },
+    {
+      id: "sec6",
+      depth: 3,
+      heading: "데이터셋, 설정 및 지표",
+      text: "HRSD(LHID, DHID), SateHaze1K, RRSHID에서 평가했다. SateHaze1K는 정성 비교만 있다.",
+    },
     {
       id: "sec7",
       depth: 3,
       heading: "보고된 표의 정량적 비교",
-      text: "LHID: 30.56 PSNR 및 0.9106 SSIM.",
+      text: [
+        "LHID: 30.56 PSNR 및 0.9106 SSIM.",
+        "",
+        "- LHID: EM-SNN은 30.56 PSNR이다. 다음은 DehazeFormer-b의 29.73 PSNR이다.",
+        "- DHID: SFRDP-Net이 28.89로 가장 높으며, EM-SNN은 28.83이다.",
+        "- 복잡도: SFRDP-Net에 대해서는 파라미터 5.08 M, 에너지 175.21 mJ를 보고한다.",
+      ].join("\n"),
     },
     { id: "sec9", depth: 2, heading: "Q5: 어떤 점을 더 탐구할 수 있는가?", text: "에너지 측정." },
     { id: "sec10", depth: 2, heading: "Q6: 논문의 주요 내용을 요약하라", text: "요약." },
@@ -329,7 +340,7 @@ describe("literalFindings", () => {
     const margins = (ours: string) => ({
       kind: "margins",
       ours: "EM-SNN",
-      metrics: [{ name: "PSNR" }],
+      metrics: [{ name: "PSNR", lowerIsBetter: false }],
       settings: [
         { name: "LHID", values: [{ ours, best: "29.73", rival: "DehazeFormer-b" }] },
         { name: "DHID", values: [{ ours: "28.83", best: "28.89", rival: "SFRDP-Net" }] },
@@ -410,7 +421,7 @@ describe("literalFindings", () => {
             family: "딥러닝",
             members: "SFRDP-Net",
             shows: "numbers",
-            numbers: [{ label: "LHID PSNR", value: "30.56" }],
+            numbers: [{ label: "에너지", value: "175.21 mJ" }],
             gap: "연산량",
           },
         ],
@@ -421,6 +432,189 @@ describe("literalFindings", () => {
       },
     });
     expect(literalFindings(plan(beats), analysis, { takeaways: true })).toEqual([]);
+  });
+
+  it("ties a prior-work lane's picture and numbers to the names the source gives them", () => {
+    const beats = covered();
+    const prior = (lanes: unknown[]) =>
+      beatOf("b02-prior", "prior-work", ["sec3"], {
+        literal: {
+          kind: "prior-work",
+          picture: "b01-problem",
+          lanes,
+          labels: [
+            { slot: "computed", text: "직접 계산" },
+            { slot: "reported", text: "보고된 값" },
+          ],
+        },
+      });
+    const dcp = {
+      family: "사전 기반",
+      members: "Dark Channel Prior (DCP)",
+      shows: "dark-channel",
+      gap: "가정",
+    };
+    // A learned family under a real dark-channel output: the classical prior credited to it.
+    beats[2] = prior([
+      dcp,
+      {
+        family: "학습 기반 안개 제거",
+        members: "SFRDP-Net · DehazeFormer-b",
+        shows: "dark-channel",
+        gap: "연산량",
+      },
+    ]);
+    let found = literalFindings(plan(beats), analysis).join("\n");
+    expect(found).toMatch(
+      /lane "학습 기반 안개 제거" shows dark-channel, a real output of the dark channel prior, under a family and members that do not name it/,
+    );
+    expect(found).toMatch(
+      /names "SFRDP-Net", "DehazeFormer-b", which the source never names beside the dark channel prior/,
+    );
+    // Members the source never names, and the source's numbers credited to them.
+    beats[2] = prior([
+      dcp,
+      {
+        family: "딥러닝",
+        members: "FooNet",
+        shows: "numbers",
+        numbers: [{ label: "파라미터", value: "5.08 M" }],
+        gap: "연산량",
+      },
+    ]);
+    found = literalFindings(plan(beats), analysis).join("\n");
+    expect(found).toMatch(/names "FooNet" in lane "딥러닝", which the source never names/);
+    expect(found).toMatch(/credits "5.08 M" to lane "딥러닝" \(FooNet\)/);
+    // A number the source states, but for another method.
+    beats[2] = prior([
+      dcp,
+      {
+        family: "딥러닝",
+        members: "DehazeFormer-b",
+        shows: "numbers",
+        numbers: [{ label: "파라미터", value: "5.08 M" }],
+        gap: "연산량",
+      },
+    ]);
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(/credits "5.08 M"/);
+  });
+
+  it("refuses an ablation cell the source never reports as an ablation", () => {
+    const beats = covered();
+    beats[7] = beatOf("b07-limits", "limits", ["sec11"], {
+      literal: {
+        kind: "ablation",
+        components: ["TM-LIF", "SSM"],
+        // 28.83 is real — the full model's DHID PSNR — and no ablation of SSM is reported.
+        reported: [
+          { with: ["TM-LIF", "SSM"], result: "LHID 30.56" },
+          { with: ["TM-LIF"], result: "PSNR 28.83" },
+        ],
+        labels: labelsFor("ablation"),
+      },
+    });
+    const found = literalFindings(plan(beats), analysis);
+    expect(found).toEqual([
+      expect.stringMatching(
+        /reports "PSNR 28.83" for TM-LIF \(without SSM\), and the source never reports that number as a result without SSM/,
+      ),
+    ]);
+  });
+
+  it("places a margin only by the setting's own values, its named rival and the metric's direction", () => {
+    const beats = covered();
+    type V = { ours: string; best: string; rival: string };
+    type M = {
+      ours: string;
+      metrics: [{ name: string; lowerIsBetter: boolean }];
+      settings: [{ name: string; values: [V] }, { name: string; values: [V] }];
+    };
+    const margins = (over: (m: M) => void = () => {}) => {
+      const m = {
+        kind: "margins",
+        ours: "EM-SNN",
+        metrics: [{ name: "PSNR", lowerIsBetter: false }],
+        settings: [
+          { name: "LHID", values: [{ ours: "30.56", best: "29.73", rival: "DehazeFormer-b" }] },
+          { name: "DHID", values: [{ ours: "28.83", best: "28.89", rival: "SFRDP-Net" }] },
+        ],
+        labels: labelsFor("margins"),
+      };
+      over(m as unknown as M);
+      return beatOf("b05-results", "experiments", ["sec7"], { literal: m });
+    };
+    beats[5] = margins();
+    expect(literalFindings(plan(beats), analysis)).toEqual([]);
+    // Another setting's value as the best: stated, but not LHID's.
+    beats[5] = margins((m) => {
+      m.settings[0].values[0].best = "28.89";
+    });
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /places LHID on PSNR by EM-SNN 30.56 against DehazeFormer-b 28.89/,
+    );
+    // A rival and a method the source never names.
+    beats[5] = margins((m) => {
+      m.ours = "OurNet";
+      m.settings[0].values[0].rival = "MadeUpNet";
+    });
+    const found = literalFindings(plan(beats), analysis).join("\n");
+    expect(found).toMatch(/names "OurNet", which the source never names/);
+    expect(found).toMatch(/against MadeUpNet 29.73/);
+    // PSNR is higher-is-better: flipped, every margin changes sign.
+    beats[5] = margins((m) => {
+      m.metrics[0].lowerIsBetter = true;
+    });
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /gives PSNR lowerIsBetter true; PSNR is higher is better/,
+    );
+  });
+
+  it("holds scope items to the source's names, and its first part to what has results", () => {
+    const beats = covered();
+    const scope = (first: string[]) =>
+      beatOf("b04-setup", "experiments", ["sec6"], {
+        literal: {
+          kind: "scope",
+          rings: [
+            { label: "수치", items: first },
+            { label: "정성", items: ["SateHaze1K"] },
+            { label: "없음", items: ["RRSHID"] },
+          ],
+          labels: [],
+        },
+      });
+    beats[4] = scope(["LHID", "DHID"]);
+    expect(literalFindings(plan(beats), analysis)).toEqual([]);
+    beats[4] = scope(["LHID", "DHID", "SateHaze1K"]);
+    expect(literalFindings(plan(beats), analysis)).toEqual([
+      expect.stringMatching(
+        /puts "SateHaze1K" in its innermost ring, which holds what the source shows results for/,
+      ),
+    ]);
+    beats[4] = scope(["LHID", "다른 센서"]);
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /holds "다른 센서", which the source never names/,
+    );
+  });
+
+  it("draws a kind with no picture at most once a deck", () => {
+    const beats = covered();
+    const scope = (id: string, part: string, cite: string) =>
+      beatOf(id, part, [cite], {
+        literal: {
+          kind: "scope",
+          rings: [
+            { label: "수치", items: ["LHID"] },
+            { label: "없음", items: ["RRSHID"] },
+          ],
+          labels: [],
+        },
+      });
+    beats[4] = scope("b04-setup", "experiments", "sec6");
+    beats[7] = scope("b07-limits", "limits", "sec11");
+    expect(literalFindings(plan(beats), analysis)).toEqual([
+      expect.stringMatching(/draws `scope` 2 times \(b04-setup, b07-limits\)/),
+    ]);
   });
 
   it("refuses a number in a literal label that the source never states", () => {
