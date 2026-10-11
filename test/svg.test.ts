@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_POSE, depthCss, scaleAt, tiltedFloor, worstScale } from "../src/emit/depth.js";
 import {
-  atomsOf,
   arrow,
   arrowDefs,
+  atomsOf,
   captionFit,
   circle,
   cutsWord,

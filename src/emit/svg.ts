@@ -830,7 +830,7 @@ export function wrap(
 export function atomsOf(word: string): string[] {
   const out: string[] = [];
   for (const m of word.matchAll(
-    /[0-9](?:[0-9.,:%+\-−×/]*[0-9%])?|[A-Za-z][A-Za-z0-9_\-]*[A-Za-z0-9]|./gsu,
+    /[0-9](?:[0-9.,:%+\-−×/]*[0-9%])?|[A-Za-z][A-Za-z0-9_-]*[A-Za-z0-9]|./gsu,
   )) {
     const a = m[0];
     const closing = /^[，。：；、）」』！？!?:;,.)\]%]$/u.test(a);

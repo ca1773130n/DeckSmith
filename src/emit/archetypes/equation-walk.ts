@@ -852,10 +852,6 @@ ${slide}`;
       `equation-walk ${beat.id}: the display and its legend need more than the ${Math.round(region)}px a foot headline leaves`,
     );
   }
-  const legSize = grows ? LEG_SIZE_V2 : 48;
-  const legGap = grows ? LEG_GAP_V2 : 30;
-  const legH = legHeight(legSize, legGap);
-  const slack = Math.max(0, region - eqH - legH - EQ_GAP);
 
   return {
     html,
