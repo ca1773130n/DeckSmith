@@ -1480,12 +1480,15 @@ function earlierProblem(
  * with no `literal` has nothing to find.
  *
  * `takeaways` asks for a takeaway on every beat but the title, which is what a
- * plan shown the field (src/plan/codex.ts) was asked for.
+ * plan shown the field (src/plan/codex.ts) was asked for. `panels`, when the
+ * caller could read the figures, holds a `region` panels walk to the panels the
+ * build will find.
  */
 export function literalFindings(
   storyboard: Storyboard,
   source: Source,
-  opts: { takeaways?: boolean } = {},
+  /** `panels`: each source figure's panel count as the build finds it (`figurePanels`). */
+  opts: { takeaways?: boolean; panels?: Readonly<Record<string, number>> } = {},
 ): string[] {
   const out: string[] = [];
   const beats = storyboard.beats;
@@ -1583,6 +1586,21 @@ export function literalFindings(
         out.push(
           `${at} walks the panels of "${pic}", which shows none of the source's own figures. Panels are cut from the paper's figure: name the beat that cites it.`,
         );
+      else if (lit.kind === "region" && lit.cut === "panels" && opts.panels) {
+        // Cut as the build cuts it: a figure with no blank gutters is one panel, and the build
+        // refuses it — after narration, at the end of the run (r2: a one-row trace diagram).
+        const fig = figureIds(owner).find((id) => opts.panels?.[id] !== undefined);
+        const n = fig === undefined ? undefined : opts.panels[fig];
+        const want = lit.count ? Number(lit.count.value) : undefined;
+        if (n !== undefined && n < 2)
+          out.push(
+            `${at} walks ${fig} panel by panel, and ${fig} has no blank gutters to split it by (1 panel). Walk it with \`region\` boxes the source names, or draw it as a figure.`,
+          );
+        else if (n !== undefined && want !== undefined && want > n)
+          out.push(
+            `${at} walks ${want} panels of ${fig}, which has ${n}. Give \`count\` ${n} or fewer.`,
+          );
+      }
     }
     const refs: Array<[string, string, (p: Literal) => boolean, string]> = [];
     if (lit.kind === "evolve" && lit.input?.from)

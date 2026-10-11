@@ -40,7 +40,12 @@ import { LOOK_FILE } from "./emit/look.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { pickTheme } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
-import { literalPass, literalPlanOf, literalPlanSchema } from "./literal/index.js";
+import {
+  figurePanelCounts,
+  literalPass,
+  literalPlanOf,
+  literalPlanSchema,
+} from "./literal/index.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
@@ -462,10 +467,16 @@ imageFlags(
   const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
+  // Each figure cut as the build will cut it, so a `region` panels walk of a figure with no
+  // gutters is repaired at plan time rather than refused by the build after narration.
+  const panels = bespokeFor(prefs, designFor(prefs))
+    ? await figurePanelCounts(source, join(dirname(resolve(src)), "assets"))
+    : undefined;
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
   step("plan: this takes a few minutes");
   const planned = await codexPlanner(source, {
     prefs,
+    ...(panels ? { panels } : {}),
     onRepair: (broken) => {
       step("plan: the first plan broke the variety or coverage rules, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);

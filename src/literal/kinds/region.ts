@@ -44,6 +44,11 @@ export async function trainingPicture(image: string, resize: number | undefined)
   );
 }
 
+/** How many panels the build will cut a figure file into (`findPanels`, as `panels` reads it). */
+export async function figurePanels(image: string): Promise<number> {
+  return findPanels(await trainingPicture(image, undefined)).length;
+}
+
 export function region(c: Ctx): MechanismResult {
   const d = c.lit;
   if (!c.labels.picture?.trim()) throw new Error("region needs the `picture` slot");

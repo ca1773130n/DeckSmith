@@ -49,6 +49,7 @@ import {
   type Source,
   type Storyboard,
 } from "../types.js";
+import { figurePanels } from "./kinds/region.js";
 import { type Cue, type Layers, round3 } from "./kit.js";
 import { KINDS } from "./registry.js";
 
@@ -143,6 +144,26 @@ export function literalPlanOf(
     };
   }
   return { beats };
+}
+
+/**
+ * Each of the source's own figures, cut into panels as \`region\` panels cuts it.
+ * A figure whose file is missing or unreadable is left out: the build names it.
+ */
+export async function figurePanelCounts(
+  source: Source,
+  assetsDir: string,
+): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const f of source.figures) {
+    if (f.id.startsWith(GENERATED_FIGURE_PREFIX)) continue;
+    try {
+      out[f.id] = await figurePanels(resolve(assetsDir, f.src));
+    } catch {
+      // Unreadable here is unreadable at build, which fails loudly with the file's name.
+    }
+  }
+  return out;
 }
 
 /** Where the computed layers live in a deck. */

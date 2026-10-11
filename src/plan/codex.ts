@@ -217,6 +217,8 @@ export interface CodexOptions {
   run?: Runner;
   /** Told what the first plan broke, before the one repair round is asked for. */
   onRepair?: (broken: readonly string[]) => void;
+  /** Each source figure's panel count as the build will cut it, when the caller read them. */
+  panels?: Readonly<Record<string, number>>;
 }
 
 export interface RunnerArgs {
@@ -282,7 +284,10 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       variety: varietyFindings(plan, prefs.images, prefs.design),
       coverage: [
         ...coverageFindings(plan, source),
-        ...literalFindings(plan, source, { takeaways }),
+        ...literalFindings(plan, source, {
+          takeaways,
+          ...(opts.panels ? { panels: opts.panels } : {}),
+        }),
       ],
       advice: pictureFindings(plan, source),
     });

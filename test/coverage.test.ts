@@ -1180,6 +1180,12 @@ describe("the truth gate grounds every number in its role", () => {
     expect(literalFindings(plan(beats), own).join("\n")).toMatch(
       /walks the panels of "b03-method", which shows none of the source's own figures/,
     );
+    // Cut as the build cuts it: a figure with no gutters is refused at plan time.
+    beats[3] = panels("fig1");
+    const cut = (n: number) =>
+      literalFindings(plan(beats), own, { panels: { fig1: n } }).join("\n");
+    expect(cut(3)).not.toMatch(/b03-method's region/);
+    expect(cut(1)).toMatch(/walks fig1 panel by panel, and fig1 has no blank gutters/);
   });
 
   it("asks a plan of a picture paper to use region or operate, once", () => {
