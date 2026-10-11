@@ -472,6 +472,12 @@ export function tourOf(frame: Frame, steps: number): Array<{ x: number; y: numbe
 /** The opacity a `preview` frame's parts stand at until they are spoken. */
 export const PREVIEW = 0.3;
 
+/** The most a sentence's camera push waits for its reveals, seconds after the sentence starts. */
+export const PUSH_LEAD = 1.2;
+
+/** Seconds before a scene's end its camera is back at rest (start of the return). */
+export const FINAL_REST = 2.2;
+
 /** How far the camera pushes in on a frame's material once its reveals are out. */
 export const PUSH = 1.07;
 
@@ -593,9 +599,20 @@ export function stagedFragment(
     // (r3 C: four planes' tick labels pushed onto their axis names at the hold).
     for (let j = 0; j < S; j++) {
       const u1 = bounds[j + 1] as number;
-      const more = j < S - 1;
-      const stop = more ? u1 - 0.85 : u1 - 0.05;
-      const from = j < R ? (last[j] as number) : (bounds[j] as number) + 0.1;
+      // The scene's very end is at rest too: its final state is measured and photographed
+      // a second before the cut (src/verify/fidelity.ts `FINAL_LEAD`), and a plot pushed in
+      // there printed its tick values over its axis names, which sit outside the camera.
+      const ending = i === n - 1 && j === S - 1;
+      const more = j < S - 1 || ending;
+      const back = ending ? u1 - FINAL_REST : u1 - 0.8;
+      const stop = more ? back - 0.05 : u1 - 0.05;
+      // The push starts with the sentence's reveals, not after them: a plane lighting six
+      // points one by one from a 30% preview changes under 1% of the picture per two
+      // seconds (r3 B s11, 8s), so the camera moves while they arrive.
+      const from =
+        j < R
+          ? Math.min(last[j] as number, (bounds[j] as number) + PUSH_LEAD)
+          : (bounds[j] as number) + 0.1;
       if (!(stop - from > 0.3)) continue;
       const o = j < R || !tour.length ? ox : (tour[(j - R) % tour.length] as string);
       tl.fromTo(
@@ -609,7 +626,7 @@ export function stagedFragment(
           `f${i}-cam`,
           { scale: PUSH, transformOrigin: o },
           { scale: 1, transformOrigin: o, duration: 0.6, ease: "sine.inOut" },
-          r3(u1 - 0.8),
+          r3(back),
         );
     }
   });
