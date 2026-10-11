@@ -235,13 +235,6 @@ export function mean(v: ArrayLike<number>): number {
   return s / Math.max(1, v.length);
 }
 
-export function normBy(v: Float32Array, k: number): Float32Array {
-  const o = new Float32Array(v.length);
-  const d = Math.max(1e-9, k);
-  for (let i = 0; i < v.length; i++) o[i] = Math.min(1, (v[i] as number) / d);
-  return o;
-}
-
 /** A deterministic sequence in [0, 1): a 32-bit LCG, seeded. Build time only (invariant 4 is render time). */
 export function lcg(seed: number): () => number {
   let s = seed >>> 0;

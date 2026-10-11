@@ -1367,9 +1367,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      lit in spoken order: \`family\`, \`members\` (the source's
                      names, separated by ·), \`gap\` (where the source says it
                      runs out), and either \`numbers\` ({label, value}) the
-                     source reports beside a member, or \`from\` an earlier verb
-                     beat whose computed layer shows what the family does. A
-                     learned family is shown only by its numbers.`,
+                     source reports beside a member, or \`from\` an earlier
+                     operate or evolve beat whose computed layer IS what the
+                     family does: the family or members name that operation,
+                     and the source names each member beside it. A learned
+                     family is shown only by its numbers.`,
     slots: {
       reported: {
         what: "over a numbers lane: these are the source's reported values (required with numbers)",

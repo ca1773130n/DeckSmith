@@ -13,7 +13,7 @@
  */
 import type { Theme } from "../../emit/kit.js";
 import { esc } from "../kit.js";
-import type { DataRgb, Frame, Prim, Raster, Region, Role } from "./common.js";
+import type { DataRgb, Prim, Role } from "./common.js";
 
 /** An sRGB colour, 0..255 per channel. */
 export type Rgb8 = [number, number, number];
@@ -276,48 +276,4 @@ export function primSvg(prims: readonly Prim[], index: number, d: Draw): string 
       return `<mask id="${id}" maskUnits="userSpaceOnUse" ${box}>${img}</mask><rect ${box} fill="${css(roleRgb(theme, paint.mask))}" opacity="${n2((p.opacity ?? 1) * paint.alpha)}" mask="url(#${id})"/>`;
     }
   }
-}
-
-/** A whole frame as one region-sized SVG. `ground` paints the theme's ground under it (previews only). */
-export function frameSvg(
-  frame: Frame,
-  region: Region,
-  href: (layer: string) => string,
-  text: (slot: string, vars: Readonly<Record<string, string | number>>) => string,
-  opts: {
-    theme: Theme;
-    pad?: number;
-    ground?: boolean;
-    paint?: (layer: string) => LayerPaint;
-    ids?: string;
-    attrs?: string;
-  },
-): string {
-  const { theme } = opts;
-  const pad = opts.pad ?? 0;
-  const W = region.width + 2 * pad;
-  const H = region.height + 2 * pad;
-  const d: Draw = {
-    theme,
-    href,
-    text,
-    paint: opts.paint ?? (() => undefined),
-    ids: opts.ids ?? `${frame.id}-`,
-  };
-  const body = frame.prims.map((_, i) => primSvg(frame.prims, i, d)).join("\n");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${esc(theme.fontStack)}"${opts.attrs ?? ""}>
-${opts.ground ? `<rect width="100%" height="100%" fill="${theme.bg}"/>\n` : ""}<g transform="translate(${pad} ${pad})">
-${body}
-</g>
-</svg>`;
-}
-
-/** How each raster of a result is drawn (see `LayerPaint`). */
-export function layerPaints(
-  rasters: Readonly<Record<string, Raster>>,
-): (layer: string) => LayerPaint {
-  return (layer) => {
-    const L = rasters[layer];
-    return L && "heat" in L ? { mask: L.role, alpha: L.alpha } : undefined;
-  };
 }

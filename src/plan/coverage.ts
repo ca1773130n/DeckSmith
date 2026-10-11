@@ -1113,6 +1113,93 @@ function verbGrounding(
   return { problems: out, example };
 }
 
+/**
+ * A word that names a trained component. A learned family or stage is never shown by a
+ * computed layer: a network the build does not have cannot be drawn working. The `Net`
+ * suffix (DehazeNet, AOD-Net, U-Net) is matched case-sensitively, so "Internet" is not.
+ */
+const LEARNED_WORD =
+  /\blearn(?:ed|t|able|ing-based)\b|\btrained\b|neural|network|\bnets?\b|\b(?:CNN|RNN|GNN|LSTM|MLP|ViT|GAN)s?\b|transformer|encoder|decoder|backbone|\bdeep\b|딥러닝|深層学習|深度学习|학습된|학습 가능|학습 기반|신경망|네트워크|인코더|디코더|백본|学習済み|学習可能|学習ベース|ニューラル|ネットワーク|エンコーダ|デコーダ|バックボーン|可学习|学到的|基于学习|神经|网络|编码器|解码器|骨干/iu;
+const NET_SUFFIX = /[A-Za-z0-9][\w-]*Net\b/u;
+
+/** The learned words a text holds that no negator governs ("not learned" is honest). */
+function learnedIn(text: string): string[] {
+  const hits = [
+    ...[...text.matchAll(new RegExp(LEARNED_WORD.source, "giu"))]
+      .filter((m) => !negated(text, m.index ?? 0, m[0].length))
+      .map((m) => m[0]),
+    ...(text.match(new RegExp(NET_SUFFIX.source, "gu")) ?? []),
+  ];
+  // "Net" inside "SFRDP-Net" is one hit, named whole.
+  return [...new Set(hits)].filter((h, _, all) => !all.some((o) => o !== h && o.includes(h)));
+}
+
+/**
+ * The words that name what an earlier verb scene computed: each op's variant words where the
+ * variant has its own (sobel, absolute), else the op's nouns (a combine's nouns hold "sum" and
+ * "difference", which name anything); a rule's likewise. Empty for a scene whose layer
+ * is not an operation's output (a crop, a formula, a brought-back picture).
+ */
+function methodWords(lit: Literal): RegExp[] {
+  const own = (r: RegExp | undefined) => (r && r.source !== "." ? [r] : []);
+  if (lit.kind === "operate")
+    return lit.chain.flatMap((s) => {
+      const doc = LITERAL_OPS[s.op] as LiteralOpDoc;
+      const v = own(doc.how?.[s.how ?? doc.defaultHow ?? ""]?.words);
+      return v.length ? v : own(doc.nouns);
+    });
+  if (lit.kind === "evolve") {
+    const doc = LITERAL_RULES[lit.rule] as LiteralOpDoc;
+    const v = own(lit.how ? doc.how?.[lit.how]?.words : undefined);
+    return v.length ? v : own(doc.nouns);
+  }
+  return [];
+}
+
+/**
+ * Why a computed layer shown under a name credits it to the wrong thing. A flow stage that
+ * shows one must not be a learned component. A prior-work lane that shows one must also BE
+ * the operation that computed it: its family or members name that operation, and the
+ * source names every member beside it, or the picture is credited to methods that never
+ * ran it. This is the general form of the rule that let a lane run the dark channel prior
+ * only under the family that is it (src/plan/coverage.ts before the verbs, 2026-10-11).
+ */
+function creditProblems(
+  shown: Literal | undefined,
+  words: string,
+  members: readonly string[] | undefined,
+  ps: readonly string[],
+  what: string,
+): string[] {
+  const out: string[] = [];
+  const learned = learnedIn(words);
+  if (learned.length)
+    out.push(
+      `${what} shows a computed layer under ${learned.map((w) => `"${w}"`).join(", ")}, a learned component; a network the build does not have is never drawn working. Show it by the source's numbers, or as a box`,
+    );
+  if (!members || !shown) return out;
+  const res = methodWords(shown);
+  if (!res.length) {
+    out.push(
+      `${what} shows a ${shown.kind} scene's layer, which is no operation's output; a lane shows what an earlier \`operate\` or \`evolve\` scene computed`,
+    );
+    return out;
+  }
+  if (!res.some((r) => r.test(words)))
+    out.push(
+      `${what} shows what an earlier scene computed, and neither its family nor its members name that operation. A lane shows a computed layer only under the method that IS it; show any other family by its numbers`,
+    );
+  const apart = members.filter(
+    (m) =>
+      !res.some((r) => r.test(m)) && !ps.some((p) => named(p, m) && res.some((r) => r.test(p))),
+  );
+  if (apart.length)
+    out.push(
+      `${what} names ${apart.map((m) => `"${m}"`).join(", ")}, which the source never names beside the operation its picture computed; the picture would be credited to them`,
+    );
+  return out;
+}
+
 /** What makes two consecutive beats the same slide: the verb, its form and its operand. */
 function repetitionKey(lit: Literal): string {
   switch (lit.kind) {
@@ -1309,6 +1396,30 @@ export function literalFindings(
       const why = earlierProblem(beats, i, id, what, ok, need);
       if (why) out.push(`${at}: ${why}.`);
     }
+    // A computed layer shown under a name is credited to that name.
+    const shownBy = (id: string) => beats.slice(0, i).find((b) => b.id === id)?.literal;
+    if (lit.kind === "flow")
+      for (const s of lit.stages)
+        if (s.show)
+          for (const p of creditProblems(
+            shownBy(s.show),
+            `${s.label} ${s.shape ?? ""}`,
+            undefined,
+            c.ps,
+            `stage "${s.label}"`,
+          ))
+            out.push(`${at}: ${p}.`);
+    if (lit.kind === "prior-work")
+      for (const l of lit.lanes)
+        if (l.from)
+          for (const p of creditProblems(
+            shownBy(l.from),
+            `${l.family} ${l.members}`,
+            namesIn(l.members),
+            c.ps,
+            `lane "${l.family}"`,
+          ))
+            out.push(`${at}: ${p}.`);
     if (lit.kind === "table") {
       if (!lit.columns.length || !lit.rows.length)
         out.push(`${beat.id}'s table has no ${lit.columns.length ? "rows" : "columns"}.`);

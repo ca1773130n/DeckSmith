@@ -217,23 +217,6 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-/** Standard normal draws (Box–Muller) from a seeded uniform source. */
-export function normals(rng: () => number): () => number {
-  let spare: number | undefined;
-  return () => {
-    if (spare !== undefined) {
-      const s = spare;
-      spare = undefined;
-      return s;
-    }
-    const u = 1 - rng();
-    const v = rng();
-    const r = Math.sqrt(-2 * Math.log(u));
-    spare = r * Math.sin(2 * Math.PI * v);
-    return r * Math.cos(2 * Math.PI * v);
-  };
-}
-
 /** `{name}` in a template, replaced by `vars[name]`; throws on a name it was not given. */
 export function fillTemplate(
   template: string,
@@ -301,18 +284,6 @@ export function flat(points: ReadonlyArray<readonly [number, number]>): number[]
 export const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 export const r2 = (n: number) => Math.round(n * 100) / 100;
-
-/** "Nice" axis ticks (1, 2, 5 × 10^k) covering [lo, hi], about `n` of them. */
-export function niceTicks(lo: number, hi: number, n = 5): number[] {
-  if (!(hi > lo)) return [lo];
-  const raw = (hi - lo) / Math.max(1, n);
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = ([1, 2, 5, 10].find((m) => m * mag >= raw) ?? 10) * mag;
-  const out: number[] = [];
-  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step)
-    out.push(Number((Math.round(v / step) * step).toPrecision(12)) + 0); // no float dust, never "-0"
-  return out;
-}
 
 /**
  * Every byte a result carries, for determinism checks: each raster's floats and

@@ -371,7 +371,17 @@ export function checkPasses(
   // Naive interval arithmetic widens an expression that reads a variable twice ((1−α²)/(1−α)
   // spans 1.28…1.99 for α in 0.55…0.65, where the truth is 1.55…1.65). So every input box is
   // cut into pieces and each piece evaluated: still an enclosure, and a tight one.
-  const got = evaluateSplit(ast, env, 8);
+  // A piece whose enclosure is unbounded (a divisor or a log argument that may cross zero there)
+  // says nothing: it would "reach" every output, so a formula that is wrong everywhere else
+  // would pass on it. Only bounded pieces count; none bounded is a refusal.
+  const got = evaluateSplit(ast, env, 8).filter(
+    (iv) => Number.isFinite(iv[0]) && Number.isFinite(iv[1]),
+  );
+  if (!got.length)
+    return {
+      ok: false,
+      why: "the formula cannot be bounded over the printed inputs (a divisor or a log argument crosses zero)",
+    };
   if (!got.some((iv) => iv[1] >= out[0] && iv[0] <= out[1])) {
     const lo = Math.min(...got.map((iv) => iv[0]));
     const hi = Math.max(...got.map((iv) => iv[1]));
@@ -383,9 +393,18 @@ export function checkPasses(
   return { ok: true };
 }
 
-/** The expression over every piece of its inputs' boxes, each cut into `k`. */
-export function evaluateSplit(ast: Ast, env: Readonly<Record<string, Iv>>, k: number): Iv[] {
-  const names = Object.keys(env).filter((n) => (env[n] as Iv)[0] !== (env[n] as Iv)[1]);
+/**
+ * The expression over every piece of its inputs' boxes, each cut into `k`. Only the
+ * variables it reads are cut, and `k` shrinks so there are at most 4096 pieces (k^n
+ * grows fast; a coarser cut is still an enclosure, only a wider one).
+ */
+export function evaluateSplit(ast: Ast, env: Readonly<Record<string, Iv>>, k0: number): Iv[] {
+  const read = new Set(variablesOf(ast));
+  const names = Object.keys(env).filter(
+    (n) => read.has(n) && (env[n] as Iv)[0] !== (env[n] as Iv)[1],
+  );
+  let k = Math.max(1, k0);
+  while (k > 1 && k ** names.length > 4096) k--;
   const out: Iv[] = [];
   const walk = (i: number, cur: Record<string, Iv>) => {
     if (i === names.length) {

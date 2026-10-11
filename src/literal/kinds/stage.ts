@@ -53,7 +53,7 @@ import {
 import type { Tensor } from "../ops.js";
 import type { Frame, Measure, MechanismResult, Prim, Raster, Region, Rgb } from "./common.js";
 import { clamp01, TYPE } from "./common.js";
-import { type Draw, type LayerPaint, primSvg, roleRgb } from "./svg.js";
+import { type Draw, type LayerPaint, primSvg } from "./svg.js";
 
 /** What an earlier scene left that a later one may reuse: its layers and its computed arrays. */
 export interface Earlier {
@@ -628,9 +628,5 @@ export function verbProblems<K extends LiteralKind>(
     return [(e as Error).message.replace(/^(?:literal|op|formula): /, "")];
   }
 }
-
-/** The colour a role is drawn in, for verbs that build HTML around primitives. */
-export const roleCss = (theme: Theme, role: Parameters<typeof roleRgb>[1]) =>
-  `rgb(${roleRgb(theme, role).join(",")})`;
 
 export type { Frame, MechanismResult, Prim, Raster, Region };

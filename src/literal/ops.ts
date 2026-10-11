@@ -16,6 +16,7 @@
  */
 import type { LiteralOpName } from "../types.js";
 import { evaluate, parseFormula } from "./formula.js";
+import { mulberry32 } from "./kinds/common.js";
 
 export interface Tensor {
   h: number;
@@ -215,9 +216,9 @@ function reduce(t: Tensor, how: string, k: number, stride: number): Tensor {
   const kh = t.h === 1 ? 1 : k;
   const pool = stride > 1;
   if (pool && stride !== k) throw new Error("op: a pooled reduce has stride = window");
-  const H = pool ? Math.floor(t.h / kh) || 1 : t.h;
+  const H = pool ? Math.floor(t.h / kh) : t.h;
   const Wd = pool ? Math.floor(t.w / k) : t.w;
-  if (!Wd) throw new Error(`op: a ${k} window does not fit ${t.w} columns`);
+  if (!Wd || !H) throw new Error(`op: a ${k} window does not fit ${t.h}×${t.w}`);
   const o = tensor(H, Wd, t.c);
   const r = Math.floor(k / 2);
   const rh = Math.floor(kh / 2);
@@ -477,14 +478,7 @@ export function runChain(inputs: readonly Tensor[], chain: readonly OpStep[]): T
 
 /** Deterministic standard normals (mulberry32 + Box–Muller). */
 export function seededNormals(seed: number): () => number {
-  let a = seed >>> 0;
-  const u = () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  const u = mulberry32(seed);
   return () => Math.sqrt(-2 * Math.log(1 - u())) * Math.cos(2 * Math.PI * u());
 }
 

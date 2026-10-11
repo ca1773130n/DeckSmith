@@ -404,6 +404,43 @@ describe("literalFindings", () => {
     ]);
     found = literalFindings(plan(beats), analysis).join("\n");
     expect(found).toMatch(/lane "사전" names "b03-method", which is not an earlier beat/);
+    // A lane showing what an earlier scene computed is credited with it: it must BE that
+    // operation (b01 runs the stated Sobel chain), never a learned family.
+    beats[2] = prior([
+      { family: "Sobel 필터", members: "SSM", from: "b01-problem", gap: "가정" },
+      numbers("SFRDP-Net"),
+    ]);
+    expect(literalFindings(plan(beats), analysis)).toEqual([]);
+    beats[2] = prior([
+      { family: "딥러닝", members: "SFRDP-Net", from: "b01-problem", gap: "가정" },
+      numbers("SFRDP-Net"),
+    ]);
+    found = literalFindings(plan(beats), analysis).join("\n");
+    expect(found).toMatch(/lane "딥러닝" shows a computed layer under "딥러닝", "SFRDP-Net"/);
+    expect(found).toMatch(/lane "딥러닝" shows what an earlier scene computed, and neither/);
+    expect(found).toMatch(/lane "딥러닝" names "SFRDP-Net", which the source never names beside/);
+  });
+
+  it("never shows a computed layer on a learned flow stage, however it is flagged", () => {
+    const beats = covered();
+    const chain = (label: string) =>
+      beatOf("b03-method", "method", ["sec4"], {
+        literal: {
+          kind: "flow",
+          form: "chain",
+          stages: [
+            { id: "a", label: "입력", learned: false },
+            { id: "b", label, learned: false, show: "b01-problem" },
+          ],
+          labels: [{ slot: "example", text: "예시" }],
+        },
+      });
+    beats[3] = chain("Sobel 구조 맵");
+    expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/learned component/);
+    beats[3] = chain("백본 ResNet");
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /stage "백본 ResNet" shows a computed layer under "백본", "ResNet", a learned component/,
+    );
   });
 
   it("refuses a combos cell the source never reports as an ablation", () => {

@@ -308,6 +308,27 @@ describe("the formula grammar", () => {
     ).toMatchObject({ ok: false, why: /no value for γ/ });
   });
 
+  it("an enclosure that cannot be bounded never reaches an output", () => {
+    // α − 0.6 crosses zero over α's printed box [0.55, 0.65]: unbounded pieces would
+    // "reach" any number. A piece far from zero still gives a bound, and it misses.
+    const wrong = parseFormula("x / (α - 0.6)");
+    const row = (out: string) => ({
+      inputs: [
+        { name: "α", value: "0.6" },
+        { name: "x", value: "3" },
+      ],
+      output: out,
+    });
+    expect(checkPasses(wrong, row("0.001")).ok).toBe(false);
+    // Nothing bounded at all: refused with the reason.
+    expect(
+      checkPasses(parseFormula("1 / (x - x)"), {
+        inputs: [{ name: "x", value: "3" }],
+        output: "7",
+      }),
+    ).toMatchObject({ ok: false, why: /cannot be bounded/ });
+  });
+
   it("a rounded input does not fail a correct formula (the walltime rows that miss at printed precision)", () => {
     const thm = parseFormula("(1 - α^(γ+1)) / ((1 - α) * (γ*c + 1))");
     for (const [g, a, c, out] of [
