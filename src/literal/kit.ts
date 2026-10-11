@@ -197,6 +197,8 @@ export class Tl {
 export interface Cue {
   t0: number;
   t1: number;
+  /** This sentence opens a narration stop: a hold sits at its start (src/bespoke/scene.ts `bespokeHolds`). */
+  stop?: boolean;
 }
 
 /**

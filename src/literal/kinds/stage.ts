@@ -451,6 +451,24 @@ ${body}
   return { svg, reveals, cam };
 }
 
+/**
+ * Where the camera tours a finished frame: the centre of each step's camera
+ * material (its `cam` primitives revealed on that step), the last step first.
+ */
+export function tourOf(frame: Frame, steps: number): Array<{ x: number; y: number }> {
+  const out: Array<{ x: number; y: number }> = [];
+  for (let k = steps; k >= 1; k--) {
+    const bs = frame.prims.filter((p) => p.cam && p.at === k).map(boxOf);
+    if (!bs.length) continue;
+    const x0 = Math.min(...bs.map((b) => b.x));
+    const y0 = Math.min(...bs.map((b) => b.y));
+    const x1 = Math.max(...bs.map((b) => b.x + b.w));
+    const y1 = Math.max(...bs.map((b) => b.y + b.h));
+    out.push({ x: (x0 + x1) / 2, y: (y0 + y1) / 2 });
+  }
+  return out;
+}
+
 /** The opacity a `preview` frame's parts stand at until they are spoken. */
 export const PREVIEW = 0.3;
 
@@ -501,8 +519,15 @@ export function stagedFragment(
       t1,
     ];
     const S = bounds.length - 1;
+    // THE PAYOFF BY THE LAST HOLD: the last frame's steps are shared out over its
+    // sentences up to the one that opens the narration's last stop, where the scene's
+    // last hold sits. The sentences after it explain a finished picture while the
+    // camera tours its steps (below). r3 revealed a plane's last two curves 17s after
+    // its last hold, so every hold showed the point not yet made.
+    const lastStop = cues.reduce((a, c, k) => (c.stop ? k : a), -1);
+    const R = i === n - 1 && lastStop >= n ? Math.max(1, Math.min(S, lastStop - n + 2)) : S;
     const spanOf = (step: number) =>
-      S === 1 ? 0 : Math.min(S - 1, Math.floor(((step - 1) * S) / K));
+      R === 1 ? 0 : Math.min(R - 1, Math.floor(((step - 1) * R) / K));
     const times: number[] = [];
     const nexts: number[] = [];
     for (let j = 0; j < S; j++) {
@@ -541,10 +566,14 @@ export function stagedFragment(
         `literal: ${kind} frame ${i} has no material for the camera (no \`cam\` primitive)`,
       );
     // A push-in toward the material's centre of interest: the frame's own `focus`, else its middle.
+    const cam = s.cam;
+    const originOf = (fx: number, fy: number) =>
+      `${r3((100 * fx) / Math.max(1, cam.w))}% ${r3((100 * fy) / Math.max(1, cam.h))}%`;
     const focus = (frames[i] as Frame & { focus?: { x: number; y: number } }).focus;
-    const fx = focus ? focus.x - s.cam.x : s.cam.w / 2;
-    const fy = focus ? focus.y - s.cam.y : s.cam.h / 2;
-    const ox = `${r3((100 * fx) / Math.max(1, s.cam.w))}% ${r3((100 * fy) / Math.max(1, s.cam.h))}%`;
+    const ox = focus ? originOf(focus.x - cam.x, focus.y - cam.y) : originOf(cam.w / 2, cam.h / 2);
+    // The tour: after the last reveal, each sentence pushes in on one step's material,
+    // the last step first — the payoff, then back through what led to it.
+    const tour = tourOf(frames[i] as Frame, K).map((b) => originOf(b.x - cam.x, b.y - cam.y));
     // After each sentence's parts are out the camera pushes in while it is spoken, and is
     // back at rest before the next sentence: a hold is the frame as drawn, never mid-push
     // (r3 C: four planes' tick labels pushed onto their axis names at the hold).
@@ -552,19 +581,20 @@ export function stagedFragment(
       const u1 = bounds[j + 1] as number;
       const more = j < S - 1;
       const stop = more ? u1 - 0.85 : u1 - 0.05;
-      const from = last[j] as number;
+      const from = j < R ? (last[j] as number) : (bounds[j] as number) + 0.1;
       if (!(stop - from > 0.3)) continue;
+      const o = j < R || !tour.length ? ox : (tour[(j - R) % tour.length] as string);
       tl.fromTo(
         `f${i}-cam`,
-        { scale: 1, transformOrigin: ox },
-        { scale: PUSH, transformOrigin: ox, duration: r3(stop - from), ease: "sine.inOut" },
+        { scale: 1, transformOrigin: o },
+        { scale: PUSH, transformOrigin: o, duration: r3(stop - from), ease: "sine.inOut" },
         from,
       );
       if (more)
         tl.fromTo(
           `f${i}-cam`,
-          { scale: PUSH, transformOrigin: ox },
-          { scale: 1, transformOrigin: ox, duration: 0.6, ease: "sine.inOut" },
+          { scale: PUSH, transformOrigin: o },
+          { scale: 1, transformOrigin: o, duration: 0.6, ease: "sine.inOut" },
           r3(u1 - 0.8),
         );
     }

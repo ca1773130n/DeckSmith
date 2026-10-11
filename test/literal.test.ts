@@ -99,8 +99,8 @@ describe("what reaches the next layer, and when", () => {
       ],
     };
     expect(sentenceCues(timing as never, "s17")).toEqual([
-      { t0: 0.95, t1: 11.687 },
-      { t0: 11.75, t1: 15.7 },
+      { t0: 0.95, t1: 11.687, stop: true },
+      { t0: 11.75, t1: 15.7, stop: true },
       { t0: 15.7, t1: 20.05 },
     ]);
   });

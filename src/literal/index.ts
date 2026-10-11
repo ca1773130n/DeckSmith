@@ -274,6 +274,7 @@ export function sentenceCues(timing: Pick<Timing, "scenes" | "segments">, sid: s
   for (const g of timing.segments) {
     if (g.scene !== sid) continue;
     let open: number | undefined;
+    let first = true;
     g.cues.forEach((c, i) => {
       open ??= c.start;
       const ends = /[.!?。！？]["'”’)\]]*$/.test(c.text.trim()) || i === g.cues.length - 1;
@@ -281,7 +282,9 @@ export function sentenceCues(timing: Pick<Timing, "scenes" | "segments">, sid: s
       out.push({
         t0: round3(g.start + open - scene.start),
         t1: round3(g.start + c.end - scene.start),
+        ...(first ? { stop: true } : {}),
       });
+      first = false;
       open = undefined;
     });
   }

@@ -1807,6 +1807,63 @@ describe("what each verb computes", () => {
     expect(still).toEqual([]);
   });
 
+  it("stage: the last step lands in the sentence that opens the last stop; the camera tours after it", () => {
+    const lit = literalSchema.parse({
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "x", lowerIsBetter: false },
+        { name: "y", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "Aa", values: ["1", "2"] },
+        { label: "Bb", values: ["2", "3"] },
+        { label: "Cc", values: ["3", "1"] },
+        { label: "Dd", values: ["4", "4"] },
+      ],
+      labels: [],
+    }) as Extract<Literal, { kind: "place" }>;
+    const r = runVerb(points as VerbRun<"place">, {
+      lit,
+      labels: {},
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+    // Two stops: one sentence, then three. The last hold is at 8.
+    const cues: Cue[] = [
+      { t0: 0.95, t1: 8, stop: true },
+      { t0: 8, t1: 14, stop: true },
+      { t0: 14, t1: 22 },
+      { t0: 22, t1: 30 },
+    ];
+    const frag = stagedFragment(
+      "place",
+      { files: {}, data: { frames: r.frames, paints: {}, vars: r.vars } },
+      region_,
+      cues,
+      { labels: {}, data: lit },
+      theme,
+      (x) => x,
+    );
+    // Each point comes from its preview to full on its step.
+    const at = [
+      ...frag.script.matchAll(/\{"opacity":0\.3\}, \{"opacity":1,[^}]*\}, ([\d.]+)\)/g),
+    ].map((m) => Number(m[1]));
+    expect(at.length).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...at)).toBeLessThan(14);
+    // After it: pushes toward different points, so nothing stands still.
+    const origins = [...frag.script.matchAll(/"scale":1\.07,"transformOrigin":"([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(new Set(origins).size).toBeGreaterThan(1);
+    const still = stillSpans(frag.script, 1.95, 29.5).filter(([a, b]) => b - a > STILL_MAX);
+    expect(still).toEqual([]);
+  });
+
   it("region crops leave their pieces for a later stream", () => {
     const d = draw(FIXTURES.find((f) => f.name === "training crops") as Fixture);
     expect(d.r.material?.tiles).toHaveLength(4);

@@ -113,13 +113,10 @@ export const SEEN_WHOLE_S = 1.0;
  * or still arriving when it does. r2's scope lit its last item so late that
  * the 2s frames never caught it before the cut.
  *
- * NOT "after the last hold": a literal scene reveals each step on its own
- * SENTENCE, and the holds are the starts of the narration's STOPS, which the
- * narration was cut to and which carry several sentences each — so a step
- * spoken in the last stop's second sentence is always after the last hold, by
- * construction. What makes a hold frame whole is that diagrams stand at
- * `PREVIEW` from the start (src/literal/kinds/stage.ts) and the fill gate
- * measures every hold.
+ * A step after the last hold is the stage's business, not this check's: the
+ * holds are the starts of the narration's STOPS, and the stage
+ * (src/literal/kinds/stage.ts) puts a scene's last step no later than the
+ * sentence that opens its last stop, then tours the finished picture.
  */
 export function lateReveals(
   script: string,
