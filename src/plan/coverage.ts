@@ -48,6 +48,7 @@ import {
   beatPartSchema,
   FORMATS,
   GENERATED_FIGURE_PREFIX,
+  LITERAL_AGGREGATE_WORDS,
   LITERAL_KIND_DOCS,
   LITERAL_OPS,
   LITERAL_ROLE_NOUNS,
@@ -1054,6 +1055,17 @@ function verbGrounding(
           }
         }
       } else if (lit.form === "graph") {
+        // Message passing is run for real: the source must have a graph, and say how a
+        // node aggregates its neighbours (the layer's operation, never the plan's choice).
+        const naming = passagesNaming(ps, LITERAL_ROLE_NOUNS.graph);
+        if (!naming.length)
+          out.push(
+            "runs message passing, and the source never names a graph, nodes or message passing; draw it as a `flow` chain, or leave `literal` null",
+          );
+        else if (!naming.some((p) => LITERAL_AGGREGATE_WORDS[lit.aggregate].test(p)))
+          out.push(
+            `aggregates by ${lit.aggregate}, and no passage that names the graph says so (\`aggregate\`); give the aggregation the source states, or draw it as a \`flow\` chain`,
+          );
         const w = lit.weights.length > 0 && lit.weights.every((m) => groundedRows(m, seq));
         example = !(
           w &&
@@ -1158,7 +1170,8 @@ function methodWords(lit: Literal): RegExp[] {
 
 /**
  * Why a computed layer shown under a name credits it to the wrong thing. A flow stage that
- * shows one must not be a learned component. A prior-work lane that shows one must also BE
+ * shows one must not be a learned component, and its label names the operation that made
+ * it (`members` undefined). A prior-work lane that shows one must also BE
  * the operation that computed it: its family or members name that operation, and the
  * source names every member beside it, or the picture is credited to methods that never
  * ran it. This is the general form of the rule that let a lane run the dark channel prior
@@ -1177,8 +1190,17 @@ function creditProblems(
     out.push(
       `${what} shows a computed layer under ${learned.map((w) => `"${w}"`).join(", ")}, a learned component; a network the build does not have is never drawn working. Show it by the source's numbers, or as a box`,
     );
-  if (!members || !shown) return out;
+  if (!shown) return out;
   const res = methodWords(shown);
+  if (!members) {
+    // A stage: its label names the operation whose output it shows, so the picture is never
+    // credited to another part of the method. A layer no operation made (a crop) names none.
+    if (res.length && !res.some((r) => r.test(words)))
+      out.push(
+        `${what} shows what an earlier scene computed, and its label does not name that operation; a stage shows a computed layer only under the name of the operation that made it`,
+      );
+    return out;
+  }
   if (!res.length) {
     out.push(
       `${what} shows a ${shown.kind} scene's layer, which is no operation's output; a lane shows what an earlier \`operate\` or \`evolve\` scene computed`,

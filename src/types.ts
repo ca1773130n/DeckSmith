@@ -873,7 +873,8 @@ const W = {
   mean: /\bmean\b|averag|평균|平均|均值/i,
   min: /\bmin(?:imum)?\b|최소|最小|min\s*\(/i,
   max: /\bmax(?:imum)?\b|최대|最大|max\s*\(/i,
-  sum: /\bsum\b|\badd(?:s|ed|ing)?\b|\btotal\b|합|더하|더한|総和|加算|求和|总和|相加/i,
+  // No bare 합: it sits inside 결합, 통합 and 합성곱, so it names anything.
+  sum: /\bsum\b|\badd(?:s|ed|ing)?\b|\btotal\b|합산|합계|총합|더하|더한|더해|総和|合計|加算|求和|总和|相加/i,
   variance: /varian|분산|分散|方差/i,
   std: /standard deviation|\bstd\b|표준편차|標準偏差|标准差/i,
   channel: /channel|채널|チャネル|チャンネル|通道/i,
@@ -962,15 +963,24 @@ export const LITERAL_OPS = {
         what: "|a| + |b|",
         words: /absolute|\|[^|]{1,12}\|\s*\+|절댓값|절대값|絶対値|绝对值/i,
       },
+      // Each variant's words name THAT combination: no bare 크기/大きさ (size), 곱 (in 합성곱),
+      // 差 (in 误差) or "different", which a passage holds whatever it combines.
       magnitude: {
         what: "√(a² + b²)",
-        words: /magnitude|euclidean|hypot|√|크기|大きさ|幅值|模长/i,
+        words:
+          /magnitude|euclidean|hypot|√|유클리드|그래디언트 크기|기울기 크기|勾配の大きさ|勾配強度|ユークリッド|幅值|模长|欧几里得/i,
       },
       min: { what: "min(a, b)", words: W.min },
       max: { what: "max(a, b)", words: W.max },
       sum: { what: "a + b", words: W.sum },
-      product: { what: "a · b", words: /product|multipl|곱|積|乘/i },
-      diff: { what: "a − b", words: /differen|subtract|차이|빼|差/i },
+      product: {
+        what: "a · b",
+        words: /\bproducts?\b|multipl|곱셈|곱한|곱하|곱해|要素積|乗算|掛け|乘积|相乘|乘以/i,
+      },
+      diff: {
+        what: "a − b",
+        words: /\bdifferences?\b|subtract|minus|차분|뺄셈|빼|감산|差分|引き算|減算|相减|减去|差值/i,
+      },
       posdiff: {
         what: "max(0, a − b), the positive part",
         words: /max\s*\(\s*0|positive part|\)_?\+|양수 부분|正の部分|正部/i,
@@ -984,7 +994,7 @@ export const LITERAL_OPS = {
       mean: { what: "by the mean", words: W.mean },
       max: { what: "by the maximum", words: W.max },
       range: { what: "to [0, 1] between min and max", words: /range|min.?max|범위|範囲|范围/i },
-      sum: { what: "to sum to 1", words: /\bsum|total|합|総和|求和|总和/i },
+      sum: { what: "to sum to 1", words: /\bsum|total|합이|합계|총합|総和|合計|求和|总和/i },
       std: { what: "by the standard deviation", words: W.std },
       softmax: { what: "softmax", words: /softmax|소프트맥스|ソフトマックス/i },
     },
@@ -1206,7 +1216,21 @@ export const LITERAL_ROLE_NOUNS = {
   resize: /resiz|size|해상도|크기|サイズ|尺寸|分辨率/i,
   /** A stream's statistic (mean, variance, std). */
   stat: /./,
+  /** A graph and message passing over it: a `flow` graph runs only where the source has one. */
+  graph:
+    /\b(?:graphs?|GNNs?|GCNs?|message[- ]passing|neighbou?rs?|nodes?|aggregat(?:e|es|ed|ion))\b|그래프|메시지 전달|메시지 패싱|이웃 노드|노드|グラフ|メッセージパッシング|近傍ノード|ノード|图神经|图卷积|消息传递|邻居|节点/i,
 } as const;
+
+/**
+ * What a `flow` graph's `aggregate` must be named as, in a passage that names the graph:
+ * the aggregation is the layer's operation, so it is stated or the graph is a diagram.
+ */
+export const LITERAL_AGGREGATE_WORDS: Readonly<Record<"sum" | "mean" | "max" | "gcn", RegExp>> = {
+  sum: W.sum,
+  mean: W.mean,
+  max: W.max,
+  gcn: /\bGCN|graph convolution|normali[sz]ed adjacency|그래프 합성곱|그래프 컨볼루션|グラフ畳み込み|图卷积/i,
+};
 
 /* ------------------------------------------------------------ kinds' docs */
 
@@ -1279,8 +1303,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`edges\` ({from, to, skip}), revealed in order; \`phases\`
                      true draws the training graph, then inference without the
                      train-only stages. A learned stage is a box: it never
-                     shows a computed layer. \`form\` graph: \`nodes\`, \`edges\`,
-                     \`aggregate\`, \`layers\` — message passing run for real.
+                     shows a computed layer, and a stage that shows one is
+                     labelled with the operation that computed it. \`form\`
+                     graph: \`nodes\`, \`edges\`, \`aggregate\` (as the source
+                     states it), \`layers\` — message passing run for real,
+                     only where the source has a graph.
                      \`form\` timeline: \`lanes\` ({label, total, runs: [{label,
                      count, dur, parallel}]}) — serial runs one after another,
                      a parallel run covering its count at once; a lane is as

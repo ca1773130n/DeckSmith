@@ -3,7 +3,7 @@
  * source, and a few raster and layout helpers.
  *
  * A mechanism kind is a PURE function from typed inputs (a picture, a table of
- * numbers, a graph, a gridworld, a corpus) and the scene's region to a
+ * numbers, a graph) and the scene's region to a
  * `MechanismResult`: rasters computed at build time, and frames of plain
  * vector primitives in region pixels. The framework renders them (`svg.ts`
  * draws one frame as SVG; an adapter turns rasters into files and frames into
@@ -50,7 +50,7 @@ export interface Rgba {
   d: Float32Array;
 }
 
-/** A colour the data itself computes (a node's features, a splat's colour), 0..1 per channel. */
+/** A colour the data itself computes (a node's features), 0..1 per channel. */
 export type DataRgb = readonly [number, number, number];
 
 interface Paint {

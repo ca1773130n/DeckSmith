@@ -441,6 +441,88 @@ describe("literalFindings", () => {
     expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
       /stage "백본 ResNet" shows a computed layer under "백본", "ResNet", a learned component/,
     );
+    // A stage with no learned word is still credited with the picture: it names the operation.
+    beats[3] = chain("특징 추출 모듈");
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /stage "특징 추출 모듈" shows what an earlier scene computed, and its label does not name that operation/,
+    );
+  });
+
+  it("runs message passing only where the source has a graph and states its aggregation", () => {
+    const beats = covered();
+    const graph = (aggregate: string) =>
+      beatOf("b03-method", "method", ["sec4"], {
+        literal: {
+          kind: "flow",
+          form: "graph",
+          aggregate,
+          nodes: ["A", "B", "C"].map((id, k) => ({ id, label: id, features: [k] })),
+          edges: [
+            { from: "A", to: "B" },
+            { from: "B", to: "C" },
+          ],
+          labels: [
+            { slot: "layer", text: "층 {l} / {L}" },
+            { slot: "field", text: "{count}개" },
+            { slot: "example", text: "예시" },
+          ],
+        },
+      });
+    beats[3] = graph("mean");
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /runs message passing, and the source never names a graph/,
+    );
+    const withGraph = sourceSchema.parse({
+      ...analysis,
+      sections: [
+        ...analysis.sections,
+        { id: "secG", depth: 2, heading: "그래프", text: "각 노드는 이웃의 특징을 평균한다." },
+      ],
+    });
+    expect(literalFindings(plan(beats), withGraph).join("\n")).not.toMatch(
+      /message passing|aggregat/,
+    );
+    beats[3] = graph("max");
+    expect(literalFindings(plan(beats), withGraph).join("\n")).toMatch(
+      /aggregates by max, and no passage that names the graph says so/,
+    );
+  });
+
+  it("grounds a combination's variant by words that name it, not by a syllable every passage holds", () => {
+    const beats = covered();
+    // A source holding only what steps 1–3 need, and the passage under test.
+    const src = (text: string) =>
+      sourceSchema.parse({
+        ...analysis,
+        sections: [
+          {
+            id: "sec4",
+            depth: 2,
+            heading: "방법",
+            text: "각 채널의 평균을 구하고 Sobel 커널로 합성곱한다.",
+          },
+          { id: "secC", depth: 2, heading: "결합", text },
+        ],
+        tables: [],
+        figures: [],
+      });
+    beats[1] = {
+      ...(beats[1] as object),
+      literal: {
+        ...OPERATE,
+        chain: [
+          ...OPERATE.chain.slice(0, 3),
+          { op: "combine", how: "sum", params: [], of: [2, 3], label: "합" },
+        ],
+      },
+    } as never;
+    // "결합" (joining) and "합성곱" (convolution) hold 합; neither says the two are added.
+    expect(
+      literalFindings(plan(beats), src("두 특징을 결합한 뒤 합성곱을 적용한다.")).join("\n"),
+    ).toMatch(/step 4 \(combine sum\): no passage that names the operation says a \+ b/);
+    expect(
+      literalFindings(plan(beats), src("두 응답을 더한 합계를 결합 맵으로 쓴다.")).join("\n"),
+    ).not.toMatch(/combine sum/);
   });
 
   it("refuses a combos cell the source never reports as an ablation", () => {
