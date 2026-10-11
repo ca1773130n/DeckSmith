@@ -60,6 +60,9 @@ const NEEDS: Record<string, readonly string[]> = {
 /** Points, inset for the camera's push (`withPushRoom`). */
 export const points = (c: Ctx): MechanismResult => withPushRoom(pointsIn)(c);
 
+/** The widest a key column beside the plot may be, as a share of the scene; wider goes under. */
+const KEY_SHARE = 0.45;
+
 /** A plane names each point beside it up to this many; past it, a key (`KEYED`). */
 export const NAMED_MAX = 8;
 
@@ -234,19 +237,24 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     ? Math.max(...keyLines.map((l) => c.measure(l, TYPE.label))) + 32
     : 0;
   const KEY_LH = 52;
-  if (keyLines.length && keyLines.length * KEY_LH > H - top)
+  // Beside the plot on a wide scene; under it where the column would take more
+  // than `KEY_SHARE` of the width (a portrait or square format).
+  const below = keyW > W * KEY_SHARE;
+  const keyH = below ? keyLines.length * KEY_LH + 16 : 0;
+  if (keyLines.length && (below ? keyW > W - 48 : keyLines.length * KEY_LH > H - top))
     throw new Error(
-      `place: ${d.items.length} points are too many to name in a key beside the plot (${Math.floor((H - top) / KEY_LH)} fit); split the beat or give fewer items`,
+      `place: ${d.items.length} points are too many to name in a key ${below ? "under" : "beside"} the plot; shorten the item names, split the beat or give fewer items`,
     );
-  if (keyW > W * 0.45)
-    throw new Error(
-      `place: the key's longest line is ${Math.ceil(keyW)}px, over 45% of the scene; shorten the item names`,
-    );
+  const sideW = below ? 0 : keyW;
   // A plane's x-axis name has its own row under the tick values, so no tick
   // is ever dropped for it (r2 lost its 4s tick under "预测时域").
   const plot = two
-    ? { x: 24 + yTickW, y: top, w: W - 48 - yTickW - keyW, h: H - top - 72 - nameH - 8 }
-    : { x: 24, y: top, w: W - 48 - keyW, h: H - top - 24 };
+    ? { x: 24 + yTickW, y: top, w: W - 48 - yTickW - sideW, h: H - top - 72 - nameH - 8 - keyH }
+    : { x: 24, y: top, w: W - 48 - sideW, h: H - top - 24 - keyH };
+  if (plot.h < 240)
+    throw new Error(
+      `place: the key leaves the plot ${Math.floor(plot.h)}px; give fewer items or shorter names`,
+    );
   const better = (k: number) => !(d.axes[k] as PlaceLit["axes"][number]).lowerIsBetter;
   const X = (v: number) => {
     const t = (tr(0)(v) - rx[0]) / (rx[1] - rx[0]);
@@ -601,8 +609,8 @@ function layoutPoints(c: Ctx, mode: Mode): MechanismResult | null {
     ...words.filter((p) => p.p !== "line"),
   );
   if (mode === "numbered") {
-    const x0 = plot.x + plot.w + 32;
-    const y0 = top + Math.max(0, (H - top - keyLines.length * KEY_LH) / 2);
+    const x0 = below ? 24 : plot.x + plot.w + 32;
+    const y0 = below ? H - keyH + 16 : top + Math.max(0, (H - top - keyLines.length * KEY_LH) / 2);
     keyLines.forEach((t, i) => {
       const it = d.items[i] as PlaceLit["items"][number];
       const g = groups.indexOf(it.group ?? "");
