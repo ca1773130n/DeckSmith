@@ -9,10 +9,13 @@
  *
  * WEIGHTED BY CONTENT, so the hash is not the only voice. Each pack carries an
  * affinity for the four archetype families (`ARCHETYPE_FAMILY`): a deck that is
- * mostly equations leans to the serif packs, one that is mostly bars and tables
- * to the grotesk and drafting ones. The lean is mild — every pack keeps a floor
+ * mostly structure leans to the drafting pack, one that is mostly bars and
+ * tables to the grotesk one. The lean is mild — every pack keeps a floor
  * weight — because the founder's complaint is sameness across decks, and a
  * strong content rule would put every paper of one field on one pack.
+ *
+ * DARK ONLY. The pick ranks the dark packs (`PICKED`); a light one is worn only
+ * when named. The founder, 2026-10-11: "I prefer dark theme".
  *
  * Rendezvous hashing: each pack draws `-ln(u) / weight` from its own hash of
  * (seed, pack) and the smallest draw wins. That is a weighted choice whose
@@ -36,10 +39,10 @@ const AFFINITY: Readonly<Record<string, Partial<Record<ArchetypeFamily, number>>
   signal: { quantity: 0.6, frame: 0.3 },
   blueprint: { structure: 0.7, formal: 0.2 },
   atlas: { frame: 0.6, structure: 0.2 },
-  folio: { formal: 0.8, frame: 0.2 },
-  chalk: { quantity: 0.5, structure: 0.4 },
-  journal: { formal: 0.4, frame: 0.4 },
 };
+
+/** The packs a deck can be given unasked: the dark ones. See the header. */
+const PICKED: readonly string[] = Object.keys(PACKS).filter((n) => PACKS[n]?.ground === "dark");
 
 /** 32-bit FNV-1a. Stable across platforms and Node versions, unlike any Map order. */
 export function fnv1a(text: string): number {
@@ -62,7 +65,7 @@ function mix(beats: Storyboard["beats"]): Record<ArchetypeFamily, number> {
 export function packWeights(beats: Storyboard["beats"]): Record<string, number> {
   const m = mix(beats);
   const out: Record<string, number> = {};
-  for (const name of Object.keys(PACKS)) {
+  for (const name of PICKED) {
     const a = AFFINITY[name] ?? {};
     out[name] =
       1 + Object.entries(a).reduce((s, [f, w]) => s + (w ?? 0) * m[f as ArchetypeFamily], 0);
@@ -70,7 +73,7 @@ export function packWeights(beats: Storyboard["beats"]): Record<string, number> 
   return out;
 }
 
-/** Every pack, most-preferred first, for this deck and seed. */
+/** Every pickable pack, most-preferred first, for this deck and seed. */
 export function rankPacks(beats: Storyboard["beats"], seed: string): string[] {
   const weights = packWeights(beats);
   const draw = (name: string) => {
@@ -78,8 +81,7 @@ export function rankPacks(beats: Storyboard["beats"], seed: string): string[] {
     const u = (fnv1a(`${seed}\u0000${name}`) + 0.5) / 2 ** 32;
     return -Math.log(u) / (weights[name] ?? 1);
   };
-  return Object.keys(PACKS)
-    .map((name) => ({ name, d: draw(name) }))
+  return PICKED.map((name) => ({ name, d: draw(name) }))
     .sort((a, b) => a.d - b.d || (a.name < b.name ? -1 : 1))
     .map((r) => r.name);
 }

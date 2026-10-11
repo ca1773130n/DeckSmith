@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { refreshFont, vendorFace } from "../src/build/files.js";
+import { splitCompare } from "../src/emit/archetypes/split-compare.js";
 import {
   chromeCss,
   chromeHeight,
@@ -520,6 +521,97 @@ describe("vendored pack faces", () => {
     expect(classic).not.toContain("IBM Plex Sans");
   });
 
+  it("declares the CJK bundle with Inter's vertical metrics, so a CJK split-compare heading stays inside its svg", async () => {
+    // HypePaper zh-Hans, v0.9.2: `text_box_overflow` on #s3-lab0 and nine more.
+    // Noto Sans SC is 1.160 em above the baseline as served; the emitters place
+    // labels on Inter's 0.969. A heading at the top of a split-compare svg
+    // measured 11px over its top edge in Chrome.
+    const storyboard = storyboardSchema.parse({
+      sourceId: "x",
+      title: "t",
+      lang: "zh-Hans",
+      beats: [
+        { id: "b1", intent: "i", archetype: "title", seconds: 4, params: { headline: "视觉要求" } },
+      ],
+    });
+    const source = {
+      id: "x",
+      title: "t",
+      lang: "zh-Hans",
+      sections: [],
+      figures: [],
+      equations: [],
+      tables: [],
+    };
+    const out = await mkdtemp(join(tmpdir(), "ds-f-"));
+    const text = [...new Set(JSON.stringify(source) + JSON.stringify(storyboard))]
+      .filter((c) => c > " ")
+      .sort()
+      .join("");
+    const stamp = `/* decksmith ${createHash("sha256").update(`Noto Sans SC\n${text}`).digest("hex").slice(0, 16)} */`;
+    const cssPath = join(out, "assets", "fonts", "fonts.css");
+    await mkdir(join(out, "assets", "fonts"), { recursive: true });
+    // Cut before the fix: Google's CSS as it comes, with no overrides.
+    await writeFile(
+      cssPath,
+      `${stamp}\n@font-face {\n  font-family: 'Noto Sans SC';\n  font-weight: 400;\n  font-display: block;\n  src: url(notosanssc-0.woff2) format('woff2');\n}\n` +
+        `@font-face {\n  font-family: 'Noto Sans SC';\n  font-weight: 700;\n  font-display: block;\n  src: url(notosanssc-0.woff2) format('woff2');\n}\n`,
+    );
+    const css = (await refreshFont(storyboard, source, out, () => {})) ?? "";
+    // What the composition declares, and what a build that cannot refresh links.
+    for (const declared of [css, await readFile(cssPath, "utf8")]) {
+      const faces = declared.split("@font-face").slice(1);
+      expect(faces).toHaveLength(2);
+      for (const f of faces) {
+        expect(f).toContain("ascent-override: 96.875%");
+        expect(f).toContain("descent-override: 24.1211%");
+        expect(f).toContain("line-gap-override: 0%");
+        expect(f.match(/ascent-override/g)).toHaveLength(1);
+      }
+    }
+    const ascent = Number(/ascent-override: ([\d.]+)%/.exec(css)?.[1]) / 100;
+
+    const theme = {
+      bg: "#0b0d10",
+      fg: "#e8eaed",
+      muted: "#b8c4d2",
+      dim: "#74808e",
+      rule: "#2b333d",
+      panel: "#16191e",
+      accent: "#3d8bfd",
+      tones: { a: "#7cc4ff", b: "#ffd166", c: "#f78da7", d: "#6ee7a8" },
+      fontStack: '"Noto Sans SC", "Inter", system-ui, sans-serif',
+    };
+    const html = splitCompare(
+      {
+        id: "b2",
+        intent: "i",
+        evidence: [],
+        weight: 0.5,
+        seconds: 9,
+        archetype: "split-compare",
+        params: {
+          headline: "高质量画面与实时响应共同约束生成成本",
+          left: { label: "视觉要求", lines: ["高空间分辨率", "时间平滑性"] },
+          right: { label: "交互要求", lines: ["低响应延迟", "丰富的控制方式"] },
+        },
+      },
+      { source, format: FORMATS["deck-16x9"] as Format, theme, sid: "s3", start: 0 },
+    ).html;
+    for (const i of [0, 1]) {
+      const m = new RegExp(
+        `<text [^>]*y="([\\d.]+)" id="s3-lab${i}" font-size="(\\d+)"[^>]*><tspan [^>]*dy="([\\d.-]+)"`,
+      ).exec(html);
+      expect(m, `#s3-lab${i}`).not.toBeNull();
+      const [y, size, dy] = [Number(m?.[1]), Number(m?.[2]), Number(m?.[3])];
+      expect(size).toBeGreaterThanOrEqual(40);
+      // The line box's top, against the svg's top edge and the gate's 2px.
+      expect(y + dy - ascent * size).toBeGreaterThanOrEqual(-2);
+      // Noto's own 1.160 is the box that failed the build.
+      expect(y + dy - 1.16 * size).toBeLessThan(-2);
+    }
+  });
+
   it("vendors a Latin pack's faces with Inter, and only Inter for a classic theme", async () => {
     const storyboard = storyboardSchema.parse({
       sourceId: "x",
@@ -580,25 +672,35 @@ describe("picking a pack per deck", () => {
 
   it("is a pure function of the beats and the seed", () => {
     expect(rankPacks(beats, "abc")).toEqual(rankPacks(beats, "abc"));
-    expect(new Set(rankPacks(beats, "abc"))).toEqual(new Set(Object.keys(PACKS)));
+    expect(new Set(rankPacks(beats, "abc"))).toEqual(
+      new Set(Object.keys(PACKS).filter((n) => PACKS[n]?.ground === "dark")),
+    );
     expect(fnv1a("hypepaper")).toBe(fnv1a("hypepaper"));
   });
 
-  it("leans with the content: an equation deck finds the serif packs more often", () => {
+  it("ranks only the dark packs: the founder's default, 2026-10-11", () => {
+    for (const s of SEEDS)
+      for (const p of rankPacks(beats, s)) expect(PACKS[p]?.ground).toBe("dark");
+  });
+
+  it("leans with the content: a structure deck finds the drafting pack more often", () => {
     const only = (archetype: string) =>
       beats
         .filter((b) => b.archetype === archetype)
         .slice(0, 1)
         .flatMap((b) => Array(10).fill(b));
-    const formal = only("equation-walk");
+    const structure = only("pipeline");
     const quantity = only("bar-compare");
+    expect(structure.length).toBe(10);
+    expect(quantity.length).toBe(10);
     const share = (bs: typeof beats, pack: string) =>
       Array.from({ length: 400 }, (_, i) => rankPacks(bs, `s${i}`)[0]).filter((p) => p === pack)
         .length / 400;
-    expect(share(formal, "folio")).toBeGreaterThan(share(quantity, "folio"));
-    expect(share(quantity, "signal")).toBeGreaterThan(share(formal, "signal"));
+    expect(share(structure, "blueprint")).toBeGreaterThan(share(quantity, "blueprint"));
+    expect(share(quantity, "signal")).toBeGreaterThan(share(structure, "signal"));
     // Mild: no family hands any pack the majority.
-    expect(share(formal, "folio")).toBeLessThan(0.4);
+    expect(share(structure, "blueprint")).toBeLessThan(0.5);
+    expect(share(quantity, "signal")).toBeLessThan(0.5);
   });
 
   it("weighs every pack at least 1, so none is ever unreachable", () => {

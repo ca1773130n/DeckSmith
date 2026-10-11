@@ -42,6 +42,27 @@ describe("scanNarrationDrift", () => {
     expect(scanNarrationDrift(sb, narration)).toEqual([]);
   });
 
+  it("says nothing when a Chinese beat was split at 。, where no space was ever written", () => {
+    // HypePaper zh-Hans run 2c4dbfef (and 9ef9841a/ja): `narrate` split every
+    // multi-sentence beat at 。, the rejoin put a space after it, and `build`
+    // refused 15 of 18 freshly narrated beats — exactly the multi-segment ones.
+    const sb = board(
+      beat("b1", "传统透明度混合需要对大量基元进行深度排序。每个基元还携带球谐系数等属性。"),
+    );
+    const narration = {
+      beats: {
+        b1: [
+          { text: "传统透明度混合需要对大量基元进行深度排序。" },
+          { text: "每个基元还携带球谐系数等属性。" },
+        ],
+      },
+    };
+    expect(scanNarrationDrift(sb, narration)).toEqual([]);
+    // Still catches a changed word in the same shape.
+    const stale = { beats: { b1: [narration.beats.b1[0], { text: "每个基元还携带其他属性。" }] } };
+    expect(scanNarrationDrift(sb, stale as typeof narration)).toHaveLength(1);
+  });
+
   it("catches the renumbering that shipped: every id present, every voice one slide late", () => {
     const sb = board(
       beat("b1", "The opening."),

@@ -5,8 +5,9 @@
  * identity — its own typeface pairing and type scale (`../type.ts`), its own
  * ground and accent, its own eyebrow and figure treatment, its own surface — so
  * two decks on two packs read as two designs rather than one design recoloured.
- * Three dark and three light, because a light deck in a dark site is fine (the
- * founder, 2026-10-07) and a set that is all one ground is half a range.
+ * Three dark and three light. Only the dark three are PICKED (`rankPacks` in
+ * pick.ts): the founder, 2026-10-11, after watching a deck in `chalk`, "I prefer
+ * dark theme". The light three stay registered, so `--theme folio` still works.
  *
  * Every palette clears the theme suite's WCAG bars (`test/themes.test.ts` runs
  * over every registered theme): 4.5:1 for every ink on the ground, 3:1 on the

@@ -351,8 +351,12 @@ describe("design: the switch", () => {
     // tweens: no `wipe` (s2, s7, s11 lose their clip sweep, so the hash picks
     // re-roll s9-s15's seams), and every seam fades the outgoing eyebrow and
     // headline out in 0.16s, before the incoming chrome starts at 0.3.
+    // Then, merged from main (#120), the two KaTeX scenes gain one statement each
+    // flagging the nodes inside KaTeX's lap overlays `data-layout-allow-overlap`
+    // (`lapSetup`); removing those two statements gives back the previous pin
+    // byte for byte. An attribute, so nothing paints differently.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "a454c3f456e285461f99a618f7cace29dfb9e0db4dd789a408dd0cb06b33a203",
+      "93257ef71638ca044977bd7aa3cbc5ff28b3b06f39c455663ee75e72166ccda8",
     );
   });
 

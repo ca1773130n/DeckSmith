@@ -1545,9 +1545,14 @@ function sceneHtml(
   // variable the measurement declared. `pad` is the only difference between the
   // two branches below: deferred, this body sits two levels deeper inside a
   // builder function.
+  const measure = (scene.measure ?? []).map(statement);
+  // After the measurement, not in `setup`: `mathFit` re-renders a display that
+  // does not fit, and the overlays of that second render need the flag too.
+  const laps = lapSetup(sid, setup + measure.join(""));
   const build = (pad: string) =>
     [
-      ...(scene.measure ?? []).map(statement),
+      ...measure,
+      ...laps,
       `window.__timelines = window.__timelines || {};`,
       `// Each scene owns a paused timeline under its own composition id, with`,
       `// times relative to its start — one absolute root timeline yields a`,
@@ -1605,6 +1610,33 @@ function mathSetup(sid: string, html: string): string[] {
     `Array.prototype.forEach.call(document.querySelectorAll('#${sid} .${TEX_MARK}'), function (el) {
               try { katex.render(el.textContent, el, { throwOnError: false, output: "html" }); } catch (e) {}
             })`,
+  ];
+}
+
+/**
+ * Mark KaTeX's lap overlays as intended layering for `hyperframes check`.
+ *
+ * KaTeX draws a negated relation by overprinting: `\not\equiv`, `\not=`, and
+ * even `\neq`/`\ne` (KaTeX 0.16) put the slash in a zero-width `.rlap` on top of
+ * the relation glyph; `\notin` uses `.llap`, and `\rlap`/`\llap`/`\clap` exist
+ * to overlap by definition. Upstream's `content_overlap` sees the slash and the
+ * glyph under it as two solid text blocks covering each other and fails the
+ * deck — ko a40d082b s4, `\not\equiv` in both the display and its legend chip,
+ * which frames as a clean ≢. Nothing is wrong on screen.
+ *
+ * The flag is upstream's own waiver and is NOT inherited (`hasAllowOverlapFlag`
+ * reads the element itself), so it goes on each node inside a lap: only the
+ * overlay is waived. The glyph it sits on stays a solid block, so the equation
+ * colliding with the legend or the foot chrome still fails the gate. Emitted
+ * only where the scene renders KaTeX, so every other scene keeps its bytes.
+ */
+function lapSetup(sid: string, script: string): string[] {
+  if (!script.includes("katex.render")) return [];
+  const laps = [".rlap", ".llap", ".clap"].map((c) => `#${sid} .katex ${c} *`).join(", ");
+  return [
+    statement(`Array.prototype.forEach.call(document.querySelectorAll('${laps}'), function (el) {
+              el.setAttribute("data-layout-allow-overlap", "");
+            })`),
   ];
 }
 
