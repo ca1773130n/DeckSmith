@@ -799,6 +799,16 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     const found = (head: string) => literalFindings(plan(beats), withTable(head)).join("\n");
     expect(found("γ\\gamma")).not.toMatch(/curve "γ=2"/);
     expect(found("g")).toMatch(/curve "γ=2": γ 2 is never printed bound to γ/);
+    // A row's condition is its one-symbol column's value: "γ=5" names the (0.8, 5) row.
+    const lit = (
+      beats[5] as unknown as { literal: { items: Array<{ label: string; values: string[] }> } }
+    ).literal;
+    lit.items = [
+      { label: "γ=2", values: ["0.8", "2.44"] },
+      { label: "γ=5", values: ["0.8", "3.69"] },
+    ];
+    expect(found("γ\\gamma")).not.toMatch(/places "γ=/);
+    expect(found("g")).toMatch(/places "γ=5" at 0.8, 3.69/);
   });
 
   it("holds set items to the source's names, and the first set to what has results", () => {

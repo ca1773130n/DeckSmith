@@ -673,15 +673,21 @@ export function paramProblem(
  * 10, and a curve fixed at γ = 2 was refused as never printed bound to γ.
  */
 function columnStates(source: Source, symbol: string, value: string): boolean {
-  const sym = symbolOf(symbol);
   const v = value.trim();
-  if (!sym || !v) return false;
+  if (!v) return false;
   return source.tables.some((t) =>
-    t.columns.some((col, j) => {
-      const h = normalizeTex(col).replace(/\s+/g, "");
-      return (h === sym || h === sym + sym) && t.rows.some((r) => (r[j] ?? "").trim() === v);
-    }),
+    t.columns.some(
+      (col, j) => symbolColumn(col, symbol) && t.rows.some((r) => (r[j] ?? "").trim() === v),
+    ),
   );
+}
+
+/** Whether a column header is the symbol alone ("γ", or "γ\\gamma": MathML then TeX). */
+function symbolColumn(col: string, symbol: string): boolean {
+  const sym = symbolOf(symbol);
+  if (!sym) return false;
+  const h = normalizeTex(col).replace(/\s+/g, "");
+  return h === sym || h === sym + sym;
 }
 
 /** The passages that name an op (or rule), normalised. */
@@ -929,8 +935,11 @@ function tableRowStates(
         const m = /^(.*?\S)\s*[=:]?\s*(-?\d+(?:\.\d+)?)$/u.exec(part);
         if (!m) return false;
         const [, head, value] = m as unknown as [string, string, string];
+        // A one-letter head ("γ=2") is too short for `named`; a column headed by it alone is.
         return t.columns.some(
-          (col, j) => named(col, head) && numbersIn(row[j] ?? "").includes(value),
+          (col, j) =>
+            (named(col, head) || symbolColumn(col, head)) &&
+            numbersIn(row[j] ?? "").includes(value),
         );
       });
     }),
