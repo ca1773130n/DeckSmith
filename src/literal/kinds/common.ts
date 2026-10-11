@@ -210,8 +210,8 @@ const NO_LINE_START = /[、。，．！？：；）」』】〕〉》”’ー�
 
 /**
  * Greedy wrap by a measure. Breaks at spaces and, inside Han or kana, between
- * characters — without that a Chinese label is one unbreakable word ("极端场景或
- * 安全关键型评测套件" ran 621px into a 582px part). A lone separator ("·") never
+ * characters — without that a Chinese label is one unbreakable word (a
+ * 14-character item ran 621px into a 582px part). A lone separator ("·") never
  * opens a line. A unit wider than the line keeps its own line; the caller decides
  * whether that is an error. An empty text is no lines.
  */

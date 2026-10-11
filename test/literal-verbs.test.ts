@@ -713,6 +713,23 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Speculative decoding's T5 speedups: four groups beside a long axis name.
+    name: "speedup by task and temperature, four groups",
+    domain: "language-models",
+    lit: {
+      kind: "place",
+      form: "strip",
+      axes: [{ name: "T5X 대비 속도 향상 배수", lowerIsBetter: false }],
+      items: [
+        { label: "T5-small", values: ["3.4"], group: "EnDe · temp=0" },
+        { label: "T5-small", values: ["2.6"], group: "EnDe · temp=1" },
+        { label: "T5-small", values: ["3.1"], group: "CNNDM · temp=0" },
+        { label: "T5-small", values: ["2.3"], group: "CNNDM · temp=1" },
+      ],
+      labels: [],
+    },
+  },
+  {
     name: "text quality on one axis, with a legend",
     domain: "language-models",
     lit: {
@@ -1050,6 +1067,16 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
                 `${fr.id}: "${a.t}" over "${b.t}"`,
               ).toBe(false);
         }
+      });
+      it("every word stays inside the region", () => {
+        for (const fr of d.r.frames)
+          for (const p of fr.prims) {
+            if (p.p !== "text" || !p.text) continue;
+            const w = measure(p.text, p.size);
+            const x0 = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+            expect(x0, `${fr.id}: "${p.text}"`).toBeGreaterThanOrEqual(-1);
+            expect(x0 + w, `${fr.id}: "${p.text}"`).toBeLessThanOrEqual(region_.width + 1);
+          }
       });
       it("is drawable at plan time, by the same run", () => {
         expect(drawProblems(d.lit, region_, theme)).toEqual([]);

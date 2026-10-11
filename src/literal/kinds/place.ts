@@ -72,7 +72,23 @@ export function points(c: Ctx): MechanismResult {
     return it.values.map((v) => numberIn(v, `item "${it.label}"`));
   });
   const { width: W, height: H } = c.region;
-  const top = 64;
+  const groups = [...new Set(d.items.map((it) => it.group ?? ""))];
+  if (groups.length > 4) throw new Error(`place colours at most 4 groups, got ${groups.length}`);
+  const roles = ["a", "b", "c", "d"] as const;
+  const roleOf = (g: string) => roles[groups.indexOf(g)] ?? "a";
+  // The legend above the plot, right to left by measured words, in as many
+  // rows as it needs: beside the strip's axis name or the plane's, then the full
+  // width. Each row past the first moves the plot down by one.
+  const nameW = (k: number) => c.measure((d.axes[k] as PlaceLit["axes"][number]).name, TYPE.label);
+  const legend = legendOf(
+    groups.length > 1 && groups.every(Boolean) ? groups : [],
+    two ? 24 + nameW(1) + 48 : 24,
+    two ? W - 24 : W - 24 - nameW(0) - 48,
+    { left: 24, right: W - 24 },
+    roleOf,
+    c.measure,
+  );
+  const top = 64 + Math.max(0, legend.rows - 1) * LEGEND_ROW;
   const plot = two
     ? { x: 24, y: top, w: W - 48, h: H - top - 64 }
     : { x: 24, y: top, w: W - 48, h: H - top - 24 };
@@ -135,10 +151,6 @@ export function points(c: Ctx): MechanismResult {
     const t = (tr(1)(v) - ry[0]) / (ry[1] - ry[0]);
     return plot.y + plot.h * (better(1) ? 1 - t : t);
   };
-  const groups = [...new Set(d.items.map((it) => it.group ?? ""))];
-  if (groups.length > 4) throw new Error(`place colours at most 4 groups, got ${groups.length}`);
-  const roles = ["a", "b", "c", "d"] as const;
-  const roleOf = (g: string) => roles[groups.indexOf(g)] ?? "a";
   const prims: Prim[] = [];
   // The axes: lines and their names, no ticks.
   const ax0 = d.axes[0] as PlaceLit["axes"][number];
@@ -231,9 +243,7 @@ export function points(c: Ctx): MechanismResult {
       },
     );
   }
-  // The axis names' boxes, and the legend laid right to left by its measured
-  // words, ending where the strip's axis name begins (src/literal/kinds/stage.ts
-  // draws a text's top at its y).
+  // The axis names' boxes (src/literal/kinds/stage.ts draws a text's top at its y).
   const nameH = TYPE.label * 1.2;
   const axisBoxes: Box[] = two
     ? [
@@ -258,12 +268,6 @@ export function points(c: Ctx): MechanismResult {
           y1: 8 + nameH,
         },
       ];
-  const legend = legendOf(
-    groups.length > 1 && groups.every(Boolean) ? groups : [],
-    two ? plot.x + plot.w : (axisBoxes[0] as Box).x0 - 48,
-    roleOf,
-    c.measure,
-  );
   const curveNames: Box[] = [];
   let at = 0;
   // A curve takes the colour of the group it is named after, so its points and its line agree.
@@ -430,26 +434,45 @@ export function labelBox(
   return { x0, y0, x1: x0 + w, y1: y0 + h };
 }
 
-/** The legend: one dot and name per group, laid right to left from `right` by their measured widths. */
+const LEGEND_ROW = 56;
+
+/**
+ * The legend: one dot and name per group, laid right to left by measured width
+ * from `right`, the first row stopping at `left`; a group that does not fit
+ * starts the next row down, across `full`. Four groups beside a strip's axis
+ * name ran 110px off the left of the frame on one row, clipped by the scene's
+ * own box where no gate saw it.
+ */
 function legendOf(
   groups: readonly string[],
+  left: number,
   right: number,
+  full: { left: number; right: number },
   roleOf: (g: string) => Extract<Prim, { p: "circle" }>["fill"],
   measure: Ctx["measure"],
-): { prims: Prim[]; boxes: Box[] } {
+): { prims: Prim[]; boxes: Box[]; rows: number } {
   const prims: Prim[] = [];
   const boxes: Box[] = [];
+  let row = 0;
   let x1 = right;
+  let lo = left;
   for (const g of [...groups].reverse()) {
-    const x0 = x1 - measure(g, TYPE.label) - 34;
+    const w = measure(g, TYPE.label) + 34;
+    if (x1 - w < lo && x1 !== (row ? full.right : right)) {
+      row++;
+      x1 = full.right;
+      lo = full.left;
+    }
+    const x0 = x1 - w;
+    const y = 8 + row * LEGEND_ROW;
     prims.push(
-      { p: "circle", cx: x0 + 12, cy: 30, r: 12, fill: roleOf(g) },
-      { p: "text", x: x0 + 34, y: 8, size: TYPE.label, role: "fg", anchor: "start", text: g },
+      { p: "circle", cx: x0 + 12, cy: y + 22, r: 12, fill: roleOf(g) },
+      { p: "text", x: x0 + 34, y, size: TYPE.label, role: "fg", anchor: "start", text: g },
     );
-    boxes.push({ x0, y0: 8, x1, y1: 8 + TYPE.label * 1.2 });
+    boxes.push({ x0, y0: y, x1, y1: y + TYPE.label * 1.2 });
     x1 = x0 - 48;
   }
-  return { prims, boxes };
+  return { prims, boxes, rows: groups.length ? row + 1 : 0 };
 }
 
 const pointsKind = verbKind("place", points, { pictureSide: 0 });
