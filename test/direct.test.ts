@@ -364,8 +364,12 @@ describe("design: the switch", () => {
     // stack probe moves left. Then split-compare spreads its lists down the
     // column (s13 read at 109.65s) and bar-compare fades its bars in at their
     // length with no counting (s10 at 83.45s): the brief bans both.
+    // Then the r3 fix round (2026-10-12), re-pinned after reading s6 at 47.3s and
+    // s12 at 100.8s: an equation that fits small grows toward 62% of the width and
+    // each legend meaning sits beside its symbol; a line-chart value keeps 16px
+    // from the axis's own words (s12 unchanged to the eye).
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "e9aa244d76632d0b0f91d18c0555f6c039842c448f72938d41556d8cf40b9cc2",
+      "c00e36db5fcfcae59e2c1b82e8dcb46b9a843de0ac7bb3722a268da8de3d2f15",
     );
   });
 
