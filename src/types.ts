@@ -1302,7 +1302,7 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      own figure id, \`phase\` train · infer · both}) joined by
                      \`edges\` ({from, to, skip}), revealed in order. A
                      \`shape\` that is a stated count (4, γ, γ+1) is drawn as
-                     that many token chips. A chain where NO stage has a
+                     that many token chips (past 16: 1, 2, …, the count). A chain where NO stage has a
                      \`show\`, a \`figure\` or a count \`shape\` is refused: it
                      is empty boxes with names, so draw that mechanism as a
                      \`flow\` timeline or an \`evolve\` instead. \`phases\`

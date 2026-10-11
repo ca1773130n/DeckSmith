@@ -751,6 +751,31 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     );
   });
 
+  it("reads 10K in the source as 10000 on screen", () => {
+    const k = sourceSchema.parse({
+      ...analysis,
+      sections: [
+        ...analysis.sections,
+        { id: "sec90", depth: 2, heading: "α", text: "We evaluated α on 10K tokens." },
+      ],
+    });
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "place",
+        form: "strip",
+        axes: [{ name: "PSNR", lowerIsBetter: false }],
+        items: [
+          { label: "LHID", values: ["30.56"] },
+          { label: "DehazeFormer-b", values: ["29.73"] },
+        ],
+        labels: [{ slot: "caption", text: "10000 토큰으로 측정" }],
+      },
+    });
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(/says "10000"/);
+    expect(literalFindings(plan(beats), k).join("\n")).not.toMatch(/says "10000"/);
+  });
+
   it("binds a curve's fixed parameter by a table column headed with its symbol", () => {
     const withTable = (head: string) =>
       sourceSchema.parse({

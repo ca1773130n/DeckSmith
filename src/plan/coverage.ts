@@ -280,7 +280,14 @@ const NUMBER = /(?<![\p{L}\d.,/])\d+(?:[.,]\d+)*(?:\/\d+)?/gu;
  */
 function sourceNumbers(source: Source): ReadonlySet<string> {
   const text = sourceText(source).replace(/\\[A-Za-z]+/g, " ");
-  return new Set(text.match(NUMBER) ?? []);
+  const out = new Set(text.match(NUMBER) ?? []);
+  // "10K tokens" states 10000 as much as "10,000 tokens" does.
+  const scale: Record<string, number> = { K: 1e3, k: 1e3, M: 1e6, B: 1e9 };
+  for (const m of text.matchAll(/(?<![\p{L}\d.,])(\d+(?:\.\d+)?)([KkMB])(?![\p{L}\d])/gu)) {
+    const n = Math.round(Number(m[1]) * (scale[m[2] as string] as number));
+    if (Number.isSafeInteger(n)) out.add(String(n));
+  }
+  return out;
 }
 
 /** Everything the source states, as one text: title, sections, tables, figure captions. */

@@ -320,8 +320,10 @@ export function tokenChips(shape: string): string[] | undefined {
   const t = shape.trim().replace(/\s+/g, "");
   if (/^\d{1,2}$/.test(t)) {
     const k = Number(t);
-    return k >= 1 && k <= 16 ? Array.from({ length: k }, () => "") : undefined;
+    if (k >= 1 && k <= 16) return Array.from({ length: k }, () => "");
   }
+  // A count too many to draw one by one is its first two and its last, as a symbol's is.
+  if (/^\d+$/.test(t) && Number(t) > 16) return ["1", "2", "…", t];
   const end = /^(?:1(?:…|\.\.\.?|–|-|~))?(\p{L}(?:[+−-]\d{1,2})?)$/u.exec(t)?.[1];
   return end ? ["1", "2", "…", end] : undefined;
 }

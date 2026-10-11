@@ -1303,7 +1303,11 @@ describe("what each verb refuses", () => {
     expect(tokenChips("γ+1")).toEqual(["1", "2", "…", "γ+1"]);
     expect(tokenChips("1…γ+1")).toEqual(["1", "2", "…", "γ+1"]);
     expect(tokenChips("256×256")).toBeUndefined();
-    expect(tokenChips("40")).toBeUndefined();
+    // A count too many to draw one by one is elided as a symbol's is: "10K tokens" was words,
+    // and the chain was refused as empty boxes.
+    expect(tokenChips("40")).toEqual(["1", "2", "…", "40"]);
+    expect(tokenChips("10000")).toEqual(["1", "2", "…", "10000"]);
+    expect(tokenChips("0")).toBeUndefined();
   });
 
   it("flow chain: a card is as tall as what it holds, and its label starts inside it", () => {
