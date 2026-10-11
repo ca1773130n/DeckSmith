@@ -649,6 +649,47 @@ describe("literalFindings", () => {
     );
   });
 
+  it("places a point by one table row: its name in a cell, its condition a column's value", () => {
+    // A tabulated value's row name is one cell and its condition a column
+    // header; requiring the label beside the value refused every row.
+    const tabled = sourceSchema.parse({
+      ...analysis,
+      tables: [
+        {
+          id: "tbl1",
+          caption: "표 2.",
+          columns: ["Task", "Temp", "Speed"],
+          rows: [
+            ["LHID", "0", "3.4X"],
+            ["LHID", "1", "2.6X"],
+          ],
+        },
+      ],
+    });
+    const beats = covered();
+    const strip = (items: Array<{ label: string; values: string[]; group?: string }>) =>
+      beatOf("b05-results", "experiments", ["sec7"], {
+        literal: {
+          kind: "place",
+          form: "strip",
+          axes: [{ name: "Speed", lowerIsBetter: false }],
+          items,
+        },
+      });
+    beats[5] = strip([
+      { label: "LHID", values: ["3.4"], group: "Temp 0" },
+      { label: "LHID", values: ["2.6"], group: "temp=1" },
+    ]);
+    expect(literalFindings(plan(beats), tabled).join("\n")).not.toMatch(/places "LHID"/);
+    beats[5] = strip([
+      { label: "LHID · Temp 0", values: ["3.4"] },
+      { label: "LHID · Temp 0", values: ["2.6"] },
+    ]);
+    const found = literalFindings(plan(beats), tabled).join("\n");
+    expect(found).not.toMatch(/places "LHID · Temp 0" at 3.4/);
+    expect(found).toMatch(/places "LHID · Temp 0" at 2.6/);
+  });
+
   it("holds set items to the source's names, and the first set to what has results", () => {
     const beats = covered();
     const sets = (first: string[]) =>

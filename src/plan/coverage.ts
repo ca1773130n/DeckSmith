@@ -813,6 +813,43 @@ function verbatim(expr: string, text: string): boolean {
   return e.length >= 5 && normalizeExpr(text).replace(/[{}$]/g, "").includes(e);
 }
 
+/**
+ * Whether one row of one of the source's tables states every value of `item`
+ * and names every part of its label and group (each split on ·, /, …): a part
+ * is a cell of that row ("EnDe", "T5-small"), the table's caption, or a column
+ * header with that row's value in it ("temp=0", "Temp 0" for a Temp column
+ * holding 0).
+ *
+ * A table is the passage a tabulated number sits in, but its row's name is in
+ * one cell and its condition in a column header. Measured on arXiv 2211.17192's
+ * Table 2, where "EnDe, temp=0 → 3.4X" is one row: requiring the label in the
+ * same passage as the value refused every row, and the planner fell back to
+ * labelling four points "T5-small" with the real distinction in a legend.
+ */
+function tableRowStates(
+  source: Source,
+  item: { label: string; values: readonly string[]; group?: string | undefined },
+): boolean {
+  const parts = [...new Set([...namesIn(item.label), ...namesIn(item.group ?? "")])];
+  const want = item.values.flatMap((v) => numbersIn(v));
+  if (!parts.length || !want.length) return false;
+  return source.tables.some((t) =>
+    t.rows.some((row) => {
+      const got = new Set(row.flatMap((c) => numbersIn(c)));
+      if (!want.every((n) => got.has(n))) return false;
+      return parts.every((part) => {
+        if (row.some((c) => named(c, part)) || named(t.caption ?? "", part)) return true;
+        const m = /^(.*?\S)\s*[=:]?\s*(-?\d+(?:\.\d+)?)$/u.exec(part);
+        if (!m) return false;
+        const [, head, value] = m as unknown as [string, string, string];
+        return t.columns.some(
+          (col, j) => named(col, head) && numbersIn(row[j] ?? "").includes(value),
+        );
+      });
+    }),
+  );
+}
+
 /* ------------------------------------------------------------ the word forms */
 
 /**
@@ -865,7 +902,10 @@ function wordGrounding(lit: Literal, source: Source, text: string): string[] {
   if (form === "points") {
     for (const a of lit.axes) axesConv(a.name, a.lowerIsBetter);
     for (const it of lit.items)
-      if (!ps.some((p) => has(p, it.label) && it.values.every((v) => states(p, v))))
+      if (
+        !ps.some((p) => has(p, it.label) && it.values.every((v) => states(p, v))) &&
+        !tableRowStates(source, it)
+      )
         out.push(
           `places "${it.label}" at ${it.values.join(", ")}, and no passage of the source states ${it.values.length > 1 ? "those values" : "that value"} with "${it.label}" named. Each item's values sit in one passage with its name`,
         );
