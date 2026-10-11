@@ -311,6 +311,118 @@ describe("literalFindings", () => {
     expect(found).toContainEqual(expect.stringMatching(/marks \(0, 3\), which is no cell/));
   });
 
+  it("keeps at most one table: the others are drawn as what they list", () => {
+    const beats = covered();
+    const table = { kind: "table", columns: ["PSNR"], rows: [["30.56"]] };
+    beats[4] = beatOf("b04-setup", "experiments", ["sec6"], { literal: table });
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], { literal: table });
+    const found = literalFindings(plan(beats), analysis);
+    expect(found).toContainEqual(
+      expect.stringMatching(/draws 2 tables \(b04-setup, b05-results\).*`margins`.*`scope`/),
+    );
+    beats[4] = beatOf("b04-setup", "experiments", ["sec6"]);
+    expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/tables/);
+  });
+
+  it("holds the visual kinds to the source: margins, scope, ablation and prior-work", () => {
+    const beats = covered();
+    const margins = (ours: string) => ({
+      kind: "margins",
+      ours: "EM-SNN",
+      metrics: [{ name: "PSNR" }],
+      settings: [
+        { name: "LHID", values: [{ ours, best: "29.73", rival: "DehazeFormer-b" }] },
+        { name: "DHID", values: [{ ours: "28.83", best: "28.89", rival: "SFRDP-Net" }] },
+      ],
+      labels: labelsFor("margins"),
+    });
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], { literal: margins("31.20 dB") });
+    let found = literalFindings(plan(beats), analysis);
+    // A value the source never states, and a value that is not one number.
+    expect(found).toContainEqual(expect.stringMatching(/margins scene says .*"31.20"/));
+    expect(found).toContainEqual(
+      expect.stringMatching(/gives "31.20 dB" as values; each is one number/),
+    );
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: { ...margins("30.56"), settings: margins("30.56").settings.slice(0, 1) },
+    });
+    found = literalFindings(plan(beats), analysis);
+    expect(found).toContainEqual(
+      expect.stringMatching(/margins scene cannot be drawn in .*at least two settings/),
+    );
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "scope",
+        rings: [
+          { label: "수치", items: ["LHID", "DHID"] },
+          { label: "없음", items: ["RRSHID 41.7"] },
+        ],
+        labels: [],
+      },
+    });
+    expect(literalFindings(plan(beats), analysis)).toContainEqual(
+      expect.stringMatching(/scope scene says "41.7", which the source never states/),
+    );
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "ablation",
+        components: ["TM-LIF", "SSM", "PRB"],
+        reported: [],
+        settings: [{ name: "α", value: "0.6" }],
+        labels: labelsFor("ablation"),
+      },
+    });
+    expect(literalFindings(plan(beats), analysis)).toContainEqual(
+      expect.stringMatching(/ablation scene cannot be drawn in .*one or two components/),
+    );
+    // prior-work: a running lane needs the picture; spikes need the example tag.
+    beats[2] = beatOf("b02-prior", "prior-work", ["sec3"], {
+      literal: {
+        kind: "prior-work",
+        lanes: [
+          { family: "사전 기반", members: "DCP", shows: "dark-channel", gap: "가정" },
+          { family: "SNN", members: "빗줄기 제거", shows: "spikes", gap: "덜 탐구됨" },
+        ],
+        labels: [{ slot: "computed", text: "직접 계산" }],
+      },
+    });
+    found = literalFindings(plan(beats), analysis);
+    expect(found).toContainEqual(
+      expect.stringMatching(/prior-work scene runs a method on the picture and names none/),
+    );
+    expect(found).toContainEqual(expect.stringMatching(/shows spikes, which are illustrative/));
+  });
+
+  it("passes a prior-work scene that runs the classical prior and shows a learned family by its numbers", () => {
+    const beats = covered();
+    beats[2] = beatOf("b02-prior", "prior-work", ["sec3"], {
+      literal: {
+        kind: "prior-work",
+        picture: "b01-problem",
+        lanes: [
+          {
+            family: "사전 기반",
+            members: "Dark Channel Prior (DCP)",
+            shows: "dark-channel",
+            gap: "가정",
+          },
+          {
+            family: "딥러닝",
+            members: "SFRDP-Net",
+            shows: "numbers",
+            numbers: [{ label: "LHID PSNR", value: "30.56" }],
+            gap: "연산량",
+          },
+        ],
+        labels: [
+          { slot: "computed", text: "직접 계산" },
+          { slot: "reported", text: "보고된 값" },
+        ],
+      },
+    });
+    expect(literalFindings(plan(beats), analysis, { takeaways: true })).toEqual([]);
+  });
+
   it("refuses a number in a literal label that the source never states", () => {
     const beats = covered();
     beats[5] = beatOf("b05-results", "experiments", ["sec7"], {

@@ -30,6 +30,7 @@
 
 import { bespokeRegion } from "../bespoke/scene.js";
 import { deckLook } from "../emit/theme.js";
+import { isVisual, visualProblems } from "../literal/check.js";
 import { isMechanism, mechanismProblems } from "../literal/kinds/mechanisms.js";
 import type { Beat, BeatPart, Literal, LiteralKindDoc, Source, Storyboard } from "../types.js";
 import { beatPartSchema, FORMATS, LITERAL_KIND_DOCS, literalSlotProblems } from "../types.js";
@@ -385,6 +386,36 @@ function literalTexts(lit: Literal): string[] {
       ]),
     ];
   switch (lit.kind) {
+    case "prior-work":
+      return [
+        ...own,
+        ...lit.lanes.flatMap((l) => [
+          l.family,
+          l.members,
+          l.gap,
+          ...l.numbers.flatMap((n) => [n.label, n.value]),
+        ]),
+      ];
+    case "margins":
+      return [
+        ...own,
+        lit.ours,
+        ...lit.metrics.map((m) => m.name),
+        ...lit.settings.flatMap((st) => [
+          st.name,
+          ...st.values.flatMap((v) => [v.ours, v.best, v.rival]),
+        ]),
+      ];
+    case "scope":
+      return [...own, ...lit.rings.flatMap((r) => [r.label, ...r.items])];
+    case "ablation":
+      return [
+        ...own,
+        ...lit.components,
+        ...lit.reported.flatMap((r) => [...r.with, r.result]),
+        ...lit.settings.flatMap((st) => [st.name, st.value]),
+        ...lit.others,
+      ];
     case "attention":
       return [...own, ...lit.tokens];
     case "optimization":
@@ -482,7 +513,10 @@ function gateProblems(beat: Beat, lit: Literal, storyboard: Storyboard): string[
     const key = `${region.width}x${region.height}`;
     if (sizes.has(key)) continue;
     sizes.add(key);
-    for (const p of mechanismProblems(lit, region, theme))
+    for (const p of [
+      ...mechanismProblems(lit, region, theme),
+      ...visualProblems(lit, region, theme),
+    ])
       seen.set(p, [...(seen.get(p) ?? []), format.id]);
   }
   return [...seen].map(([p, ids]) => ` in ${ids.join(", ")}: ${p}`);
@@ -582,13 +616,40 @@ export function literalFindings(
       for (const p of gateProblems(beat, lit, storyboard))
         out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn${p}.`);
     }
+    if (isVisual(lit.kind)) {
+      // The visual kinds' own checks, drawn as the build draws them, in every format.
+      for (const p of gateProblems(beat, lit, storyboard))
+        out.push(`${beat.id}'s ${lit.kind} scene cannot be drawn${p}.`);
+      if (lit.kind === "prior-work") {
+        if (lit.lanes.some((l) => l.shows !== "numbers") && !lit.picture)
+          out.push(
+            `${beat.id}'s prior-work scene runs a method on the picture and names none; give \`picture\` (a beat carrying the deck's picture), or show that family by its numbers.`,
+          );
+        const tag = lit.labels.find((l) => l.slot === "example")?.text.trim();
+        if (lit.lanes.some((l) => l.shows === "spikes") && !(tag && EXAMPLE_WORD.test(tag)))
+          out.push(
+            `${beat.id}'s prior-work scene shows spikes, which are illustrative: its \`example\` slot must say "example" in the deck's language (example · 예시 · 例 · 示例).`,
+          );
+      }
+      if (lit.kind === "margins") {
+        const bad = lit.settings.flatMap((st) =>
+          st.values
+            .flatMap((v) => [v.ours, v.best])
+            .filter((x) => !/^-?\d+(\.\d+)?$/.test(x.trim())),
+        );
+        if (bad.length)
+          out.push(
+            `${beat.id}'s margins scene gives ${bad.map((x) => `"${x}"`).join(", ")} as values; each is one number, exactly as the source writes it (the metric's name goes in \`metrics\`).`,
+          );
+      }
+    }
     if (beat.archetype === "title") {
       out.push(
         `${beat.id} is the title and carries \`literal\`. A title names the deck; it draws no mechanism.`,
       );
       return;
     }
-    if ("picture" in lit) {
+    if ("picture" in lit && lit.picture !== undefined) {
       const j = beats.findIndex((b) => b.id === lit.picture);
       const owner = beats[j];
       if (!owner || j > i)
@@ -637,5 +698,12 @@ export function literalFindings(
       }
     }
   });
+  // A table reads like a report: the visual kinds show what it would list. One may remain,
+  // where no visual form is honest.
+  const tables = beats.filter((b) => b.literal?.kind === "table");
+  if (tables.length > 1)
+    out.push(
+      `The plan draws ${tables.length} tables (${tables.map((b) => b.id).join(", ")}). A table reads like a report: keep at most one, and draw the others as what they list — results as \`margins\`, what was and was not evaluated as \`scope\`, experiments not run as \`ablation\`, earlier approaches as \`prior-work\`, reported costs as \`scale\` — or leave \`literal\` null where no kind is honest.`,
+    );
   return out;
 }
