@@ -263,10 +263,28 @@ describe("readStops", () => {
     // The whole gate aims at these numbers. `timing.json` holds are SCENE
     // RELATIVE — `TimedScene.holds`' doc comment says otherwise and is stale —
     // so forgetting the offset would seek 10s early and measure the wrong scene.
+    // With each scene's final state, a second before it ends.
     expect(readStops(timing, null)).toEqual([
       { sid: "s1", t: 1.9 },
+      { sid: "s1", t: 9.204 },
       { sid: "s2", t: 11.754 },
       { sid: "s2", t: 13.154 },
+      { sid: "s2", t: 48.346 },
+    ]);
+  });
+
+  it("adds each scene's final state, when it ends well after its last hold", () => {
+    const t = JSON.stringify({
+      scenes: [
+        { id: "s1", start: 0, holds: [1.9], duration: 12 },
+        { id: "s2", start: 12, holds: [1.4, 9], duration: 11.5 },
+      ],
+    });
+    expect(readStops(t, null)).toEqual([
+      { sid: "s1", t: 1.9 },
+      { sid: "s1", t: 11 },
+      { sid: "s2", t: 13.4 },
+      { sid: "s2", t: 21 },
     ]);
   });
 
@@ -283,7 +301,7 @@ describe("readStops", () => {
       { sid: "s2", t: 11 },
     ]);
     // A 9:16 build emits no navigable page at all, so timing.json has to win.
-    expect(readStops(timing, page)).toHaveLength(3);
+    expect(readStops(timing, page)).toHaveLength(5);
   });
 
   it("reads the island rather than nothing when timing.json is unreadable", () => {

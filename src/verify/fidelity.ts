@@ -208,6 +208,11 @@ const FALLBACK_BAND_TOP = 0.22;
 const CAPTION = ".headline, .eyebrow";
 
 /** One declared stop: which scene, and where on the deck timeline. */
+/** The scene's final state is measured this long before it ends: settled, before the handoff. */
+export const FINAL_LEAD = 1;
+/** A final state is measured only this long after the last hold; nearer, the hold is it. */
+export const FINAL_GAP = 2;
+
 export interface Stop {
   /** Composition id — `s1`, `s2`. */
   sid: string;
@@ -525,15 +530,24 @@ export function readStops(timing: string | null, deckPage: string | null): Stop[
   if (timing) {
     try {
       const parsed = JSON.parse(timing) as {
-        scenes?: Array<{ id?: unknown; start?: unknown; holds?: unknown }>;
+        scenes?: Array<{ id?: unknown; start?: unknown; holds?: unknown; duration?: unknown }>;
       };
       const stops: Stop[] = [];
       for (const scene of parsed.scenes ?? []) {
         if (typeof scene.id !== "string" || typeof scene.start !== "number") continue;
+        let last = 0;
         for (const hold of Array.isArray(scene.holds) ? scene.holds : []) {
-          if (typeof hold === "number" && Number.isFinite(hold))
+          if (typeof hold === "number" && Number.isFinite(hold)) {
             stops.push({ sid: scene.id, t: Math.round((scene.start + hold) * 1000) / 1000 });
+            last = Math.max(last, hold);
+          }
         }
+        // And the scene as it ends: a step spoken after the last hold is on screen only
+        // there (r3: three scenes' payoffs 7–18s after their last hold, every gate and
+        // every hold frame blind to them).
+        const end = typeof scene.duration === "number" ? scene.duration - FINAL_LEAD : 0;
+        if (last > 0 && end > last + FINAL_GAP)
+          stops.push({ sid: scene.id, t: Math.round((scene.start + end) * 1000) / 1000 });
       }
       if (stops.length > 0) return stops;
     } catch {
