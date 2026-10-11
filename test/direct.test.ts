@@ -351,8 +351,11 @@ describe("design: the switch", () => {
     // tweens: no `wipe` (s2, s7, s11 lose their clip sweep, so the hash picks
     // re-roll s9-s15's seams), and every seam fades the outgoing eyebrow and
     // headline out in 0.16s, before the incoming chrome starts at 0.3.
+    // Then annotated-figure's label column starts at 360px (2026-10-11, literal
+    // verbs r1: a 170px column set notes on four lines), re-pinned after reading
+    // s4 at 30s: labels on two lines, the strip figure a little narrower.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "a454c3f456e285461f99a618f7cace29dfb9e0db4dd789a408dd0cb06b33a203",
+      "8c4ef8c0a6ed5a77580fcd669ec3e91fe15091332f7f64c6044554355ef9bada",
     );
   });
 
