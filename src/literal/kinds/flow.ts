@@ -23,14 +23,15 @@ import type { Frame, MechanismResult, Prim } from "./common.js";
 import { TYPE, wrapBy } from "./common.js";
 import { messagePassing } from "./message-passing.js";
 import { num } from "./read.js";
-import { textLines, type VerbCtx } from "./stage.js";
+import { textLines, type VerbCtx, withPushRoom } from "./stage.js";
 
 type Ctx = VerbCtx<"flow">;
 
 export function flow(c: Ctx): MechanismResult {
-  if (c.lit.form === "chain") return chain(c);
+  // Cards and lanes of words to the region's edges: laid out inside the push.
+  if (c.lit.form === "chain") return withPushRoom(chain)(c);
   if (c.lit.form === "graph") return graph(c);
-  return timeline(c);
+  return withPushRoom(timeline)(c);
 }
 
 /* ------------------------------------------------------------------ chain */

@@ -172,6 +172,12 @@ export type Raster = { rgb: Rgb } | { rgba: Rgba } | { heat: Gray; role: Role; a
 export interface Frame {
   id: string;
   prims: Prim[];
+  /**
+   * Room left around the camera's material for its push-in, px a side: the
+   * camera's clip is its material's box grown by this, so text at the edge of
+   * a plot is not cut while the camera leans in (`text_clipped`).
+   */
+  pad?: { x: number; y: number };
   /** The values this frame's slots may name. */
   vars: Record<string, string | number>;
 }
@@ -357,4 +363,19 @@ export function resultBytes(r: MechanismResult): Buffer {
     ArrayBuffer.isView(v) ? Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString("hex") : v;
   parts.push(Buffer.from(JSON.stringify([r.frames, r.data, r.vars], replacer)));
   return Buffer.concat(parts);
+}
+
+/** `p` moved by (dx, dy). */
+export function shiftPrim(p: Prim, dx: number, dy: number): Prim {
+  switch (p.p) {
+    case "line":
+      return { ...p, x1: p.x1 + dx, y1: p.y1 + dy, x2: p.x2 + dx, y2: p.y2 + dy };
+    case "path":
+      return { ...p, pts: p.pts.map((v, i) => v + (i % 2 ? dy : dx)) };
+    case "circle":
+    case "ellipse":
+      return { ...p, cx: p.cx + dx, cy: p.cy + dy };
+    default:
+      return { ...p, x: p.x + dx, y: p.y + dy };
+  }
 }

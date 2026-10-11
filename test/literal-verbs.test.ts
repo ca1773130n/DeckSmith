@@ -1361,9 +1361,8 @@ describe("what each verb refuses", () => {
         },
       } as never).r.frames[0]?.prims ?? [];
     const texts = prims.flatMap((p) => (p.p === "text" && p.text ? [p.text] : []));
-    expect(texts).toContain("task A · temp 0");
-    expect(texts).not.toContain("small");
-    expect(texts).toContain("3.4");
+    expect(texts).toContain("task A · temp 0 3.4");
+    expect(texts.some((t) => t.includes("small"))).toBe(false);
     // No legend dot: every circle is a point.
     expect(prims.filter((p) => p.p === "circle")).toHaveLength(3);
   });

@@ -60,6 +60,7 @@ import {
   type Raster,
   type Region,
   type Rgb,
+  shiftPrim,
   TYPE,
   wrapBy,
 } from "./common.js";
@@ -89,6 +90,32 @@ export interface VerbCtx<K extends LiteralKind> {
 }
 
 export type VerbRun<K extends LiteralKind> = (c: VerbCtx<K>) => MechanismResult;
+
+/**
+ * A verb laid out inside the room its camera push takes, for a diagram whose
+ * words reach the region's edges (a plot, a chain of cards). The push scales
+ * the camera's material about its middle by `PUSH`, so it grows (PUSH-1)/2 of
+ * a side each way: laid out that much in, and with the clip grown by the same
+ * (`Frame.pad`), nothing is cut while it leans in. Measured on r1: a plot's
+ * "0.8" printed as ").8" and the outer cards of a chain lost their first and
+ * last glyphs, while the push ran.
+ */
+export function withPushRoom<K extends LiteralKind>(run: VerbRun<K>): VerbRun<K> {
+  return (c) => {
+    const { width: W, height: H } = c.region;
+    const mx = Math.ceil((W * (PUSH - 1)) / 2) + 4;
+    const my = Math.ceil((H * (PUSH - 1)) / 2) + 4;
+    const r = run({ ...c, region: { width: W - 2 * mx, height: H - 2 * my } });
+    return {
+      ...r,
+      frames: r.frames.map((f) => ({
+        ...f,
+        pad: { x: mx, y: my },
+        prims: f.prims.map((p) => shiftPrim(p, mx, my)),
+      })),
+    };
+  };
+}
 
 /* ----------------------------------------------------------------- words */
 
@@ -401,10 +428,12 @@ function stagedSvg(
   let camSvg = "";
   if (camIdx.length) {
     const bs = camIdx.map((j) => boxOf(frame.prims[j] as Prim));
-    const x0 = Math.max(0, Math.min(...bs.map((b) => b.x)));
-    const y0 = Math.max(0, Math.min(...bs.map((b) => b.y)));
-    const x1 = Math.min(region.width, Math.max(...bs.map((b) => b.x + b.w)));
-    const y1 = Math.min(region.height, Math.max(...bs.map((b) => b.y + b.h)));
+    const px = frame.pad?.x ?? 0;
+    const py = frame.pad?.y ?? 0;
+    const x0 = Math.max(0, Math.min(...bs.map((b) => b.x)) - px);
+    const y0 = Math.max(0, Math.min(...bs.map((b) => b.y)) - py);
+    const x1 = Math.min(region.width, Math.max(...bs.map((b) => b.x + b.w)) + px);
+    const y1 = Math.min(region.height, Math.max(...bs.map((b) => b.y + b.h)) + py);
     cam = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     defs.push(
       `<clipPath id="SCENEID-f${i}-cc"><rect x="${r3(x0)}" y="${r3(y0)}" width="${r3(cam.w)}" height="${r3(cam.h)}"/></clipPath>`,
@@ -421,7 +450,7 @@ ${body}
 }
 
 /** How far the camera pushes in on a frame's material once its reveals are out. */
-const PUSH = 1.07;
+export const PUSH = 1.07;
 
 /** The fragment of staged frames on the narration's sentences. */
 export function stagedFragment(

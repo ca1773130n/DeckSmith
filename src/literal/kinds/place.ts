@@ -30,7 +30,7 @@ import { lengthsForm } from "./place-lengths.js";
 import { marginsForm } from "./place-margins.js";
 import { setsForm } from "./place-sets.js";
 import { paramRecord } from "./read.js";
-import { stagedFragment, type VerbCtx, verbKind } from "./stage.js";
+import { stagedFragment, type VerbCtx, verbKind, withPushRoom } from "./stage.js";
 
 type Ctx = VerbCtx<"place">;
 type PlaceLit = Extract<Literal, { kind: "place" }>;
@@ -57,7 +57,10 @@ const NEEDS: Record<string, readonly string[]> = {
   combos: ["on", "off", "missing"],
 };
 
-export function points(c: Ctx): MechanismResult {
+/** Points, inset for the camera's push (`withPushRoom`). */
+export const points = (c: Ctx): MechanismResult => withPushRoom(pointsIn)(c);
+
+function pointsIn(c: Ctx): MechanismResult {
   const d = c.lit;
   const two = d.form === "plane";
   const nAxes = two ? 2 : 1;
@@ -284,7 +287,8 @@ export function points(c: Ctx): MechanismResult {
     const nameBox = two
       ? { x0: x0Name - 16, y0: lineY + 12, x1: plot.x + plot.w, y1: lineY + 12 + nameH }
       : undefined;
-    if (box.x0 < plot.x - yTickW || box.x1 > plot.x + plot.w + 24) continue;
+    // Inside the region, which clips: r1's last tick printed as "3.!".
+    if (box.x0 < 0 || box.x1 > W) continue;
     if (nameBox && area(box, nameBox) > 0) continue;
     tickBoxes.push(box);
     prims.push(
@@ -471,12 +475,15 @@ export function points(c: Ctx): MechanismResult {
     const { x: px, y: py } = pos[i] as { x: number; y: number };
     const g = groups.indexOf(it.group ?? "");
     const a = Math.min(12, byGroup ? at0 + g + 1 : at0 + i + 1);
-    // The name on its own line(s), the values on one more that never breaks:
-    // r1 wrapped "6.58 ·\n88.29" mid-tuple.
-    const lines = [
-      ...wrapBy(nameOf(it), TYPE.label, Math.min(520, plot.w / 2), c.measure),
-      it.values.join(" · "),
-    ];
+    // One line when name and values fit on it; else the name on its own
+    // line(s) and the values on one more, never broken: r1 wrapped "6.58 ·\n88.29".
+    const maxW = Math.min(520, plot.w / 2);
+    const tuple = it.values.join(" · ");
+    const one = `${nameOf(it)} ${tuple}`;
+    const lines =
+      c.measure(one, TYPE.label) <= maxW
+        ? [one]
+        : [...wrapBy(nameOf(it), TYPE.label, maxW, c.measure), tuple];
     const w = Math.max(...lines.map((l) => c.measure(l, TYPE.label)));
     const h = (lines.length - 1) * LH + TYPE.label * 1.2;
     const box = labelBox(px, py, w, h, two ? "beside" : i % 2 ? "below" : "above", plot, taken);
@@ -505,13 +512,16 @@ export function points(c: Ctx): MechanismResult {
       cam: true,
       at: a,
     });
+    // The name in its dot's colour when the colours tell groups apart.
+    const tinted = groups.length > 1 && groups.every(Boolean);
     for (const [j, t] of lines.entries())
       prims.push({
         p: "text",
         x: box.x0,
         y: box.y0 + j * LH,
         size: TYPE.label,
-        role: "fg",
+        role:
+          tinted && (lines.length === 1 || j < lines.length - 1) ? roleOf(it.group ?? "") : "fg",
         anchor: "start",
         text: t,
         cam: true,
@@ -567,7 +577,9 @@ export function labelBox(
   plot: { x: number; y: number; w: number; h: number },
   taken: readonly Box[],
 ): Box {
-  const xs = [px + 24, px - 24 - w];
+  // On a strip a label is centred over (or under) its own dot first: set
+  // beside it, it sat over the gap between two dots and read as the other one's.
+  const xs = side === "beside" ? [px + 24, px - 24 - w] : [px - w / 2, px + 24, px - 24 - w];
   const ys: number[] = [];
   for (let k = 0; k <= 12; k++) {
     if (side === "beside")
@@ -591,11 +603,12 @@ export function labelBox(
         continue;
       const overlap = taken.reduce((s, t) => s + area(box, t), 0);
       if (!overlap) return box;
-      // A far box is a cost too, or the least-covering fallback is any box at
-      // all: r1 set a label 150px from its dot, nearer the empty plot than it.
+      // Covering decides; between boxes that cover the same, the nearer wins,
+      // or the fallback is any box at all (r1: a label 150px from its dot). A
+      // far one gets a leader line.
       const nx = Math.max(box.x0, Math.min(px, box.x1));
       const ny = Math.max(box.y0, Math.min(py, box.y1));
-      const cost = overlap + h * Math.hypot(nx - px, ny - py);
+      const cost = overlap + 0.01 * Math.hypot(nx - px, ny - py);
       if (!best || cost < best.cost) best = { box, cost };
     }
   if (best) return best.box;
