@@ -326,11 +326,15 @@ async function sceneGates(
     const mine = all.filter((w) => generated.has(w.sid));
     const rest = all.filter((w) => !generated.has(w.sid));
     const strict = mine.length
-      ? await probeScenes(mine, { open: () => openDeck(dir, { watch: errors }), errors })
+      ? await probeScenes(mine, {
+          open: () => openDeck(dir, { watch: errors }),
+          errors,
+          gates: ["motion", "layout", "seek", "dead"],
+        })
       : { findings: [] };
     const loose = await probeScenes(rest, {
       open: () => openDeck(dir),
-      gates: ["seek"],
+      gates: ["seek", "dead"],
       seekSeverity: "warning",
       cold: false,
       sparse: true,

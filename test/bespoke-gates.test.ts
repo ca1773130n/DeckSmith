@@ -25,7 +25,9 @@ import {
   type CutSample,
   changedArea,
   changedPixels,
+  deadCandidates,
   gradeCuts,
+  gradeDeadSpans,
   gradeErrors,
   gradeLayout,
   gradeMorphs,
@@ -60,6 +62,17 @@ describe("the graders", () => {
       ]),
     ).toEqual([]);
     expect(gradeStillCues([{ sid: "s3", cue: 1, t0: 4, t1: 4.8, changed: 0, total }])).toEqual([]);
+  });
+
+  it("dead_stretch: photographs only stretches of 6s+ after a hold, and fails one that never changes", () => {
+    // r1's split-compare: holds [1.95, 2.85, 3.65] in a 23.6s scene.
+    const w = { sid: "s3", start: 0, duration: 23.6, cues: [], holds: [1.95, 2.85, 3.65] };
+    expect(deadCandidates(w)).toEqual([[3.95, 23.1]]);
+    expect(deadCandidates({ ...w, holds: [1.95, 8.5, 12.85], duration: 18 })).toEqual([]);
+    const total = 1920 * 1080;
+    const dead = gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: 0, total }]);
+    expect(dead.map((f) => [f.rule, f.severity])).toEqual([["dead_stretch", "error"]]);
+    expect(gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: total, total }])).toEqual([]);
   });
 
   it("graphic_crosses_text and friends: one finding per kind per frame", () => {

@@ -91,6 +91,8 @@ export interface SceneWindow {
   start: number;
   duration: number;
   cues: SceneCue[];
+  /** Scene-relative holds, from timing.json: where the scene's reveals settle. */
+  holds?: number[];
 }
 
 /* -------------------------------------------------------------------- graders */
@@ -102,6 +104,51 @@ export interface CueChange {
   t1: number;
   changed: number;
   total: number;
+}
+
+/**
+ * The longest a scene may show one unchanged picture, in seconds. The brief's
+ * rule is "no 6-9s stretches where nothing moves"; r1 of the literal verbs run
+ * had runs of up to 18.9s, all of them archetype scenes that passed every gate,
+ * because `static_hold` only ever probed generated scenes.
+ */
+export const DEAD_SECONDS = 6;
+
+export interface DeadSpan {
+  sid: string;
+  t0: number;
+  t1: number;
+  changed: number;
+  total: number;
+}
+
+/**
+ * The stretches of a scene that no reveal can be moving in: hold to the next
+ * reveal (which runs in the second before its hold), and the last hold to the
+ * settled end. Only those at least `DEAD_SECONDS` long, which are the only ones
+ * worth photographing.
+ */
+export function deadCandidates(w: SceneWindow, min = DEAD_SECONDS): Array<[number, number]> {
+  const holds = [...new Set(w.holds ?? [])].filter((h) => h > 0).sort((a, b) => a - b);
+  const out: Array<[number, number]> = [];
+  holds.forEach((h, i) => {
+    const next = holds[i + 1];
+    const t0 = round(h + 0.3);
+    const t1 = round(next === undefined ? w.duration - 0.5 : next - 1.2);
+    if (t1 - t0 >= min) out.push([t0, t1]);
+  });
+  return out;
+}
+
+export function gradeDeadSpans(rows: readonly DeadSpan[], min = MIN_CHANGE): Finding[] {
+  return rows
+    .filter((r) => r.changed / r.total < min)
+    .map((r) => ({
+      severity: "error" as const,
+      gate: "motion",
+      rule: "dead_stretch",
+      message: `#${r.sid} ${r.t0.toFixed(2)}–${r.t1.toFixed(2)}s: ${(r.t1 - r.t0).toFixed(1)}s with the picture changed by ${((100 * r.changed) / r.total).toFixed(3)}% — nothing is revealed, panned or replaced for ${DEAD_SECONDS}s or more. Time the scene's steps on its sentences, or give it fewer seconds.`,
+    }));
 }
 
 export function gradeStillCues(rows: readonly CueChange[], min = MIN_CHANGE): Finding[] {
@@ -978,6 +1025,7 @@ export function sceneWindows(timing: Timing, sids?: ReadonlySet<string>): SceneW
       sid: s.id,
       start: s.start,
       duration: s.duration,
+      holds: s.holds,
       cues: timing.segments
         .filter((g) => g.scene === s.id)
         .flatMap((g) =>
@@ -1096,7 +1144,7 @@ export interface Probe {
 
 export interface ProbeOptions {
   /** Which gates. Default all three. `seek` alone is what `verify` runs on plain v2 scenes. */
-  gates?: ReadonlyArray<"motion" | "layout" | "seek">;
+  gates?: ReadonlyArray<"motion" | "layout" | "seek" | "dead">;
   /** `seek_order` severity; `verify` passes `warning` for scenes nobody generated. */
   seekSeverity?: Finding["severity"];
   /** Keep the PNGs (the critique round needs them). */
@@ -1130,6 +1178,7 @@ export async function probeScenes(
   const cuts: CutSample[] = [];
   const morphs: MorphSample[] = [];
   const seams: SeamSample[] = [];
+  const dead: DeadSpan[] = [];
   const warm = new Map<string, Map<string, Buffer>>();
   const deck = await opts.open();
   try {
@@ -1274,6 +1323,24 @@ export async function probeScenes(
           [...times].sort((a, b) => ((a.t * 7919) % 1) - ((b.t * 7919) % 1)),
         );
       }
+      // Long stretches with no change: three frames each, the LARGEST pairwise
+      // change, as for a cue. After the scene's own probe, so its history is made.
+      if (gates.has("dead")) {
+        for (const [t0, t1] of deadCandidates(w)) {
+          const shots: Frame[] = [];
+          for (const t of [t0, round((t0 + t1) / 2), t1]) {
+            await deck.seek(w.start + t);
+            await settle(deck);
+            shots.push(await decodePng(await deck.shoot()));
+          }
+          let changed = 0;
+          for (let x = 0; x < shots.length; x++)
+            for (let y = x + 1; y < shots.length; y++)
+              changed = Math.max(changed, changedPixels(shots[x] as Frame, shots[y] as Frame));
+          const first = shots[0] as Frame;
+          dead.push({ sid: w.sid, t0, t1, changed, total: first.width * first.height });
+        }
+      }
       // The seam into this scene, after its own probe made its first history.
       if (gates.has("layout") && w.start > 0) {
         let run = 0;
@@ -1336,6 +1403,7 @@ export async function probeScenes(
     ...(gates.has("motion") ? gradeMorphs(morphs) : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
     ...(gates.has("layout") ? gradeSeams(seams) : []),
+    ...(gates.has("dead") ? gradeDeadSpans(dead) : []),
   ];
   return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs, seams };
 }
