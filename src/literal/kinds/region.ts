@@ -370,11 +370,18 @@ export function findBands(img: Rgb): PanelBox[] {
   });
   const inkAt = (x: number, y: number) =>
     [0, 1, 2].some((k) => Math.abs(at(x, y, k) - (ground[k] as number)) > 0.1);
-  const rowInk = Array.from({ length: H }, (_, y) => {
+  const counts = Array.from({ length: H }, (_, y) => {
     let n = 0;
     for (let x = 0; x < W; x++) if (inkAt(x, y)) n++;
-    return n > W * 0.002;
+    return n;
   });
+  // A row counts as ink only past 2% of a full row's ink (the 90th percentile of
+  // inked rows), so a box's thin edges running through a gap — a legend, a frame
+  // — do not join the bands either side of it.
+  const inked = counts.filter((n) => n > 0).sort((a, b) => a - b);
+  const full = inked[Math.floor(0.9 * (inked.length - 1))] ?? 0;
+  const floor = Math.max(W * 0.002, 0.02 * full);
+  const rowInk = counts.map((n) => n > floor);
   const gap = Math.max(3, Math.round(0.008 * H));
   const runs: Array<[number, number]> = [];
   let y = 0;

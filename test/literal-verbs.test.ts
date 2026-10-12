@@ -18,7 +18,7 @@ import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
 import { placeForm, points, ticksOf } from "../src/literal/kinds/place.js";
-import { findPanels, region } from "../src/literal/kinds/region.js";
+import { findBands, findPanels, region } from "../src/literal/kinds/region.js";
 import {
   type Earlier,
   frameFill,
@@ -1424,6 +1424,28 @@ describe("what each verb refuses", () => {
     const solid = new Float32Array(W * H * 3).fill(1);
     for (let i = 0; i < 100 * 100 * 3; i++) solid[i] = 0.2;
     expect(findPanels({ w: W, h: H, d: solid })).toHaveLength(1);
+  });
+
+  it("region rows: a box's thin edges crossing the gaps (a legend) do not join the bands", () => {
+    const W = 600;
+    const H = 120;
+    const d = new Float32Array(W * H * 3).fill(1);
+    const block = (x0: number, y0: number, w: number, h: number) => {
+      for (let y = y0; y < y0 + h; y++)
+        for (let x = x0; x < x0 + w; x++) for (let k = 0; k < 3; k++) d[(y * W + x) * 3 + k] = 0.3;
+    };
+    block(10, 10, 300, 25);
+    block(10, 45, 400, 25);
+    block(10, 80, 580, 25);
+    // A legend box over the first two rows: 2px edges either side, running through the gap.
+    block(480, 8, 2, 64);
+    block(560, 8, 2, 64);
+    const ys = findBands({ w: W, h: H, d }).map((b) => [b.y, b.h]);
+    expect(ys).toEqual([
+      [10, 25],
+      [45, 25],
+      [80, 25],
+    ]);
   });
 
   it("place: ticks are round values inside the drawn range", () => {
