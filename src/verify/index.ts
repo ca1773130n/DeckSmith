@@ -26,6 +26,7 @@ import {
   DIAGRAMMATIC,
   type Finding,
   isGeneratedFigure,
+  literalFigures,
   type Source,
   type Storyboard,
   type Term,
@@ -671,6 +672,7 @@ export function scanUnusedFigures(storyboard: Storyboard, source: Source): Findi
   for (const beat of storyboard.beats) {
     for (const ref of beat.evidence) if (ref.kind === "figure") used.add(ref.id);
     for (const id of figuresShown(beat.params as Record<string, unknown>)) used.add(id);
+    if (beat.literal) for (const id of literalFigures(beat.literal)) used.add(id);
   }
   const unused = figures.filter((f) => !used.has(f.id));
   if (!unused.length) return [];

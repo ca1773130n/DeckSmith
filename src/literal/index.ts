@@ -45,6 +45,7 @@ import {
   GENERATED_FIGURE_PREFIX,
   LITERAL_KIND_NAMES,
   type LiteralKind,
+  literalFigures,
   literalSlotProblems,
   type Source,
   type Storyboard,
@@ -128,8 +129,7 @@ export function literalPlanOf(
         );
       image = resolve(assetsDir, fig.src);
     }
-    const shows =
-      lit.kind === "flow" ? lit.stages.flatMap((s) => (s.figure ? [s.figure] : [])) : [];
+    const shows = literalFigures(lit);
     for (const id of shows)
       if (!own[id])
         throw new Error(

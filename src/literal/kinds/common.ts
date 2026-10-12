@@ -164,6 +164,8 @@ export type Prim =
       pixelated?: boolean;
       /** Keep the picture's own aspect inside the box (a figure, a layer of unknown size). */
       fit?: boolean;
+      /** With `fit`, at the box's top rather than its middle (a picture under its title). */
+      top?: boolean;
     });
 
 /** A raster layer: a picture, or a scalar map drawn in a theme colour with alpha = value × `alpha`. */

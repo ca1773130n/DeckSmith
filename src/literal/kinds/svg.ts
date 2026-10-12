@@ -268,7 +268,7 @@ export function primSvg(prims: readonly Prim[], index: number, d: Draw): string 
     case "image": {
       const box = `x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}"`;
       const pix = p.pixelated ? ' style="image-rendering:pixelated"' : "";
-      const img = `<image ${box} preserveAspectRatio="${p.fit ? "xMidYMid meet" : "none"}" href="${esc(href(p.layer))}"${pix}/>`;
+      const img = `<image ${box} preserveAspectRatio="${p.fit ? (p.top ? "xMidYMin meet" : "xMidYMid meet") : "none"}" href="${esc(href(p.layer))}"${pix}/>`;
       const paint = d.paint(p.layer);
       if (!paint) return img.replace("/>", `${op}/>`);
       // A heat layer: white where the value is, alpha = value; the theme colours it.

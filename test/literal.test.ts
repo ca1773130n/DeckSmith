@@ -237,6 +237,32 @@ describe("the plan a storyboard carries", () => {
     expect(literalPlanSchema.parse(plan)).toEqual(plan);
   });
 
+  it("a place's `figure` is carried as an asset, as a flow stage's is", () => {
+    const withFig = sourceSchema.parse({
+      ...source,
+      figures: [
+        ...source.figures,
+        { id: "fig3", src: "fig3-abc.jpg", caption: "c", width: 8, height: 8 },
+      ],
+    });
+    const PLACE = {
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "x", lowerIsBetter: false },
+        { name: "y", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "A", values: ["1", "2"] },
+        { label: "B", values: ["3", "4"] },
+      ],
+      figure: "fig3",
+      labels: [{ slot: "scene", text: "s" }],
+    };
+    const plan = literalPlanOf(board(PLACE, "gen-b01"), withFig, "/deck/assets");
+    expect(plan.beats.b01?.assets).toEqual({ fig3: "/deck/assets/fig3-abc.jpg" });
+  });
+
   it("fails loudly when the picture beat has no figure yet", () => {
     expect(() => literalPlanOf(board(OPERATE), source, "/deck/assets")).toThrow(
       /b01 runs on the picture of "b01", which has no figure.*illustrate/,

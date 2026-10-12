@@ -982,6 +982,33 @@ describe("scanUnusedFigures", () => {
     ).toEqual([]);
   });
 
+  it("counts a figure a literal scene shows as used", () => {
+    expect(
+      scanUnusedFigures(
+        deck(shows("b01", "fig1"), {
+          id: "b02",
+          archetype: "callout",
+          params: { headline: "Scores", panels: [{ label: "One", lines: ["Small"] }] },
+          literal: {
+            kind: "place",
+            form: "plane",
+            axes: [
+              { name: "x", lowerIsBetter: false },
+              { name: "y", lowerIsBetter: false },
+            ],
+            items: [
+              { label: "A", values: ["1", "2"] },
+              { label: "B", values: ["3", "4"] },
+            ],
+            figure: "fig2",
+            labels: [{ slot: "scene", text: "s" }],
+          },
+        }),
+        source(["fig1", "Figure 1 — The architecture."], ["fig2", "Figure 2 — The scene."]),
+      ),
+    ).toEqual([]);
+  });
+
   it("does not count a picture illustrate drew as one the authors left out", () => {
     // A backdrop cites nothing by design, so gen-b02-bd is never "cited" — and
     // the old message called it a figure "the authors drew".

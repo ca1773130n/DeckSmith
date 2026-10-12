@@ -2928,6 +2928,13 @@ export type BeatRole = z.infer<typeof beatRoleSchema>;
 export type BeatPart = z.infer<typeof beatPartSchema>;
 export type Literal = z.infer<typeof literalSchema>;
 export type LiteralKind = Literal["kind"];
+
+/** The source figures a literal scene shows unedited: a flow stage's, a place's `figure`. */
+export function literalFigures(lit: Literal): string[] {
+  if (lit.kind === "flow") return lit.stages.flatMap((s) => (s.figure ? [s.figure] : []));
+  if (lit.kind === "place" && lit.figure) return [lit.figure];
+  return [];
+}
 export type Inside = z.infer<typeof insideSchema>;
 export type Archetype = Beat["archetype"];
 export type Storyboard = z.infer<typeof storyboardSchema>;

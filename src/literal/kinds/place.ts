@@ -84,7 +84,16 @@ export const points = (c: Ctx): MechanismResult => {
     throw new Error(`place: the \`scene\` title leaves its figure ${H - top}px; shorten it`);
   const col: Prim[] = [
     ...textLines(lines, W - side, 8, TYPE.label, "muted"),
-    { p: "image", x: W - side, y: top, w: side, h: H - top, layer: `fig:${fig}`, fit: true },
+    {
+      p: "image",
+      x: W - side,
+      y: top,
+      w: side,
+      h: H - top,
+      layer: `fig:${fig}`,
+      fit: true,
+      top: true,
+    },
   ];
   return { ...r, frames: r.frames.map((f) => ({ ...f, prims: [...f.prims, ...col] })) };
 };
