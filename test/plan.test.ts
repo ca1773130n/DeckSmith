@@ -1,7 +1,7 @@
 import { stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
-import { codexCommand, codexPlanner, SCHEMA } from "../src/plan/codex.js";
+import { codexCommand, codexPlanner, SCHEMA, schemaFor } from "../src/plan/codex.js";
 import { renderSource } from "../src/plan/prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "../src/plan/refs.js";
 import { prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
@@ -391,7 +391,7 @@ describe("codexPlanner variety repair", () => {
     expect(repaired).toEqual([
       [expect.stringMatching(/b01-arch and b01b-arch are both `claim-figure`/)],
     ]);
-    expect(prompts[1]).toContain("BREAKS THE VARIETY RULES");
+    expect(prompts[1]).toContain("IS REFUSED FOR");
     // The reasons themselves, not just the header: a repair asked for blind
     // re-rolls the shapes instead of fixing the named ones.
     for (const reason of repaired[0] ?? []) expect(prompts[1]).toContain(`  - ${reason}`);
@@ -443,6 +443,51 @@ describe("codexPlanner variety repair", () => {
       }),
     ).rejects.toThrow(/variety rule .* after one repair:\n.*b01b-arch/s);
     expect(calls).toBe(2);
+  });
+
+  // A schema or reference miss is one number or one id: it goes through the same one
+  // repair, not straight to a failed run (HypePaper, 2026-10-12: 40 of 109 plans).
+  it("repairs a plan that does not validate, sending the issue and the plan", async () => {
+    const prompts: string[] = [];
+    const bad = RECORDED.replace('"tableId":"tab-psnr"', '"figureId":"fig-arch"');
+    const result = await codexPlanner(source, {
+      run: async ({ prompt, outPath }) => {
+        prompts.push(prompt);
+        await writeFile(outPath, prompts.length === 1 ? bad : RECORDED);
+      },
+    });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("IS REFUSED FOR");
+    expect(prompts[1]).toMatch(/ {2}- beats\.2\.params/);
+    expect(result.beats).toHaveLength(3);
+  });
+
+  it("repairs a plan citing an id the source lacks", async () => {
+    let calls = 0;
+    const result = await codexPlanner(source, {
+      run: async ({ outPath }) => {
+        calls++;
+        await writeFile(
+          outPath,
+          calls === 1
+            ? RECORDED.replace('"figureId":"fig-arch"', '"figureId":"fig-ghost"')
+            : RECORDED,
+        );
+      },
+    });
+    expect(calls).toBe(2);
+    expect(result.beats[0]?.id).toBe("b01-arch");
+  });
+
+  it("with images off, never suggests a picture brief in the repair", async () => {
+    const prompts: string[] = [];
+    await codexPlanner(source, {
+      run: async ({ prompt, outPath }) => {
+        prompts.push(prompt);
+        await writeFile(outPath, prompts.length === 1 ? adjacent : reordered);
+      },
+    });
+    expect(prompts[1]).not.toMatch(/illustration briefs|backdrop brief/);
   });
 
   it("asks once when the first plan is already varied", async () => {
@@ -573,6 +618,14 @@ describe("the schema handed to Codex", () => {
     expect(JSON.stringify(title)).toContain('"null"');
   });
 
+  it("hides picture briefs when images are off, and only then", () => {
+    const off = JSON.stringify(schemaFor(prefsSchema.parse({})));
+    const on = JSON.stringify(schemaFor(prefsSchema.parse({ images: { enabled: true } })));
+    expect(off).not.toMatch(/"(illustration|backdrop)"/);
+    expect(on).toMatch(/"illustration"/);
+    expect(on).toMatch(/"backdrop"/);
+  });
+
   it("offers claim-figure both a figureId and a brief, each declinable with null", () => {
     // The "at least one" rule is a refinement, which `z.toJSONSchema` drops on
     // purpose: the model sees one flat object and `storyboardSchema.parse`
@@ -586,7 +639,9 @@ describe("the schema handed to Codex", () => {
       if (o.properties?.archetype?.const === "claim-figure") return o;
       return Object.values(o).map(find).find(Boolean);
     };
-    const params = find(SCHEMA)?.properties?.params;
+    // Briefs are offered only when pictures can be drawn: images on.
+    const params = find(schemaFor(prefsSchema.parse({ images: { enabled: true } })))?.properties
+      ?.params;
     expect(params?.required).toEqual(expect.arrayContaining(["figureId", "illustration"]));
     expect(JSON.stringify(params?.properties?.figureId)).toContain('"null"');
     expect(JSON.stringify(params?.properties?.illustration)).toContain('"null"');

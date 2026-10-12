@@ -447,7 +447,11 @@ imageFlags(
         .description("Ask Codex for a storyboard. Read and edit the result before building.")
         .argument("<source>", "source.json from ingest")
         .requiredOption("-o, --out <file>", "where to write storyboard.json")
-        .option("--bespoke", "let the planner mark the beats a generated scene should draw"),
+        .option("--bespoke", "let the planner mark the beats a generated scene should draw")
+        .option(
+          "--no-bespoke",
+          "v2: plan for a build run with --no-bespoke (no bespoke hints in the prompt or schema)",
+        ),
     ),
   ),
 ).action(async (src: string, o: { out: string } & Record<string, unknown>) => {
@@ -466,7 +470,7 @@ imageFlags(
   const planned = await codexPlanner(source, {
     prefs,
     onRepair: (broken) => {
-      step("plan: the first plan broke the variety rule, asking Codex to repair it —");
+      step("plan: the first plan was refused, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
   });
