@@ -139,8 +139,18 @@ const PLANNER_INVISIBLE = new Set(["tilt"]);
  * back carrying one, so no post-hoc check is needed to reject what the model was
  * never offered, and the schema bytes are identical to what they were.
  */
-function plannerInvisible(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): ReadonlySet<string> {
+function plannerInvisible(
+  prefs: Pick<Prefs, "genre" | "bespoke" | "design"> & { images?: Prefs["images"] },
+): ReadonlySet<string> {
   const hidden = new Set(PLANNER_INVISIBLE);
+  // Picture briefs with images off: `readPlan` refuses every one, so a schema that
+  // offers them (strict mode makes each a required key) asks the model for a plan
+  // that is thrown away. 0.9.4 grew them to 12 backdrop and 20 illustration keys,
+  // and 12 of 109 HypePaper plans on 2026-10-12 died on exactly this.
+  if (prefs.images && !prefs.images.enabled) {
+    hidden.add("illustration");
+    hidden.add("backdrop");
+  }
   if (!paperArcRequested(prefs)) hidden.add("role");
   // `bespoke` for the same reason as `role`: shown only to a plan whose build
   // will draw bespoke scenes (v2, unless `--no-bespoke`), so a classic plan's
@@ -173,7 +183,9 @@ function hideFromPlanner(node: unknown, hidden: ReadonlySet<string>): unknown {
 }
 
 /** The schema for one run. `role` is present only when the paper arc was asked for. */
-export function schemaFor(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): unknown {
+export function schemaFor(
+  prefs: Pick<Prefs, "genre" | "bespoke" | "design"> & { images?: Prefs["images"] },
+): unknown {
   return hideFromPlanner(
     forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
     plannerInvisible(prefs),
@@ -181,10 +193,10 @@ export function schemaFor(prefs: Pick<Prefs, "genre" | "bespoke" | "design">): u
 }
 
 /**
- * The default-preferences schema, unchanged and still exported: `general` hides
- * `role`, so these bytes are what they have always been.
+ * The default-preferences schema, still exported: `general` hides `role`, and
+ * images default off, so it hides the picture briefs too (0.9.5).
  */
-export const SCHEMA = schemaFor({ genre: "general" });
+export const SCHEMA = schemaFor(prefsSchema.parse({}));
 
 export interface CodexOptions {
   /** Left unset by default: use whatever model the user's Codex is configured for. */
@@ -251,24 +263,43 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     };
 
     // VARIETY IS CHECKED, NOT HOPED FOR (src/plan/variety.ts). A plan that breaks
-    // it goes back ONCE with the reasons and its own JSON, so the repair keeps
-    // the planner's content and changes only the shapes; a second miss is
-    // refused, loudly, rather than written to a storyboard that builds green and
-    // looks like every other deck.
+    // it — or that fails the schema's bounds or cites what the source lacks
+    // (`PlanRejected`) — goes back ONCE with the reasons and its own JSON, so the
+    // repair keeps the planner's content and changes only what is named; a second
+    // miss is refused, loudly. Until 0.9.5 a schema or reference miss threw on the
+    // first answer: most of HypePaper's 40 failed plans on 2026-10-12 were one
+    // out-of-range number or one invented id, with no second chance.
     const prompt = buildPrompt(source, prefs);
-    const first = await ask(prompt);
-    const broken = varietyFindings(first, prefs.images, prefs.design);
-    if (broken.length === 0) return first;
+    let first: Storyboard | undefined;
+    let firstJson: unknown;
+    let broken: string[];
+    try {
+      first = await ask(prompt);
+      firstJson = first;
+      broken = varietyFindings(first, prefs.images, prefs.design);
+    } catch (err) {
+      if (!(err instanceof PlanRejected)) throw err;
+      firstJson = err.plan;
+      broken = err.problems;
+    }
+    if (first && broken.length === 0) return first;
     opts.onRepair?.(broken);
-    const second = await ask(repairPrompt(prompt, first, broken));
+    const second = await ask(repairPrompt(prompt, firstJson, broken, prefs.images.enabled)).catch(
+      (err: unknown) => {
+        throw err instanceof PlanRejected
+          ? new Error(`Codex's plan is still refused after one repair. ${err.message}`)
+          : err;
+      },
+    );
+    const firstBeats = beatCount(firstJson);
     // A REPAIR MAY NOT SHRINK THE DECK. Dropping beats is not a shape change,
     // and under STAGE_MIN_BEATS it also escapes the stage minimum outright: a
     // 12-beat plan with no stage came back as 4 beats and passed (review,
     // 2026-10-09). The prompt asks for every beat; this holds it to that.
     const still = [
-      ...(second.beats.length < first.beats.length
+      ...(second.beats.length < firstBeats
         ? [
-            `the repair returned ${second.beats.length} beats for a plan of ${first.beats.length}; a repair changes shapes and may not drop beats.`,
+            `the repair returned ${second.beats.length} beats for a plan of ${firstBeats}; a repair changes shapes and may not drop beats.`,
           ]
         : []),
       ...varietyFindings(second, prefs.images, prefs.design),
@@ -289,20 +320,50 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
  * and exactly what is wrong with it. Asking again from scratch would re-roll
  * every beat to fix the shapes of a few.
  */
-function repairPrompt(prompt: string, plan: Storyboard, broken: readonly string[]): string {
+function repairPrompt(
+  prompt: string,
+  plan: unknown,
+  broken: readonly string[],
+  images: boolean,
+): string {
+  // With images off there is no picture to brief: suggesting one invites the
+  // plan `readPlan` refuses.
+  const moves = images
+    ? "change archetypes, add stage beats with illustration briefs, give diagram beats a backdrop brief, redraw a panel as a hero-number or a kinetic claim where its point is a number or a claim,"
+    : "change archetypes, redraw a panel as a hero-number or a kinetic claim where its point is a number or a claim, cite only ids the source lists,";
   return `${prompt}
 
-YOUR PREVIOUS STORYBOARD, BELOW, BREAKS THE VARIETY RULES:
+YOUR PREVIOUS STORYBOARD, BELOW, IS REFUSED FOR:
 ${broken.map((m) => `  - ${m}`).join("\n")}
 
-Return the whole storyboard again with these fixed. Keep every beat whose shape
-is not named above as it is; change archetypes, add stage beats with
-illustration briefs, give diagram beats a backdrop brief, redraw a panel as a
-hero-number or a kinetic claim where its point is a number or a claim, or
-reorder neighbours only as far as the fix needs. Never
-drop or merge beats: a repair with fewer beats than the plan below is refused.
+Return the whole storyboard again with these fixed. Keep every beat that is not
+named above as it is; ${moves} or reorder neighbours only as far as the fix
+needs. Never drop or merge beats: a repair with fewer beats than the plan below
+is refused.
 
 ${JSON.stringify(plan)}`;
+}
+
+/** A plan's beat count, read off JSON that may not have validated. */
+function beatCount(plan: unknown): number {
+  const beats = (plan as { beats?: unknown } | null)?.beats;
+  return Array.isArray(beats) ? beats.length : 0;
+}
+
+/**
+ * A plan Codex answered that this source cannot build — out of the schema's
+ * bounds, a picture brief with images off, an id the source lacks — with what
+ * is wrong and the JSON it came as, for the one repair round.
+ */
+export class PlanRejected extends Error {
+  constructor(
+    message: string,
+    readonly problems: string[],
+    readonly plan: unknown,
+  ) {
+    super(message);
+    this.name = "PlanRejected";
+  }
 }
 
 /** Parse, validate and integrity-check the final message Codex left at `outPath`. */
@@ -321,12 +382,15 @@ async function readPlan(outPath: string, source: Source, prefs: Prefs): Promise<
     );
   }
 
-  const result = storyboardSchema.safeParse(stripNulls(parsed));
+  const plan = stripNulls(parsed);
+  const result = storyboardSchema.safeParse(plan);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`)
-      .join("\n");
-    throw new Error(`Codex returned a storyboard that does not validate:\n${issues}`);
+    const issues = result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
+    throw new PlanRejected(
+      `Codex returned a storyboard that does not validate:\n${issues.map((i) => `  ${i}`).join("\n")}`,
+      issues,
+      plan,
+    );
   }
 
   // The schema always admits a brief — it is one schema, and `illustrate`
@@ -337,13 +401,31 @@ async function readPlan(outPath: string, source: Source, prefs: Prefs): Promise<
     const pending = pendingIllustrations(result.data);
     if (pending.length) {
       const beats = [...new Set(pending.map((p) => p.beatId))].join(", ");
-      throw new Error(
+      const msg =
         `Codex asked for ${pending.length} illustration${pending.length === 1 ? "" : "s"} (${beats}) with images off. ` +
-          "Pass --images to let the plan request pictures, or re-run without it.",
+        "Pass --images to let the plan request pictures, or re-run without it.";
+      throw new PlanRejected(
+        msg,
+        [
+          `${beats} asked for a picture with images off: remove every illustration and backdrop brief`,
+        ],
+        plan,
       );
     }
   }
-  assertRefsResolve(result.data, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
+  try {
+    assertRefsResolve(result.data, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new PlanRejected(
+      msg,
+      msg
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean),
+      plan,
+    );
+  }
   return result.data;
 }
 
