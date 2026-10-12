@@ -368,8 +368,11 @@ describe("design: the switch", () => {
     // s12 at 100.8s: an equation that fits small grows toward 62% of the width and
     // each legend meaning sits beside its symbol; a line-chart value keeps 16px
     // from the axis's own words (s12 unchanged to the eye).
+    // Then the r4 layout round (2026-10-12), re-pinned after reading s3 at
+    // 23.75s: a grown pipeline row spans the whole width and each box spreads
+    // its words, the label at its top and the note at its bottom.
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "c00e36db5fcfcae59e2c1b82e8dcb46b9a843de0ac7bb3722a268da8de3d2f15",
+      "e27c265353ea0676438322956b9a8eaeefc742eaa61b2e3a7b208c254617a54a",
     );
   });
 

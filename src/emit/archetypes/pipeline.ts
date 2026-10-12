@@ -193,8 +193,6 @@ export interface PipeGrow {
 const GROWN_BOX_H = 0.8;
 /** …nor be taller than this many times its own width: past it a stage is a column, not a box. */
 const GROWN_BOX_ASPECT = 1.2;
-/** The width cap, grown. 430 left a three-stage row 170px short of its 1700px measure. */
-const GROWN_BOX_W = 560;
 /** A grown box is at most this many times as tall as the text inside it. */
 const GROWN_AIR = 1.6;
 /**
@@ -576,29 +574,30 @@ function grownRow(
   grow: PipeGrow,
 ): PipeLayout {
   const width = stageW - 2 * M;
-  const capped = Math.min(width, stages.length * GROWN_BOX_W + (stages.length - 1) * GAP);
   // The label is a body line: the v2 scale's 44px at most (`TYPE_SCALE`). The
   // BOXES grow into the region; the type no longer does.
+  //
+  // THE ROW SPANS THE WHOLE WIDTH, however few its stages. A cap of 560px a box
+  // left a two-stage row as a 1240px island in a 1700px body, and once the fill
+  // gate measured the CONTENT's box (cards are containers) the words of a
+  // two-stage row covered 68% of the region (2026-10-12, r4 ko s13).
   const preferred = TYPE_SCALE.body;
   let best: ReturnType<typeof measureRow> | undefined;
-  for (const span of capped < width ? [capped, width] : [width]) {
-    for (let k = 1; k <= 3; k++) {
-      // Solved on the LABELS alone. Classic sizes the box for each note at the
-      // label's size and weight, which is right when both sit near 52px; grown,
-      // the note sets at ~60% of the label, and one unbreakable note token —
-      // "XML·USD·URDF" — held a Korean three-stage row at 61px whose labels set
-      // at 79. The note still has to fit, and that is checked below instead.
-      const fit = fitAt(stages, k, span, stageW, face, preferred, 0, splitEven);
-      if (!fit.ok) continue;
-      const row = measureRow(fit, stages, loop, face, stageW, width);
-      if (!notesFit(stages, row.note, row.innerW, face)) continue;
-      // Bigger only while every word still sets whole: a label grown until
-      // "Rectified-flow" is cut to "Rectified-flo / w" is a broken label.
-      if (stages.some((s) => cutsWord(s.label, row.size, row.innerW, 600, face))) continue;
-      if (M + row.need + row.below > grow.budget) continue;
-      if (!best || row.size > best.size) best = row;
-    }
-    if (best) break;
+  for (let k = 1; k <= 3; k++) {
+    // Solved on the LABELS alone. Classic sizes the box for each note at the
+    // label's size and weight, which is right when both sit near 52px; grown,
+    // the note sets at ~60% of the label, and one unbreakable note token —
+    // "XML·USD·URDF" — held a Korean three-stage row at 61px whose labels set
+    // at 79. The note still has to fit, and that is checked below instead.
+    const fit = fitAt(stages, k, width, stageW, face, preferred, 0, splitEven);
+    if (!fit.ok) continue;
+    const row = measureRow(fit, stages, loop, face, stageW, width);
+    if (!notesFit(stages, row.note, row.innerW, face)) continue;
+    // Bigger only while every word still sets whole: a label grown until
+    // "Rectified-flow" is cut to "Rectified-flo / w" is a broken label.
+    if (stages.some((s) => cutsWord(s.label, row.size, row.innerW, 600, face))) continue;
+    if (M + row.need + row.below > grow.budget) continue;
+    if (!best || row.size > best.size) best = row;
   }
   // Nothing grown fits: draw the classic row, at v2's label size.
   if (!best) return pipeLayout(stageW, stages, loop, face, undefined, TYPE_SCALE.body);
@@ -717,7 +716,12 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
     const labelH = (L.labelLines[i]?.length ?? 1) * L.size * LABEL_LH;
     const noteCount = L.noteLines[i]?.length ?? 0;
     const noteH = noteCount > 0 ? NOTE_TOP + noteCount * L.note * NOTE_LH : 0;
-    const top = box.y + (box.h - labelH - noteH) / 2;
+    // A grown box SPREADS its words: the label at its top, the note at its
+    // bottom. Centred, a box grown to 1.6× its text carried a band of air above
+    // and below its words — empty to the eye and to the fill gate alike, which
+    // measures the content's box with the cards made transparent.
+    const top = grow ? box.y + PAD_Y : box.y + (box.h - labelH - noteH) / 2;
+    const noteTop = grow ? box.y + box.h - PAD_Y - noteH : top + labelH;
 
     const label = text(
       stage.label,
@@ -737,7 +741,7 @@ export const pipeline: Emitter<"pipeline"> = (beat, ctx) => {
       noteCount > 0 && stage.note
         ? text(
             stage.note,
-            { x: box.x + box.w / 2, y: top + labelH + NOTE_TOP + (noteH - NOTE_TOP) / 2 },
+            { x: box.x + box.w / 2, y: noteTop + NOTE_TOP + (noteH - NOTE_TOP) / 2 },
             {
               size: L.note,
               fill: theme.muted,
