@@ -1440,7 +1440,7 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
         vars: ["dx", "dy"],
       },
       better: {
-        what: "plane or strip: the word for 'better', at the end of an axis where lower is better",
+        what: "plane or strip: the word for 'better', drawn with an arrow down an axis where lower is better (axes run low to high)",
         optional: true,
       },
       ahead: { what: "margin only: where the method leads on every metric", optional: true },

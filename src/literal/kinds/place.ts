@@ -2,8 +2,8 @@
  * place — items positioned by the source's numbers.
  *
  * POINTS (`form` plane or strip, `measure` value): each item at its values on
- * one or two axes, every axis turned so that better is up and to the right
- * (`lowerIsBetter` flips it), its label and its values written beside it as
+ * one or two axes, each running low to high as the source plots it (an axis
+ * where lower is better says so with an arrow and the `better` word), its label and its values written beside it as
  * the source writes them. Items are revealed in spoken order, or group by
  * group (`reveal` groups); a group with `connect` is a series drawn as a line,
  * which is how the source's rows over steps (a loss curve) are shown. A
@@ -125,7 +125,8 @@ function pointsIn(c0: Ctx): MechanismResult {
   for (const it of refs)
     if (it.values.length !== 2 || it.values.every(unstated))
       throw new Error(`item "${it.label}" states no number for either axis`);
-  if (refs.length > 4) throw new Error(`place draws at most 4 one-number lines, got ${refs.length}`);
+  if (refs.length > 4)
+    throw new Error(`place draws at most 4 one-number lines, got ${refs.length}`);
   const d = { ...all, items: all.items.filter((it) => !refs.includes(it)) };
   const c = { ...c0, lit: d };
   if (d.compare)
@@ -167,10 +168,8 @@ function pointsIn(c0: Ctx): MechanismResult {
   // narrower and finds a place where a long line does not; else a key.
   return (
     layoutPoints(c, "labels", false, refs) ??
-    layoutPoints(c, "labels", false, refs, false) ??
     layoutPoints(c, "labels", true, refs) ??
-    layoutPoints(c, "labels", true, refs, false) ??
-    (two ? layoutPoints(c, "labels", false, refs, false, true) : null) ??
+    (two ? layoutPoints(c, "labels", false, refs, true) : null) ??
     (layoutPoints(c, keyed, false, refs) as MechanismResult)
   );
 }
@@ -181,7 +180,6 @@ function layoutPoints(
   mode: Mode,
   stacked = false,
   refs: PlaceLit["items"] = [],
-  avoidLink = true,
   short = false,
 ): MechanismResult | null {
   const d = c.lit;
@@ -205,7 +203,7 @@ function layoutPoints(
   const betterWord = c.labels.better?.trim();
   const xBetter = !!betterWord && ax0.lowerIsBetter;
   const yBetter = two && !!betterWord && !!ax1?.lowerIsBetter;
-  const betterW = betterWord ? c.measure(`${betterWord} →`, TYPE.label) : 0;
+  const betterW = betterWord ? c.measure(`← ${betterWord}`, TYPE.label) : 0;
   const tr = (k: number) => {
     const a = d.axes[k] as PlaceLit["axes"][number];
     return (v: number) => {
@@ -322,14 +320,13 @@ function layoutPoints(
     throw new Error(
       `place: the key leaves the plot ${Math.floor(plot.h)}px; give fewer items or shorter names`,
     );
-  const better = (k: number) => !(d.axes[k] as PlaceLit["axes"][number]).lowerIsBetter;
   const X = (v: number) => {
     const t = (tr(0)(v) - rx[0]) / (rx[1] - rx[0]);
-    return plot.x + plot.w * (better(0) ? t : 1 - t);
+    return plot.x + plot.w * t;
   };
   const Y = (v: number) => {
     const t = (tr(1)(v) - ry[0]) / (ry[1] - ry[0]);
-    return plot.y + plot.h * (better(1) ? 1 - t : t);
+    return plot.y + plot.h * (1 - t);
   };
   const lineY = two ? plot.y + plot.h : plot.y + plot.h / 2;
   const prims: Prim[] = [];
@@ -399,8 +396,8 @@ function layoutPoints(
       { x0: plot.x + plot.w - nameW(0), y0: xNameY, x1: plot.x + plot.w, y1: xNameY + nameH },
       { x0: yNameX, y0: 8, x1: yNameX + nameW(1), y1: 8 + nameH },
     );
-    // Where lower is better the axis runs the other way, which the ticks show;
-    // the slot's word for "better" says it beside the axis's name, outside the plot.
+    // Every axis runs low to high, as the source plots it (the approved look); where lower
+    // is better, the slot's word for "better" points down it, beside its name, outside the plot.
     if (xBetter) {
       const x1 = plot.x + plot.w - nameW(0) - 32;
       prims.push({
@@ -410,7 +407,7 @@ function layoutPoints(
         size: TYPE.label,
         role: "accent",
         anchor: "end",
-        text: `${betterWord} →`,
+        text: `← ${betterWord}`,
       });
       taken.push({ x0: x1 - betterW, y0: xNameY, x1, y1: xNameY + nameH });
     }
@@ -423,7 +420,7 @@ function layoutPoints(
         size: TYPE.label,
         role: "accent",
         anchor: "start",
-        text: `↑ ${betterWord}`,
+        text: `↓ ${betterWord}`,
       });
       taken.push({ x0, y0: 8, x1: x0 + betterW, y1: 8 + nameH });
     }
@@ -460,7 +457,7 @@ function layoutPoints(
         size: TYPE.label,
         role: "accent",
         anchor: "end",
-        text: `${betterWord} →`,
+        text: `← ${betterWord}`,
       });
       taken.push({ x0: x1 - betterW, y0: 8, x1, y1: 8 + nameH });
     }
@@ -545,9 +542,7 @@ function layoutPoints(
     const raw = it.values[k] as string;
     const v = numberIn(raw, `item "${it.label}"`);
     const seg =
-      k === 1
-        ? [plot.x, Y(v), plot.x + plot.w, Y(v)]
-        : [X(v), plot.y, X(v), plot.y + plot.h];
+      k === 1 ? [plot.x, Y(v), plot.x + plot.w, Y(v)] : [X(v), plot.y, X(v), plot.y + plot.h];
     prims.push({
       p: "line",
       x1: seg[0] as number,
@@ -567,10 +562,20 @@ function layoutPoints(
     const below = k === 1 ? (seg[1] as number) + 6 : plot.y + 8;
     const above = k === 1 ? (seg[1] as number) - 6 - h : plot.y + plot.h - 8 - h;
     const box = (y0: number) => ({ x0, y0, x1: x0 + w, y1: y0 + h });
-    const free = (b: Box) => b.y0 >= plot.y && b.y1 <= plot.y + plot.h && !taken.some((q) => area(b, q) > 0);
+    const free = (b: Box) =>
+      b.y0 >= plot.y && b.y1 <= plot.y + plot.h && !taken.some((q) => area(b, q) > 0);
     const b = free(box(below)) ? box(below) : box(above);
     taken.push(b);
-    prims.push({ p: "text", x: b.x0, y: b.y0, size: TYPE.label, role: "dim", anchor: "start", text: t, cam: true });
+    prims.push({
+      p: "text",
+      x: b.x0,
+      y: b.y0,
+      size: TYPE.label,
+      role: "dim",
+      anchor: "start",
+      text: t,
+      cam: true,
+    });
   }
   const byGroup = d.reveal === "groups";
   // THE SUBJECT: the items (or a group) the headline names stand out from the first
@@ -637,12 +642,16 @@ function layoutPoints(
         const q = pos[cmp.b] as { x: number; y: number };
         const len = Math.hypot(p.x - q.x, p.y - q.y) || 1;
         const u = (R + 8) / len;
-        return [q.x + (p.x - q.x) * u, q.y + (p.y - q.y) * u, p.x - (p.x - q.x) * u, p.y - (p.y - q.y) * u];
+        return [
+          q.x + (p.x - q.x) * u,
+          q.y + (p.y - q.y) * u,
+          p.x - (p.x - q.x) * u,
+          p.y - (p.y - q.y) * u,
+        ];
       })()
     : undefined;
-  // Labels keep off the link where they can; where they cannot (two close points in a
-  // corner), the dashed link runs under a label, as in the approved look.
-  if (link && avoidLink) strokes.push(...segBoxes(link, 3));
+  // The link is a line like any other: no word is drawn over it.
+  if (link) strokes.push(...segBoxes(link, 3));
   // A series: the source's rows over steps, joined. Its line is an obstacle to every label.
   const series: Prim[] = [];
   const seriesGroups = new Set<string>();
@@ -700,7 +709,7 @@ function layoutPoints(
     // series' labels fit beside their points (r2 b13's eight "name x·y" labels did not).
     const onSeries = !!d.connect && two && tinted && seriesGroups.has(it.group ?? "");
     // `short`: the name and its height only — the x is read off the ticks (the approved
-    // look's "OneVL 88.84"), for points too close to name with both values.
+    // look's "name 88.84"), for points too close to name with both values.
     const tuple = onSeries || short ? (it.values[1] as string) : valueText(it);
     // A numbered key's point carries only its number, placed as any label is.
     const one =
@@ -814,8 +823,13 @@ function layoutPoints(
         taken,
         strokes,
       );
-    if (!spot)
-      throw new Error(`place: the \`delta\` "${t}" finds no free place by its two points; shorten it`);
+    if (!spot) {
+      // As a label that finds no place: the next naming mode may leave room for it.
+      if (mode === "labels") return null;
+      throw new Error(
+        `place: the \`delta\` "${t}" finds no free place by its two points; shorten it`,
+      );
+    }
     taken.push(spot.box);
     prims.push(
       {
@@ -982,8 +996,26 @@ export function placeLabel(
       : [px - w / 2, px + 24, px - 24 - w];
   const ys: number[] = [];
   if (side === "beside") {
+    // Clamped into the plot, as `mid` is: a point at the plot's top edge (the best score)
+    // has its label flush with the top rather than a step over it and lost.
+    const fit = (y: number) => Math.max(plot.y, Math.min(y, plot.y + plot.h - h));
+    const steps: number[] = [];
     for (let k = 0; k <= 12; k++)
-      ys.push(...(k ? [py - h / 2 - 48 * k, py - h / 2 + 48 * k] : [py - h / 2]));
+      steps.push(...(k ? [py - h / 2 - 48 * k, py - h / 2 + 48 * k] : [py - h / 2]));
+    // Sliding labels (van Kreveld, Strijk & Wolff 1999): while the box still spans its dot's
+    // height it may slide up or down to sit flush against a word or line — the place a fixed
+    // 48px step misses by a few px (a dot 14px over a dashed reference line).
+    const x0 = px - 132 - w;
+    const x1 = px + 132 + w;
+    for (const t of [...taken, ...strokes])
+      if (t.x1 > x0 && t.x0 < x1)
+        for (const y of [t.y1, t.y0 - h]) if (y >= py - h && y <= py) steps.push(y);
+    const mid0 = py - h / 2;
+    ys.push(
+      ...[...new Set(steps)]
+        .sort((a, b) => Math.abs(a - mid0) - Math.abs(b - mid0) || a - b)
+        .map(fit),
+    );
   } else {
     const levels = Math.max(1, Math.floor((plot.h / 2 - 28 - h) / 48));
     const order = [
@@ -1020,6 +1052,13 @@ export function placeLabel(
           q.y - Math.max(box.y0, Math.min(q.y, box.y1)),
         );
       if (others.some((q) => toBox(q) < far)) continue;
+      // Nor across a line from it: the gap from dot to word crosses no line (a word
+      // sat under a dashed reference line and read as that line's).
+      if (far > 18) {
+        const u = 18 / far;
+        const gap = [px + (nx - px) * u, py + (ny - py) * u, nx, ny];
+        if (segBoxes(gap, 2).some((b) => crossNot.some((t) => area(b, t) > 0))) continue;
+      }
       const stop = far > 0 ? Math.max(0, far - 12) / far : 0;
       const leader =
         far > LEADER_PX ? [[px, py, px + (nx - px) * stop, py + (ny - py) * stop]] : [];

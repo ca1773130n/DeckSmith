@@ -17,7 +17,7 @@ import { namedIn, subjectOf, widthOf } from "../src/literal/kind.js";
 import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
-import { placeForm, points, ticksOf } from "../src/literal/kinds/place.js";
+import { placeForm, placeLabel, points, segBoxes, ticksOf } from "../src/literal/kinds/place.js";
 import { findBands, findPanels, region } from "../src/literal/kinds/region.js";
 import {
   type Earlier,
@@ -1644,6 +1644,62 @@ describe("what each verb computes", () => {
     expect(dots[0]?.at ?? 0).toBe(0);
     expect(dots.slice(1).map((d) => d.at)).toEqual([1, 2]);
     expect(dots[0]?.r).toBeGreaterThan(dots[1]?.r ?? 0);
+  });
+
+  it("place: axes run low to high, and lower-is-better points its `better` word down the axis", () => {
+    const lit = literalSchema.parse({
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "latency", lowerIsBetter: true },
+        { name: "score", lowerIsBetter: false },
+      ],
+      items: [
+        { label: "Slow", values: ["8.6", "83.9"] },
+        { label: "Fast", values: ["4.4", "88.8"] },
+      ],
+      labels: [{ slot: "better", text: "better" }],
+    }) as Extract<Literal, { kind: "place" }>;
+    const r = runVerb(points as VerbRun<"place">, {
+      lit,
+      labels: { better: "better" },
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+    const prims = r.frames[0]?.prims ?? [];
+    const dots = prims.filter((p) => p.p === "circle") as Array<{ cx: number; cy: number }>;
+    expect(dots[1]?.cx ?? 0).toBeLessThan(dots[0]?.cx ?? 0);
+    expect(dots[1]?.cy ?? 0).toBeLessThan(dots[0]?.cy ?? 0);
+    expect(prims.some((p) => p.p === "text" && p.text === "← better")).toBe(true);
+  });
+
+  it("place: a label slides flush against a word to stay on its own dot's side of a line", () => {
+    const plot = { x: 0, y: 0, w: 1000, h: 600 };
+    const line = segBoxes([0, 213, 1000, 213], 2);
+    // A 49px band between a word above (to 160) and a line under the dot: a 48px step
+    // centred on the dot crosses the line; flush under the word, it fits.
+    const spot = placeLabel(
+      200,
+      200,
+      200,
+      48,
+      "beside",
+      plot,
+      [{ x0: 0, y0: 100, x1: 1000, y1: 160 }],
+      line,
+    );
+    // Inside the band: under the word, over the line (its stroke box starts at 209).
+    expect(spot?.box.y0).toBeGreaterThanOrEqual(160);
+    expect(spot?.box.y1).toBeLessThanOrEqual(209);
+    expect(spot?.box.x0).toBe(224);
+    // With the band too narrow, the label is not put under the line, away from its dot.
+    expect(
+      placeLabel(200, 200, 200, 48, "beside", plot, [{ x0: 0, y0: 0, x1: 1000, y1: 176 }], line),
+    ).toBeNull();
   });
 
   it("table: the row the headline names is lit from the start and never steps back", () => {

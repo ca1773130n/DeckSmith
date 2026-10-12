@@ -401,15 +401,22 @@ export async function literalPass(
     const impl = KINDS[spec.kind];
     const rel = spec.image;
     const image = rel ? resolve(input.planDir, rel) : undefined;
-    const layers = await impl.layers({
-      beatId: beat.id,
-      ...(image ? { image } : {}),
-      dir,
-      region,
-      spec,
-      theme,
-      earlier,
-    });
+    // The verb's own refusal names its beat: "place: the key leaves the plot 103px" alone
+    // left a fourteen-beat build to be bisected by hand.
+    const layers = await impl
+      .layers({
+        beatId: beat.id,
+        ...(image ? { image } : {}),
+        dir,
+        region,
+        spec,
+        theme,
+        earlier,
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`literal: ${beat.id} (${spec.kind}) ${msg}`, { cause: err });
+      });
     earlier.set(beat.id, { kind: spec.kind, layers, labels: spec.labels });
     const fragment = literalFragment(spec.kind, layers, region, cues, spec, theme);
     const late = lateReveals(fragment.script, durationOf.get(beat.id) ?? Number.POSITIVE_INFINITY);
