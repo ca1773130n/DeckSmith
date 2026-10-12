@@ -1,0 +1,34 @@
+<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+.pic{position:absolute;left:80px;top:200px;width:1180px}
+.box{position:absolute;border:5px solid var(--b);border-radius:10px;box-shadow:0 0 0 3px #0008}
+.num{position:absolute;width:56px;height:56px;border-radius:50%;background:var(--b);color:#0b0d10;font-size:40px;font-weight:700;
+ display:flex;align-items:center;justify-content:center}
+.legend{position:absolute;left:80px;top:860px;font-size:40px;color:var(--muted)}
+.side{position:absolute;left:1310px;top:200px;width:540px;display:flex;flex-direction:column;gap:30px}
+.f{display:flex;gap:20px;font-size:40px;line-height:1.3}
+.f .num{position:static;flex:none}
+.dec{border-top:2px solid var(--rule);padding-top:28px;font-size:40px;line-height:1.4}
+.dec b{color:var(--d);font-weight:600}
+</style></head><body><div class="stage"><h1>OneVL 看到了什么：路口前的三个关键因素</h1></div>
+<div class="pic" id="pic" data-crop="a/roadwork.jpg,1306,820,160,486,258"></div>
+<div class="legend">ROADWork 示例 · 绿 GT · 红 OneVL 预测</div>
+<div class="side">
+  <div class="f"><div class="num">1</div><div>停车标志：路口要减速、准备停车</div></div>
+  <div class="f"><div class="num">2</div><div>右侧施工桶收窄车道：靠左行驶</div></div>
+  <div class="f"><div class="num">3</div><div>右侧路边停车：横向空间变小</div></div>
+  <div class="dec">决策<br><b>纵向：控制点停车<br>横向：右转</b></div>
+</div>
+<script src="crop.js"></script>
+<script>
+// region: boxes in source-image pixels (fig 18, OneVL front view); labels paraphrase the paper's CoT
+const regions = [[1, 1190, 270, 1224, 304, 'r'], [2, 1170, 304, 1202, 344, 'r'], [3, 1108, 281, 1182, 308, 'l']];
+const src = { x: 820, y: 160, w: 486 }, pic = document.getElementById('pic'), s = 1180 / src.w;
+for (const [n, x0, y0, x1, y1, side] of regions) {
+  const l = 80 + (x0 - src.x) * s, t = 200 + (y0 - src.y) * s;
+  document.body.insertAdjacentHTML('beforeend',
+    `<div class="box" style="left:${l}px;top:${t}px;width:${(x1 - x0) * s}px;height:${(y1 - y0) * s}px"></div>
+     <div class="num" style="left:${side === 'l' ? l - 66 : l + (x1 - x0) * s + 10}px;top:${t + ((y1 - y0) * s - 56) / 2}px">${n}</div>`);
+}
+</script></body></html>

@@ -1,0 +1,68 @@
+<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+.abs{position:absolute}
+.lab{font-size:40px;color:var(--muted)}
+.tag{font-size:40px;color:var(--b);margin-left:14px}
+.in .meta{margin-top:22px;display:flex;flex-direction:column;gap:12px}
+.pill{font-size:40px;padding:6px 20px;border-radius:12px;background:var(--panel);border:2px solid var(--rule);width:max-content}
+.vlm{border:3px solid var(--accent);border-radius:24px;background:#0f1724;padding:36px 30px}
+.vlm .name{font-size:56px;font-weight:600}
+.toks{display:flex;gap:6px;margin-top:40px}
+.tk{font-size:44px;min-width:72px;height:80px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:600;color:#0b0d10}
+.out{display:flex;flex-direction:column;gap:14px}
+.pair{display:flex;gap:16px}
+.pair figure{position:relative;width:242px}
+.pair figcaption{position:absolute;left:10px;bottom:6px;font-size:40px;font-weight:600;text-shadow:0 2px 8px #000}
+.quote{font-size:40px;line-height:1.3;border-left:6px solid var(--c);padding-left:20px}
+.train{border:3px dashed var(--b);border-radius:18px;padding:18px 20px}
+svg{position:absolute;inset:0;pointer-events:none}
+</style></head><body><div class="stage">
+<h1>OneVL：推理压进潜在 token，一步完成规划</h1>
+</div>
+<div class="abs in" style="left:80px;top:300px;width:380px">
+  <div class="lab">当前帧</div>
+  <div style="width:380px;margin-top:10px" data-crop="a/roadwork.jpg,1306,3,58,590,222"></div>
+  <div class="meta"><div class="pill">导航指令</div><div class="pill">速度 · 加速度</div><div class="pill">历史轨迹</div></div>
+</div>
+<div class="abs vlm" style="left:510px;top:380px;width:790px">
+  <div class="name">VLM <span class="muted" style="font-size:40px;font-weight:400">4B</span></div>
+  <div class="toks" id="toks"></div>
+  <div class="lab" style="margin-top:26px">视觉潜在 4 · 语言潜在 2</div>
+</div>
+<div class="abs out train" style="left:1340px;top:150px;width:520px">
+  <div class="lab" style="color:var(--fg)">视觉辅助解码器<span class="tag">仅训练</span></div>
+  <div class="pair">
+    <figure><div style="width:242px" data-crop="a/roadwork.jpg,1306,3,496,645,360"></div><figcaption>T+1</figcaption></figure>
+    <figure><div style="width:242px" data-crop="a/roadwork.jpg,1306,663,496,643,360"></div><figcaption>T+2</figcaption></figure>
+  </div>
+</div>
+<div class="abs out train" style="left:1340px;top:420px;width:520px">
+  <div class="lab" style="color:var(--fg)">语言辅助解码器<span class="tag">仅训练</span></div>
+  <div class="quote">右侧施工桶收窄车道<br>自车应靠左通过</div>
+</div>
+<div class="abs out" style="left:1340px;top:680px;width:520px;padding:0 20px">
+  <div class="lab" style="color:var(--fg)">轨迹 <span class="muted">绿 GT · 红 预测</span></div>
+  <div style="width:480px" data-crop="a/roadwork.jpg,1306,668,140,638,278"></div>
+</div>
+<svg width="1920" height="1080" id="wires"></svg>
+<script src="crop.js"></script>
+<script>
+// flow: token row from the paper — C_v = 4 visual latents, C_t = 2 language latents
+const toks = [['<span style="font-size:40px;padding:0 8px">img</span>', '#b5651d'], ['<span style="font-size:40px;padding:0 8px">txt</span>', '#6ee7a8'], ...Array(4).fill(['Z<sub style="font-size:40px">v</sub>', '#f78da7']),
+  ...Array(2).fill(['Z<sub style="font-size:40px">l</sub>', '#ffd166']), ['ŷ', '#e8eaed']];
+document.getElementById('toks').innerHTML = toks.map(([t, c]) => `<div class="tk" style="background:${c}">${t}</div>`).join('');
+const tk = [...document.querySelectorAll('.tk')].map(e => e.getBoundingClientRect());
+const box = q => document.querySelectorAll(q);
+const outs = [...box('.out')].map(e => e.getBoundingClientRect());
+const inp = document.querySelector('.in').getBoundingClientRect();
+const mid = (a, b) => [(a.left + b.right) / 2, a.top];
+const wire = (x1, y1, x2, y2, col, dash) =>
+  `<path d="M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}" fill="none" stroke="${col}" stroke-width="4" ${dash ? 'stroke-dasharray="12 10"' : ''}/>`;
+const v = document.querySelector('.vlm').getBoundingClientRect();
+document.getElementById('wires').innerHTML =
+  wire(inp.right + 6, inp.top + 140, v.left - 4, v.top + 120, '#74808e') +
+  wire(v.right + 4, tk[3].top + 10, outs[0].left - 4, outs[0].top + 150, '#f78da7', 1) +
+  wire(v.right + 4, tk[3].top + 40, outs[1].left - 4, outs[1].top + 100, '#ffd166', 1) +
+  wire(v.right + 4, tk[3].top + 70, outs[2].left - 4, outs[2].top + 160, '#e8eaed');
+</script></body></html>

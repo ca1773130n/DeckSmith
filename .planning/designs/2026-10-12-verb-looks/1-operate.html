@@ -1,0 +1,48 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css"><link rel="stylesheet" href="a/katex.min.css">
+<style>
+.top{display:flex;align-items:center;gap:72px;margin-top:56px}
+.eq{font-size:72px}
+.inputs{display:flex;flex-direction:column;gap:20px}
+.chip{font-size:40px;padding:10px 26px;border-radius:14px;background:var(--panel);border:2px solid var(--rule)}
+.chip b{color:var(--b);font-weight:600}
+.row{display:flex;align-items:center;margin-top:120px;gap:0}
+.cap{margin-top:28px}
+.tok{width:226px;height:226px;border-radius:22px;border:3px solid var(--a);display:flex;flex-direction:column;
+ align-items:center;justify-content:center;position:relative}
+.tok .p{font-size:56px;font-weight:600}
+.tok .n{position:absolute;top:-58px;font-size:40px;color:var(--muted)}
+.x{width:66px;text-align:center;font-size:40px;color:var(--b)}
+.sum{margin-top:96px;display:flex;align-items:baseline;gap:40px}
+.big{font-size:96px;font-weight:700;color:var(--a)}
+.match{font-size:40px;padding:12px 28px;border-radius:14px;border:2px solid var(--d);color:var(--d)}
+</style></head><body><div class="stage">
+<h1>초안 5개를 한 번에 검증하면, 토큰은 몇 개 나올까</h1>
+<div class="top">
+  <div class="eq" id="eq"></div>
+  <div class="inputs">
+    <div class="chip">α = <b>0.8</b> <span class="muted">초안 수락률</span></div>
+    <div class="chip">γ = <b>5</b> <span class="muted">초안 토큰 수 · 표 1</span></div>
+  </div>
+</div>
+<div class="row" id="row"></div>
+<div class="t40 muted cap">칸의 숫자 = 그 토큰이 나올 확률 · 앞의 초안이 모두 수락돼야 함</div>
+<div class="sum">
+  <div class="t40 muted">1 + 0.80 + 0.64 + 0.51 + 0.41 + 0.33 =</div>
+  <div class="big">3.69</div>
+  <div class="match">표 1 속도 3.69X 와 일치 (c = 0)</div>
+</div>
+</div>
+<script src="a/katex.min.js"></script>
+<script>
+katex.render(String.raw`E(\#\,\text{tokens})=\frac{1-\alpha^{\gamma+1}}{1-\alpha}`, document.getElementById('eq'));
+// operate: computed from the stated α, γ — p_k = α^k is the chance token k+1 exists
+const a = 0.8, g = 5, row = document.getElementById('row');
+for (let k = 0; k <= g; k++) {
+  const p = a ** k;
+  if (k) row.insertAdjacentHTML('beforeend', `<div class="x">×α</div>`);
+  row.insertAdjacentHTML('beforeend',
+    `<div class="tok" style="background:rgba(61,139,253,${(0.15 + 0.75 * p).toFixed(2)})">
+       <div class="n">토큰 ${k + 1}</div><div class="p">${p.toFixed(2)}</div></div>`);
+}
+</script></body></html>
