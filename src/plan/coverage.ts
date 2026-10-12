@@ -1919,6 +1919,13 @@ export function literalFindings(
           `${beat.id}'s table marks ${off.map((m) => `(${m.row}, ${m.col})`).join(", ")}, which is no cell of it (rows and columns count from 0).`,
         );
     }
+    if (lit.kind === "place" && lit.figure) {
+      const fig = source.figures.find((f) => f.id === lit.figure);
+      if (!fig || lit.figure.startsWith(GENERATED_FIGURE_PREFIX))
+        out.push(
+          `${beat.id}'s place shows figure "${lit.figure}", which is not one of the source's own figures.`,
+        );
+    }
     if (lit.kind === "place" && placeForm(lit) === "lengths") {
       const items = lit.lengths?.groups.flatMap((gr) => gr.items) ?? [];
       if (!items.length) out.push(`${beat.id}'s lengths have no values.`);

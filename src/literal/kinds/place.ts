@@ -24,13 +24,13 @@ import { evaluate, parseFormula } from "../formula.js";
 import { type KindImpl, type KindSpec, lab, namedIn, subjectOf } from "../kind.js";
 import type { Cue, Layers } from "../kit.js";
 import type { Frame, MechanismResult, Prim, Region, Role } from "./common.js";
-import { TYPE, wrapBy } from "./common.js";
+import { fillTemplate, TYPE, wrapBy } from "./common.js";
 import { combosForm } from "./place-combos.js";
 import { lengthsForm } from "./place-lengths.js";
 import { marginsForm } from "./place-margins.js";
 import { setsForm } from "./place-sets.js";
 import { paramRecord } from "./read.js";
-import { stagedFragment, type VerbCtx, verbKind, withPushRoom } from "./stage.js";
+import { stagedFragment, textLines, type VerbCtx, verbKind, withPushRoom } from "./stage.js";
 
 type Ctx = VerbCtx<"place">;
 type PlaceLit = Extract<Literal, { kind: "place" }>;
@@ -57,8 +57,40 @@ const NEEDS: Record<string, readonly string[]> = {
   combos: ["on", "off", "missing"],
 };
 
-/** Points, inset for the camera's push (`withPushRoom`). */
-export const points = (c: Ctx): MechanismResult => withPushRoom(pointsIn)(c);
+/** The share of the scene a `figure` takes beside the plot, and the gap between them. */
+const FIGURE_SHARE = 0.27;
+const FIGURE_GAP = 48;
+
+/**
+ * Points, inset for the camera's push (`withPushRoom`); with a `figure`, the
+ * plot takes the left of the scene and the source's own picture of what was
+ * measured stands at the right under its `scene` title (the approved look,
+ * .planning/designs/2026-10-12-verb-looks.md).
+ */
+export const points = (c: Ctx): MechanismResult => {
+  const fig = c.lit.figure;
+  if (!fig) return withPushRoom(pointsIn)(c);
+  const title = c.labels.scene?.trim();
+  if (!title) throw new Error("place with a `figure` needs the `scene` slot: what was measured");
+  const { width: W, height: H } = c.region;
+  const side = Math.round(W * FIGURE_SHARE);
+  const r = withPushRoom(pointsIn)({
+    ...c,
+    region: { width: W - side - FIGURE_GAP, height: H },
+  });
+  const lines = wrapBy(title, TYPE.label, side, c.measure);
+  const top = 8 + lines.length * Math.round(TYPE.label * 1.18) + 16;
+  if (H - top < 200)
+    throw new Error(`place: the \`scene\` title leaves its figure ${H - top}px; shorten it`);
+  const col: Prim[] = [
+    ...textLines(lines, W - side, 8, TYPE.label, "muted"),
+    { p: "image", x: W - side, y: top, w: side, h: H - top, layer: `fig:${fig}`, fit: true },
+  ];
+  return { ...r, frames: r.frames.map((f) => ({ ...f, prims: [...f.prims, ...col] })) };
+};
+
+/** A value that states no number: a method the source gives only the other axis for ("--"). */
+const unstated = (v: string) => !/\d/.test(v);
 
 /** The widest a key column beside the plot may be, as a share of the scene; wider goes under. */
 const KEY_SHARE = 0.55;
@@ -82,12 +114,26 @@ type Shape = (typeof SHAPES)[number];
  */
 type Mode = "labels" | "crossed" | "numbered";
 
-function pointsIn(c: Ctx): MechanismResult {
-  const d = c.lit;
-  const two = d.form === "plane";
+function pointsIn(c0: Ctx): MechanismResult {
+  const all = c0.lit;
+  const two = all.form === "plane";
   const nAxes = two ? 2 : 1;
-  if (d.axes.length !== nAxes)
-    throw new Error(`place ${d.form} needs ${nAxes} axis(es), got ${d.axes.length}`);
+  if (all.axes.length !== nAxes)
+    throw new Error(`place ${all.form} needs ${nAxes} axis(es), got ${all.axes.length}`);
+  // A method the source gives one number for is a line at it, not a point.
+  const refs = two ? all.items.filter((it) => it.values.some(unstated)) : [];
+  for (const it of refs)
+    if (it.values.length !== 2 || it.values.every(unstated))
+      throw new Error(`item "${it.label}" states no number for either axis`);
+  if (refs.length > 4) throw new Error(`place draws at most 4 one-number lines, got ${refs.length}`);
+  const d = { ...all, items: all.items.filter((it) => !refs.includes(it)) };
+  const c = { ...c0, lit: d };
+  if (d.compare)
+    for (const name of [d.compare.ours, d.compare.rival])
+      if (!d.items.some((it) => it.label === name))
+        throw new Error(`place \`compare\` names "${name}", which is not a point's label`);
+  if (d.compare && !c.labels.delta?.trim())
+    throw new Error("place with `compare` needs the `delta` slot, naming {dx} and {dy}");
   // A curve is drawn under the paper's own points, never alone: an r2 plan
   // gave curves and no items twice, and "2–16 items" did not say where the points were.
   if (d.items.length < 2 && d.curves.length)
@@ -116,18 +162,28 @@ function pointsIn(c: Ctx): MechanismResult {
     new Set(d.items.map((it) => `${it.label}\u0000${it.group}`)).size === d.items.length &&
     labels.every((l) => d.items.filter((it) => it.label === l).length >= 2);
   const keyed: Mode = crossed ? "crossed" : "numbered";
-  if (d.items.length > NAMED_MAX) return layoutPoints(c, keyed) as MechanismResult;
+  if (d.items.length > NAMED_MAX) return layoutPoints(c, keyed, false, refs) as MechanismResult;
   // Each point named beside it, on one line; else the name over its values, which is
   // narrower and finds a place where a long line does not; else a key.
   return (
-    layoutPoints(c, "labels") ??
-    layoutPoints(c, "labels", true) ??
-    (layoutPoints(c, keyed) as MechanismResult)
+    layoutPoints(c, "labels", false, refs) ??
+    layoutPoints(c, "labels", false, refs, false) ??
+    layoutPoints(c, "labels", true, refs) ??
+    layoutPoints(c, "labels", true, refs, false) ??
+    (two ? layoutPoints(c, "labels", false, refs, false, true) : null) ??
+    (layoutPoints(c, keyed, false, refs) as MechanismResult)
   );
 }
 
 /** The scene in one naming mode; null when a label finds no free place (`labels` only). */
-function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | null {
+function layoutPoints(
+  c: Ctx,
+  mode: Mode,
+  stacked = false,
+  refs: PlaceLit["items"] = [],
+  avoidLink = true,
+  short = false,
+): MechanismResult | null {
   const d = c.lit;
   const two = d.form === "plane";
   const vals = d.items.map((it) => it.values.map((v) => numberIn(v, `item "${it.label}"`)));
@@ -185,6 +241,10 @@ function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | nu
     const vs = [
       ...vals.map((v) => f(v[k] as number)),
       ...curves.flatMap((cv) => cv.pts.map((p) => f(p[k] as number))),
+      ...refs.flatMap((it) => {
+        const v = it.values[k] as string;
+        return unstated(v) ? [] : [f(numberIn(v, `item "${it.label}"`))];
+      }),
     ];
     const lo = Math.min(...vs);
     const hi = Math.max(...vs);
@@ -478,6 +538,40 @@ function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | nu
     });
     strokes.push(...segBoxes(seg, 3));
   }
+  // One-number methods: a dashed line across the plot at the value they have, named
+  // at its far end under the line (over it when that is taken).
+  for (const it of refs) {
+    const k = unstated(it.values[0] as string) ? 1 : 0;
+    const raw = it.values[k] as string;
+    const v = numberIn(raw, `item "${it.label}"`);
+    const seg =
+      k === 1
+        ? [plot.x, Y(v), plot.x + plot.w, Y(v)]
+        : [X(v), plot.y, X(v), plot.y + plot.h];
+    prims.push({
+      p: "line",
+      x1: seg[0] as number,
+      y1: seg[1] as number,
+      x2: seg[2] as number,
+      y2: seg[3] as number,
+      role: "dim",
+      width: 2,
+      dash: true,
+      cam: true,
+    });
+    strokes.push(...segBoxes(seg, 2));
+    const t = `${it.label} ${raw}`;
+    const w = c.measure(t, TYPE.label);
+    const h = TYPE.label * 1.2;
+    const x0 = k === 1 ? plot.x + plot.w - w - 8 : (seg[0] as number) + 12;
+    const below = k === 1 ? (seg[1] as number) + 6 : plot.y + 8;
+    const above = k === 1 ? (seg[1] as number) - 6 - h : plot.y + plot.h - 8 - h;
+    const box = (y0: number) => ({ x0, y0, x1: x0 + w, y1: y0 + h });
+    const free = (b: Box) => b.y0 >= plot.y && b.y1 <= plot.y + plot.h && !taken.some((q) => area(b, q) > 0);
+    const b = free(box(below)) ? box(below) : box(above);
+    taken.push(b);
+    prims.push({ p: "text", x: b.x0, y: b.y0, size: TYPE.label, role: "dim", anchor: "start", text: t, cam: true });
+  }
   const byGroup = d.reveal === "groups";
   // THE SUBJECT: the items (or a group) the headline names stand out from the first
   // frame — the accent, a larger dot, their label first and in the accent — and the
@@ -529,6 +623,26 @@ function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | nu
   taken.push(
     ...pos.map((q) => ({ x0: q.x - R - 4, y0: q.y - R - 4, x1: q.x + R + 4, y1: q.y + R + 4 })),
   );
+  // The comparison the source draws: a dashed link from the rival to ours, an
+  // obstacle to every label; its deltas are placed once the labels are.
+  const cmp = d.compare
+    ? {
+        a: d.items.findIndex((it) => it.label === d.compare?.ours),
+        b: d.items.findIndex((it) => it.label === d.compare?.rival),
+      }
+    : undefined;
+  const link = cmp
+    ? (() => {
+        const p = pos[cmp.a] as { x: number; y: number };
+        const q = pos[cmp.b] as { x: number; y: number };
+        const len = Math.hypot(p.x - q.x, p.y - q.y) || 1;
+        const u = (R + 8) / len;
+        return [q.x + (p.x - q.x) * u, q.y + (p.y - q.y) * u, p.x - (p.x - q.x) * u, p.y - (p.y - q.y) * u];
+      })()
+    : undefined;
+  // Labels keep off the link where they can; where they cannot (two close points in a
+  // corner), the dashed link runs under a label, as in the approved look.
+  if (link && avoidLink) strokes.push(...segBoxes(link, 3));
   // A series: the source's rows over steps, joined. Its line is an obstacle to every label.
   const series: Prim[] = [];
   const seriesGroups = new Set<string>();
@@ -585,7 +699,9 @@ function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | nu
     // series in its colour and the x axis's ticks give the step, so two close
     // series' labels fit beside their points (r2 b13's eight "name x·y" labels did not).
     const onSeries = !!d.connect && two && tinted && seriesGroups.has(it.group ?? "");
-    const tuple = onSeries ? (it.values[1] as string) : valueText(it);
+    // `short`: the name and its height only — the x is read off the ticks (the approved
+    // look's "OneVL 88.84"), for points too close to name with both values.
+    const tuple = onSeries || short ? (it.values[1] as string) : valueText(it);
     // A numbered key's point carries only its number, placed as any label is.
     const one =
       mode === "numbered"
@@ -667,6 +783,67 @@ function layoutPoints(c: Ctx, mode: Mode, stacked = false): MechanismResult | nu
     ...marks,
     ...words.filter((p) => p.p !== "line"),
   );
+  if (cmp && link) {
+    // Once every point is out: the link, then the gaps it spans, computed from the
+    // two rows as printed, to the decimals they are printed with.
+    const a = Math.min(12, Math.max(0, ...[...d.items.keys()].map(stepOf)) + 1);
+    const ia = d.items[cmp.a] as PlaceLit["items"][number];
+    const ib = d.items[cmp.b] as PlaceLit["items"][number];
+    const gap = (k: number) => {
+      const dec = (s: string) => /\.(\d+)/.exec(s)?.[1]?.length ?? 0;
+      const sa = ia.values[k] as string;
+      const sb = ib.values[k] as string;
+      return Math.abs((vals[cmp.a]?.[k] as number) - (vals[cmp.b]?.[k] as number)).toFixed(
+        Math.max(dec(sa), dec(sb)),
+      );
+    };
+    const vars = { dx: gap(0), dy: two ? gap(1) : "" };
+    const t = fillTemplate(c.labels.delta as string, vars);
+    const w = c.measure(t, TYPE.label);
+    const h = TYPE.label * 1.2;
+    const q = pos[cmp.b] as { x: number; y: number };
+    const spot =
+      placeLabel(q.x, q.y, w, h, "beside", plot, taken, strokes) ??
+      placeLabel(
+        (pos[cmp.a] as { x: number }).x,
+        (pos[cmp.a] as { y: number }).y,
+        w,
+        h,
+        "beside",
+        plot,
+        taken,
+        strokes,
+      );
+    if (!spot)
+      throw new Error(`place: the \`delta\` "${t}" finds no free place by its two points; shorten it`);
+    taken.push(spot.box);
+    prims.push(
+      {
+        p: "line",
+        x1: link[0] as number,
+        y1: link[1] as number,
+        x2: link[2] as number,
+        y2: link[3] as number,
+        role: "d",
+        width: 4,
+        dash: true,
+        cam: true,
+        at: a,
+        wipe: true,
+      },
+      {
+        p: "text",
+        x: spot.box.x0,
+        y: spot.box.y0,
+        size: TYPE.label,
+        role: "d",
+        anchor: "start",
+        text: t,
+        cam: true,
+        at: a,
+      },
+    );
+  }
   if (mode === "numbered") {
     const x0 = below ? 24 : plot.x + plot.w + 32;
     const y0 = below ? H - keyH + 16 : top + Math.max(0, (H - top - keyLines.length * KEY_LH) / 2);

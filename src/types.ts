@@ -1381,7 +1381,10 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
   place: {
     doc: `items positioned by the source's numbers. \`form\` plane (two
                      \`axes\`) or strip (one): \`items\` ({label, values exactly as
-                     the source writes them, one per axis, group}), revealed in
+                     the source writes them, one per axis, group; on a plane a
+                     method the source gives only one of the two numbers for
+                     keeps "--" for the other and is drawn as a dashed line at
+                     the one it has), revealed in
                      spoken order or \`reveal\` groups (a group's points with
                      \`connect\` are a series: the source's rows over steps).
                      Items that share one label are named by their \`group\`.
@@ -1393,7 +1396,13 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`diagonal\` true when both axes are ONE measure under two
                      conditions (α at temp 0 against α at temp 1): both axes
                      share a scale and y = x is drawn, so above or below it is
-                     the finding. Each axis is ticked;
+                     the finding. A results plane names EVERY row the source
+                     reports for it (2–16), not a pick; \`figure\` puts the
+                     source's own picture of what was measured beside the plot
+                     (slot \`scene\`), and \`compare\` the comparison the source
+                     itself draws ({ours, rival} item labels): a dashed link
+                     and the slot \`delta\` naming the computed {dx} and {dy}.
+                     Each axis is ticked;
                      \`curves\` ({label, expr, x, fixed params, checks}) draw a
                      stated formula under the points, grounded by checks the
                      source prints. Curves are not only for images: a
@@ -1421,6 +1430,15 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      first).`,
     slots: {
       caption: { what: "under the scene: what the positions are", optional: true },
+      scene: {
+        what: "title over the `figure` beside the plot: what was measured (required with `figure`)",
+        optional: true,
+      },
+      delta: {
+        what: "on the `compare` link: how `ours` differs from `rival`, naming the computed gaps; required with `compare`",
+        optional: true,
+        vars: ["dx", "dy"],
+      },
       better: {
         what: "plane or strip: the word for 'better', at the end of an axis where lower is better",
         optional: true,
@@ -1715,6 +1733,10 @@ export const literalSchema = z.discriminatedUnion("kind", [
       )
       .default([]),
     connect: z.boolean().default(false),
+    /** plane or strip: the source's own figure of what was measured, beside the plot. */
+    figure: z.string().optional(),
+    /** plane: the comparison the source itself draws, two items by label: a dashed link and the computed deltas. */
+    compare: z.object({ ours: z.string(), rival: z.string() }).optional(),
     /** plane: both axes are one measure under two conditions; draws y = x on one scale. */
     diagonal: z.boolean().default(false),
     reveal: z.enum(["items", "groups"]).default("items"),
