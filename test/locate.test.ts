@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodePng } from "../src/bespoke/inspect.js";
 import type { RunnerArgs } from "../src/plan/codex.js";
-import { locateMarks, readBoxes } from "../src/plan/locate.js";
+import { locateMarks, readBoxes, readSteps, transcribeTraces } from "../src/plan/locate.js";
 import { sourceSchema, storyboardSchema } from "../src/types.js";
 
 describe("readBoxes", () => {
@@ -115,5 +115,66 @@ describe("locateMarks", () => {
     await expect(locateMarks(board, source, dir, { run })).rejects.toThrow(
       /b01's things were not found in its picture twice over \(0 boxes for 2 things\)/,
     );
+  });
+
+  it("reads a figure trace's rows off its panel, the tags as the schema's choices", async () => {
+    const traced = storyboardSchema.parse({
+      ...board,
+      beats: [
+        {
+          ...board.beats[0],
+          literal: {
+            kind: "evolve",
+            rule: "trace",
+            picture: "b01",
+            panel: 1,
+            read: "the drafts, row by row",
+            tags: [
+              { tag: "ok", label: "accepted", tone: "d" },
+              { tag: "no", label: "rejected", tone: "c", strike: true },
+            ],
+          },
+        },
+      ],
+    });
+    const seen: string[] = [];
+    const run = async (a: RunnerArgs) => {
+      seen.push(a.prompt, JSON.stringify(JSON.parse(await readFile(a.schemaPath, "utf8"))));
+      const steps = [
+        {
+          lead: "",
+          parts: [
+            { text: "the cat", tag: "ok" },
+            { text: "sat", tag: "no" },
+          ],
+        },
+        { lead: "… cat", parts: [{ text: "lay", tag: "ok" }] },
+      ];
+      await writeFile(a.outPath, JSON.stringify({ steps }));
+    };
+    const out = await transcribeTraces(traced, source, dir, { run });
+    expect(seen[0]).toMatch(/Read off it: the drafts, row by row/);
+    expect(seen[0]).toMatch(/- no: rejected/);
+    expect(seen[1]).toContain('"enum":["ok","no"]');
+    const lit = out.beats[0]?.literal;
+    expect(lit?.kind === "evolve" && lit.steps).toEqual([
+      {
+        parts: [
+          { text: "the cat", tag: "ok" },
+          { text: "sat", tag: "no" },
+        ],
+      },
+      { lead: "… cat", parts: [{ text: "lay", tag: "ok" }] },
+    ]);
+  });
+});
+
+describe("readSteps", () => {
+  it("takes 2–24 rows of tagged parts, and refuses an unknown tag or an empty row", () => {
+    const row = (tag = "ok", text = "a") => ({ lead: "", parts: [{ text, tag }] });
+    expect(readSteps({ steps: [row(), row()] }, ["ok"])).toHaveLength(2);
+    expect(readSteps({ steps: [row()] }, ["ok"])).toBe("1 rows (2–24)");
+    expect(readSteps({ steps: [row(), row("x")] }, ["ok"])).toMatch(/row 2 tags "a" with "x"/);
+    expect(readSteps({ steps: [row(), row("ok", " ")] }, ["ok"])).toMatch(/row 2 has no parts/);
   });
 });

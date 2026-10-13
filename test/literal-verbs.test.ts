@@ -19,7 +19,7 @@ import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
 import { placeForm, placeLabel, points, segBoxes, ticksOf } from "../src/literal/kinds/place.js";
-import { findBands, findPanels, region } from "../src/literal/kinds/region.js";
+import { findPanels, region } from "../src/literal/kinds/region.js";
 import {
   boxOf,
   type Earlier,
@@ -984,24 +984,36 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
-    name: "a worked decoding example, line by line",
+    name: "a worked decoding example, read off its figure",
     domain: "language-models",
     lit: {
-      kind: "region",
+      kind: "evolve",
+      rule: "trace",
       picture: "b1",
-      cut: "rows",
-      count: { value: "3" },
-      labels: L({ picture: "accepted, rejected, corrected" }),
+      panel: 1,
+      read: "the trace of drafts accepted, rejected and corrected, one row per call",
+      tags: [
+        { tag: "ok", label: "accepted", tone: "d" },
+        { tag: "no", label: "rejected", tone: "c", strike: true },
+        { tag: "fix", label: "corrected", tone: "a" },
+      ],
+      labels: [],
     },
   },
   {
-    name: "a proof's steps, line by line",
-    domain: "mathematics",
+    name: "a chemical mechanism's steps, read off its scheme",
+    domain: "chemistry",
     lit: {
-      kind: "region",
+      kind: "evolve",
+      rule: "trace",
       picture: "b1",
-      cut: "rows",
-      labels: L({ picture: "the derivation" }),
+      read: "each step of the mechanism: the species, then the arrow's reagent",
+      tags: [
+        { tag: "s", label: "species", tone: "b" },
+        { tag: "r", label: "reagent", tone: "a" },
+      ],
+      note: ["Scheme 2"],
+      labels: [],
     },
   },
 ];
@@ -1077,7 +1089,7 @@ function formOf(lit: Literal): string {
   if (lit.kind === "evolve") return `evolve:${lit.rule}${lit.how ? `:${lit.how}` : ""}`;
   if (lit.kind === "flow") return `flow:${lit.form}`;
   if (lit.kind === "place") return `place:${placeForm(lit)}:${lit.form}`;
-  if (lit.kind === "region") return `region:${lit.cut ?? "marks"}`;
+  if (lit.kind === "region") return "region:marks";
   return lit.kind;
 }
 
@@ -1114,8 +1126,6 @@ const FILL: Record<string, number> = {
   "flow:timeline": 0.35,
   place: 0.5,
   region: 0.4,
-  // A band of a figure is wide and short: it fills the height it is given and pans.
-  "region:rows": 0.25,
 };
 const floorOf = (form: string) =>
   FILL[form.split(":").slice(0, 2).join(":")] ?? FILL[form.split(":")[0] as string] ?? 0;
@@ -1288,7 +1298,6 @@ describe("the library holds only what is general", () => {
       "place:points:plane",
       "place:points:strip",
       "region:marks",
-      "region:rows",
     ];
     const domains = new Map<string, Set<string>>();
     for (const f of FIXTURES)
@@ -1518,32 +1527,20 @@ describe("what each verb refuses", () => {
       { x: 10, y: 40, w: 130, h: 150 },
       { x: 160, y: 40, w: 130, h: 150 },
     ]);
+    // A text figure — lines of words on white, a third ink, gaps not lined up — is
+    // one panel: no line of it is dropped.
+    const text = new Float32Array(W * H * 3).fill(1);
+    for (let line = 0; line < 8; line++)
+      for (let y = 10 + line * 23; y < 22 + line * 23; y++)
+        for (let x = 10; x < 290; x++)
+          if ((x + line * 4) % 9 < 3) for (let k = 0; k < 3; k++) text[(y * W + x) * 3 + k] = 0.1;
+    const whole = findPanels({ w: W, h: H, d: text });
+    expect(whole).toHaveLength(1);
+    expect([whole[0]?.y, whole[0]?.h]).toEqual([10, 173]);
     // One block, no gutter: one panel.
     const solid = new Float32Array(W * H * 3).fill(1);
     for (let i = 0; i < 100 * 100 * 3; i++) solid[i] = 0.2;
     expect(findPanels({ w: W, h: H, d: solid })).toHaveLength(1);
-  });
-
-  it("region rows: a box's thin edges crossing the gaps (a legend) do not join the bands", () => {
-    const W = 600;
-    const H = 120;
-    const d = new Float32Array(W * H * 3).fill(1);
-    const block = (x0: number, y0: number, w: number, h: number) => {
-      for (let y = y0; y < y0 + h; y++)
-        for (let x = x0; x < x0 + w; x++) for (let k = 0; k < 3; k++) d[(y * W + x) * 3 + k] = 0.3;
-    };
-    block(10, 10, 300, 25);
-    block(10, 45, 400, 25);
-    block(10, 80, 580, 25);
-    // A legend box over the first two rows: 2px edges either side, running through the gap.
-    block(480, 8, 2, 64);
-    block(560, 8, 2, 64);
-    const ys = findBands({ w: W, h: H, d }).map((b) => [b.y, b.h]);
-    expect(ys).toEqual([
-      [10, 25],
-      [45, 25],
-      [80, 25],
-    ]);
   });
 
   it("place: ticks are round values inside the drawn range", () => {

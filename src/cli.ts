@@ -51,7 +51,7 @@ import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
 import { codexPlanner } from "./plan/codex.js";
 import { durationPlan } from "./plan/duration.js";
-import { locateMarks } from "./plan/locate.js";
+import { locateMarks, transcribeTraces } from "./plan/locate.js";
 import {
   assertInsideResolves,
   assertRefsResolve,
@@ -468,18 +468,16 @@ imageFlags(
   const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
-  // Each figure cut as the build will cut it, so a `region`'s `panel` or rows walk the
-  // figure does not have is repaired at plan time rather than refused by the build after narration.
+  // Each figure cut as the build will cut it, so a `panel` the figure does not have
+  // is repaired at plan time rather than refused by the build after narration.
   const assetsDir = join(dirname(resolve(src)), "assets");
   const drawn = bespokeFor(prefs, designFor(prefs));
   const panels = drawn ? await figurePanelCounts(source, assetsDir) : undefined;
-  const bands = drawn ? await figurePanelCounts(source, assetsDir, "rows") : undefined;
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
   step("plan: this takes a few minutes");
   const planned = await codexPlanner(source, {
     prefs,
     ...(panels ? { panels } : {}),
-    ...(bands ? { bands } : {}),
     onRepair: (broken) => {
       step("plan: the first plan broke the variety or coverage rules, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
@@ -497,11 +495,17 @@ imageFlags(
   // it is a hole `build` would refuse, and better refused here.
   assertRefsResolve(unlocated, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
   assertInsideResolves(unlocated, source);
-  // The planner names what a `region` marks; where it is in the picture is found
-  // by looking at it (src/plan/locate.ts), not guessed.
-  const storyboard = await locateMarks(unlocated, source, assetsDir, {
-    onBeat: (id) => step(`plan: finding ${id}'s marked things in its picture`),
-  });
+  // The planner names what a `region` marks and what an `evolve` trace reads; where
+  // the things are and what the figure prints are found by looking at it
+  // (src/plan/locate.ts), not guessed.
+  const storyboard = await transcribeTraces(
+    await locateMarks(unlocated, source, assetsDir, {
+      onBeat: (id) => step(`plan: finding ${id}'s marked things in its picture`),
+    }),
+    source,
+    assetsDir,
+    { onBeat: (id) => step(`plan: reading ${id}'s trace off its figure`) },
+  );
   await writeJson(o.out, storyboard);
   step(`plan: ${storyboard.beats.length} beats → ${o.out}`);
   // The pictures do not exist yet and `build` will not run until they do. Said

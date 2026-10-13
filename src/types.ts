@@ -1291,7 +1291,11 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      line by line) is \`rule\` trace — \`tags\` its legend (1–4,
                      each a tone, \`strike\` for what is thrown away), \`steps\`
                      one row each ({lead: what it carries on from, parts:
-                     [{text, tag}]}), \`note\` the facts beside it. Otherwise:
+                     [{text, tag}]}), \`note\` the facts beside it. A trace
+                     printed only in a FIGURE: give \`picture\` (the beat citing
+                     it), \`panel\` when it has several, and \`read\` (what to
+                     read off it) — \`plan\` transcribes the steps; leave them
+                     out. Otherwise:
                      recur (EMA, leaky integration, with a threshold and a
                      reset), noise (forward noising of a \`picture\`) or formula
                      (any update the source prints). Its \`input\` is \`values\`
@@ -1474,17 +1478,13 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`box\` out. \`picture\` is the beat that cites the
                      figure; \`panel\` is which of its panels (1 = first,
                      reading order) when the figure has several — required then.
-                     Or rows (\`cut\` rows) — the source's own figure split
-                     along its blank ROWS into bands (\`count\` groups, at most
-                     6), each stepped through on its sentence at a readable size:
-                     how a WORKED EXAMPLE of the method (lines of tokens
-                     accepted, rejected, corrected) is read line by line.`,
+                     A worked example printed in a figure is an \`evolve\`
+                     trace, not a region.`,
     slots: {
       legend: {
         what: "under the picture: whose example it is and what its own colours or marks mean",
         optional: true,
       },
-      picture: { what: "rows only: title of the figure", optional: true },
       caption: { what: "under the scene: what is picked out", optional: true },
       example: EXAMPLE_SLOT,
     },
@@ -1669,6 +1669,10 @@ export const literalSchema = z.discriminatedUnion("kind", [
       .default([]),
     /** Beside the rows, under the legend: the source's facts about the run (the models, a count). */
     note: z.array(z.string()).default([]),
+    /** trace from a figure (`picture`): what to read off it; `plan` transcribes the steps (src/plan/locate.ts). */
+    read: z.string().optional(),
+    /** trace from a figure: which of its panels, 1 = first in reading order. */
+    panel: z.int().min(1).optional(),
     /** recur's variant (LITERAL_RULES.recur.how). */
     how: z.enum(["ema", "leaky", "linear"]).optional(),
     params: z.array(paramSchema).default([]),
@@ -1829,10 +1833,6 @@ export const literalSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("region"),
     picture: z.string(),
-    /** rows: the figure's bands, stepped through (moves to `evolve`). Absent: the marked picture. */
-    cut: z.enum(["rows"]).optional(),
-    /** rows: how many groups of bands. */
-    count: numSchema.optional(),
     /** Which panel of the picture's figure, 1 = first in reading order (`findPanels`); absent = all of it. */
     panel: z.int().min(1).optional(),
     marks: z

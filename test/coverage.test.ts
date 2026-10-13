@@ -1232,7 +1232,7 @@ describe("the truth gate grounds every number in its role", () => {
     };
     expect(cut()).toMatch(/fig1, which has 3 panels: give `panel`/);
     expect(cut(2)).not.toMatch(/b03-method's region/);
-    expect(cut(4)).toMatch(/marks panel 4 of fig1, which has 3/);
+    expect(cut(4)).toMatch(/marks things in panel 4 of fig1, which has 3/);
   });
 
   it("asks a plan of a picture paper to use region or operate, once", () => {

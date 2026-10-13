@@ -975,8 +975,10 @@ COMPOSE
       an update over steps ................................ evolve
       serial against parallel work, a latency budget ...... flow timeline
       a worked example of the method (a trace of steps,
-        rows of tokens accepted and rejected) ............. region rows on the
-                                                          beat citing it
+        rows of tokens accepted and rejected) ............. evolve trace (from
+                                                          the figure citing
+                                                          it: \`picture\`,
+                                                          \`read\`)
       a picture whose things the source explains (what
         drove a decision, a scan's findings) ............... region, each thing
                                                           marked and numbered
@@ -1014,8 +1016,7 @@ COMPOSE
       the things in a picture and what each means  region on the beat citing
                                                    it, each thing marked with
                                                    its point, then the outcome
-      a worked example of the method, in lines ... region rows on the beat
-                                                   citing it, never chips
+      a worked example of the method, in lines ... evolve trace, never chips
                                                    standing in for it
       an architecture, a pipeline ................ flow chain
       earlier approaches, family by family ....... prior-work
@@ -1032,8 +1033,9 @@ COMPOSE
     several. One sentence per thing, in the order the source gives them.
   - WHEN THE SOURCE HAS A FIGURE THAT WORKS AN EXAMPLE OF THE MECHANISM (its
     steps written out line by line: tokens proposed, accepted, rejected,
-    corrected; a trace), STEP THROUGH THAT FIGURE with \`region\` cut rows on
-    the beat that cites it — one sentence per group of lines — rather than
+    corrected; a trace), STEP THROUGH IT with an \`evolve\` trace on the beat that
+    cites it (\`picture\`, \`panel\`, \`read\`: \`plan\` reads its rows off the
+    figure) — one sentence per step or two — rather than
     drawing generic chips (1, 2, …, γ) or an empty shape for what the figure
     already shows. The paper's own example beats an invented one.
   - A verb that takes \`picture\` names the beat whose picture it runs on: this

@@ -12,19 +12,14 @@
  * plan and at build alike. The picture is zoomed onto its marks only as far as
  * its own pixels allow (`MAX_UPSCALE`) and never past `CONTEXT` of the panel:
  * a stop sign alone says nothing.
- *
- * ROWS (`cut` rows, moving to `evolve`): the figure's horizontal bands — lines
- * of a worked example — `findBands`, each band stepped through on its sentence
- * at a readable size, panned across when it is wider than the scene.
  */
 import type { KindImpl } from "../kind.js";
 import { widthOf } from "../kind.js";
 import { nativeSize } from "../kinds-shared.js";
 import { type Rgb, readRgb } from "../kit.js";
 import { type Tensor, tensor } from "../ops.js";
-import type { Frame, MechanismResult, Prim, Raster } from "./common.js";
-import { fitBox, TYPE, wrapBy } from "./common.js";
-import { num } from "./read.js";
+import type { MechanismResult, Prim } from "./common.js";
+import { TYPE, wrapBy } from "./common.js";
 import {
   placeholderPicture,
   rasterOf,
@@ -52,15 +47,10 @@ export async function figurePanels(image: string): Promise<number> {
   return findPanels(await readFigure(image)).length;
 }
 
-/** How many bands the build will cut a figure file into (`findBands`, as `rows` reads it). */
-export async function figureBands(image: string): Promise<number> {
-  return findBands(await readFigure(image)).length;
-}
-
 /** The picture a marked scene shows: the figure's `panel` (1-based), or all of it. */
 export function panelOf(fig: Rgb, panel: number | undefined): Rgb {
   if (panel === undefined) return fig;
-  const found = cutOf(fig, "panels");
+  const found = cutOf(fig);
   const b = found[panel - 1];
   if (!b)
     throw new Error(
@@ -73,12 +63,6 @@ export function panelOf(fig: Rgb, panel: number | undefined): Rgb {
 export const MAX_UPSCALE = 2;
 
 export function region(c: Ctx): MechanismResult {
-  if (c.lit.cut === "rows") {
-    if (!c.labels.picture?.trim()) throw new Error("region rows needs the `picture` slot");
-    const fig = c.dry ? placeholderFigure() : c.image;
-    if (!fig) throw new Error("region: the figure did not resolve to an image");
-    return rows(c, fig);
-  }
   // At plan time: a photo-shaped placeholder; the panel is checked against the figure's count.
   const pic = c.dry ? placeholderPhoto() : c.image && panelOf(c.image, c.lit.panel);
   if (!pic) throw new Error("region: the picture did not resolve to an image");
@@ -402,9 +386,10 @@ export interface PanelBox {
  * then split at the middle of its widest blank run of rows or columns, if that
  * run is at least 1.5% of the figure's side and leaves two parts big enough to
  * be panels (each side 12% of the figure's shorter side, each 3% of its area);
- * failing that, at a gutter that splits off a part too small to be a panel (a
- * title strip, a caption), which is dropped. What cannot be split is a panel. Read in rows (top to bottom, a row being
- * panels whose tops are within 10% of the figure's height), left to right in
+ * failing that, at a gutter that splits off a part too small to be a panel —
+ * before panels side by side, or a filled title band off one — which is
+ * dropped. What cannot be split is a panel. Read in rows (top to bottom, a row
+ * being panels whose tops are within 10% of the figure's height), left to right in
  * each. Deterministic: the same figure gives the same panels.
  */
 export function findPanels(img: Rgb): PanelBox[] {
@@ -460,11 +445,17 @@ export function findPanels(img: Rgb): PanelBox[] {
     }
     return best;
   };
-  const leaves: PanelBox[] = [];
-  const cut = (box: PanelBox, depth: number) => {
+  /** The share of a box that is ink. */
+  const filled = (b: PanelBox) => {
+    let n = 0;
+    for (let y = b.y; y < b.y + b.h; y++)
+      for (let x = b.x; x < b.x + b.w; x++) n += ink[y * W + x] as number;
+    return n / (b.w * b.h);
+  };
+  const fits = (p: PanelBox) => p.w >= minSide && p.h >= minSide && p.w * p.h >= minArea;
+  const cut = (box: PanelBox, depth: number): PanelBox[] => {
     const b = trim(box);
-    if (!b) return;
-    const fits = (p: PanelBox) => p.w >= minSide && p.h >= minSide && p.w * p.h >= minArea;
+    if (!b) return [];
     if (depth < 5) {
       const tries = (
         [
@@ -472,9 +463,12 @@ export function findPanels(img: Rgb): PanelBox[] {
           [false, ...gutter(b, false)],
         ] as Array<[boolean, number, number]>
       ).sort((p, q) => q[2] - p[2]);
-      // Two panels if a gutter leaves them; else a title strip split off (and
-      // dropped) from one panel: a figure whose panels' title bars run edge
-      // to edge, so the gutter between its photos is blank only under them.
+      // Two panels if a gutter leaves them; else a strip too small to be a panel
+      // split off and dropped: before panels side by side (a row's title bars run
+      // edge to edge, so the gutter between its photos is blank only under them),
+      // or off one panel when the strip is a FILLED bar (a panel's title band).
+      // Never a strip of mostly ground off one panel: that is its own content —
+      // a line of a text figure — and dropping it lost six of a trace's nine rows.
       for (const strip of [false, true])
         for (const [rows, start, len] of tries) {
           if (len < gutterMin(rows ? H : W)) continue;
@@ -485,238 +479,32 @@ export function findPanels(img: Rgb): PanelBox[] {
             : { x: b.x + mid, y: b.y, w: b.w - mid, h: b.h };
           const ta = trim(a);
           const tz = trim(z);
-          if (ta && tz && (strip ? fits(ta) !== fits(tz) : fits(ta) && fits(tz))) {
-            cut(a, depth + 1);
-            cut(z, depth + 1);
-            return;
+          if (!ta || !tz) continue;
+          if (!strip && fits(ta) && fits(tz)) return [...cut(a, depth + 1), ...cut(z, depth + 1)];
+          if (strip && fits(ta) !== fits(tz)) {
+            const rest = cut(fits(ta) ? a : z, depth + 1);
+            if (rest.length > 1 || (rest.length === 1 && filled(fits(ta) ? tz : ta) >= 0.5))
+              return rest;
           }
         }
     }
-    if (fits(b)) leaves.push(b);
+    return fits(b) ? [b] : [];
   };
-  cut({ x: 0, y: 0, w: W, h: H }, 0);
+  const leaves = cut({ x: 0, y: 0, w: W, h: H }, 0);
   const band = 0.1 * H;
   return leaves.sort((p, q) => (Math.abs(p.y - q.y) < band ? p.x - q.x : p.y - q.y));
 }
 
-/**
- * A figure's horizontal BANDS: the runs of rows with ink, split at blank rows at
- * least 0.8% of its height (or 3px) — a worked example's lines, a stack of rows
- * of tokens. Each band is trimmed to its ink across. Bands thinner than 1% of
- * the height (a rule, a stray mark) join the band above. Top to bottom.
- */
-export function findBands(img: Rgb): PanelBox[] {
-  const { w: W, h: H, d } = img;
-  const at = (x: number, y: number, k: number) => d[(y * W + x) * 3 + k] as number;
-  const ground = [0, 1, 2].map((k) => {
-    const v: number[] = [];
-    for (let x = 0; x < W; x++) v.push(at(x, 0, k), at(x, H - 1, k));
-    for (let y = 0; y < H; y++) v.push(at(0, y, k), at(W - 1, y, k));
-    return v.sort((a, b) => a - b)[Math.floor(v.length / 2)] ?? 1;
-  });
-  const inkAt = (x: number, y: number) =>
-    [0, 1, 2].some((k) => Math.abs(at(x, y, k) - (ground[k] as number)) > 0.1);
-  const counts = Array.from({ length: H }, (_, y) => {
-    let n = 0;
-    for (let x = 0; x < W; x++) if (inkAt(x, y)) n++;
-    return n;
-  });
-  // A row counts as ink only past 2% of a full row's ink (the 90th percentile of
-  // inked rows), so a box's thin edges running through a gap — a legend, a frame
-  // — do not join the bands either side of it.
-  const inked = counts.filter((n) => n > 0).sort((a, b) => a - b);
-  const full = inked[Math.floor(0.9 * (inked.length - 1))] ?? 0;
-  const floor = Math.max(W * 0.002, 0.02 * full);
-  const rowInk = counts.map((n) => n > floor);
-  const gap = Math.max(3, Math.round(0.008 * H));
-  const runs: Array<[number, number]> = [];
-  let y = 0;
-  while (y < H) {
-    if (!rowInk[y]) {
-      y++;
-      continue;
-    }
-    let y1 = y;
-    let blank = 0;
-    for (let k = y; k < H; k++) {
-      if (rowInk[k]) {
-        y1 = k;
-        blank = 0;
-      } else if (++blank >= gap) break;
-    }
-    runs.push([y, y1]);
-    y = y1 + gap;
-  }
-  const merged: Array<[number, number]> = [];
-  for (const r of runs) {
-    const prev = merged.at(-1);
-    if (prev && r[1] - r[0] + 1 < 0.01 * H) prev[1] = r[1];
-    else merged.push([...r]);
-  }
-  return merged.map(([y0, y1]) => {
-    let x0 = W;
-    let x1 = -1;
-    for (let yy = y0; yy <= y1; yy++)
-      for (let x = 0; x < W; x++)
-        if (inkAt(x, yy)) {
-          x0 = Math.min(x0, x);
-          x1 = Math.max(x1, x);
-        }
-    return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-  });
-}
-
-/**
- * The figure's bands stepped through, one group a sentence: the whole figure
- * with each group outlined in turn, then each group as large as the scene's
- * height lets it be (at most `MAX_UPSCALE` its pixels), panned left to right
- * across its sentence when it is wider than the scene — a line of tokens read
- * along, at a size the audience can read, instead of a 22s still of 20px type.
- */
-function rows(c: Ctx, img: Rgb): MechanismResult {
-  const d = c.lit;
-  const found = cutOf(img, "bands");
-  if (found.length < 2)
-    throw new Error(
-      `region rows: the figure has no blank rows to split it by (found ${found.length} band); draw it as a figure, or walk it as panels`,
-    );
-  const want = d.count ? num(d.count.value, "region count") : Math.min(6, found.length);
-  if (!Number.isInteger(want) || want < 2 || want > 6)
-    throw new Error(`region rows shows 2–6 groups of rows, got ${want}`);
-  if (want > found.length)
-    throw new Error(`region rows: \`count\` is ${want} and the figure has ${found.length} bands`);
-  // Consecutive bands in `want` groups of near-equal count, each the box around its bands.
-  const margin = Math.max(4, Math.round(0.01 * img.h));
-  const groups = Array.from({ length: want }, (_, g) => {
-    const a = Math.floor((g * found.length) / want);
-    const z = Math.floor(((g + 1) * found.length) / want);
-    const part = found.slice(a, z);
-    const x0 = Math.min(...part.map((b) => b.x));
-    const y0 = Math.min(...part.map((b) => b.y));
-    const x1 = Math.max(...part.map((b) => b.x + b.w));
-    const y1 = Math.max(...part.map((b) => b.y + b.h));
-    return grow(img, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, margin);
-  });
-  const { width: W, height: H } = c.region;
-  const top = 64;
-  const B = fitBox(img.w, img.h, 0, top, W, H - top);
-  const k = B.w / img.w;
-  const rasters: Record<string, Raster> = { pic: rasterOf(asTensor(img)) };
-  const title: Prim = {
-    p: "text",
-    x: 0,
-    y: 8,
-    size: TYPE.body,
-    role: "fg",
-    anchor: "start",
-    slot: "picture",
-  };
-  const frames: Frame[] = [
-    {
-      id: "figure",
-      prims: [
-        title,
-        { p: "image", x: B.x, y: B.y, w: B.w, h: B.h, layer: "pic", cam: true },
-        ...groups.map(
-          (b, i) =>
-            ({
-              p: "rect",
-              x: B.x + b.x * k,
-              y: B.y + b.y * k,
-              w: b.w * k,
-              h: b.h * k,
-              role: "accent",
-              width: 5,
-              cam: true,
-              at: i + 1,
-            }) as Prim,
-        ),
-      ],
-      vars: {},
-    },
-  ];
-  // Under each group, the whole figure in a strip with the group outlined: where it sits.
-  const stripH = Math.min(140, (H - top) * 0.22);
-  const S = fitBox(img.w, img.h, 0, H - stripH, W, stripH);
-  const sk = S.w / img.w;
-  groups.forEach((b, i) => {
-    rasters[`r${i}`] = rasterOf(asTensor(crop(img, b)));
-    const areaH = H - top - stripH - 24;
-    const scale = Math.min(MAX_UPSCALE, areaH / b.h);
-    const w = b.w * scale;
-    const h = b.h * scale;
-    const wide = w > W;
-    frames.push({
-      id: `rows${i}`,
-      prims: [
-        title,
-        {
-          p: "image",
-          x: wide ? 0 : (W - w) / 2,
-          y: top + (areaH - h) / 2,
-          w,
-          h,
-          layer: `r${i}`,
-          cam: true,
-        },
-        { p: "image", x: S.x, y: S.y, w: S.w, h: S.h, layer: "pic", opacity: 0.85 } as Prim,
-        {
-          p: "rect",
-          x: S.x + b.x * sk,
-          y: S.y + b.y * sk,
-          w: b.w * sk,
-          h: b.h * sk,
-          role: "accent",
-          width: 4,
-        },
-      ],
-      ...(wide ? { pan: Math.round(w - W) } : {}),
-      vars: {},
-    });
-  });
-  return { rasters, frames, data: { thumb: "pic", bands: groups }, vars: {} };
-}
-
-/**
- * At plan time: a white figure of six panels in three bands, at a paper
- * figure's resolution (a source figure is ingested at its own pixels), so a plan
- * can be checked without its figure.
- */
-function placeholderFigure(): Rgb {
-  placeholder ??= drawPlaceholder();
-  return placeholder;
-}
-let placeholder: Rgb | undefined;
-
 /** Cut once per picture: plan-time checks cut the one placeholder in every format. */
-const cuts = new WeakMap<Rgb, { panels?: PanelBox[]; bands?: PanelBox[] }>();
-function cutOf(img: Rgb, how: "panels" | "bands"): PanelBox[] {
-  const c = cuts.get(img) ?? {};
+const cuts = new WeakMap<Rgb, PanelBox[]>();
+function cutOf(img: Rgb): PanelBox[] {
+  const c = cuts.get(img) ?? findPanels(img);
   cuts.set(img, c);
-  c[how] ??= how === "panels" ? findPanels(img) : findBands(img);
-  return c[how];
-}
-
-function drawPlaceholder(): Rgb {
-  const S = 3;
-  const W = 480 * S;
-  const H = 300 * S;
-  const d = new Float32Array(W * H * 3).fill(1);
-  const block = (x: number, y: number, w: number, h: number, v: number) => {
-    for (let yy = y * S; yy < (y + h) * S; yy++)
-      for (let xx = x * S; xx < (x + w) * S; xx++)
-        for (let k = 0; k < 3; k++) d[(yy * W + xx) * 3 + k] = v;
-  };
-  // Six panels in three bands: every `count` a plan may ask for (2–6) can be cut.
-  for (let r = 0; r < 3; r++) {
-    block(10, 10 + r * 100, 220, 80, 0.3 + 0.1 * r);
-    block(250, 10 + r * 100, 220, 80, 0.4 + 0.1 * r);
-  }
-  return { w: W, h: H, d };
+  return c;
 }
 
 /** `b` grown by `m` px a side, inside the picture. */
-function grow(img: Rgb, b: PanelBox, m: number): PanelBox {
+function _grow(img: Rgb, b: PanelBox, m: number): PanelBox {
   const x = Math.max(0, b.x - m);
   const y = Math.max(0, b.y - m);
   return {

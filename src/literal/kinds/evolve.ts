@@ -515,6 +515,7 @@ const ROW_GAP = 10;
 const ROW_PAD = 24;
 const ROW_DONE = 0.6;
 const ROW_SPREAD = 0.9;
+const LEAD_SHARE = 0.35;
 const SIDE_GAP = 56;
 const SWATCH = 38;
 
@@ -544,7 +545,7 @@ export function rowsLook(
   const idxW = m(String(n), ROW_SIZE);
   const textX = ROW_PAD + idxW + 22;
   const room = rowsW - textX - ROW_PAD;
-  // The row's words laid left to right; a lead too long for the row keeps its tail.
+  // The row's words laid left to right.
   const laid = rows.map((r, i) => {
     let x = 0;
     const parts = r.parts.map((p) => {
@@ -563,10 +564,15 @@ export function rowsLook(
       throw new Error(
         `evolve: step ${i + 1}'s parts are ${Math.round(partsW)}px wide and a row holds ${Math.round(room)}px: split the step, or give fewer words`,
       );
-    let lead = r.lead?.trim() ?? "";
-    while (lead && m(lead, ROW_SIZE) + space > room - partsW)
-      lead = `…${[...lead.replace(/^…/, "")].slice(1).join("")}`;
-    if (lead === "…") lead = "";
+    // The lead keeps its last whole words, at most LEAD_SHARE of the row: what the
+    // step carries on from, not the whole sentence so far.
+    const words = (r.lead?.trim() ?? "").replace(/^…\s*/, "").split(/\s+/).filter(Boolean);
+    const cap = Math.min(room - partsW, room * LEAD_SHARE);
+    let keep = words.length;
+    const text = (k: number) =>
+      (k < words.length ? "… " : "") + words.slice(words.length - k).join(" ");
+    while (keep > 0 && m(text(keep), ROW_SIZE) + space > cap) keep--;
+    const lead = keep ? text(keep) : "";
     const leadW = lead ? m(lead, ROW_SIZE) + space : 0;
     return { lead, leadW, parts: parts.map((q) => ({ ...q, x: q.x + leadW })) };
   });
@@ -707,11 +713,23 @@ function trace(c: Ctx): MechanismResult {
     throw new Error(`evolve trace tags its parts with 1–4 \`tags\`, got ${d.tags.length}`);
   if (new Set(d.tags.map((t) => t.tag)).size !== d.tags.length)
     throw new Error("evolve trace: two `tags` share a name");
-  if (d.steps.length < 2 || d.steps.length > MAX_STEPS)
-    throw new Error(`evolve trace steps through 2–${MAX_STEPS} rows, got ${d.steps.length}`);
-  d.steps.forEach((st, i) => {
+  // A figure's trace is read off it by `plan` (src/plan/locate.ts): at plan time,
+  // before that, six rows stand in for it.
+  const steps =
+    d.picture && !d.steps.length && c.dry
+      ? Array.from({ length: 6 }, () => ({
+          parts: d.tags.map((t) => ({ text: "a few words", tag: t.tag })),
+        }))
+      : d.steps;
+  if (d.picture && !steps.length)
+    throw new Error(
+      "evolve trace: the steps of a figure's trace are read off it by `decksmith plan`; this one has none",
+    );
+  if (steps.length < 2 || steps.length > MAX_STEPS)
+    throw new Error(`evolve trace steps through 2–${MAX_STEPS} rows, got ${steps.length}`);
+  steps.forEach((st, i) => {
     if (!st.parts.length || st.parts.some((p) => !p.text.trim()))
       throw new Error(`evolve trace: step ${i + 1} has an empty part, or none`);
   });
-  return rowsLook(c, d.steps, d.tags, d.note);
+  return rowsLook(c, steps, d.tags, d.note);
 }

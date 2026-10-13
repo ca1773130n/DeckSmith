@@ -596,7 +596,10 @@ function literalTexts(lit: Literal): string[] {
         ...lit.phases.map((p) => p.label),
         ...lit.tags.map((t) => t.label),
         ...lit.note,
-        ...lit.steps.flatMap((st) => [st.lead ?? "", ...st.parts.map((q) => q.text)]),
+        // A figure's trace is the figure's words, read off it: not the prose's to ground.
+        ...(lit.picture
+          ? []
+          : lit.steps.flatMap((st) => [st.lead ?? "", ...st.parts.map((q) => q.text)])),
       ];
     case "flow":
       return [
@@ -1508,8 +1511,8 @@ function verbGrounding(
       break;
     }
     case "region":
-      // The source's own figure, its things marked or its bands walked: no stated
-      // number, nothing example about it.
+      // The source's own figure, its things marked: no stated number, nothing
+      // example about it.
       break;
     case "place":
       for (const c of lit.curves) {
@@ -1701,6 +1704,10 @@ function earlierProblem(
   return undefined;
 }
 
+/** A scene whose content is read off the paper's own figure: a region's marks, a figure trace. */
+const readsOff = (lit: Literal) =>
+  lit.kind === "region" || (lit.kind === "evolve" && lit.rule === "trace" && !!lit.picture);
+
 /**
  * The literal-scene checks no schema can express. Run on every plan; a plan
  * with no `literal` has nothing to find.
@@ -1717,8 +1724,6 @@ export function literalFindings(
   opts: {
     takeaways?: boolean;
     panels?: Readonly<Record<string, number>>;
-    /** Each source figure's band count as `region` rows finds it (`figureBands`). */
-    bands?: Readonly<Record<string, number>>;
   } = {},
 ): string[] {
   const out: string[] = [];
@@ -1806,42 +1811,31 @@ export function literalFindings(
         out.push(
           `${at} runs on the picture of "${pic}", which has none. Give that beat a figure or an illustration brief, or name a beat that has one.`,
         );
-      else if (
-        lit.kind === "region" &&
-        !figureIds(owner).some(
+      else if (readsOff(lit)) {
+        // A region's things and a figure trace's rows are read off the paper's own
+        // figure, in ONE panel: on a whole multi-panel figure the locator's boxes
+        // missed (measured 2026-10-13: 0 of 3 on a four-panel figure, 11 of 11 on
+        // single panels).
+        const what = lit.kind === "region" ? "marks things in" : "reads its trace off";
+        const own = figureIds(owner).filter(
           (id) =>
             !id.startsWith(GENERATED_FIGURE_PREFIX) && source.figures.some((f) => f.id === id),
-        )
-      )
-        out.push(
-          `${at} ${lit.cut ? "walks the rows of" : "marks things in"} "${pic}", which shows none of the source's own figures. A region is the paper's own figure: name the beat that cites it.`,
         );
-      else if (lit.kind === "region" && lit.cut === "rows") {
-        // Cut as the build cuts it: a figure with no blank rows is one band, and the
-        // build refuses it — after narration, at the end of the run (r2: a one-row trace diagram).
-        const fig = figureIds(owner).find((id) => opts.bands?.[id] !== undefined);
-        const n = fig === undefined ? undefined : opts.bands?.[fig];
-        const want = lit.count ? Number(lit.count.value) : undefined;
-        if (n !== undefined && n < 2)
-          out.push(
-            `${at} walks ${fig} band by band, and ${fig} has no blank rows to split it by (1 band). Draw it as a figure.`,
-          );
-        else if (n !== undefined && want !== undefined && want > n)
-          out.push(
-            `${at} walks ${want} bands of ${fig}, which has ${n}. Give \`count\` ${n} or fewer.`,
-          );
-      } else if (lit.kind === "region") {
-        // The locator finds things in ONE panel: on a whole multi-panel figure its boxes
-        // missed (measured 2026-10-13: 0 of 3 on OneVL's Fig 18, 11 of 11 on single panels).
-        const fig = figureIds(owner).find((id) => opts.panels?.[id] !== undefined);
+        const fig = own.find((id) => opts.panels?.[id] !== undefined);
         const n = fig === undefined ? undefined : opts.panels?.[fig];
-        if (n !== undefined && n > 1 && lit.panel === undefined)
+        const panel = (lit as { panel?: number }).panel;
+        if (!own.length)
           out.push(
-            `${at} marks things in ${fig}, which has ${n} panels: give \`panel\` (1–${n}, reading order), the one the things are in.`,
+            `${at} ${what} "${pic}", which shows none of the source's own figures. Name the beat that cites the paper's figure.`,
           );
-        else if (n !== undefined && lit.panel !== undefined && lit.panel > n)
+        // A trace is read off the whole figure as well as off a panel of it.
+        else if (n !== undefined && n > 1 && panel === undefined && lit.kind === "region")
           out.push(
-            `${at} marks panel ${lit.panel} of ${fig}, which has ${n}. Give \`panel\` 1–${n}.`,
+            `${at} ${what} ${fig}, which has ${n} panels: give \`panel\` (1–${n}, reading order), the one it is in.`,
+          );
+        else if (n !== undefined && panel !== undefined && panel > n)
+          out.push(
+            `${at} ${what} panel ${panel} of ${fig}, which has ${n}. Give \`panel\` 1–${n}.`,
           );
       }
     }

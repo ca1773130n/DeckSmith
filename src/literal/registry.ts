@@ -7,7 +7,7 @@
  *   operate (an op chain on a picture, vectors or a matrix), evolve (a state
  *   under a stated rule), flow (stages, a timeline), place (items on
  *   axes, and the word forms: margins, lengths, combos, sets) and region
- *   (the things in a picture, marked; a figure's bands). Most are drawn on the stage
+ *   (the things in a picture, marked). Most are drawn on the stage
  *   (./kinds/stage.ts).
  * - THE CROSS-CUTTING KINDS: recap (earlier scenes' own layers), prior-work
  *   (families by what an earlier scene computed or by their numbers) and

@@ -225,8 +225,6 @@ export interface CodexOptions {
   onRepair?: (broken: readonly string[]) => void;
   /** Each source figure's panel count as the build will cut it, when the caller read them. */
   panels?: Readonly<Record<string, number>>;
-  /** Each source figure's band count as \`region\` rows will cut it. */
-  bands?: Readonly<Record<string, number>>;
 }
 
 export interface RunnerArgs {
@@ -295,7 +293,6 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         ...literalFindings(plan, source, {
           takeaways,
           ...(opts.panels ? { panels: opts.panels } : {}),
-          ...(opts.bands ? { bands: opts.bands } : {}),
         }),
       ],
       advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source)],
