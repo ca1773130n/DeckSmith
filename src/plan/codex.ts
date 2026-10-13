@@ -393,8 +393,9 @@ YOUR PREVIOUS STORYBOARD, BELOW, IS REFUSED FOR:
 ${list(broken.refused)}
 
 Fix these by correcting the fields named: keep every number inside its bounds
-and cite only ids the source lists${images ? "" : "; images are off, so brief no picture"}. Keep every
-other beat as it is.
+and cite only ids the source lists${images ? "" : "; images are off, so brief no picture"}. A beat
+whose shape needs what the source cannot give it (a figure archetype with no
+figure left to cite) is redrawn as another shape. Keep every other beat as it is.
 `
     : "";
   // With images off there is no picture to brief: suggesting one invites the
@@ -440,6 +441,9 @@ ${list(broken.advice)}
 Fix this by redrawing an existing beat; keep the beat count.
 `
     : "";
+  // The neighbour check closes the prompt: every repair of an unseen paper on
+  // 2026-10-14 (four of four) fixed what was named, then was refused for two
+  // beats in a row sharing an archetype.
   return `${prompt}
 ${refused}${size}${variety}${coverage}${advice}
 Return the whole storyboard again with these fixed. ${
@@ -447,6 +451,8 @@ Return the whole storyboard again with these fixed. ${
       ? "Merge only as the TOO LONG list asks; drop nothing else."
       : "Never drop or merge beats: a repair with fewer beats than the plan below is refused."
   }
+Before returning, read the archetypes in order: a beat you redrew must differ from
+both its neighbours, since no two beats in a row may share an archetype.
 
 ${JSON.stringify(plan)}`;
 }

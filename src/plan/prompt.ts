@@ -969,6 +969,14 @@ COMPOSE
                                                           γ = 2, 3, 5 is three
                                                           curves) or evolve
                                                           formula
+      a formula the source evaluates at values it states,
+        to a number it reports ............................ operate \`terms\`
+                                                          (the TeX, \`given\`,
+                                                          \`terms\` with
+                                                          \`reported\`)
+      a formula with no stated values to evaluate it at
+        (a bound, a complexity, a definition) .............. equation-walk,
+                                                          \`literal\` null
       a sampling, acceptance or selection rule over
         distributions or arrays ......................... operate on example
                                                           \`vectors\` (see
