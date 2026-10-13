@@ -1151,11 +1151,12 @@ function covers(lit: Literal): string[] {
 
 /** The least share of the region a form's frames cover once revealed (`frameFill`). */
 const FILL: Record<string, number> = {
-  "operate:map": 0.45,
-  // Cells, chips and a line of words: what they must do is span the region (held below).
+  // A chain's cells, and a formula's: tiles on the ground with room between them,
+  // as the approved look draws them. What they must do is span the region (held below).
+  "operate:map": 0.2,
   "operate:terms": 0.12,
-  "operate:profile": 0.5,
-  "operate:grid": 0.3,
+  "operate:profile": 0.25,
+  "operate:grid": 0.2,
   // Rows paint little: the lit row's panel, the bars, the legend's swatches.
   // What they must do is span the region, the deck's own gate, held below.
   evolve: 0.05,
@@ -1295,8 +1296,9 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
       it("a flow chain's or marked picture's content spans the region the deck's gate measures", () => {
         if (
           !(
-            ["flow:chain", "region:marks", "operate:terms"].includes(formOf(d.lit)) ||
-            d.lit.kind === "evolve"
+            ["flow:chain", "region:marks"].includes(formOf(d.lit)) ||
+            d.lit.kind === "evolve" ||
+            d.lit.kind === "operate"
           )
         )
           return;
@@ -1854,19 +1856,19 @@ describe("what each verb refuses", () => {
 });
 
 describe("what each verb computes", () => {
-  it("operate on two distributions: min + residual is the first, exactly", () => {
+  it("operate on two distributions: min + residual is the first, exactly, a cell a stage", () => {
     const d = draw(FIXTURES.find((f) => f.name === "accepted mass") as Fixture);
     expect(d.r.vars.sum).toBe("1");
-    // Columns, not areas; the residual stacked on the overlap, its top at p's mark.
-    const s2 = d.r.frames.find((f) => f.id === "s2")?.prims ?? [];
-    expect(s2.some((p) => p.p === "path" && p.closed)).toBe(false);
-    const base = s2.filter((p) => p.p === "rect" && p.opacity === 0.4) as Array<{ y: number }>;
-    const top = s2.filter((p) => p.p === "rect" && p.wipe) as Array<{ y: number; h: number }>;
-    expect(base.length).toBe(4);
-    // Bin b: overlap 0.3 + residual 0.1 = p's 0.4; the residual sits right on the overlap.
-    const pMarks = s2.filter((p) => p.p === "line" && p.role === "a") as Array<{ y1: number }>;
-    expect(Math.abs((top[0]?.y ?? 0) - (pMarks[1]?.y1 ?? 1))).toBeLessThan(0.5);
-    expect(Math.abs((top[0]?.y ?? 0) + (top[0]?.h ?? 0) - (base[1]?.y ?? 1))).toBeLessThan(0.5);
+    const prims = d.r.frames[0]?.prims ?? [];
+    // Columns, not areas: the input's two vectors side by side, then each output's bars.
+    expect(prims.some((p) => p.p === "path" && p.closed)).toBe(false);
+    const bars = prims.filter(
+      (p) => p.p === "rect" && (p.fill === "a" || p.fill === "b" || p.fill === "accent"),
+    );
+    expect(bars).toHaveLength(2 * 4 + 3 * 4);
+    // The input is there from the start; each output arrives on its step.
+    expect(bars.filter((p) => p.at === undefined)).toHaveLength(8);
+    expect(new Set(bars.map((p) => p.at).filter(Boolean))).toEqual(new Set([1, 2, 3]));
   });
 
   it("evolve: an EMA starts at its first input, and a frozen phase holds the state while inputs arrive", () => {
