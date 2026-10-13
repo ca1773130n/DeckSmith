@@ -92,9 +92,15 @@ function varsOf(t: Tensor): Record<string, string> {
 export function operate(c: Ctx): MechanismResult {
   if (c.lit.terms) return withPushRoom(terms)(c);
   const d = c.lit;
+  // Checked before the slots: an operate with neither is told what it lacks,
+  // not that a chain it never meant to draw is missing a label.
+  if (!d.chain.length)
+    throw new Error(
+      "operate draws `terms` (a stated formula evaluated term by term) or a `chain` of ops; this has neither",
+    );
   for (const slot of ["input", "output"])
     if (!c.labels[slot]?.trim()) throw new Error(`operate: a chain needs slot "${slot}"`);
-  if (!d.chain.length || d.chain.length > 6)
+  if (d.chain.length > 6)
     throw new Error(`operate runs a chain of 1–6 steps, got ${d.chain.length}`);
   const steps: OpStep[] = d.chain.map((s, k) => opStepOf(s, k + 1));
   const { inputs, layout, names } = inputsOf(c);

@@ -156,6 +156,20 @@ describe("a staged verb obeys the deck's invariants", () => {
         assets: {},
       }),
     ).toThrow(/a chain needs slot "input"/);
+    // Neither terms nor a chain: told that, not that a slot is missing.
+    expect(() =>
+      runVerb(operate, {
+        lit: { ...(lit as Extract<Literal, { kind: "operate" }>), chain: [] },
+        labels: without,
+        region,
+        theme,
+        measure: (t, s) => widthOf(t, s, theme),
+        dry: true,
+        image: placeholderPicture(96, 64),
+        earlier: new Map(),
+        assets: {},
+      }),
+    ).toThrow(/`terms` .* or a `chain` of ops; this has neither/);
   });
 
   it("a plan names a kind and a takeaway per beat", () => {
