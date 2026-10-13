@@ -134,6 +134,7 @@ function runRule(c: Ctx, xs: number[]): Run {
 export function evolve(c: Ctx): MechanismResult {
   if (c.lit.rule === "noise") return withPushRoom(noise)(c);
   if (c.lit.rule === "trace") return withPushRoom(trace)(c);
+  if (c.lit.rule === "lanes") return withPushRoom(lanes)(c);
   const d = c.lit;
   const inp = d.input;
   if (!inp || (!inp.values.length && !inp.from))
@@ -288,6 +289,8 @@ export interface RowTag {
   label: string;
   tone: Role;
   strike?: boolean;
+  /** Not in the legend: words that name their own row (a lane's name, its total). */
+  hidden?: boolean;
 }
 export interface Row {
   lead?: string;
@@ -301,6 +304,8 @@ export interface Row {
     mark?: { at: number; tag: string };
     dim?: boolean;
   }>;
+  /** A track of runs along the bar column: each from..to (0..1 of it) in `blocks` blocks. */
+  track?: ReadonlyArray<{ from: number; to: number; tag: string; blocks: number }>;
 }
 
 const ROW_SIZE = TYPE.label;
@@ -316,6 +321,7 @@ const SWATCH = 38;
 const BAR_H = 18;
 const BAR_GAP = 8;
 const BAR_MIN = 160;
+const TRACK_H = 34;
 
 export function rowsLook(
   c: Ctx,
@@ -339,8 +345,9 @@ export function rowsLook(
   const aspect = opts.aspect ?? 1;
   // The side: the lit step's picture large (when the rows carry pictures), the
   // legend, then the note under a rule.
+  const legend = tags.filter((t) => !t.hidden);
   const sideW = Math.round(
-    Math.min(520, Math.max(380, ...tags.map((t) => SWATCH + 20 + m(t.label, ROW_SIZE)))),
+    Math.min(520, Math.max(380, ...legend.map((t) => SWATCH + 20 + m(t.label, ROW_SIZE)))),
   );
   const bigH = pictures ? Math.round(Math.min(sideW / aspect, H * 0.45)) : 0;
   const bigW = Math.round(bigH * aspect);
@@ -348,7 +355,7 @@ export function rowsLook(
   const noteLines = note.flatMap((l) => wrapBy(l, ROW_SIZE, sideW, m));
   const LINE = Math.round(ROW_SIZE * 1.35);
   const sideH =
-    legendY + tags.length * (SWATCH + 34) + (noteLines.length ? 30 + noteLines.length * LINE : 0);
+    legendY + legend.length * (SWATCH + 34) + (noteLines.length ? 30 + noteLines.length * LINE : 0);
   if (sideH > H)
     throw new Error(
       `evolve: the legend and note are ${sideH}px tall and the scene holds ${H}px: a shorter \`note\``,
@@ -388,7 +395,7 @@ export function rowsLook(
     return { lead, end: leadW + partsW, parts: parts.map((q) => ({ ...q, x: q.x + leadW })) };
   });
   // The bars, one column for every row: after the widest row's words.
-  const bars = rows.some((r) => r.bars?.length);
+  const bars = rows.some((r) => r.bars?.length || r.track?.length);
   const wordsW = Math.max(0, ...laid.map((l) => l.end));
   const barX = textX + (wordsW ? wordsW + 2 * space : 0);
   const barW = rowsW - ROW_PAD - barX;
@@ -403,7 +410,7 @@ export function rowsLook(
 
   const sx = rowsW + SIDE_GAP;
   const side: Prim[] = [];
-  tags.forEach((t, i) => {
+  legend.forEach((t, i) => {
     const y = legendY + i * (SWATCH + 34);
     side.push(
       { p: "rect", x: sx, y, w: SWATCH, h: SWATCH, fill: t.tone, radius: 8 },
@@ -419,7 +426,7 @@ export function rowsLook(
     );
   });
   if (noteLines.length) {
-    let y = legendY + tags.length * (SWATCH + 34) + 4;
+    let y = legendY + legend.length * (SWATCH + 34) + 4;
     side.push({ p: "rect", x: sx, y, w: sideW, h: 2, fill: "rule" });
     y += 28;
     for (const l of noteLines) {
@@ -519,6 +526,24 @@ export function rowsLook(
             ...(j === k ? { at: Math.min(12, step), wipe: true } : {}),
           });
       });
+      // Its track: each run's blocks, run after run, drawn out in turn.
+      (R.track ?? []).forEach((seg, q) => {
+        const t = tagOf(seg.tag, j);
+        const bw = ((seg.to - seg.from) * barW) / seg.blocks;
+        for (let b = 0; b < seg.blocks; b++)
+          prims.push({
+            p: "rect",
+            x: barX + seg.from * barW + b * bw + 2,
+            y: y + (rowH - TRACK_H) / 2,
+            w: Math.max(3, bw - 4),
+            h: TRACK_H,
+            fill: t.tone,
+            radius: 4,
+            cam: true,
+            ...done,
+            ...(j === k ? { at: Math.min(12, step + q + 1), wipe: true } : {}),
+          });
+      });
       // Then its bars, drawn out from the left.
       const bs = R.bars ?? [];
       const bh = bs.length * BAR_H + (bs.length - 1) * BAR_GAP;
@@ -565,6 +590,104 @@ export function rowsLook(
     };
   });
   return { rasters: opts.rasters ?? {}, frames, data: {}, vars: {} };
+}
+
+/** Run kinds a lanes scene tells apart, each a tone in the legend. */
+const LANE_TONES: Role[] = ["a", "b", "c", "d"];
+
+type Lane = Ctx["lit"]["lanes"][number];
+type LaneRun = Lane["runs"][number];
+
+/**
+ * Lanes of runs, one row each: the lane's name (and its stated total), then its
+ * runs along one axis shared by every lane — serial runs one after another, in
+ * their count of blocks; a parallel run one block covering its count at once.
+ * A lane's length is the source's: Σ count·dur when every run's duration is
+ * stated, else its stated `total`, else its serial steps (a parallel run one
+ * step, a serial run its count — four, example, when none is stated), so a lane
+ * of fewer serial steps is visibly shorter. Each kind of run is a tone in the
+ * legend; `unit` says what one run is.
+ */
+function lanes(c: Ctx): MechanismResult {
+  const d = c.lit;
+  const ls = d.lanes;
+  if (ls.length < 1 || ls.length > 4)
+    throw new Error(`evolve lanes draws 1–4 lanes, got ${ls.length}`);
+  const unit = need(c, "unit", "lanes");
+  for (const l of ls)
+    if (!l.runs.length || l.runs.length > 8)
+      throw new Error(`lane "${l.label}" needs 1–8 runs, got ${l.runs.length}`);
+  const count = (r: LaneRun) =>
+    r.count ? num(r.count.value, `run "${r.label}" count`) : undefined;
+  for (const l of ls)
+    for (const r of l.runs) {
+      const k = count(r);
+      if (k !== undefined && (!Number.isInteger(k) || k < 1))
+        throw new Error(`run "${r.label}" count must be a whole number ≥ 1`);
+    }
+  const dur = (r: LaneRun) => (r.dur ? num(r.dur.value, `run "${r.label}" dur`) : undefined);
+  // The serial steps a run takes: a parallel run is ONE step however many positions
+  // it covers, a serial run its count — one when it is a stated duration, four when
+  // nothing is stated (example).
+  const steps = (r: LaneRun) => (r.parallel ? 1 : (count(r) ?? (r.dur ? 1 : 4)));
+  const scale = ls.every((l) => l.runs.every((r) => r.dur))
+    ? "dur"
+    : ls.every((l) => l.total)
+      ? "total"
+      : "steps";
+  if (scale === "steps" && ls.some((l) => l.total))
+    throw new Error(
+      "evolve lanes: give every lane a `total`, or none (lane lengths are compared only on stated totals)",
+    );
+  // A run's share of its lane: its stated time when the lane states every run's, else its steps.
+  const weight = (l: Lane, r: LaneRun) =>
+    l.runs.every((q) => q.dur) ? (r.parallel ? 1 : (count(r) ?? 1)) * (dur(r) as number) : steps(r);
+  const time = ls.map((l) =>
+    scale === "dur"
+      ? l.runs.reduce((a, r) => a + weight(l, r), 0)
+      : scale === "total"
+        ? num(l.total?.value ?? "", `lane "${l.label}" total`)
+        : l.runs.reduce((a, r) => a + steps(r), 0),
+  );
+  if (time.some((t) => !(t > 0)))
+    throw new Error("evolve lanes: every lane's time must be positive");
+  const tmax = Math.max(...time);
+  // On example steps, lanes of one length say nothing lanes exist to say: r3 drew a
+  // parallel verify as long as K serial runs, and early exit as long as the full run.
+  if (ls.length > 1 && scale === "steps" && Math.min(...time) / tmax > 0.95)
+    throw new Error(
+      "evolve lanes: every lane takes the same number of serial steps, so they are drawn one length; give the runs' `count`, `dur` or the lanes' `total` the source states, or draw it as a chain",
+    );
+  const kinds = [...new Set(ls.flatMap((l) => l.runs.map((r) => r.label)))];
+  if (kinds.length > LANE_TONES.length)
+    throw new Error(
+      `evolve lanes tells apart at most ${LANE_TONES.length} kinds of run by colour, got ${kinds.length}: name runs that are the same work alike`,
+    );
+  const tags: RowTag[] = [
+    { tag: "lane", label: "", tone: "fg", hidden: true },
+    { tag: "total", label: "", tone: "muted", hidden: true },
+    ...kinds.map((k, i) => ({ tag: `r${i}`, label: k, tone: LANE_TONES[i] as Role })),
+  ];
+  const rows: Row[] = ls.map((l, i) => {
+    const len = (time[i] as number) / tmax;
+    const ws = l.runs.map((r) => weight(l, r));
+    const sum = ws.reduce((a, b) => a + b, 0);
+    let at = 0;
+    return {
+      parts: [
+        { text: l.label, tag: "lane" },
+        // A stated total is printed when every lane states one: the lanes are then compared on it.
+        ...(ls.every((q) => q.total) && l.total ? [{ text: l.total.value, tag: "total" }] : []),
+      ],
+      track: l.runs.map((r, q) => {
+        const from = at;
+        at += ((ws[q] as number) / sum) * len;
+        const k = steps(r);
+        return { from, to: at, tag: `r${kinds.indexOf(r.label)}`, blocks: k <= 24 ? k : 1 };
+      }),
+    };
+  });
+  return { ...rowsLook(c, rows, tags, [unit, ...d.note]), data: { scale } };
 }
 
 /** The source's own steps, as rows. */

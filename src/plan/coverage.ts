@@ -273,8 +273,8 @@ const WORD_ARCHETYPES = new Set([
  *
  *  - a beat of part "method" with no \`literal\`, drawn as words, is routed to
  *    the verb its evidence allows: a flow showing a figure it cites, place
- *    curves or evolve on an equation, else operate on example vectors, evolve
- *    or a flow timeline;
+ *    curves or evolve on an equation, else operate on example vectors or
+ *    evolve (an update over steps, lanes of serial against parallel work);
  *  - a flow chain whose stages are mostly names (no count, figure or layer);
  *  - a beat whose claim states two or more of the source's numbers, drawn as
  *    words, is a place strip, plane or combos;
@@ -303,7 +303,7 @@ export function slidewareFindings(storyboard: Storyboard, source: Source): strin
           ? `${beat.id} explains the method as ${beat.archetype} words while it cites ${figs[0]}: draw its mechanism as a \`flow\` chain whose stages show that figure (\`figure\`), mark the things it shows with \`region\`, or draw it with another verb. Words in columns are slideware for a mechanism.`
           : eq
             ? `${beat.id} explains the method as ${beat.archetype} words while it cites an equation: when the source prints values the rule produces, draw it as a \`place\` plane with \`curves\` (one per stated value of the fixed parameter) or an \`evolve\` formula grounded by its checks; a rule over distributions or arrays is \`operate\` on example \`vectors\`.`
-            : `${beat.id} explains the method as ${beat.archetype} words. Draw it with a verb: \`operate\` on example \`vectors\` for a rule over distributions or arrays, \`evolve\` for an update over steps, a \`flow\` timeline for serial against parallel work — or keep it only if none is honest.`,
+            : `${beat.id} explains the method as ${beat.archetype} words. Draw it with a verb: \`operate\` on example \`vectors\` for a rule over distributions or arrays, \`evolve\` for an update over steps or lanes of serial against parallel work — or keep it only if none is honest.`,
       );
     }
     if (lit?.kind === "flow" && lit.form === "chain") {
@@ -312,7 +312,7 @@ export function slidewareFindings(storyboard: Storyboard, source: Source): strin
       );
       if (bare.length * 2 > lit.stages.length)
         out.push(
-          `${beat.id}'s flow chain is mostly name cards (${bare.map((st) => `"${st.label}"`).join(", ")} hold nothing): give each stage what it holds (a stated count, the source's figure, an earlier computed layer), or draw the mechanism as a \`flow\` timeline or an \`evolve\`.`,
+          `${beat.id}'s flow chain is mostly name cards (${bare.map((st) => `"${st.label}"`).join(", ")} hold nothing): give each stage what it holds (a stated count, the source's figure, an earlier computed layer), or draw the mechanism as an \`evolve\` (its steps, or lanes of serial against parallel work).`,
         );
     }
     const nums = ((beat.claim ?? "").match(/\d+(?:[.,]\d+)?/g) ?? []).filter((n) => stated.has(n));
@@ -421,7 +421,7 @@ export function textShareFindings(storyboard: Storyboard): string[] {
       );
     if (!b.literal && b.archetype === "kinetic" && len(b) / cps > KINETIC_SECONDS)
       out.push(
-        `${b.id} is a kinetic statement spoken for about ${Math.round(len(b) / cps)}s; a kinetic beat holds at most ${KINETIC_SECONDS}s. Cut its narration to one or two sentences, or show the problem it states (a \`flow\` timeline of the serial steps, an \`evolve\`).`,
+        `${b.id} is a kinetic statement spoken for about ${Math.round(len(b) / cps)}s; a kinetic beat holds at most ${KINETIC_SECONDS}s. Cut its narration to one or two sentences, or show the problem it states (an \`evolve\`: lanes of the serial steps, or the state step by step).`,
       );
   });
   return out;
@@ -600,6 +600,11 @@ function literalTexts(lit: Literal): string[] {
         ...(lit.picture
           ? []
           : lit.steps.flatMap((st) => [st.lead ?? "", ...st.parts.map((q) => q.text)])),
+        ...lit.lanes.flatMap((l) => [
+          l.label,
+          l.total?.value ?? "",
+          ...l.runs.flatMap((r) => [r.label, r.count?.value ?? ""]),
+        ]),
       ];
     case "flow":
       return [
@@ -609,10 +614,6 @@ function literalTexts(lit: Literal): string[] {
           s.shape ?? "",
           s.quote ?? "",
           ...s.tokens.flatMap((g) => [g.label, g.name ?? "", g.count?.value ?? ""]),
-        ]),
-        ...lit.lanes.flatMap((l) => [
-          l.label,
-          ...l.runs.flatMap((r) => [r.label, r.count?.value ?? ""]),
         ]),
       ];
     case "place":
@@ -1411,6 +1412,23 @@ function verbGrounding(
       break;
     }
     case "evolve": {
+      if (lit.rule === "lanes") {
+        for (const l of lit.lanes) {
+          role(l.total, LITERAL_ROLE_NOUNS.duration, `lane "${l.label}"'s total`);
+          for (const r of l.runs) {
+            role(r.count, LITERAL_ROLE_NOUNS.count, `run "${r.label}"'s count`);
+            role(r.dur, LITERAL_ROLE_NOUNS.duration, `run "${r.label}"'s duration`);
+          }
+        }
+        const allDur = lit.lanes.every((l) =>
+          l.runs.every((r) => r.dur && (r.parallel || r.count)),
+        );
+        example =
+          !allDur &&
+          (lit.lanes.some((l) => l.runs.length > 1 && !!l.total) ||
+            lit.lanes.some((l) => l.runs.some((r) => !r.count)));
+        break;
+      }
       const doc = LITERAL_RULES[lit.rule] as LiteralOpDoc;
       if (lit.rule !== "formula" && !passagesNaming(ps, doc.nouns).length)
         out.push(`the source never names the ${lit.rule} rule; draw it as a \`flow\` diagram`);
@@ -1475,7 +1493,7 @@ function verbGrounding(
           )
         )
           out.push(
-            "is a chain of empty boxes: no stage holds tokens (`tokens`), shows a layer (`show`) or a figure (`figure`), quotes the source (`quote`) or states a count (`shape`, e.g. γ or 4). Draw the mechanism as a `flow` timeline or an `evolve`, or give the stages what they hold",
+            "is a chain of empty boxes: no stage holds tokens (`tokens`), shows a layer (`show`) or a figure (`figure`), quotes the source (`quote`) or states a count (`shape`, e.g. γ or 4). Draw the mechanism as an `evolve` (its steps, or lanes of serial against parallel work), or give the stages what they hold",
           );
         for (const s of lit.stages) {
           for (const g of s.tokens)
@@ -1492,21 +1510,6 @@ function verbGrounding(
               );
           }
         }
-      } else {
-        for (const l of lit.lanes) {
-          role(l.total, LITERAL_ROLE_NOUNS.duration, `lane "${l.label}"'s total`);
-          for (const r of l.runs) {
-            role(r.count, LITERAL_ROLE_NOUNS.count, `run "${r.label}"'s count`);
-            role(r.dur, LITERAL_ROLE_NOUNS.duration, `run "${r.label}"'s duration`);
-          }
-        }
-        const allDur = lit.lanes.every((l) =>
-          l.runs.every((r) => r.dur && (r.parallel || r.count)),
-        );
-        example =
-          !allDur &&
-          (lit.lanes.some((l) => l.runs.length > 1 && !!l.total) ||
-            lit.lanes.some((l) => l.runs.some((r) => !r.count)));
       }
       break;
     }

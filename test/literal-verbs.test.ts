@@ -731,8 +731,8 @@ const FIXTURES: Fixture[] = [
     name: "draft then verify",
     domain: "language-models",
     lit: {
-      kind: "flow",
-      form: "timeline",
+      kind: "evolve",
+      rule: "lanes",
       lanes: [
         {
           label: "one model",
@@ -753,8 +753,8 @@ const FIXTURES: Fixture[] = [
     name: "pipeline stages",
     domain: "distributed-systems",
     lit: {
-      kind: "flow",
-      form: "timeline",
+      kind: "evolve",
+      rule: "lanes",
       lanes: [
         {
           label: "sequential",
@@ -1122,7 +1122,6 @@ const FILL: Record<string, number> = {
   // them: a sparse chain paints little. What it must do is span the region,
   // which the deck's own gate measures, and the test below holds it to.
   "flow:chain": 0.25,
-  "flow:timeline": 0.35,
   place: 0.5,
   region: 0.4,
 };
@@ -1294,7 +1293,7 @@ describe("the library holds only what is general", () => {
       "evolve:reset:soft",
       "evolve:reset:hard",
       "flow:chain",
-      "flow:timeline",
+      "evolve:lanes",
       "place:points:plane",
       "place:points:strip",
       "region:marks",
@@ -1602,11 +1601,37 @@ describe("what each verb refuses", () => {
     expect(d.y2).toBeLessThan(d.y1);
   });
 
-  it("flow timeline: totals on some lanes and not others", () => {
+  /** Each lane's drawn length (its blocks' extent) and block count, in the last frame. */
+  const lanesOf = (prims: Prim[]) => {
+    const rows = new Map<number, Array<{ x: number; w: number }>>();
+    for (const p of prims)
+      if (p.p === "rect" && p.h === 34) rows.set(p.y, [...(rows.get(p.y) ?? []), p]);
+    return [...rows.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, bs]) => ({
+        len: Math.max(...bs.map((b) => b.x + b.w)) - Math.min(...bs.map((b) => b.x)),
+        blocks: bs.length,
+      }));
+  };
+  const lanesRun = (lit: Record<string, unknown>) => {
+    const parsed = literalSchema.parse(lit) as Extract<Literal, { kind: "evolve" }>;
+    return runVerb(evolve as VerbRun<"evolve">, {
+      lit: parsed,
+      labels: Object.fromEntries(parsed.labels.map((l) => [l.slot, l.text])),
+      region: region_,
+      theme,
+      measure,
+      dry: true,
+      earlier: new Map(),
+      assets: {},
+    });
+  };
+
+  it("evolve lanes: totals on some lanes and not others", () => {
     expect(
       problems({
-        kind: "flow",
-        form: "timeline",
+        kind: "evolve",
+        rule: "lanes",
         lanes: [
           { label: "x", total: { value: "2" }, runs: [{ label: "r", parallel: false }] },
           { label: "y", runs: [{ label: "r", parallel: false }] },
@@ -1614,6 +1639,84 @@ describe("what each verb refuses", () => {
         labels: L({ unit: "u" }),
       })[0],
     ).toMatch(/every lane a `total`/);
+  });
+
+  it("evolve lanes: lane lengths are Σ count·dur when every duration is stated", () => {
+    const d = draw(FIXTURES.find((f) => f.name === "draft then verify") as Fixture);
+    expect(d.r.data.scale).toBe("dur");
+    const [one, two] = lanesOf(d.r.frames.at(-1)?.prims ?? []);
+    // 8·1 against 7·0.05 + 1·1 = 1.35, give or take the blocks' 2px insets.
+    expect((two?.len ?? 0) / (one?.len ?? 1)).toBeCloseTo(1.35 / 8, 2);
+    // The serial draft is its count of blocks; the parallel verify one block.
+    expect([one?.blocks, two?.blocks]).toEqual([8, 8]);
+  });
+
+  it("evolve lanes: with no time stated, a parallel run is one step, so its lane is shorter", () => {
+    const r = lanesRun({
+      kind: "evolve",
+      rule: "lanes",
+      lanes: [
+        { label: "serial", runs: [{ label: "K runs", parallel: false }] },
+        { label: "at once", runs: [{ label: "K+1 checks", parallel: true }] },
+      ],
+      labels: L({ unit: "one call", example: "example" }),
+    });
+    const [serial, once] = lanesOf(r.frames.at(-1)?.prims ?? []);
+    // Four example serial steps against one parallel step.
+    expect((once?.len ?? 0) / (serial?.len ?? 1)).toBeCloseTo(1 / 4, 1);
+    expect([serial?.blocks, once?.blocks]).toEqual([4, 1]);
+  });
+
+  it("evolve lanes: lanes of equal serial steps on example material are refused", () => {
+    expect(
+      problems({
+        kind: "evolve",
+        rule: "lanes",
+        lanes: [
+          { label: "x", runs: [{ label: "r", parallel: false }] },
+          { label: "y", runs: [{ label: "s", parallel: false }] },
+        ],
+        labels: L({ unit: "u", example: "example" }),
+      })[0],
+    ).toMatch(/same number of serial steps/);
+  });
+
+  it("evolve lanes: a stated duration is one block, and a stated total is printed in its lane", () => {
+    const r = lanesRun({
+      kind: "evolve",
+      rule: "lanes",
+      lanes: [
+        {
+          label: "long",
+          total: { value: "4.46" },
+          runs: [{ label: "a", dur: { value: "4.46" }, parallel: false }],
+        },
+        {
+          label: "short",
+          total: { value: "0.24" },
+          runs: [{ label: "b", dur: { value: "0.24" }, parallel: false }],
+        },
+      ],
+      labels: L({ unit: "s" }),
+    });
+    const prims = r.frames.at(-1)?.prims ?? [];
+    expect(lanesOf(prims).map((l) => l.blocks)).toEqual([1, 1]);
+    const words = prims.filter((p) => p.p === "text").map((p) => (p as { text?: string }).text);
+    expect(words).toEqual(expect.arrayContaining(["4.46", "0.24", "s"]));
+  });
+
+  it("evolve lanes: more kinds of run than the legend tells apart are refused", () => {
+    expect(
+      problems({
+        kind: "evolve",
+        rule: "lanes",
+        lanes: [
+          { label: "x", runs: ["a", "b", "c"].map((label) => ({ label, parallel: false })) },
+          { label: "y", runs: ["d", "e"].map((label) => ({ label, parallel: true })) },
+        ],
+        labels: L({ unit: "u", example: "example" }),
+      })[0],
+    ).toMatch(/at most 4 kinds of run/);
   });
 
   it("region: more marks than a list holds, words too long for the scene, and no box at build", () => {
@@ -1725,15 +1828,6 @@ describe("what each verb computes", () => {
     expect(states.filter((p) => p.opacity === 0.45).length).toBeGreaterThan(0);
     // An EMA starts at its first input: the state's first bar is not empty.
     expect((states[0] as { w: number }).w).toBeGreaterThan(3);
-  });
-
-  it("flow timeline: lane lengths are Σ count·dur when every duration is stated", () => {
-    const d = draw(FIXTURES.find((f) => f.name === "draft then verify") as Fixture);
-    const track = d.r.frames[0]?.prims.filter((p) => p.p === "rect" && p.h === 4) as Array<{
-      w: number;
-    }>;
-    // 8·1 against 7·0.05 + 1·1 = 1.35.
-    expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1.35 / 8, 3);
   });
 
   it("the subject: a headline names an item as a whole word, without its parenthetical", () => {
@@ -1869,38 +1963,6 @@ describe("what each verb computes", () => {
     expect(f.markup).toMatch(/SCENEID-c1-0"[^>]*><div[^>]*color:[^;]*;font-weight:700/);
   });
 
-  it("flow timeline: with no time stated, a parallel run is one step, so its lane is shorter", () => {
-    const d = draw(FIXTURES.find((f) => f.name === "draft then verify") as Fixture);
-    expect(d.r.data.scale).toBe("dur");
-    const lit = literalSchema.parse({
-      kind: "flow",
-      form: "timeline",
-      lanes: [
-        { label: "serial", runs: [{ label: "K runs", parallel: false }] },
-        { label: "at once", runs: [{ label: "K+1 checks", parallel: true }] },
-      ],
-      labels: L({ unit: "one call", example: "example" }),
-    }) as Extract<Literal, { kind: "flow" }>;
-    const r = runVerb(flow as VerbRun<"flow">, {
-      lit,
-      labels: { unit: "one call", example: "example" },
-      region: region_,
-      theme,
-      measure,
-      dry: true,
-      earlier: new Map(),
-      assets: {},
-    });
-    const track = r.frames[0]?.prims.filter((p) => p.p === "rect" && p.h === 4) as Array<{
-      w: number;
-    }>;
-    // Four example serial steps against one parallel step.
-    expect((track[1]?.w ?? 0) / (track[0]?.w ?? 1)).toBeCloseTo(1 / 4, 3);
-    // Every run's words are on a plate.
-    const plates = r.frames[0]?.prims.filter((p) => p.p === "rect" && p.opacity === 0.92) ?? [];
-    expect(plates.length).toBe(2);
-  });
-
   it("flow chain: a stage whose shape is one blank chip is refused", () => {
     const lit = literalSchema.parse({
       kind: "flow",
@@ -1912,102 +1974,6 @@ describe("what each verb computes", () => {
       labels: L({}),
     }) as Literal;
     expect(drawProblems(lit, region_, theme)[0]).toMatch(/one blank chip/);
-  });
-
-  it("flow timeline: lanes of equal serial steps on example material are refused", () => {
-    const lit = literalSchema.parse({
-      kind: "flow",
-      form: "timeline",
-      lanes: [
-        { label: "x", runs: [{ label: "r", parallel: false }] },
-        { label: "y", runs: [{ label: "s", parallel: false }] },
-      ],
-      labels: L({ unit: "u", example: "example" }),
-    }) as Literal;
-    expect(drawProblems(lit, region_, theme)[0]).toMatch(/same number of serial steps/);
-  });
-
-  it("flow timeline: a stated duration is one block, and a stated total is printed at its lane's end", () => {
-    const lit = literalSchema.parse({
-      kind: "flow",
-      form: "timeline",
-      lanes: [
-        {
-          label: "long",
-          total: { value: "4.46" },
-          runs: [{ label: "a", dur: { value: "4.46" }, parallel: false }],
-        },
-        {
-          label: "short",
-          total: { value: "0.24" },
-          runs: [{ label: "b", dur: { value: "0.24" }, parallel: false }],
-        },
-      ],
-      labels: L({ unit: "s" }),
-    }) as Extract<Literal, { kind: "flow" }>;
-    const r = runVerb(flow as VerbRun<"flow">, {
-      lit,
-      labels: { unit: "s" },
-      region: region_,
-      theme,
-      measure,
-      dry: true,
-      earlier: new Map(),
-      assets: {},
-    });
-    const prims = r.frames[0]?.prims ?? [];
-    const blocks = prims.filter((p) => p.p === "rect" && p.wipe);
-    expect(blocks).toHaveLength(2);
-    const ends = prims
-      .filter((p) => p.p === "text" && p.role === "accent")
-      .map((p) => (p as { text: string }).text);
-    expect(ends).toEqual(["4.46 s", "0.24 s"]);
-  });
-
-  it("flow timeline: words too wide for a late run wrap under its lane, in the region, clear of the next lane", () => {
-    const lit = literalSchema.parse({
-      kind: "flow",
-      form: "timeline",
-      lanes: [
-        {
-          label: "full",
-          total: { value: "4" },
-          runs: [
-            { label: "read", parallel: false },
-            { label: "attend to only part of the input or stop early", parallel: false },
-          ],
-        },
-        { label: "short", total: { value: "1" }, runs: [{ label: "read", parallel: false }] },
-      ],
-      labels: L({ unit: "one call", example: "example" }),
-    }) as Extract<Literal, { kind: "flow" }>;
-    const narrow = { width: 860, height: 1100 };
-    const r = runVerb(flow as VerbRun<"flow">, {
-      lit,
-      labels: { unit: "one call", example: "example" },
-      region: narrow,
-      theme,
-      measure,
-      dry: true,
-      earlier: new Map(),
-      assets: {},
-    });
-    const prims = r.frames[0]?.prims ?? [];
-    const lanes = prims.filter((p) => p.p === "rect" && p.opacity === 0.5) as Array<{
-      y: number;
-      h: number;
-    }>;
-    const under = prims.filter((p) => p.p === "text" && p.role === "muted" && !p.slot) as Array<{
-      x: number;
-      y: number;
-      text: string;
-    }>;
-    expect(under.length).toBe(2);
-    for (const t of under) {
-      expect(t.x).toBeGreaterThanOrEqual(0);
-      expect(t.x + measure(t.text, 40)).toBeLessThanOrEqual(narrow.width);
-      expect(t.y + 40).toBeLessThanOrEqual(lanes[1]?.y ?? 0);
-    }
   });
 
   it("place: a curve is the stated formula across the axis, drawn under the points", () => {

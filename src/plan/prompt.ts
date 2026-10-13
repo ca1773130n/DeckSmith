@@ -973,7 +973,7 @@ COMPOSE
                                                           \`vectors\` (see
                                                           operate), tagged
       an update over steps ................................ evolve
-      serial against parallel work, a latency budget ...... flow timeline
+      serial against parallel work, a latency budget ...... evolve lanes
       a worked example of the method (a trace of steps,
         rows of tokens accepted and rejected) ............. evolve trace (from
                                                           the figure citing
@@ -989,7 +989,7 @@ COMPOSE
                                                           chain of names)
     Only a method beat none of these fits keeps \`literal\` null. Two beats in a
     row never draw the same verb and form (two \`flow\` chains in a row are one
-    chain: merge them, or draw the second as a timeline).
+    chain: merge them, or draw the second as an evolve).
   - A setup detail (a protocol, a model size, a split) is not a beat: say it in
     the \`caption\` of the result beat that uses it. An ablation (each setting
     with its one reported score) is a \`place\` strip: one axis, one dot per
@@ -998,7 +998,7 @@ COMPOSE
     \`place\` sets only where what was and was not evaluated are the point.
   - Learned components are never computed: a \`flow\` stage with \`learned\`
     true, a box, that may show the source's own \`figure\`.
-  - A timeline lane is as long as its stated total or Σ count·dur; with
+  - An evolve lane is as long as its stated total or Σ count·dur; with
     neither, all lanes have one length and the runs show the difference.
   - A TABLE IS THE LAST RESORT. Route instead:
       results against the best other method ..... place, measure margin
@@ -1012,7 +1012,7 @@ COMPOSE
                                                    connect (never a line-chart
                                                    archetype: it stands still)
       a stated formula's behaviour ............... place plane with curves
-      latency, serial against parallel ........... flow timeline
+      latency, serial against parallel ........... evolve lanes
       the things in a picture and what each means  region on the beat citing
                                                    it, each thing marked with
                                                    its point, then the outcome
@@ -1065,9 +1065,8 @@ THE PICTURE, NOT THE WORDS. A deck of text slides is slideware however true
 it is. Text-only beats (split-compare, callout, kinetic, hero-number with no
 \`literal\`) take at most a fifth of the spoken time, never two in a row; a
 kinetic statement is spoken for 8 seconds or less. THE PROBLEM BEAT SHOWS THE
-BOTTLENECK: work done one step at a time is a \`flow\` timeline of those serial
-steps against what the method does instead (or an \`evolve\` of the state
-step by step), not a sentence about it. The beat whose headline names the
+BOTTLENECK: work done one step at a time is an \`evolve\` of lanes of those serial
+steps against what the method does instead (or of the state step by step), not a sentence about it. The beat whose headline names the
 method's result shows that result as the subject (a \`place\` plane or strip
 on the source's numbers), and its headline names it, so the scene can lead
 with it.

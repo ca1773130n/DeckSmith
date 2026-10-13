@@ -1208,6 +1208,10 @@ export const LITERAL_RULES = {
     doc: "s' = `expr` over `s` (the state), `x` (the input) and named params, grounded by `checks` or printed verbatim in the source",
     nouns: /./,
   },
+  lanes: {
+    doc: "lanes of runs, one row each: serial runs one after another, a parallel run at once; a lane as long as its stated time",
+    nouns: /./,
+  },
   trace: {
     doc: "the source's own steps, one row each: `steps` ({lead, parts: [{text, tag}]}) whose parts are tagged by `tags` ({tag, label, tone, strike})",
     nouns: /./,
@@ -1218,7 +1222,7 @@ export type LiteralRuleName = keyof typeof LITERAL_RULES;
 
 /** The nouns a few non-op numbers are grounded by (src/plan/coverage.ts). */
 export const LITERAL_ROLE_NOUNS = {
-  /** A count of runs or tokens on a timeline. */
+  /** A count of runs on a lane, or of tokens. */
   count:
     /token|step|run|draft|pass|iteration|position|토큰|단계|스텝|횟수|トークン|ステップ|回|词元|步|令牌|次/i,
   /** A stated duration: a lane's total, a run's cost. */
@@ -1295,7 +1299,20 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      printed only in a FIGURE: give \`picture\` (the beat citing
                      it), \`panel\` when it has several, and \`read\` (what to
                      read off it) — \`plan\` transcribes the steps; leave them
-                     out. Otherwise:
+                     out. LANES: serial against parallel work, a latency
+                     budget, is \`rule\` lanes, one row a lane:
+                     \`lanes\` ({label, total, runs: [{label,
+                     count, dur, parallel}]}) — a \`count\` is a NUMBER the
+                     source prints (a symbol like K or γ is not a count: leave
+                     \`count\` out, the runs are then example, tagged, and the
+                     symbol goes in the run's label) — serial runs one after another,
+                     a parallel run covering its count at once; a lane is as
+                     long as its stated \`total\` (printed at its end; or Σ
+                     count·dur), else as its serial steps: a parallel run is
+                     ONE step, so verifying γ+1 positions at once is drawn
+                     shorter than γ+1 serial runs. A stated duration with no
+                     count is one block. Lanes of equal steps are refused.
+                     Fills the \`unit\` slot: what one run is. Otherwise:
                      recur (EMA, leaky integration, with a threshold and a
                      reset), noise (forward noising of a \`picture\`) or formula
                      (any update the source prints). Its \`input\` is \`values\`
@@ -1327,6 +1344,7 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
         optional: true,
       },
       noise: { what: "noise: legend of the noise's bar", optional: true },
+      unit: { what: "lanes: what one run is (required with lanes)", optional: true },
       caption: { what: "under the scene: what steps and what the state is", optional: true },
       example: EXAMPLE_SLOT,
     },
@@ -1350,30 +1368,14 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      that many token chips (past 16: 1, 2, …, the count). A
                      chain where NO stage has \`tokens\`, a \`show\`, a
                      \`figure\`, a \`quote\` or a count \`shape\` is refused:
-                     it is empty boxes with names, so draw that mechanism as a
-                     \`flow\` timeline or an \`evolve\` instead. A train-only
+                     it is empty boxes with names, so draw that mechanism as an
+                     \`evolve\` instead. A train-only
                      stage is dashed and tagged with the \`train\` slot;
                      \`phases\` true then shows inference with it faded. A
-                     learned stage never shows a computed layer.
-                     \`form\` timeline: \`lanes\` ({label, total, runs: [{label,
-                     count, dur, parallel}]}) — a \`count\` is a NUMBER the
-                     source prints (a symbol like K or γ is not a count: leave
-                     \`count\` out, the runs are then example, tagged, and the
-                     symbol goes in the run's label) — serial runs one after another,
-                     a parallel run covering its count at once; a lane is as
-                     long as its stated \`total\` (printed at its end; or Σ
-                     count·dur), else as its serial steps: a parallel run is
-                     ONE step, so verifying γ+1 positions at once is drawn
-                     shorter than γ+1 serial runs. A stated duration with no
-                     count is one block. Lanes of equal steps are refused.
-                     A timeline always fills the \`unit\` slot: what one run is.`,
+                     learned stage never shows a computed layer.`,
     slots: {
       train: {
         what: "the tag on a training-only stage, e.g. 'training only' (required when one is)",
-        optional: true,
-      },
-      unit: {
-        what: "what one run is, under the lanes (required with a timeline; timeline only)",
         optional: true,
       },
       caption: { what: "under the scene: what flows", optional: true },
@@ -1647,7 +1649,25 @@ export const literalSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("evolve"),
-    rule: z.enum(["recur", "noise", "formula", "trace"]),
+    rule: z.enum(["recur", "noise", "formula", "trace", "lanes"]),
+    /** lanes: one a row, its runs serial or parallel, as long as its time. */
+    lanes: z
+      .array(
+        z.object({
+          label: z.string(),
+          total: numSchema.optional(),
+          runs: z.array(
+            z.object({
+              label: z.string(),
+              count: numSchema.optional(),
+              dur: numSchema.optional(),
+              parallel: z.boolean(),
+            }),
+          ),
+        }),
+      )
+      .default([]),
+
     /** trace: what each part is, the legend: 1–4 tags, each a tone; `strike` crosses its parts out. */
     tags: z
       .array(
@@ -1700,7 +1720,7 @@ export const literalSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("flow"),
-    form: z.enum(["chain", "timeline"]),
+    form: z.enum(["chain"]),
     stages: z
       .array(
         z.object({
@@ -1742,22 +1762,6 @@ export const literalSchema = z.discriminatedUnion("kind", [
       )
       .default([]),
     phases: z.boolean().default(false),
-    lanes: z
-      .array(
-        z.object({
-          label: z.string(),
-          total: numSchema.optional(),
-          runs: z.array(
-            z.object({
-              label: z.string(),
-              count: numSchema.optional(),
-              dur: numSchema.optional(),
-              parallel: z.boolean(),
-            }),
-          ),
-        }),
-      )
-      .default([]),
     ...literalLabels,
   }),
   z.object({

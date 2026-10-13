@@ -5,7 +5,7 @@
  *
  * - THE VERBS compose general operations on the source's own numbers:
  *   operate (an op chain on a picture, vectors or a matrix), evolve (a state
- *   under a stated rule), flow (stages, a timeline), place (items on
+ *   under a stated rule), flow (stages), place (items on
  *   axes, and the word forms: margins, lengths, combos, sets) and region
  *   (the things in a picture, marked). Most are drawn on the stage
  *   (./kinds/stage.ts).
