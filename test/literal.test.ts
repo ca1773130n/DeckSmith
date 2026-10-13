@@ -140,19 +140,22 @@ describe("a staged verb obeys the deck's invariants", () => {
       expect((m[1] as string).split(".")[1]?.length).toBeLessThanOrEqual(3);
   });
 
-  it("every word is the plan's; a required slot left out is refused", () => {
+  it("every word is the plan's; a slot the scene draws, left out, is refused", () => {
     const without = { ...labels };
     delete without.input;
     expect(() =>
-      literalFragment(
-        "operate",
-        layers,
+      runVerb(operate, {
+        lit: lit as Extract<Literal, { kind: "operate" }>,
+        labels: without,
         region,
-        cues,
-        { ...spec, labels: without } as never,
         theme,
-      ),
-    ).toThrow(/needs the label slot "input"/);
+        measure: (t, s) => widthOf(t, s, theme),
+        dry: true,
+        image: placeholderPicture(96, 64),
+        earlier: new Map(),
+        assets: {},
+      }),
+    ).toThrow(/a chain needs slot "input"/);
   });
 
   it("a plan names a kind and a takeaway per beat", () => {

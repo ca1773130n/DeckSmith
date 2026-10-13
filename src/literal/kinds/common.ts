@@ -153,6 +153,20 @@ export type Prim =
       vars?: Readonly<Record<string, string | number>>;
     })
   | (Paint & {
+      /**
+       * A formula, typeset in the page by the deck's KaTeX (`ds-tex`) in display
+       * style; `w`×`h` is its box as estimated at build (./tex.ts `texBox`).
+       */
+      p: "tex";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      size: number;
+      tex: string;
+      role: Role;
+    })
+  | (Paint & {
       p: "image";
       x: number;
       y: number;

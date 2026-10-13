@@ -12,6 +12,7 @@
  * frames to, and the backdrop lookup a text with role "auto" is resolved by.
  */
 import type { Theme } from "../../emit/kit.js";
+import { TEX_MARK } from "../../emit/kit.js";
 import { esc } from "../kit.js";
 import type { DataRgb, Prim, Role } from "./common.js";
 
@@ -105,6 +106,7 @@ export function anchorOf(p: Prim): [number, number] {
     }
     case "rect":
     case "image":
+    case "tex":
       return [p.x + p.w / 2, p.y + p.h / 2];
     case "circle":
     case "ellipse":
@@ -217,6 +219,9 @@ export function primSvg(prims: readonly Prim[], index: number, d: Draw): string 
   const stroke = (role: Role | undefined, width: number | undefined) =>
     role ? ` stroke="${css(roleRgb(theme, role))}" stroke-width="${n2(width ?? 2)}"` : "";
   switch (p.p) {
+    case "tex":
+      // Typeset in the page by the deck's KaTeX (`mathSetup` renders every `ds-tex`), in display style.
+      return `<foreignObject x="${n2(p.x)}" y="${n2(p.y)}" width="${n2(p.w)}" height="${n2(p.h)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" class="${TEX_MARK}" style="font-size:${p.size}px;line-height:1;white-space:nowrap;color:${css(roleRgb(theme, p.role))}">\\displaystyle ${esc(p.tex)}</div></foreignObject>`;
     case "line": {
       const c = css(p.mix ? mixRgb(theme, p.mix) : roleRgb(theme, p.role));
       const dash = p.dash ? ` stroke-dasharray="${n2(p.width * 3)} ${n2(p.width * 2)}"` : "";

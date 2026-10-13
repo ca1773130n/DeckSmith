@@ -586,6 +586,8 @@ function literalTexts(lit: Literal): string[] {
     case "operate":
       return [
         ...own,
+        ...lit.given.flatMap((g) => [g.value, g.what]),
+        ...(lit.terms?.reported ? [lit.terms.reported] : []),
         ...lit.chain.map((s) => s.label),
         ...lit.vectors.map((v) => v.label),
         ...lit.bins,
@@ -1381,6 +1383,20 @@ function verbGrounding(
   };
   switch (lit.kind) {
     case "operate": {
+      if (lit.terms) {
+        // The source's own equation, its stated values, and the result it reports:
+        // the terms between are their consequence, computed (src/literal/kinds/operate.ts).
+        const bare = (t: string) => t.replace(/\s+/g, "");
+        if (lit.equation && !source.equations.some((e) => bare(e.tex) === bare(lit.equation ?? "")))
+          out.push("shows an `equation` that is not one the source prints; copy its TeX exactly");
+        for (const g of lit.given) {
+          const why = paramProblem(g.value, g.symbol ?? g.name, /./, g.name, text, true);
+          if (why) out.push(`${why}; give only values the source states`);
+        }
+        if (lit.terms.reported && !ctx.stated.has(lit.terms.reported.trim()))
+          out.push(`reports ${lit.terms.reported}, which the source does not state`);
+        break;
+      }
       lit.chain.forEach((s, k) => {
         out.push(...opProblems(s, k + 1, text, ps, seq));
       });

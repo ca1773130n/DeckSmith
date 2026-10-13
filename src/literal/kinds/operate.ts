@@ -16,6 +16,8 @@
  * revealed in turn). No layout invents a number: no ticks, no values on example
  * data.
  */
+
+import { evaluate, parseFormula } from "../formula.js";
 import {
   degrade,
   fromRows,
@@ -28,9 +30,10 @@ import {
   tensor,
 } from "../ops.js";
 import type { Frame, MechanismResult, Prim, Raster } from "./common.js";
-import { fitBox, TYPE, wrapBy } from "./common.js";
-import { opStepOf, plain } from "./read.js";
-import { rasterOf, sharedScale, textLines, type VerbCtx } from "./stage.js";
+import { fitBox, shiftPrim, TYPE, wrapBy } from "./common.js";
+import { num, opStepOf, plain } from "./read.js";
+import { rasterOf, sharedScale, textLines, type VerbCtx, withPushRoom } from "./stage.js";
+import { texBox } from "./tex.js";
 
 type Ctx = VerbCtx<"operate">;
 
@@ -86,7 +89,10 @@ function varsOf(t: Tensor): Record<string, string> {
 }
 
 export function operate(c: Ctx): MechanismResult {
+  if (c.lit.terms) return withPushRoom(terms)(c);
   const d = c.lit;
+  for (const slot of ["input", "output"])
+    if (!c.labels[slot]?.trim()) throw new Error(`operate: a chain needs slot "${slot}"`);
   if (!d.chain.length || d.chain.length > 6)
     throw new Error(`operate runs a chain of 1–6 steps, got ${d.chain.length}`);
   const steps: OpStep[] = d.chain.map((s, k) => opStepOf(s, k + 1));
@@ -700,4 +706,299 @@ function gridLayout(c: Ctx, L: Lay): Omit<MechanismResult, "vars"> {
     });
   }
   return { rasters: {}, frames, data: {} };
+}
+
+/* ------------------------------------------------------------------ terms */
+
+/**
+ * THE APPROVED LOOK (.planning/designs/2026-10-12-verb-looks/1-operate.png): a
+ * stated formula evaluated term by term. On top the source's own equation and
+ * the values it states, each a chip; then one cell a term — its value computed
+ * for real from those values, the cell lit by it — joined by `between` (×α);
+ * then the terms combined into the result, large, beside the source's own
+ * number it matches. Every number is a consequence of stated values, so the
+ * scene prints them; one that does not match the source is refused, at plan.
+ */
+const TEX_PX = 64;
+const TEX_MIN_PX = 58;
+const CELL_MAX = 226;
+const RESULT_PX = 96;
+
+function terms(c: Ctx): MechanismResult {
+  const d = c.lit;
+  const t = d.terms as NonNullable<typeof d.terms>;
+  const { width: W, height: H } = c.region;
+  const m = c.measure;
+  // The values the terms run on, by name and by symbol.
+  const env: Record<string, number> = {};
+  for (const g of d.given) {
+    const v = num(g.value, `given "${g.name}"`);
+    env[g.name] = v;
+    if (g.symbol) env[g.symbol] = v;
+  }
+  const to = /^-?\d+$/.test(t.to.trim()) ? Number(t.to) : env[t.to.trim()];
+  if (to === undefined || !Number.isInteger(to))
+    throw new Error(
+      `operate terms: \`to\` is "${t.to}", neither a whole number nor a given's name`,
+    );
+  const n = to - t.from + 1;
+  if (n < 2 || n > 9) throw new Error(`operate terms draws 2–9 cells, got ${n}`);
+  const ast = parseFormula(t.term);
+  const vals = Array.from({ length: n }, (_, i) => {
+    const v = evaluate(ast, { ...env, k: t.from + i });
+    if (!Number.isFinite(v)) throw new Error(`operate terms: term ${i + 1} is not a finite number`);
+    return v;
+  });
+  const result =
+    t.combine === "sum" ? vals.reduce((a, b) => a + b, 0) : vals.reduce((a, b) => a * b, 1);
+  // Printed at the source's own precision when it reports the result, else two places.
+  const places = t.reported ? (t.reported.split(".")[1]?.length ?? 0) : 2;
+  const fmt = (v: number) => (vals.every(Number.isInteger) ? String(v) : v.toFixed(2));
+  const res = result.toFixed(places);
+  if (t.reported) {
+    const rep = num(t.reported, "operate terms `reported`");
+    if (Math.abs(result - rep) > 0.5 * 10 ** -places + 1e-9)
+      throw new Error(
+        `operate terms: the terms come to ${result.toFixed(places + 2)}, and the source reports ${t.reported}: they are not the source's terms or values`,
+      );
+    if (!c.labels.match?.trim())
+      throw new Error("operate terms: a `reported` result needs the `match` slot");
+  }
+  if (!c.labels.cell?.trim())
+    throw new Error("operate terms needs the `cell` slot: each cell's title, with {n}");
+
+  const prims: Prim[] = [];
+  // Top: the equation, and the given values as chips beside it — or, when the two
+  // do not fit across, in a row under it, the equation at the least size whose
+  // scripts still read (KaTeX sets them at 0.7: 58px keeps them over 40).
+  const chipH = 72;
+  // A chip's three pieces, a space apart: an SVG text drops its own edge spaces.
+  const chipText = (g: (typeof d.given)[number]) =>
+    [`${g.symbol ?? g.name} =`, g.value, g.what] as const;
+  const sp = m(" ", TYPE.label) || TYPE.label * 0.3;
+  const chipWs = d.given.map(
+    (g) => chipText(g).reduce((a, s) => a + m(s, TYPE.label), 0) + 2 * sp + 52,
+  );
+  const chipW = Math.max(0, ...chipWs);
+  const wide = d.equation?.trim() ? texBox(d.equation, TEX_PX, m) : undefined;
+  const across = !wide || !d.given.length || wide.w + 72 + chipW <= W;
+  const eqPx = across ? TEX_PX : TEX_MIN_PX;
+  const eq = d.equation?.trim() ? texBox(d.equation, eqPx, m) : undefined;
+  const eqW = eq?.w ?? 0;
+  if (eqW > W)
+    throw new Error(
+      `operate terms: the equation is ${eqW}px wide and the scene holds ${Math.round(W)}px; draw a shorter one the source prints`,
+    );
+  const chipsRow =
+    d.given.reduce((a, _, i) => a + (chipWs[i] as number), 0) + 16 * (d.given.length - 1);
+  if (!across && chipsRow > W)
+    throw new Error(
+      `operate terms: the given values' chips are ${Math.round(chipsRow)}px wide in a row: give shorter \`what\`s`,
+    );
+  const stackH = d.given.length * (chipH + 16) - 16;
+  const topH = across
+    ? Math.max(eq?.h ?? 0, stackH)
+    : (eq?.h ?? 0) + (d.given.length ? 16 + chipH : 0);
+  const gap = eq && d.given.length ? 72 : 0;
+  if (eq && d.equation)
+    prims.push({
+      p: "tex",
+      x: 0,
+      y: across ? (topH - eq.h) / 2 : 0,
+      w: eq.w,
+      h: eq.h,
+      size: eqPx,
+      tex: d.equation,
+      role: "fg",
+    });
+  d.given.forEach((g, i) => {
+    const x = across ? eqW + gap : chipWs.slice(0, i).reduce((a, w) => a + w + 16, 0);
+    const y = across ? (topH - stackH) / 2 + i * (chipH + 16) : (eq?.h ?? 0) + 16;
+    const w = across ? chipW : (chipWs[i] as number);
+    const [lead, value, what] = chipText(g);
+    prims.push({
+      p: "rect",
+      x,
+      y,
+      w,
+      h: chipH,
+      fill: "panel",
+      role: "rule",
+      width: 2,
+      radius: 14,
+    });
+    let tx = x + 26;
+    const ty = y + (chipH - TYPE.label * 1.18) / 2;
+    for (const [s, role, weight] of [
+      [lead, "fg", 500],
+      [value, "b", 700],
+      [what, "muted", 500],
+    ] as const) {
+      prims.push({
+        p: "text",
+        x: tx,
+        y: ty,
+        size: TYPE.label,
+        role,
+        anchor: "start",
+        weight,
+        text: s,
+      });
+      tx += m(s, TYPE.label) + sp;
+    }
+  });
+
+  // The cells, one a term, joined by `between`.
+  const between = t.between?.trim() ?? "";
+  const opW = between ? m(between, TYPE.label) + 26 : 24;
+  const labelH = 58;
+  const resultH = RESULT_PX * 1.15;
+  const capLines = c.labels.cells?.trim() ? wrapBy(c.labels.cells, TYPE.label, W, m) : [];
+  const capH = capLines.length * Math.round(TYPE.label * 1.25);
+  const room = H - topH - 48 - labelH - 24 - capH - 40 - resultH;
+  const cell = Math.floor(Math.min(CELL_MAX, (W - (n - 1) * opW) / n, room));
+  if (cell < 110)
+    throw new Error(`operate terms: ${n} cells come to ${cell}px each here; draw fewer terms`);
+  const rowW = n * cell + (n - 1) * opW;
+  // A cell's number at the headline size, or the body size when the cell is small.
+  const valuePx =
+    Math.max(...vals.map((v) => m(fmt(v), TYPE.headline))) + 24 <= cell ? TYPE.headline : TYPE.body;
+  const x0 = 0;
+  const cy = topH + 48 + labelH;
+  const top = Math.max(...vals.map((v) => Math.abs(v))) || 1;
+  vals.forEach((v, i) => {
+    const x = x0 + i * (cell + opW);
+    const at = Math.min(12, i + 1);
+    prims.push(
+      {
+        p: "text",
+        x: x + cell / 2,
+        y: cy - labelH,
+        size: TYPE.label,
+        role: "muted",
+        anchor: "middle",
+        slot: "cell",
+        vars: { n: i + 1 },
+      },
+      { p: "rect", x, y: cy, w: cell, h: cell, role: "a", width: 3, radius: 22, cam: true },
+      {
+        p: "rect",
+        x,
+        y: cy,
+        w: cell,
+        h: cell,
+        heat: 0.15 + 0.75 * (Math.abs(v) / top),
+        radius: 22,
+        cam: true,
+        at,
+      },
+      { p: "rect", x, y: cy, w: cell, h: cell, role: "a", width: 3, radius: 22, cam: true, at },
+      {
+        p: "text",
+        x: x + cell / 2,
+        y: cy + (cell - valuePx * 1.18) / 2,
+        size: valuePx,
+        role: "auto",
+        anchor: "middle",
+        weight: 700,
+        text: fmt(v),
+        cam: true,
+        at,
+      },
+    );
+    if (i && between)
+      prims.push({
+        p: "text",
+        x: x - opW / 2,
+        y: cy + (cell - TYPE.label * 1.18) / 2,
+        size: TYPE.label,
+        role: "b",
+        anchor: "middle",
+        text: between,
+        cam: true,
+        at,
+      });
+  });
+  let y = cy + cell + 24;
+  for (const l of capLines) {
+    prims.push({ p: "text", x: x0, y, size: TYPE.label, role: "muted", anchor: "start", text: l });
+    y += Math.round(TYPE.label * 1.25);
+  }
+  // The terms combined, then the result, then the source's own number.
+  y += 40;
+  const joiner = t.combine === "sum" ? " + " : " × ";
+  const resW = m(res, RESULT_PX) + 40;
+  const matchW = t.reported ? m(c.labels.match ?? "", TYPE.label) + 56 : 0;
+  const lineRoom = W - resW - (matchW ? matchW + 40 : 0) - 40;
+  const all = vals.map(fmt);
+  let line = `${all.join(joiner)} =`;
+  if (m(line, TYPE.label) > lineRoom) line = `${all[0]}${joiner}…${joiner}${all.at(-1)} =`;
+  if (m(line, TYPE.label) > lineRoom)
+    throw new Error(
+      "operate terms: the result line does not fit beside its result; a shorter `match`",
+    );
+  const lineW = m(line, TYPE.label);
+  const base = y + resultH * 0.72;
+  prims.push(
+    {
+      p: "text",
+      x: x0,
+      y: base - TYPE.label * 0.9,
+      size: TYPE.label,
+      role: "muted",
+      anchor: "start",
+      text: line,
+      at: Math.min(12, n + 1),
+    },
+    {
+      p: "text",
+      x: x0 + lineW + 40,
+      y: base - RESULT_PX * 0.9,
+      size: RESULT_PX,
+      role: "a",
+      anchor: "start",
+      weight: 700,
+      text: res,
+      cam: true,
+      at: Math.min(12, n + 2),
+    },
+  );
+  if (t.reported) {
+    const mx = x0 + lineW + 40 + resW;
+    const mh = 72;
+    prims.push(
+      {
+        p: "rect",
+        x: mx,
+        y: base - mh + 10,
+        w: matchW,
+        h: mh,
+        role: "d",
+        width: 2,
+        radius: 14,
+        at: Math.min(12, n + 3),
+      },
+      {
+        p: "text",
+        x: mx + 28,
+        y: base - mh + 10 + (mh - TYPE.label * 1.18) / 2,
+        size: TYPE.label,
+        role: "d",
+        anchor: "start",
+        slot: "match",
+        at: Math.min(12, n + 3),
+      },
+    );
+  }
+  // Centred down the scene; across, the wider of the top and the row sets the left edge.
+  const contentH = y + resultH;
+  const dy = Math.max(0, (H - contentH) / 2);
+  const topW = across ? eqW + gap + chipW : Math.max(eqW, chipsRow);
+  const dx = Math.max(0, (W - Math.max(rowW, topW)) / 2);
+  return {
+    rasters: {},
+    frames: [{ id: "terms", prims: prims.map((q) => shiftPrim(q, dx, dy)), vars: {} }],
+    data: { result: res },
+    vars: {},
+  };
 }

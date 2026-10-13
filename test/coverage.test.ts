@@ -1473,7 +1473,7 @@ describe("what the planner is shown", () => {
     expect(Object.keys(LITERAL_KIND_DOCS).sort()).toEqual([...LITERAL_KIND_NAMES].sort());
     for (const k of LITERAL_KIND_NAMES) expect(block).toContain(`  ${k} `);
     // The slots and the op library are listed from the tables the build and the gate read.
-    expect(block).toContain("· output (required, may name {max}, {sum}, {mean})");
+    expect(block).toContain("· output (optional, may name {max}, {sum}, {mean})");
     for (const op of Object.keys(LITERAL_OPS)) expect(block).toContain(`  ${op} `);
     expect(block).toContain("THE GROUNDING LADDER");
     expect(sourceBlocks(analysis, classic)).not.toContain("LITERAL SCENES");

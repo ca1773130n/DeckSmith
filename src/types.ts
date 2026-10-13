@@ -1242,7 +1242,19 @@ export const LITERAL_ROLE_NOUNS = {
  */
 export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = {
   operate: {
-    doc: `an input run through a CHAIN of known operations (the op library
+    doc: `a stated formula EVALUATED TERM BY TERM, or an input run through
+                     a chain of operations. TERMS: when the source prints a
+                     formula and the values it is evaluated at, and reports
+                     the result (an expected count, a speedup, a probability),
+                     give \`equation\` (the source's TeX, exactly), \`given\`
+                     ({name, symbol, value as printed, what it is in the deck's
+                     language}) and \`terms\` ({term over k and the given
+                     names, from, to: a number or a given's name, between: the
+                     step from one term to the next as the source would write
+                     it, combine sum · product, reported: the source's own
+                     number for the result}). Each term is a cell, computed;
+                     the result must match \`reported\` or the plan is refused.
+                     Slots \`cell\` ({n}), \`cells\`, \`match\`. CHAIN: an input run through a CHAIN of known operations (the op library
                      below), each output computed for real at build time and
                      revealed on its sentence. The input is a \`picture\` (a beat
                      carrying one), \`vectors\` over \`bins\` (1–2 vectors, e.g.
@@ -1269,8 +1281,22 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      holds for any stated rule over an array: a top-k, a
                      softmax, a cumulative sum, a threshold.`,
     slots: {
-      input: { what: "title of the input" },
-      output: { what: "title of the last output", vars: ["max", "sum", "mean"] },
+      input: { what: "op chains: title of the input (required with a chain)", optional: true },
+      output: {
+        what: "op chains: title of the last output (required with a chain)",
+        vars: ["max", "sum", "mean"],
+        optional: true,
+      },
+      cell: {
+        what: "terms: each cell's title, with {n} its place (e.g. 'token {n}')",
+        vars: ["n"],
+        optional: true,
+      },
+      cells: { what: "terms: under the cells, what a cell's number is", optional: true },
+      match: {
+        what: "terms: beside the result, the source's own number it matches and where (required with `reported`)",
+        optional: true,
+      },
       condition: {
         what: "title of the degraded input (required with `condition`)",
         optional: true,
@@ -1639,7 +1665,36 @@ export const literalSchema = z.discriminatedUnion("kind", [
     condition: z
       .object({ how: z.enum(["contrast", "noise", "blur"]), amount: z.number() })
       .optional(),
-    chain: z.array(opSchema),
+    chain: z.array(opSchema).default([]),
+    /** terms: the source's own equation over them, its TeX exactly as the source prints it. */
+    equation: z.string().optional(),
+    /** terms: the values the source states, each with what it is (in the deck's language). */
+    given: z
+      .array(
+        z.object({
+          name: z.string(),
+          value: z.string(),
+          symbol: z.string().optional(),
+          what: z.string(),
+        }),
+      )
+      .default([]),
+    /**
+     * A stated formula evaluated term by term on `given`: `term` over k (and the
+     * given names), k from `from` to `to` (a number or a given's name), each term a
+     * cell; `combine` sum or product; `reported` the source's own number for the
+     * result, which the computed one must match.
+     */
+    terms: z
+      .object({
+        term: z.string(),
+        from: z.int(),
+        to: z.string(),
+        between: z.string().optional(),
+        combine: z.enum(["sum", "product"]),
+        reported: z.string().optional(),
+      })
+      .optional(),
     compare: z.enum(["none", "condition", "params"]).default("none"),
     /** compare params: step `step` (1-based) with these params instead. */
     alt: z

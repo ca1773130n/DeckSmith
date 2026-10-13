@@ -378,6 +378,45 @@ const FIXTURES: Fixture[] = [
       labels: L({ input: "a frame", output: "floor", example: "example" }),
     },
   },
+  {
+    name: "tokens one verification yields",
+    domain: "language-models",
+    lit: {
+      kind: "operate",
+      equation: String.raw`E(\#\ tokens)=\frac{1-\alpha^{\gamma+1}}{1-\alpha}`,
+      given: [
+        { name: "alpha", symbol: "α", value: "0.8", what: "acceptance rate" },
+        { name: "gamma", symbol: "γ", value: "5", what: "drafts per call" },
+      ],
+      terms: { term: "α^k", from: 0, to: "gamma", between: "×α", combine: "sum", reported: "3.69" },
+      labels: L({
+        cell: "token {n}",
+        cells: "a cell: the chance that token appears",
+        match: "Table 1: 3.69×",
+      }),
+    },
+  },
+  {
+    name: "an annuity's present value",
+    domain: "finance",
+    lit: {
+      kind: "operate",
+      equation: String.raw`PV=\sum_{k=1}^{n}\frac{1}{(1+r)^k}`,
+      given: [
+        { name: "r", value: "0.05", what: "rate a year" },
+        { name: "n", value: "5", what: "years" },
+      ],
+      terms: {
+        term: "1/(1+r)^k",
+        from: 1,
+        to: "n",
+        between: "÷1.05",
+        combine: "sum",
+        reported: "4.33",
+      },
+      labels: L({ cell: "year {n}", match: "the table's 4.33" }),
+    },
+  },
   /* evolve */
   {
     name: "calibrated threshold, frozen",
@@ -1085,7 +1124,7 @@ function draw(f: Fixture) {
 /** The form a fixture exercises, for the fill floors and the registry. */
 function formOf(lit: Literal): string {
   if (lit.kind === "operate")
-    return `operate:${lit.picture ? "map" : lit.vectors.length ? "profile" : "grid"}`;
+    return `operate:${lit.terms ? "terms" : lit.picture ? "map" : lit.vectors.length ? "profile" : "grid"}`;
   if (lit.kind === "evolve") return `evolve:${lit.rule}${lit.how ? `:${lit.how}` : ""}`;
   if (lit.kind === "flow") return `flow:${lit.form}`;
   if (lit.kind === "place") return `place:${placeForm(lit)}:${lit.form}`;
@@ -1113,6 +1152,8 @@ function covers(lit: Literal): string[] {
 /** The least share of the region a form's frames cover once revealed (`frameFill`). */
 const FILL: Record<string, number> = {
   "operate:map": 0.45,
+  // Cells, chips and a line of words: what they must do is span the region (held below).
+  "operate:terms": 0.12,
   "operate:profile": 0.5,
   "operate:grid": 0.3,
   // Rows paint little: the lit row's panel, the bars, the legend's swatches.
@@ -1252,7 +1293,12 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
           }
       });
       it("a flow chain's or marked picture's content spans the region the deck's gate measures", () => {
-        if (!(["flow:chain", "region:marks"].includes(formOf(d.lit)) || d.lit.kind === "evolve"))
+        if (
+          !(
+            ["flow:chain", "region:marks", "operate:terms"].includes(formOf(d.lit)) ||
+            d.lit.kind === "evolve"
+          )
+        )
           return;
         for (const fr of d.r.frames) {
           const bs = fr.prims.map(boxOf);
@@ -1277,6 +1323,7 @@ describe("the library holds only what is general", () => {
         d.how ? Object.keys(d.how).map((h) => `op:${name}:${h}`) : [`op:${name}`],
       ),
       "operate:map",
+      "operate:terms",
       "operate:profile",
       "operate:grid",
       "condition:contrast",
@@ -1717,6 +1764,15 @@ describe("what each verb refuses", () => {
         labels: L({ unit: "u", example: "example" }),
       })[0],
     ).toMatch(/at most 4 kinds of run/);
+  });
+
+  it("operate terms: a result that does not match the source's is refused", () => {
+    const f = FIXTURES.find((x) => x.name === "tokens one verification yields") as Fixture;
+    const lit = f.lit as { terms: Record<string, unknown> };
+    expect(problems({ ...lit, terms: { ...lit.terms, reported: "3.70" } })[0]).toMatch(
+      /come to 3\.6893, and the source reports 3\.70/,
+    );
+    expect(problems({ ...lit, terms: { ...lit.terms, to: "4" } })[0]).toMatch(/come to 3\.3616/);
   });
 
   it("region: more marks than a list holds, words too long for the scene, and no box at build", () => {

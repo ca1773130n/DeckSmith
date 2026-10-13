@@ -358,6 +358,7 @@ export function boxOf(p: Prim): { x: number; y: number; w: number; h: number } {
   switch (p.p) {
     case "rect":
     case "image":
+    case "tex":
       return { x: p.x, y: p.y, w: p.w, h: p.h };
     case "circle":
       return { x: p.cx - p.r, y: p.cy - p.r, w: 2 * p.r, h: 2 * p.r };
