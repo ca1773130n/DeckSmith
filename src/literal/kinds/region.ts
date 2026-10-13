@@ -1,30 +1,29 @@
 /**
- * region — parts of a picture picked out by a RULE, never by coordinates the
- * planner cannot see: `cut` crops (`count` random crops of side `size`, drawn
- * to scale on the picture at the training size `resize`, then `gather`ed into
- * one batch), grid (cells of side `size`, lit row by row), panels (the
- * source's own figure split along its blank gutters, `findPanels`, each panel
- * then zoomed on its own sentence) or rows (the figure's horizontal bands —
- * lines of a worked example — `findBands`, each band stepped through on its
- * sentence at a readable size, panned across when it is wider than the scene).
- * The crops' positions are random, as training draws them, from a seeded
- * generator: the same plan cuts the same crops.
+ * region — the things in a picture the source says matter, picked out (the
+ * approved look, .planning/designs/2026-10-12-verb-looks/5-region.png): the
+ * picture large on the left, a numbered box on each thing with its number
+ * outside the box, the numbered list of what each means on the right, then the
+ * `outcome` the source draws from them, under a rule. The picture's legend
+ * sits under it. Each thing is revealed with its line; the outcome last.
  *
- * A figure is never shown above twice its own pixels (r3 upscaled a 350px panel
- * about 3×, visibly blurred), and a panel is cut with a margin of the figure's
- * ground and laid out inside the camera's push, so no label at its edge is cut.
+ * The boxes are never the planner's guess: `plan` finds each `thing` in the
+ * panel the scene shows (src/plan/locate.ts) and writes its box, as fractions of
+ * that panel, into the storyboard. The panel is cut as `findPanels` cuts it, at
+ * plan and at build alike. The picture is zoomed onto its marks only as far as
+ * its own pixels allow (`MAX_UPSCALE`) and never past `CONTEXT` of the panel:
+ * a stop sign alone says nothing.
  *
- * The picture is example material (the gate requires the tag); the sizes and
- * the count are the source's. The cut pieces are left for a later `evolve` to
- * stream (`material.tiles`).
+ * ROWS (`cut` rows, moving to `evolve`): the figure's horizontal bands — lines
+ * of a worked example — `findBands`, each band stepped through on its sentence
+ * at a readable size, panned across when it is wider than the scene.
  */
 import type { KindImpl } from "../kind.js";
 import { widthOf } from "../kind.js";
-import { cropOf, cropOrigins, nativeSize } from "../kinds-shared.js";
+import { nativeSize } from "../kinds-shared.js";
 import { type Rgb, readRgb } from "../kit.js";
 import { type Tensor, tensor } from "../ops.js";
 import type { Frame, MechanismResult, Prim, Raster } from "./common.js";
-import { fitBox, resample, TYPE } from "./common.js";
+import { fitBox, TYPE, wrapBy } from "./common.js";
 import { num } from "./read.js";
 import {
   placeholderPicture,
@@ -38,210 +37,352 @@ import {
 
 type Ctx = VerbCtx<"region">;
 
-/** The picture as training sees it: resized to `resize`×`resize` (its middle square), or as it is. */
-export async function trainingPicture(
-  image: string,
-  resize: number | undefined,
-  maxSide = 1600,
-): Promise<Rgb> {
-  const { w, h } = await nativeSize(image);
-  const k = Math.min(1, maxSide / Math.max(w, h));
-  const full = await readRgb(image, Math.round(w * k), Math.round(h * k));
-  if (resize === undefined) return full;
-  const side = Math.min(full.w, full.h);
-  return resample(
-    cropOf(full, Math.floor((full.w - side) / 2), Math.floor((full.h - side) / 2), side),
-    resize,
-    resize,
-  );
-}
-
-/** The longest side a figure is read at for panels and rows: its own pixels, up to this. */
+/** The longest side a figure is read at: its own pixels, up to this. */
 export const FIGURE_SIDE = 3200;
 
-/** How many panels the build will cut a figure file into (`findPanels`, as `panels` reads it). */
+/** A figure at its own pixels (at most `FIGURE_SIDE` a side). */
+export async function readFigure(image: string): Promise<Rgb> {
+  const { w, h } = await nativeSize(image);
+  const k = Math.min(1, FIGURE_SIDE / Math.max(w, h));
+  return readRgb(image, Math.round(w * k), Math.round(h * k));
+}
+
+/** How many panels the build will cut a figure file into (`findPanels`). */
 export async function figurePanels(image: string): Promise<number> {
-  return findPanels(await trainingPicture(image, undefined, FIGURE_SIDE)).length;
+  return findPanels(await readFigure(image)).length;
 }
 
 /** How many bands the build will cut a figure file into (`findBands`, as `rows` reads it). */
 export async function figureBands(image: string): Promise<number> {
-  return findBands(await trainingPicture(image, undefined, FIGURE_SIDE)).length;
+  return findBands(await readFigure(image)).length;
+}
+
+/** The picture a marked scene shows: the figure's `panel` (1-based), or all of it. */
+export function panelOf(fig: Rgb, panel: number | undefined): Rgb {
+  if (panel === undefined) return fig;
+  const found = cutOf(fig, "panels");
+  const b = found[panel - 1];
+  if (!b)
+    throw new Error(
+      `region: \`panel\` is ${panel} and the figure has ${found.length} panel${found.length === 1 ? "" : "s"}`,
+    );
+  return crop(fig, b);
 }
 
 /** The most a figure is magnified over its own pixels: past it a crop shows its blur. */
 export const MAX_UPSCALE = 2;
 
 export function region(c: Ctx): MechanismResult {
-  const d = c.lit;
-  if (!c.labels.picture?.trim()) throw new Error("region needs the `picture` slot");
-  if (d.cut === "panels" || d.cut === "rows") {
+  if (c.lit.cut === "rows") {
+    if (!c.labels.picture?.trim()) throw new Error("region rows needs the `picture` slot");
     const fig = c.dry ? placeholderFigure() : c.image;
     if (!fig) throw new Error("region: the figure did not resolve to an image");
-    return d.cut === "panels" ? withPushRoom(panels)({ ...c, image: fig }) : rows(c, fig);
+    return rows(c, fig);
   }
-  if (!d.size) throw new Error(`region ${d.cut} needs \`size\`: the piece's side`);
-  const size = num(d.size.value, "region size");
-  const resize = d.resize ? num(d.resize.value, "region resize") : undefined;
-  if (!Number.isInteger(size) || size < 2)
-    throw new Error("region size must be a whole number of pixels ≥ 2");
-  if (resize !== undefined && (!Number.isInteger(resize) || resize < size))
-    throw new Error("region resize must be a whole number of pixels, at least the size");
-  // At plan time the picture is a placeholder at the training size.
-  const img = c.dry
-    ? resample(
-        placeholderPicture(),
-        resize ?? Math.max(4 * size, 512),
-        resize ?? Math.max(3 * size, 384),
-      )
-    : c.image;
-  if (!img) throw new Error("region: the picture did not resolve to an image");
-  if (img.w < size || img.h < size)
-    throw new Error(`region: a ${size}px piece does not fit the ${img.w}×${img.h} picture`);
-  return d.cut === "crops" ? crops(c, img, size) : grid(c, img, size);
+  // At plan time: a photo-shaped placeholder; the panel is checked against the figure's count.
+  const pic = c.dry ? placeholderPhoto() : c.image && panelOf(c.image, c.lit.panel);
+  if (!pic) throw new Error("region: the picture did not resolve to an image");
+  return withPushRoom(marked)({ ...c, image: pic });
 }
 
 const asTensor = (r: Rgb): Tensor => tensor(r.h, r.w, 3, r.d);
 
-function crops(c: Ctx, img: Rgb, size: number): MechanismResult {
+/* -------------------------------------------------------- the marked picture */
+
+/** The list beside the picture: its width, a share of the scene's, within these. */
+const SIDE_MIN = 440;
+const SIDE_MAX = 560;
+const SIDE_SHARE = 0.34;
+const COL_GAP = 50;
+/** A number's disc, and its gap to its box. */
+const BADGE = 56;
+const BADGE_GAP = 10;
+const ROW_GAP = 30;
+const LINE = Math.round(TYPE.label * 1.3);
+/** The least share of the panel a zoom keeps: the things in their scene. */
+const CONTEXT = 0.6;
+/** Room kept around the marks' union when zooming, as a share of the panel's shorter side. */
+const MARGIN = 0.12;
+const LEGEND_GAP = 24;
+const MAX_MARKS = 5;
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const overlap = (a: Box, b: Box) =>
+  Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+  Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+/** Plan time: marks spread across the placeholder, where the locator has not looked yet. */
+const placeholderBox = (i: number, n: number): Box => ({
+  x: 0.15 + (0.7 * i) / n,
+  y: 0.45,
+  w: 0.08,
+  h: 0.12,
+});
+
+function marked(c: Ctx): MechanismResult {
   const d = c.lit;
-  if (!d.count) throw new Error("region crops needs `count`: how many crops (the batch)");
-  const n = num(d.count.value, "region count");
-  if (!Number.isInteger(n) || n < 1 || n > 8)
-    throw new Error(`region draws 1–8 crops, got ${d.count.value}`);
-  if (d.gather && !c.labels.batch?.trim())
-    throw new Error("region `gather` needs the `batch` slot");
-  const origins = cropOrigins(img.w, img.h, size, n, 4);
-  const pieces = origins.map(([x, y]) => cropOf(img, x, y, size));
-  const { width: W, height: H } = c.region;
-  const top = 64;
-  const tray = d.gather ? Math.min(560, W * 0.34) : 0;
-  const B = fitBox(img.w, img.h, 0, top, W - tray - (tray ? 48 : 0), H - top);
-  const k = B.w / img.w;
-  const rasters: Record<string, Raster> = { pic: rasterOf(asTensor(img)) };
-  pieces.forEach((p, i) => {
-    rasters[`c${i}`] = rasterOf(asTensor(p));
+  const pic = c.image as Rgb;
+  const n = d.marks.length;
+  if (n < 1 || n > MAX_MARKS)
+    throw new Error(`region marks 1–${MAX_MARKS} things in the picture, got ${n}`);
+  // Each mark's box in the panel's pixels.
+  const boxes = d.marks.map((m, i): Box => {
+    const b = m.box ?? (c.dry ? placeholderBox(i, n) : undefined);
+    if (!b)
+      throw new Error(
+        `region: mark ${i + 1} ("${m.thing}") has no box. \`decksmith plan\` finds each thing in the picture and writes it`,
+      );
+    if (!(b.w > 0 && b.h > 0 && b.x >= 0 && b.y >= 0 && b.x + b.w <= 1.001 && b.y + b.h <= 1.001))
+      throw new Error(`region: mark ${i + 1}'s box is not inside the picture (fractions 0..1)`);
+    return { x: b.x * pic.w, y: b.y * pic.h, w: b.w * pic.w, h: b.h * pic.h };
   });
-  const pic: Prim[] = [
-    { p: "text", x: B.x, y: 8, size: TYPE.body, role: "fg", anchor: "start", slot: "picture" },
-    { p: "image", x: B.x, y: B.y, w: B.w, h: B.h, layer: "pic", cam: true },
-  ];
-  const boxes = (reveal: boolean): Prim[] =>
-    origins.map(
-      ([x, y], i) =>
-        ({
-          p: "rect",
-          x: B.x + x * k,
-          y: B.y + y * k,
-          w: size * k,
-          h: size * k,
-          role: "accent",
-          width: 5,
-          cam: true,
-          ...(reveal ? { at: i + 1 } : {}),
-        }) as Prim,
+  const { width: W, height: H } = c.region;
+  const legend = c.labels.legend?.trim();
+  const legendH = legend ? LEGEND_GAP + Math.round(TYPE.label * 1.18) : 0;
+  if (legend && c.measure(legend, TYPE.label) > W)
+    throw new Error("region: the `legend` is wider than the scene; shorten it");
+
+  // The list: each mark's number and its words, then the outcome under a rule.
+  const sideW = Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, W * SIDE_SHARE)));
+  const textW = sideW - BADGE - 20;
+  const rowsOf = d.marks.map((m) => wrapBy(m.text, TYPE.label, textW, c.measure));
+  const outcome = d.outcome && {
+    title: wrapBy(d.outcome.title, TYPE.label, sideW, c.measure),
+    lines: d.outcome.lines.flatMap((l) => wrapBy(l, TYPE.label, sideW, c.measure)),
+  };
+  if (d.outcome && (d.outcome.lines.length < 1 || d.outcome.lines.length > 3))
+    throw new Error("region `outcome` takes 1–3 lines");
+  const rowH = rowsOf.map((ls) => Math.max(BADGE, ls.length * LINE));
+  const outcomeH = outcome
+    ? ROW_GAP + 2 + 28 + (outcome.title.length + outcome.lines.length) * LINE
+    : 0;
+  const sideH = rowH.reduce((a, b) => a + b, 0) + (n - 1) * ROW_GAP + outcomeH;
+  if (sideH > H)
+    throw new Error(
+      `region: the list of ${n} marks${outcome ? " and the outcome" : ""} is ${Math.round(sideH)}px tall and the scene holds ${Math.round(H)}px: give shorter \`text\` or fewer marks`,
     );
-  const frames: Frame[] = [{ id: "cut", prims: [...pic, ...boxes(true)], vars: {} }];
-  if (d.gather) {
-    const tx = W - tray;
-    const cols = n <= 2 ? 1 : 2;
-    const rows = Math.ceil(n / cols);
-    const ts = Math.min((tray - (cols - 1) * 16) / cols, (H - top - (rows - 1) * 16) / rows);
-    frames.push({
-      id: "batch",
-      prims: [
-        ...pic,
-        ...boxes(false),
-        { p: "text", x: tx, y: 8, size: TYPE.body, role: "fg", anchor: "start", slot: "batch" },
-        ...pieces.map(
-          (_, i) =>
-            ({
-              p: "image",
-              x: tx + (i % cols) * (ts + 16),
-              y: top + Math.floor(i / cols) * (ts + 16),
-              w: ts,
-              h: ts,
-              layer: `c${i}`,
-              at: i + 1,
-            }) as Prim,
-        ),
-      ],
-      vars: {},
+
+  // The window shown: the marks with room around them, in the panel's own shape, at
+  // least CONTEXT of it, and no more magnified than its pixels allow.
+  const areaW = W - sideW - COL_GAP;
+  const areaH = H - legendH;
+  const ux0 = Math.min(...boxes.map((b) => b.x));
+  const uy0 = Math.min(...boxes.map((b) => b.y));
+  const ux1 = Math.max(...boxes.map((b) => b.x + b.w));
+  const uy1 = Math.max(...boxes.map((b) => b.y + b.h));
+  const m = MARGIN * Math.min(pic.w, pic.h);
+  const fit = Math.min(areaW / pic.w, areaH / pic.h);
+  const f = Math.min(
+    1,
+    Math.max(CONTEXT, (ux1 - ux0 + 2 * m) / pic.w, (uy1 - uy0 + 2 * m) / pic.h, fit / MAX_UPSCALE),
+  );
+  const win: Box = { x: 0, y: 0, w: Math.round(f * pic.w), h: Math.round(f * pic.h) };
+  win.x = Math.round(Math.min(pic.w - win.w, Math.max(0, (ux0 + ux1) / 2 - win.w / 2)));
+  win.y = Math.round(Math.min(pic.h - win.h, Math.max(0, (uy0 + uy1) / 2 - win.h / 2)));
+  const k = Math.min(fit / f, MAX_UPSCALE);
+  const P: Box = { x: 0, y: 0, w: win.w * k, h: win.h * k };
+  if (P.w < areaW * 0.5)
+    throw new Error("region: the picture is too small to show beside its list; mark fewer things");
+
+  // The group — picture, gap, list — centred across, the taller of the two centred down.
+  const groupW = P.w + COL_GAP + sideW;
+  const ox = Math.max(0, (W - groupW) / 2);
+  const leftH = P.h + legendH;
+  const oy = Math.max(0, (H - Math.max(leftH, sideH)) / 2);
+  P.x = ox;
+  P.y = oy + Math.max(0, (sideH - leftH) / 2);
+  const sx = ox + P.w + COL_GAP;
+  const sy = oy + Math.max(0, (leftH - sideH) / 2);
+
+  const shown = boxes.map(
+    (b): Box => ({
+      x: P.x + (b.x - win.x) * k,
+      y: P.y + (b.y - win.y) * k,
+      w: b.w * k,
+      h: b.h * k,
+    }),
+  );
+  // Each number outside its box: right, left, above or below — the side that
+  // covers the least of the other boxes and numbers, inside the picture.
+  const placed: Box[] = [];
+  const badges = shown.map((b) => {
+    const cy = b.y + b.h / 2 - BADGE / 2;
+    const cx = b.x + b.w / 2 - BADGE / 2;
+    const tries: Box[] = [
+      { x: b.x + b.w + BADGE_GAP, y: cy, w: BADGE, h: BADGE },
+      { x: b.x - BADGE_GAP - BADGE, y: cy, w: BADGE, h: BADGE },
+      { x: cx, y: b.y - BADGE_GAP - BADGE, w: BADGE, h: BADGE },
+      { x: cx, y: b.y + b.h + BADGE_GAP, w: BADGE, h: BADGE },
+    ];
+    const cost = (t: Box) => {
+      const out =
+        Math.max(0, P.x - t.x) +
+        Math.max(0, t.x + t.w - P.x - P.w) +
+        Math.max(0, P.y - t.y) +
+        Math.max(0, t.y + t.h - P.y - P.h);
+      return (
+        out * 1e4 +
+        [...shown, ...placed].reduce(
+          (s, o) => s + overlap(t, { x: o.x - 6, y: o.y - 6, w: o.w + 12, h: o.h + 12 }),
+          0,
+        )
+      );
+    };
+    const best = tries.reduce((a, t) => (cost(t) < cost(a) ? t : a));
+    placed.push(best);
+    return best;
+  });
+
+  // A number on its disc. Never faded: dark digits on a disc at the preview's
+  // opacity read at 1.78:1 (contrast_aa_failure, measured on the first build).
+  const badge = (x: number, y: number, i: number, step: Partial<Prim>): Prim[] => [
+    { p: "circle", cx: x + BADGE / 2, cy: y + BADGE / 2, r: BADGE / 2, fill: "b", ...step } as Prim,
+    {
+      p: "text",
+      x: x + BADGE / 2,
+      y: y + (BADGE - TYPE.label) / 2 - TYPE.label * 0.05,
+      size: TYPE.label,
+      role: "auto",
+      anchor: "middle",
+      weight: 700,
+      text: String(i + 1),
+      ...step,
+    } as Prim,
+  ];
+  const prims: Prim[] = [
+    { p: "image", x: P.x, y: P.y, w: P.w, h: P.h, layer: "pic", cam: true },
+    ...(legend
+      ? [
+          {
+            p: "text",
+            x: P.x,
+            y: P.y + P.h + LEGEND_GAP,
+            size: TYPE.label,
+            role: "muted",
+            anchor: "start",
+            slot: "legend",
+          } as Prim,
+        ]
+      : []),
+  ];
+  let y = sy;
+  d.marks.forEach((_, i) => {
+    const at = i + 1;
+    const b = shown[i] as Box;
+    const g = badges[i] as Box;
+    prims.push(
+      // A dark ring under the stroke, so the box reads on a bright picture too.
+      {
+        p: "rect",
+        x: b.x,
+        y: b.y,
+        w: b.w,
+        h: b.h,
+        role: "panel",
+        width: 11,
+        opacity: 0.55,
+        radius: 10,
+        cam: true,
+        at,
+        wipe: true,
+      },
+      {
+        p: "rect",
+        x: b.x,
+        y: b.y,
+        w: b.w,
+        h: b.h,
+        role: "b",
+        width: 5,
+        radius: 10,
+        cam: true,
+        at,
+        wipe: true,
+      },
+      // On the picture: drawn in at its step (a wipe is never previewed). In the
+      // list: there from the start, the list's numbered skeleton.
+      ...badge(g.x, g.y, i, { at, wipe: true, cam: true }),
+      ...badge(sx, y, i, {}),
+    );
+    const ls = rowsOf[i] as string[];
+    ls.forEach((t, j) => {
+      prims.push({
+        p: "text",
+        x: sx + BADGE + 20,
+        y: y + (BADGE - TYPE.label * 1.18) / 2 + j * LINE,
+        size: TYPE.label,
+        role: "fg",
+        anchor: "start",
+        text: t,
+        at,
+      });
     });
+    y += (rowH[i] as number) + ROW_GAP;
+  });
+  if (outcome) {
+    const at = n + 1;
+    prims.push({ p: "rect", x: sx, y, w: sideW, h: 2, fill: "rule", at });
+    y += 2 + 28;
+    for (const t of outcome.title) {
+      prims.push({
+        p: "text",
+        x: sx,
+        y,
+        size: TYPE.label,
+        role: "fg",
+        anchor: "start",
+        text: t,
+        at,
+      });
+      y += LINE;
+    }
+    for (const t of outcome.lines) {
+      prims.push({
+        p: "text",
+        x: sx,
+        y,
+        size: TYPE.label,
+        role: "d",
+        anchor: "start",
+        weight: 600,
+        text: t,
+        at,
+      });
+      y += LINE;
+    }
   }
   return {
-    rasters,
-    frames,
+    rasters: { pic: rasterOf(asTensor(crop(pic, win))) },
+    frames: [{ id: "marks", prims, vars: {}, preview: true }],
     data: { thumb: "pic" },
     vars: {},
-    material: { tiles: pieces.map(asTensor) },
   };
 }
 
-function grid(c: Ctx, img: Rgb, size: number): MechanismResult {
-  const cols = Math.floor(img.w / size);
-  const rows = Math.floor(img.h / size);
-  if (cols > 32 || rows > 32)
-    throw new Error(`region grid of ${cols}×${rows} cells is too fine to draw; at most 32×32`);
-  const { width: W, height: H } = c.region;
-  const top = 64;
-  const B = fitBox(img.w, img.h, 0, top, W, H - top);
-  const k = B.w / img.w;
-  const prims: Prim[] = [
-    { p: "text", x: B.x, y: 8, size: TYPE.body, role: "fg", anchor: "start", slot: "picture" },
-    { p: "image", x: B.x, y: B.y, w: B.w, h: B.h, layer: "pic", cam: true },
-  ];
-  for (let q = 0; q <= cols; q++)
-    prims.push({
-      p: "line",
-      x1: B.x + q * size * k,
-      y1: B.y,
-      x2: B.x + q * size * k,
-      y2: B.y + rows * size * k,
-      role: "fg",
-      width: 2,
-      opacity: 0.7,
-      cam: true,
-    });
-  for (let r = 0; r <= rows; r++)
-    prims.push({
-      p: "line",
-      x1: B.x,
-      y1: B.y + r * size * k,
-      x2: B.x + cols * size * k,
-      y2: B.y + r * size * k,
-      role: "fg",
-      width: 2,
-      opacity: 0.7,
-      cam: true,
-    });
-  // Rows lit in turn (grouped when there are more than twelve).
-  const per = Math.ceil(rows / 12);
-  for (let r = 0; r < rows; r++)
-    prims.push({
-      p: "rect",
-      x: B.x,
-      y: B.y + r * size * k,
-      w: cols * size * k,
-      h: size * k,
-      fill: "accent",
-      opacity: 0.22,
-      cam: true,
-      at: Math.floor(r / per) + 1,
-      wipe: true,
-    });
-  const tiles: Tensor[] = [];
-  for (let r = 0; r < rows && tiles.length < 24; r++)
-    for (let q = 0; q < cols && tiles.length < 24; q++)
-      tiles.push(asTensor(cropOf(img, q * size, r * size, size)));
-  return {
-    rasters: { pic: rasterOf(asTensor(img)) },
-    frames: [{ id: "grid", prims, vars: {} }],
-    data: { thumb: "pic" },
-    vars: {},
-    material: { tiles },
-  };
+/** At plan time: a photo's shape at a photo's pixels, where the marks are laid out. */
+function placeholderPhoto(): Rgb {
+  photo ??= (() => {
+    const p = placeholderPicture();
+    const w = 1280;
+    const h = 720;
+    const d = new Float32Array(w * h * 3);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        for (let k = 0; k < 3; k++)
+          d[(y * w + x) * 3 + k] = p.d[
+            (Math.floor((y * p.h) / h) * p.w + Math.floor((x * p.w) / w)) * 3 + k
+          ] as number;
+    return { w, h, d };
+  })();
+  return photo;
 }
+let photo: Rgb | undefined;
 
 /* ----------------------------------------------------------------- panels */
 
@@ -260,8 +401,9 @@ export interface PanelBox {
  * differs from it by more than 0.1 on any channel. A box is trimmed to its ink,
  * then split at the middle of its widest blank run of rows or columns, if that
  * run is at least 1.5% of the figure's side and leaves two parts big enough to
- * be panels (each side 12% of the figure's shorter side, each 3% of its area).
- * What cannot be split is a panel. Read in rows (top to bottom, a row being
+ * be panels (each side 12% of the figure's shorter side, each 3% of its area);
+ * failing that, at a gutter that splits off a part too small to be a panel (a
+ * title strip, a caption), which is dropped. What cannot be split is a panel. Read in rows (top to bottom, a row being
  * panels whose tops are within 10% of the figure's height), left to right in
  * each. Deterministic: the same figure gives the same panels.
  */
@@ -330,21 +472,25 @@ export function findPanels(img: Rgb): PanelBox[] {
           [false, ...gutter(b, false)],
         ] as Array<[boolean, number, number]>
       ).sort((p, q) => q[2] - p[2]);
-      for (const [rows, start, len] of tries) {
-        if (len < gutterMin(rows ? H : W)) continue;
-        const mid = start + Math.floor(len / 2);
-        const a = rows ? { ...b, h: mid } : { ...b, w: mid };
-        const z = rows
-          ? { x: b.x, y: b.y + mid, w: b.w, h: b.h - mid }
-          : { x: b.x + mid, y: b.y, w: b.w - mid, h: b.h };
-        const ta = trim(a);
-        const tz = trim(z);
-        if (ta && tz && fits(ta) && fits(tz)) {
-          cut(a, depth + 1);
-          cut(z, depth + 1);
-          return;
+      // Two panels if a gutter leaves them; else a title strip split off (and
+      // dropped) from one panel: a figure whose panels' title bars run edge
+      // to edge, so the gutter between its photos is blank only under them.
+      for (const strip of [false, true])
+        for (const [rows, start, len] of tries) {
+          if (len < gutterMin(rows ? H : W)) continue;
+          const mid = start + Math.floor(len / 2);
+          const a = rows ? { ...b, h: mid } : { ...b, w: mid };
+          const z = rows
+            ? { x: b.x, y: b.y + mid, w: b.w, h: b.h - mid }
+            : { x: b.x + mid, y: b.y, w: b.w - mid, h: b.h };
+          const ta = trim(a);
+          const tz = trim(z);
+          if (ta && tz && (strip ? fits(ta) !== fits(tz) : fits(ta) && fits(tz))) {
+            cut(a, depth + 1);
+            cut(z, depth + 1);
+            return;
+          }
         }
-      }
     }
     if (fits(b)) leaves.push(b);
   };
@@ -581,16 +727,6 @@ function grow(img: Rgb, b: PanelBox, m: number): PanelBox {
   };
 }
 
-/** The largest box of `w`×`h`'s aspect in the area, at most `MAX_UPSCALE` times its pixels. */
-function sharpBox(w: number, h: number, bx: number, by: number, bw: number, bh: number) {
-  const f = fitBox(w, h, bx, by, bw, bh);
-  const k = f.w / w;
-  if (k <= MAX_UPSCALE) return f;
-  const W = w * MAX_UPSCALE;
-  const H = h * MAX_UPSCALE;
-  return { x: bx + (bw - W) / 2, y: by + (bh - H) / 2, w: W, h: H };
-}
-
 function crop(img: Rgb, b: PanelBox): Rgb {
   const d = new Float32Array(b.w * b.h * 3);
   for (let y = 0; y < b.h; y++)
@@ -600,106 +736,12 @@ function crop(img: Rgb, b: PanelBox): Rgb {
   return { w: b.w, h: b.h, d };
 }
 
-function panels(c: Ctx): MechanismResult {
-  const img = c.image as Rgb;
-  const d = c.lit;
-  const found = cutOf(img, "panels");
-  if (found.length < 2)
-    throw new Error(
-      `region panels: the figure has no blank gutters to split it by (found ${found.length} panel); draw it as a figure, not as panels`,
-    );
-  const want = d.count ? num(d.count.value, "region count") : Math.min(6, found.length);
-  if (!Number.isInteger(want) || want < 2 || want > 6)
-    throw new Error(`region panels shows 2–6 panels, got ${want}`);
-  if (want > found.length)
-    throw new Error(
-      `region panels: \`count\` is ${want} and the figure has ${found.length} panels`,
-    );
-  // Each panel with a margin of its ground: trimmed to its ink, a label's first letter
-  // sat on the cut (r3 B s7 read "mmand" and "locity").
-  const margin = Math.round(0.02 * Math.min(img.w, img.h));
-  const list = found.slice(0, want).map((b) => grow(img, b, margin));
-  const { width: W, height: H } = c.region;
-  const top = 64;
-  const B = fitBox(img.w, img.h, 0, top, W, H - top);
-  const k = B.w / img.w;
-  const rasters: Record<string, Raster> = { pic: rasterOf(asTensor(img)) };
-  const title: Prim = {
-    p: "text",
-    x: 0,
-    y: 8,
-    size: TYPE.body,
-    role: "fg",
-    anchor: "start",
-    slot: "picture",
-  };
-  // The whole figure, its panels outlined one by one.
-  const frames: Frame[] = [
-    {
-      id: "figure",
-      prims: [
-        title,
-        { p: "image", x: B.x, y: B.y, w: B.w, h: B.h, layer: "pic", cam: true },
-        ...list.map(
-          (b, i) =>
-            ({
-              p: "rect",
-              x: B.x + b.x * k,
-              y: B.y + b.y * k,
-              w: b.w * k,
-              h: b.h * k,
-              role: "accent",
-              width: 5,
-              cam: true,
-              at: i + 1,
-            }) as Prim,
-        ),
-      ],
-      vars: {},
-    },
-  ];
-  // Then each panel as large as the region holds, beside the figure in small
-  // with that panel outlined: where in the figure this part sits.
-  const thumbW = Math.min(360, W * 0.24);
-  list.forEach((b, i) => {
-    rasters[`p${i}`] = rasterOf(asTensor(crop(img, b)));
-    const big = sharpBox(b.w, b.h, 0, top, W - thumbW - 32, H - top);
-    const T = fitBox(img.w, img.h, W - thumbW, top, thumbW, (H - top) / 2);
-    const tk = T.w / img.w;
-    frames.push({
-      id: `panel${i}`,
-      prims: [
-        title,
-        { p: "image", x: big.x, y: big.y, w: big.w, h: big.h, layer: `p${i}`, cam: true },
-        { p: "image", x: T.x, y: T.y, w: T.w, h: T.h, layer: "pic", opacity: 0.85 } as Prim,
-        {
-          p: "rect",
-          x: T.x + b.x * tk,
-          y: T.y + b.y * tk,
-          w: b.w * tk,
-          h: b.h * tk,
-          role: "accent",
-          width: 4,
-        },
-      ],
-      vars: {},
-    });
-  });
-  return { rasters, frames, data: { thumb: "pic", panels: list }, vars: {} };
-}
-
-/** region as the build's kind: it reads the picture at the training size, not a display size. */
+/** region as the build's kind: it reads its figure at the figure's own pixels. */
 export const regionKind: KindImpl = {
   picture: true,
   async layers(input) {
     const lit = input.spec.data as Ctx["lit"];
     if (!input.image) throw new Error("literal: the region scene needs its picture");
-    const resize = lit.resize ? num(lit.resize.value, "region resize") : undefined;
-    // Panels and rows read the figure as it is; crops and grid at the training size.
-    const whole = lit.cut === "panels" || lit.cut === "rows";
-    const image = whole
-      ? await trainingPicture(input.image, undefined, FIGURE_SIDE)
-      : await trainingPicture(input.image, resize);
     const r = runVerb(region, {
       lit,
       labels: input.spec.labels,
@@ -707,12 +749,11 @@ export const regionKind: KindImpl = {
       theme: input.theme,
       measure: (t, s) => widthOf(t, s, input.theme),
       dry: false,
-      image,
+      image: await readFigure(input.image),
       earlier: input.earlier,
       assets: {},
     });
-    const L = await writeLayers(r, input.beatId, input.dir);
-    return r.material ? { ...L, material: r.material } : L;
+    return writeLayers(r, input.beatId, input.dir);
   },
   fragment(L, region, cues, spec, theme, href) {
     return stagedFragment("region", L, region, cues, spec, theme, href);

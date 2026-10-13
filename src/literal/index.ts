@@ -86,7 +86,7 @@ export const literalPlanSchema = z.object({
 export type LiteralPlan = z.infer<typeof literalPlanSchema>;
 
 /** The figure a beat shows: its own, a split-compare side's, or its backdrop's. */
-function figureOf(beat: Beat): string | undefined {
+export function figureOf(beat: Beat): string | undefined {
   const p = beat.params as Record<string, unknown>;
   for (const slot of [p, p.left, p.right, p.backdrop]) {
     const id = (slot as { figureId?: unknown } | undefined)?.figureId;

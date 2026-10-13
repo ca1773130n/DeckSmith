@@ -5,9 +5,9 @@
  *
  * - THE VERBS compose general operations on the source's own numbers:
  *   operate (an op chain on a picture, vectors or a matrix), evolve (a state
- *   under a stated rule), flow (stages, a graph, a timeline), place (items on
+ *   under a stated rule), flow (stages, a timeline), place (items on
  *   axes, and the word forms: margins, lengths, combos, sets) and region
- *   (pieces of a picture cut by a stated rule). Most are drawn on the stage
+ *   (the things in a picture, marked; a figure's bands). Most are drawn on the stage
  *   (./kinds/stage.ts).
  * - THE CROSS-CUTTING KINDS: recap (earlier scenes' own layers), prior-work
  *   (families by what an earlier scene computed or by their numbers) and
@@ -25,7 +25,7 @@ import { regionKind } from "./kinds/region.js";
 import { verbKind } from "./kinds/stage.js";
 import { tableKind } from "./kinds/table.js";
 
-/** How large a verb reads its picture, for display (region reads the training size itself). */
+/** How large a verb reads its picture, for display (region reads its figure at its own pixels). */
 export const PICTURE_SIDE = 768;
 
 export const KINDS: Readonly<Record<LiteralKind, KindImpl>> = {

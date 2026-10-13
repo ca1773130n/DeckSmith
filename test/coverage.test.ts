@@ -97,7 +97,10 @@ const analysis = sourceSchema.parse({
       text: "한계.",
     },
   ],
-  figures: [{ id: "gen-b02", src: "gen-b02.png", caption: "aerial", width: 1536, height: 1024 }],
+  figures: [
+    { id: "gen-b02", src: "gen-b02.png", caption: "aerial", width: 1536, height: 1024 },
+    { id: "fig1", src: "f1.png", caption: "Figure 1 the haze", width: 900, height: 600 },
+  ],
   equations: [],
   tables: [],
 });
@@ -165,18 +168,13 @@ const covered = () => [
   },
   beatOf("b02-prior", "prior-work", ["sec3"]),
   beatOf("b03-method", "method", ["sec4"], {
+    archetype: "annotated-figure",
+    params: { headline: "h", figureId: "fig1", notes: [{ x: 0.5, y: 0.5, text: "n" }] },
     literal: {
       kind: "region",
-      picture: "b01-problem",
-      cut: "crops",
-      size: { value: "256" },
-      count: { value: "4" },
-      gather: true,
-      labels: [
-        { slot: "picture", text: "학습 사진" },
-        { slot: "batch", text: "배치" },
-        { slot: "example", text: "예시" },
-      ],
+      picture: "b03-method",
+      marks: [{ thing: "the haze", text: "안개" }],
+      labels: [{ slot: "legend", text: "그림 1" }],
     },
   }),
   beatOf("b04-setup", "experiments", ["sec6"]),
@@ -1200,9 +1198,7 @@ describe("the truth gate grounds every number in its role", () => {
           { id: "b", label: "인코더", learned: true, show: "b01-problem" },
           { id: "c", label: "그림", learned: false, figure: "gen-b02" },
         ],
-        labels: [
-          { slot: "example", text: "예시" },
-        ],
+        labels: [{ slot: "example", text: "예시" }],
       },
     });
     const found = literalFindings(plan(beats), analysis).join("\n");
@@ -1210,38 +1206,33 @@ describe("the truth gate grounds every number in its role", () => {
     expect(found).toMatch(/shows figure "gen-b02", which is not one of the source's own figures/);
   });
 
-  it("walks panels only of the source's own figure, with no size and no example tag", () => {
-    const own = sourceSchema.parse({
-      ...analysis,
-      figures: [
-        ...analysis.figures,
-        { id: "fig1", src: "f1.png", caption: "Figure 1 the model", width: 900, height: 600 },
-      ],
-    });
+  it("marks things only in the source's own figure, in one panel of it", () => {
     const beats = covered();
-    const panels = (figureId: string) =>
+    const marks = (figureId: string, panel?: number) =>
       beatOf("b03-method", "method", ["sec4"], {
         archetype: "stage",
         params: { headline: "h", placement: "bottom-left", figureId },
         literal: {
           kind: "region",
           picture: "b03-method",
-          cut: "panels",
-          labels: [{ slot: "picture", text: "그림 1" }],
+          ...(panel ? { panel } : {}),
+          marks: [{ thing: "the haze", text: "안개" }],
         },
       });
-    beats[3] = panels("fig1");
-    expect(literalFindings(plan(beats), own).join("\n")).not.toMatch(/b03-method's region/);
-    beats[3] = panels("gen-b02");
-    expect(literalFindings(plan(beats), own).join("\n")).toMatch(
-      /walks the panels of "b03-method", which shows none of the source's own figures/,
+    beats[3] = marks("fig1");
+    expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/b03-method's region/);
+    beats[3] = marks("gen-b02");
+    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
+      /marks things in "b03-method", which shows none of the source's own figures/,
     );
-    // Cut as the build cuts it: a figure with no gutters is refused at plan time.
-    beats[3] = panels("fig1");
-    const cut = (n: number) =>
-      literalFindings(plan(beats), own, { panels: { fig1: n } }).join("\n");
-    expect(cut(3)).not.toMatch(/b03-method's region/);
-    expect(cut(1)).toMatch(/walks fig1 panel by panel, and fig1 has no blank gutters/);
+    // The locator finds things in one panel: a figure of several needs `panel`.
+    const cut = (panel?: number) => {
+      beats[3] = marks("fig1", panel);
+      return literalFindings(plan(beats), analysis, { panels: { fig1: 3 } }).join("\n");
+    };
+    expect(cut()).toMatch(/fig1, which has 3 panels: give `panel`/);
+    expect(cut(2)).not.toMatch(/b03-method's region/);
+    expect(cut(4)).toMatch(/marks panel 4 of fig1, which has 3/);
   });
 
   it("asks a plan of a picture paper to use region or operate, once", () => {
@@ -1269,7 +1260,7 @@ describe("the truth gate grounds every number in its role", () => {
   it("advises, once, a plan that draws its mechanism, its numbers or a setup as words", () => {
     expect(slidewareFindings(plan(covered()), analysis)).toEqual([]);
     const beats: Array<Record<string, unknown>> = covered();
-    const words = { ...beats[3], literal: undefined } as Record<string, unknown>;
+    const words = beatOf("b03-method", "method", ["sec4"]) as Record<string, unknown>;
     beats[3] = words;
     expect(slidewareFindings(plan(beats), analysis)).toEqual([
       expect.stringMatching(/b03-method explains the method as stack words\. Draw it with a verb/),
@@ -1280,10 +1271,8 @@ describe("the truth gate grounds every number in its role", () => {
     });
     beats[3] = { ...words, evidence: [sec("sec4"), { kind: "figure", id: "fig1" }] };
     expect(slidewareFindings(plan(beats), withFig).join("\n")).toMatch(
-      /cites fig1: walk that figure with `region` cut panels/,
+      /cites fig1: draw its mechanism as a `flow` chain whose stages show that figure/,
     );
-    // A figure the build cuts into one panel cannot be walked: the general advice instead.
-    expect(slidewareFindings(plan(beats), withFig, { fig1: 1 }).join("\n")).not.toMatch(/fig1/);
     const plain: Array<Record<string, unknown>> = covered();
     plain[2] = { ...plain[2], claim: "EM-SNN reaches 30.56 against 29.73." };
     expect(slidewareFindings(plan(plain), analysis)).toEqual([

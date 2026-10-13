@@ -251,7 +251,7 @@ export function pictureFindings(storyboard: Storyboard, source: Source): string[
       .map((f) => f.id)
       .join(
         ", ",
-      )}…) — and no beat runs \`region\` or \`operate\`. Walk an architecture figure's parts with \`region\` panels on the beat that cites it, or compute an \`operate\` on a picture.`,
+      )}…) — and no beat runs \`region\` or \`operate\`. Mark the things a view turns on with \`region\` (each numbered, with what the source says of it), or compute an \`operate\` on a picture.`,
   ];
 }
 
@@ -272,7 +272,7 @@ const WORD_ARCHETYPES = new Set([
  * chain of name cards and a 2×2 grid of numbers.
  *
  *  - a beat of part "method" with no \`literal\`, drawn as words, is routed to
- *    the verb its evidence allows: region panels on a figure it cites, place
+ *    the verb its evidence allows: a flow showing a figure it cites, place
  *    curves or evolve on an equation, else operate on example vectors, evolve
  *    or a flow timeline;
  *  - a flow chain whose stages are mostly names (no count, figure or layer);
@@ -284,11 +284,7 @@ const WORD_ARCHETYPES = new Set([
  * Advice, not a refusal: whether a verb is honest for a beat depends on what the
  * source prints, which a heuristic cannot settle; the planner gets one look.
  */
-export function slidewareFindings(
-  storyboard: Storyboard,
-  source: Source,
-  panels?: Readonly<Record<string, number>>,
-): string[] {
+export function slidewareFindings(storyboard: Storyboard, source: Source): string[] {
   const out: string[] = [];
   const stated = sourceNumbers(source);
   for (const beat of storyboard.beats) {
@@ -299,15 +295,12 @@ export function slidewareFindings(
         ...figureIds(beat),
         ...beat.evidence.filter((e) => e.kind === "figure").map((e) => e.id),
       ].filter(
-        (id) =>
-          !id.startsWith(GENERATED_FIGURE_PREFIX) &&
-          source.figures.some((f) => f.id === id) &&
-          (panels?.[id] ?? 2) >= 2,
+        (id) => !id.startsWith(GENERATED_FIGURE_PREFIX) && source.figures.some((f) => f.id === id),
       );
       const eq = beat.evidence.some((e) => e.kind === "equation");
       out.push(
         figs.length
-          ? `${beat.id} explains the method as ${beat.archetype} words while it cites ${figs[0]}: walk that figure with \`region\` cut panels on a beat that shows it (each panel on the sentence that names it), or draw the mechanism with a verb. Words in columns are slideware for a mechanism.`
+          ? `${beat.id} explains the method as ${beat.archetype} words while it cites ${figs[0]}: draw its mechanism as a \`flow\` chain whose stages show that figure (\`figure\`), mark the things it shows with \`region\`, or draw it with another verb. Words in columns are slideware for a mechanism.`
           : eq
             ? `${beat.id} explains the method as ${beat.archetype} words while it cites an equation: when the source prints values the rule produces, draw it as a \`place\` plane with \`curves\` (one per stated value of the fixed parameter) or an \`evolve\` formula grounded by its checks; a rule over distributions or arrays is \`operate\` on example \`vectors\`.`
             : `${beat.id} explains the method as ${beat.archetype} words. Draw it with a verb: \`operate\` on example \`vectors\` for a rule over distributions or arrays, \`evolve\` for an update over steps, a \`flow\` timeline for serial against parallel work — or keep it only if none is honest.`,
@@ -319,7 +312,7 @@ export function slidewareFindings(
       );
       if (bare.length * 2 > lit.stages.length)
         out.push(
-          `${beat.id}'s flow chain is mostly name cards (${bare.map((st) => `"${st.label}"`).join(", ")} hold nothing): give each stage what it holds (a stated count, the source's figure, an earlier computed layer), or draw the mechanism as a \`flow\` timeline, an \`evolve\` or \`region\` panels.`,
+          `${beat.id}'s flow chain is mostly name cards (${bare.map((st) => `"${st.label}"`).join(", ")} hold nothing): give each stage what it holds (a stated count, the source's figure, an earlier computed layer), or draw the mechanism as a \`flow\` timeline or an \`evolve\`.`,
         );
     }
     const nums = ((beat.claim ?? "").match(/\d+(?:[.,]\d+)?/g) ?? []).filter((n) => stated.has(n));
@@ -658,6 +651,13 @@ function literalTexts(lit: Literal): string[] {
       ];
     case "table":
       return [...own, ...lit.columns, ...lit.rows.flat()];
+    case "region":
+      // On screen: each mark's words and the outcome; `thing` is the locator's.
+      return [
+        ...own,
+        ...lit.marks.map((m) => m.text),
+        ...(lit.outcome ? [lit.outcome.title, ...lit.outcome.lines] : []),
+      ];
     default:
       return own;
   }
@@ -1502,13 +1502,8 @@ function verbGrounding(
       break;
     }
     case "region":
-      // Panels and rows are the source's own figure cut along its own gutters: no
-      // stated size, nothing example about it, and `count` is how many to walk through.
-      if (lit.cut === "panels" || lit.cut === "rows") break;
-      role(lit.size, LITERAL_ROLE_NOUNS.cut, "the piece size");
-      role(lit.count, LITERAL_ROLE_NOUNS.batch, "the number of crops");
-      role(lit.resize, LITERAL_ROLE_NOUNS.resize, "the training size");
-      example = true;
+      // The source's own figure, its things marked or its bands walked: no stated
+      // number, nothing example about it.
       break;
     case "place":
       for (const c of lit.curves) {
@@ -1706,7 +1701,7 @@ function earlierProblem(
  *
  * `takeaways` asks for a takeaway on every beat but the title, which is what a
  * plan shown the field (src/plan/codex.ts) was asked for. `panels`, when the
- * caller could read the figures, holds a `region` panels walk to the panels the
+ * caller could read the figures, holds a `region`'s `panel` to the panels the
  * build will find.
  */
 export function literalFindings(
@@ -1716,7 +1711,7 @@ export function literalFindings(
   opts: {
     takeaways?: boolean;
     panels?: Readonly<Record<string, number>>;
-    /** Each source figure's band count as \`region\` rows finds it (`figureBands`). */
+    /** Each source figure's band count as `region` rows finds it (`figureBands`). */
     bands?: Readonly<Record<string, number>>;
   } = {},
 ): string[] {
@@ -1807,30 +1802,40 @@ export function literalFindings(
         );
       else if (
         lit.kind === "region" &&
-        (lit.cut === "panels" || lit.cut === "rows") &&
         !figureIds(owner).some(
           (id) =>
             !id.startsWith(GENERATED_FIGURE_PREFIX) && source.figures.some((f) => f.id === id),
         )
       )
         out.push(
-          `${at} walks the ${lit.cut} of "${pic}", which shows none of the source's own figures. They are cut from the paper's figure: name the beat that cites it.`,
+          `${at} ${lit.cut ? "walks the rows of" : "marks things in"} "${pic}", which shows none of the source's own figures. A region is the paper's own figure: name the beat that cites it.`,
         );
-      else if (lit.kind === "region" && (lit.cut === "panels" || lit.cut === "rows")) {
-        // Cut as the build cuts it: a figure with no blank gutters is one panel (or band), and
-        // the build refuses it — after narration, at the end of the run (r2: a one-row trace diagram).
-        const counts = lit.cut === "panels" ? opts.panels : opts.bands;
-        const what = lit.cut === "panels" ? "panel" : "band";
-        const fig = figureIds(owner).find((id) => counts?.[id] !== undefined);
-        const n = fig === undefined ? undefined : counts?.[fig];
+      else if (lit.kind === "region" && lit.cut === "rows") {
+        // Cut as the build cuts it: a figure with no blank rows is one band, and the
+        // build refuses it — after narration, at the end of the run (r2: a one-row trace diagram).
+        const fig = figureIds(owner).find((id) => opts.bands?.[id] !== undefined);
+        const n = fig === undefined ? undefined : opts.bands?.[fig];
         const want = lit.count ? Number(lit.count.value) : undefined;
         if (n !== undefined && n < 2)
           out.push(
-            `${at} walks ${fig} ${what} by ${what}, and ${fig} has no blank ${lit.cut === "panels" ? "gutters" : "rows"} to split it by (1 ${what}). Walk it ${lit.cut === "panels" ? "as rows" : "as panels"}, or draw it as a figure.`,
+            `${at} walks ${fig} band by band, and ${fig} has no blank rows to split it by (1 band). Draw it as a figure.`,
           );
         else if (n !== undefined && want !== undefined && want > n)
           out.push(
-            `${at} walks ${want} ${what}s of ${fig}, which has ${n}. Give \`count\` ${n} or fewer.`,
+            `${at} walks ${want} bands of ${fig}, which has ${n}. Give \`count\` ${n} or fewer.`,
+          );
+      } else if (lit.kind === "region") {
+        // The locator finds things in ONE panel: on a whole multi-panel figure its boxes
+        // missed (measured 2026-10-13: 0 of 3 on OneVL's Fig 18, 11 of 11 on single panels).
+        const fig = figureIds(owner).find((id) => opts.panels?.[id] !== undefined);
+        const n = fig === undefined ? undefined : opts.panels?.[fig];
+        if (n !== undefined && n > 1 && lit.panel === undefined)
+          out.push(
+            `${at} marks things in ${fig}, which has ${n} panels: give \`panel\` (1–${n}, reading order), the one the things are in.`,
+          );
+        else if (n !== undefined && lit.panel !== undefined && lit.panel > n)
+          out.push(
+            `${at} marks panel ${lit.panel} of ${fig}, which has ${n}. Give \`panel\` 1–${n}.`,
           );
       }
     }
@@ -1839,8 +1844,8 @@ export function literalFindings(
       refs.push([
         lit.input.from,
         "its input",
-        (p) => p.kind === "region" || p.kind === "operate",
-        "no computed tiles to stream (name an operate or region beat)",
+        (p) => p.kind === "operate",
+        "no computed tiles to stream (name an operate beat)",
       ]);
     if (lit.kind === "flow")
       for (const s of lit.stages)

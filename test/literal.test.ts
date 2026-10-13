@@ -207,9 +207,7 @@ describe("the plan a storyboard carries", () => {
           literal: {
             kind: "region",
             picture: "b01",
-            cut: "crops",
-            size: { value: "4" },
-            count: { value: "2" },
+            marks: [{ thing: "the haze", text: "haze" }],
           },
         },
       ],

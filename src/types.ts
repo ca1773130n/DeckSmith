@@ -1220,12 +1220,6 @@ export const LITERAL_ROLE_NOUNS = {
   /** A stated duration: a lane's total, a run's cost. */
   duration:
     /latency|time|second|\bms\b|\bs\b|cost|지연|시간|초|비용|遅延|時間|秒|コスト|延迟|时间|成本/i,
-  /** A crop, patch or grid cell side. */
-  cut: /crop|patch|cell|grid|tile|크롭|패치|셀|격자|타일|クロップ|パッチ|セル|グリッド|裁剪|块|网格|切片/i,
-  /** How many crops a batch holds. */
-  batch: /batch|crops?|배치|크롭|バッチ|批|个/i,
-  /** The side training pictures are resized to. */
-  resize: /resiz|size|해상도|크기|サイズ|尺寸|分辨率/i,
   /** A stream's statistic (mean, variance, std). */
   stat: /./,
 } as const;
@@ -1290,8 +1284,8 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      recur (EMA, leaky integration, with a threshold and a
                      reset), noise (forward noising of a \`picture\`) or formula
                      (any update the source prints). Its \`input\` is \`values\`
-                     the source prints, or \`from\` an earlier operate or region
-                     beat whose computed tiles stream in (\`stat\` mean · var ·
+                     the source prints, or \`from\` an earlier operate beat
+                     whose computed tiles stream in (\`stat\` mean · var ·
                      std of each). \`phases\` ({from, label, freeze}) split the
                      run: a frozen phase keeps receiving inputs while the state
                      holds. Every number is the source's, in its role. A
@@ -1450,27 +1444,31 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     },
   },
   region: {
-    doc: `parts of a picture picked out by a RULE, never by coordinates:
-                     \`cut\` crops (\`count\` crops of side \`size\` at the
-                     training size \`resize\`, \`gather\` lifting them into one
-                     batch) or grid (cells of side \`size\`, lit row by row) on
-                     example material; or panels — the SOURCE'S OWN FIGURE split
-                     along its blank gutters (found in its pixels at build time)
-                     into its panels, the whole figure first, then each panel
-                     zoomed on its own sentence, in reading order (\`count\`:
-                     how many, at most 6). Panels is how an architecture
-                     figure's parts are walked through one by one. Or rows —
-                     the source's own figure split along its blank ROWS into
-                     bands (\`count\` groups, at most 6), each stepped through
-                     on its sentence at a readable size and panned along when
-                     wider than the scene: how a WORKED EXAMPLE of the method
-                     (lines of tokens accepted, rejected, corrected) is read
-                     line by line instead of shown small. Takes \`picture\`:
-                     for panels and rows, the beat that cites the figure.`,
+    doc: `the things in a picture that the source says matter,
+                     picked out: the picture large with a numbered box on each
+                     thing, beside it the numbered list of what each one means
+                     (\`marks\`, 1–5, in the order spoken: \`thing\` is what
+                     to find in the picture, plainly — "the stop sign", "the
+                     orange barrel at the right edge of the road" — and \`text\`
+                     is the source's point about it in the deck's language), then
+                     the \`outcome\` the source draws from them (\`title\` and
+                     1–3 \`lines\`, e.g. a model's decision). The boxes are
+                     found in the picture by \`plan\`, never guessed: leave
+                     \`box\` out. \`picture\` is the beat that cites the
+                     figure; \`panel\` is which of its panels (1 = first,
+                     reading order) when the figure has several — required then.
+                     Or rows (\`cut\` rows) — the source's own figure split
+                     along its blank ROWS into bands (\`count\` groups, at most
+                     6), each stepped through on its sentence at a readable size:
+                     how a WORKED EXAMPLE of the method (lines of tokens
+                     accepted, rejected, corrected) is read line by line.`,
     slots: {
-      picture: { what: "title of the picture" },
-      batch: { what: "title of the gathered batch (required with `gather`)", optional: true },
-      caption: { what: "under the scene: what is cut", optional: true },
+      legend: {
+        what: "under the picture: whose example it is and what its own colours or marks mean",
+        optional: true,
+      },
+      picture: { what: "rows only: title of the figure", optional: true },
+      caption: { what: "under the scene: what is picked out", optional: true },
       example: EXAMPLE_SLOT,
     },
   },
@@ -1646,7 +1644,7 @@ export const literalSchema = z.discriminatedUnion("kind", [
       .object({
         /** Values the source prints, in order. */
         values: z.array(numSchema).default([]),
-        /** An earlier operate or region beat whose computed tiles stream in. */
+        /** An earlier operate beat whose computed tiles stream in. */
         from: z.string().optional(),
         stat: z.enum(["mean", "var", "std"]).optional(),
       })
@@ -1792,12 +1790,26 @@ export const literalSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("region"),
     picture: z.string(),
-    cut: z.enum(["crops", "grid", "panels", "rows"]),
-    /** crops and grid: the piece's side. panels takes none. */
-    size: numSchema.optional(),
+    /** rows: the figure's bands, stepped through (moves to `evolve`). Absent: the marked picture. */
+    cut: z.enum(["rows"]).optional(),
+    /** rows: how many groups of bands. */
     count: numSchema.optional(),
-    resize: numSchema.optional(),
-    gather: z.boolean().default(false),
+    /** Which panel of the picture's figure, 1 = first in reading order (`findPanels`); absent = all of it. */
+    panel: z.int().min(1).optional(),
+    marks: z
+      .array(
+        z.object({
+          /** What to find in the picture, plainly: the locator reads it. */
+          thing: z.string(),
+          /** The source's point about it, in the deck's language. */
+          text: z.string(),
+          /** Where it is, as fractions of the panel: found by `plan` (src/plan/locate.ts), not planned. */
+          box: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
+        }),
+      )
+      .default([]),
+    /** What the source concludes from the marked things: a decision, a verdict. */
+    outcome: z.object({ title: z.string(), lines: z.array(z.string()) }).optional(),
     ...literalLabels,
   }),
   z.object({

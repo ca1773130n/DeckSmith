@@ -974,12 +974,12 @@ COMPOSE
                                                           operate), tagged
       an update over steps ................................ evolve
       serial against parallel work, a latency budget ...... flow timeline
-      a figure of the method, or a worked example of it
-        (a trace of steps, rows of tokens accepted and
-        rejected) ......................................... region panels on
-                                                          the beat citing it,
-                                                          one panel per
-                                                          sentence
+      a worked example of the method (a trace of steps,
+        rows of tokens accepted and rejected) ............. region rows on the
+                                                          beat citing it
+      a picture whose things the source explains (what
+        drove a decision, a scan's findings) ............... region, each thing
+                                                          marked and numbered
       an architecture whose stages hold something ......... flow chain (each
                                                           stage a count, a
                                                           figure or an earlier
@@ -987,7 +987,7 @@ COMPOSE
                                                           chain of names)
     Only a method beat none of these fits keeps \`literal\` null. Two beats in a
     row never draw the same verb and form (two \`flow\` chains in a row are one
-    chain: merge them, or draw the second as a timeline or panels).
+    chain: merge them, or draw the second as a timeline).
   - A setup detail (a protocol, a model size, a split) is not a beat: say it in
     the \`caption\` of the result beat that uses it. An ablation (each setting
     with its one reported score) is a \`place\` strip: one axis, one dot per
@@ -1011,10 +1011,9 @@ COMPOSE
                                                    archetype: it stands still)
       a stated formula's behaviour ............... place plane with curves
       latency, serial against parallel ........... flow timeline
-      a figure of the method with parts .......... region panels on the beat
-                                                   citing it: the figure, then
-                                                   each panel zoomed on the
-                                                   sentence that names it
+      the things in a picture and what each means  region on the beat citing
+                                                   it, each thing marked with
+                                                   its point, then the outcome
       a worked example of the method, in lines ... region rows on the beat
                                                    citing it, never chips
                                                    standing in for it
@@ -1023,12 +1022,14 @@ COMPOSE
     \`table\` only where none is honest, at most once a deck. Each word form
     (place strip, margin, length, combos, sets) at most ONCE a deck, and two
     beats in a row never draw the same verb, form and operand.
-  - WHEN A BEAT CITES A FIGURE WHOSE PANELS CARRY THE MECHANISM (an
-    architecture, a decoder with its inputs and outputs, before/after views),
-    prefer \`region\` cut panels on that beat over showing the figure small
-    beside text: each panel is cut from the figure's own layout and zoomed while
-    its sentence is spoken, so nothing is placed by hand. One sentence per panel,
-    in the figure's reading order (top to bottom, left to right).
+  - WHEN A BEAT CITES A PICTURE WHOSE THINGS THE SOURCE EXPLAINS (a driving
+    scene and the factors behind a decision, a scan and its findings, a sample
+    and its defects), prefer \`region\` on that beat over showing the figure
+    small beside text. Name each thing plainly in \`thing\` — what it looks
+    like and where, as you would point it out: the build finds it in the
+    picture, you never give its \`box\` — its point in \`text\`, and the
+    source's conclusion in \`outcome\`. Give \`panel\` when the figure has
+    several. One sentence per thing, in the order the source gives them.
   - WHEN THE SOURCE HAS A FIGURE THAT WORKS AN EXAMPLE OF THE MECHANISM (its
     steps written out line by line: tokens proposed, accepted, rejected,
     corrected; a trace), STEP THROUGH THAT FIGURE with \`region\` cut rows on

@@ -51,6 +51,7 @@ import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
 import { codexPlanner } from "./plan/codex.js";
 import { durationPlan } from "./plan/duration.js";
+import { locateMarks } from "./plan/locate.js";
 import {
   assertInsideResolves,
   assertRefsResolve,
@@ -467,8 +468,8 @@ imageFlags(
   const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
-  // Each figure cut as the build will cut it, so a `region` panels walk of a figure with no
-  // gutters is repaired at plan time rather than refused by the build after narration.
+  // Each figure cut as the build will cut it, so a `region`'s `panel` or rows walk the
+  // figure does not have is repaired at plan time rather than refused by the build after narration.
   const assetsDir = join(dirname(resolve(src)), "assets");
   const drawn = bespokeFor(prefs, designFor(prefs));
   const panels = drawn ? await figurePanelCounts(source, assetsDir) : undefined;
@@ -484,7 +485,7 @@ imageFlags(
       for (const m of broken) step(`plan:   ${m}`);
     },
   });
-  const storyboard: Storyboard = {
+  const unlocated: Storyboard = {
     ...planned,
     lang: prefs.lang,
     theme: stated(prefs, "theme") ?? planned.theme,
@@ -494,8 +495,13 @@ imageFlags(
   };
   // A brief with no picture yet is what `--images` asked for; without the flag
   // it is a hole `build` would refuse, and better refused here.
-  assertRefsResolve(storyboard, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
-  assertInsideResolves(storyboard, source);
+  assertRefsResolve(unlocated, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
+  assertInsideResolves(unlocated, source);
+  // The planner names what a `region` marks; where it is in the picture is found
+  // by looking at it (src/plan/locate.ts), not guessed.
+  const storyboard = await locateMarks(unlocated, source, assetsDir, {
+    onBeat: (id) => step(`plan: finding ${id}'s marked things in its picture`),
+  });
   await writeJson(o.out, storyboard);
   step(`plan: ${storyboard.beats.length} beats → ${o.out}`);
   // The pictures do not exist yet and `build` will not run until they do. Said

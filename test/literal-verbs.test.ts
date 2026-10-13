@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { Theme } from "../src/emit/kit.js";
 import { drawProblems } from "../src/literal/check.js";
 import { namedIn, subjectOf, widthOf } from "../src/literal/kind.js";
+import type { Prim } from "../src/literal/kinds/common.js";
 import { evolve } from "../src/literal/kinds/evolve.js";
 import { flow, tokenChips } from "../src/literal/kinds/flow.js";
 import { operate } from "../src/literal/kinds/operate.js";
@@ -30,6 +31,7 @@ import {
 } from "../src/literal/kinds/stage.js";
 import { tableKind } from "../src/literal/kinds/table.js";
 import { type Cue, stillSpans } from "../src/literal/kit.js";
+import { tensor } from "../src/literal/ops.js";
 import {
   LITERAL_KIND_DOCS,
   LITERAL_OPS,
@@ -853,71 +855,59 @@ const FIXTURES: Fixture[] = [
   },
   /* region */
   {
-    name: "training crops",
-    domain: "image-restoration",
+    name: "what a driving model weighed at the intersection",
+    domain: "autonomous-driving",
     lit: {
       kind: "region",
       picture: "b1",
-      cut: "crops",
-      size: { value: "64" },
-      count: { value: "4" },
-      gather: true,
-      labels: L({ picture: "training picture", batch: "one batch", example: "example" }),
+      panel: 2,
+      marks: [
+        {
+          thing: "the stop sign",
+          text: "Stop sign: slow down, prepare to stop",
+          box: { x: 0.82, y: 0.61, w: 0.04, h: 0.12 },
+        },
+        {
+          thing: "the orange barrel",
+          text: "Barrels narrow the lane: keep left",
+          box: { x: 0.79, y: 0.7, w: 0.04, h: 0.08 },
+        },
+        {
+          thing: "the parked cars",
+          text: "Parked cars: less room to the side",
+          box: { x: 0.72, y: 0.63, w: 0.1, h: 0.06 },
+        },
+      ],
+      outcome: { title: "Decision", lines: ["Stop at the line", "Then turn right"] },
+      labels: L({ legend: "ROADWork example · green GT · red prediction" }),
     },
   },
   {
-    name: "tissue patches",
-    domain: "pathology",
+    name: "the lesions a reader flagged",
+    domain: "medical-imaging",
     lit: {
       kind: "region",
       picture: "b1",
-      cut: "crops",
-      size: { value: "96" },
-      count: { value: "6" },
-      labels: L({ picture: "slide", example: "example" }),
+      marks: [
+        { thing: "the bright mass in the upper left lobe", text: "Mass: 14 mm, irregular edge" },
+        { thing: "the small nodule near the hilum", text: "Nodule: stable since last scan" },
+      ],
+      labels: L({ legend: "CT, axial slice" }),
     },
   },
   {
-    name: "patch grid",
-    domain: "image-classification",
+    name: "defects on a wafer",
+    domain: "manufacturing",
     lit: {
       kind: "region",
       picture: "b1",
-      cut: "grid",
-      size: { value: "32" },
-      labels: L({ picture: "image as patches", example: "example" }),
-    },
-  },
-  {
-    name: "map tiles",
-    domain: "cartography",
-    lit: {
-      kind: "region",
-      picture: "b1",
-      cut: "grid",
-      size: { value: "48" },
-      labels: L({ picture: "tiles", example: "example" }),
-    },
-  },
-  {
-    name: "robot architecture, panel by panel",
-    domain: "robotics",
-    lit: {
-      kind: "region",
-      picture: "b1",
-      cut: "panels",
-      labels: L({ picture: "the controller" }),
-    },
-  },
-  {
-    name: "micrograph series",
-    domain: "materials-science",
-    lit: {
-      kind: "region",
-      picture: "b1",
-      cut: "panels",
-      count: { value: "2" },
-      labels: L({ picture: "grain growth" }),
+      marks: [
+        { thing: "the scratch across the centre", text: "Scratch: handling damage" },
+        { thing: "the ring at the edge", text: "Edge ring: uneven etch" },
+        { thing: "the cluster of dots, lower right", text: "Particles: a dirty chamber" },
+        { thing: "the bright spot, top", text: "Hot spot: a short" },
+      ],
+      outcome: { title: "Verdict", lines: ["Scrap the lot"] },
     },
   },
   {
@@ -958,35 +948,16 @@ const RUNS: Record<string, VerbRun<never>> = {
 const cuesFor = (n: number): Cue[] =>
   Array.from({ length: n }, (_, i) => ({ t0: 0.95 + i * 7.2, t1: 0.95 + i * 7.2 + 7 }));
 
-/** An earlier region scene, for a stream `from` it. */
+/** An earlier operate scene's tiles, for a stream `from` it. */
 function earlierFor(): Map<string, Earlier> {
-  const r = runVerb(region as VerbRun<"region">, {
-    lit: literalSchema.parse({
-      kind: "region",
-      picture: "b1",
-      cut: "crops",
-      size: { value: "32" },
-      count: { value: "8" },
-      labels: L({ picture: "p", example: "example" }),
-    }) as Extract<Literal, { kind: "region" }>,
-    labels: { picture: "p", example: "example" },
-    region: region_,
-    theme,
-    measure,
-    dry: true,
-    earlier: new Map(),
-    assets: {},
-  });
+  const p = placeholderPicture(32, 32);
+  const tiles = Array.from({ length: 8 }, () => tensor(32, 32, 3, p.d));
   return new Map([
     [
       "b2",
       {
-        kind: "region",
-        layers: {
-          files: { thumb: "t.jpg" },
-          data: {},
-          ...(r.material ? { material: r.material } : {}),
-        },
+        kind: "operate",
+        layers: { files: { thumb: "t.jpg" }, data: {}, material: { tiles } },
         labels: {},
       },
     ],
@@ -1033,7 +1004,7 @@ function formOf(lit: Literal): string {
   if (lit.kind === "evolve") return `evolve:${lit.rule}${lit.how ? `:${lit.how}` : ""}`;
   if (lit.kind === "flow") return `flow:${lit.form}`;
   if (lit.kind === "place") return `place:${placeForm(lit)}:${lit.form}`;
-  if (lit.kind === "region") return `region:${lit.cut}`;
+  if (lit.kind === "region") return `region:${lit.cut ?? "marks"}`;
   return lit.kind;
 }
 
@@ -1067,9 +1038,6 @@ const FILL: Record<string, number> = {
   "flow:timeline": 0.35,
   place: 0.5,
   region: 0.4,
-  // A panel is drawn at its own aspect, full height: a tall one in a wide
-  // region cannot cover more, and stretching it would change the figure.
-  "region:panels": 0.3,
   // A band of a figure is wide and short: it fills the height it is given and pans.
   "region:rows": 0.25,
 };
@@ -1199,8 +1167,8 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
             expect(x0 + w, `${fr.id}: "${p.text}"`).toBeLessThanOrEqual(region_.width + 1);
           }
       });
-      it("a flow chain's content spans the region the deck's gate measures", () => {
-        if (formOf(d.lit) !== "flow:chain") return;
+      it("a flow chain's or marked picture's content spans the region the deck's gate measures", () => {
+        if (formOf(d.lit) !== "flow:chain" && formOf(d.lit) !== "region:marks") return;
         for (const fr of d.r.frames) {
           const bs = fr.prims.map(boxOf);
           const w = Math.max(...bs.map((b) => b.x + b.w)) - Math.min(...bs.map((b) => b.x));
@@ -1242,9 +1210,7 @@ describe("the library holds only what is general", () => {
       "flow:timeline",
       "place:points:plane",
       "place:points:strip",
-      "region:crops",
-      "region:grid",
-      "region:panels",
+      "region:marks",
       "region:rows",
     ];
     const domains = new Map<string, Set<string>>();
@@ -1444,7 +1410,7 @@ describe("what each verb refuses", () => {
     expect(prims.filter((p) => p.p === "text" && p.text === "γ+1")).toHaveLength(1);
   });
 
-  it("region panels: a figure splits along its blank gutters, in reading order", () => {
+  it("region: a figure's panels split along its blank gutters, in reading order", () => {
     const W = 300;
     const H = 200;
     const d = new Float32Array(W * H * 3).fill(1);
@@ -1461,7 +1427,21 @@ describe("what each verb refuses", () => {
       { x: 160, y: 10, w: 130, h: 80 },
       { x: 10, y: 110, w: 280, h: 80 },
     ]);
-    // One block, no gutter: no panels to walk.
+    // Title bars running edge to edge across the gutter (OneVL's Fig 18): split off and dropped.
+    const titled = new Float32Array(W * H * 3).fill(1);
+    const paint = (x0: number, y0: number, w: number, h: number) => {
+      for (let y = y0; y < y0 + h; y++)
+        for (let x = x0; x < x0 + w; x++)
+          for (let k = 0; k < 3; k++) titled[(y * W + x) * 3 + k] = 0.2;
+    };
+    paint(10, 10, 280, 12); // one band of titles over both panels
+    paint(10, 40, 130, 150);
+    paint(160, 40, 130, 150);
+    expect(findPanels({ w: W, h: H, d: titled })).toEqual([
+      { x: 10, y: 40, w: 130, h: 150 },
+      { x: 160, y: 40, w: 130, h: 150 },
+    ]);
+    // One block, no gutter: one panel.
     const solid = new Float32Array(W * H * 3).fill(1);
     for (let i = 0; i < 100 * 100 * 3; i++) solid[i] = 0.2;
     expect(findPanels({ w: W, h: H, d: solid })).toHaveLength(1);
@@ -1562,18 +1542,50 @@ describe("what each verb refuses", () => {
     ).toMatch(/every lane a `total`/);
   });
 
-  it("region: a crop larger than the training picture", () => {
+  it("region: more marks than a list holds, words too long for the scene, and no box at build", () => {
+    const mark = (k: number, text = `thing ${k}`) => ({ thing: `thing ${k}`, text });
+    expect(
+      problems({ kind: "region", picture: "b1", marks: [1, 2, 3, 4, 5, 6].map((k) => mark(k)) })[0],
+    ).toMatch(/region marks 1–5 things/);
+    const long = "a long point about this thing that keeps going well past one line ".repeat(3);
     expect(
       problems({
         kind: "region",
         picture: "b1",
-        cut: "crops",
-        size: { value: "512" },
-        count: { value: "2" },
-        resize: { value: "256" },
-        labels: L({ picture: "p", example: "example" }),
+        marks: [1, 2, 3, 4, 5].map((k) => mark(k, long)),
       })[0],
-    ).toMatch(/resize|does not fit/);
+    ).toMatch(/px tall .* give shorter `text` or fewer marks/);
+    const lit = literalSchema.parse({ kind: "region", picture: "b1", marks: [mark(1)] });
+    expect(() =>
+      runVerb(region as VerbRun<"region">, {
+        lit: lit as Extract<Literal, { kind: "region" }>,
+        labels: {},
+        region: region_,
+        theme,
+        measure,
+        dry: false,
+        image: placeholderPicture(640, 360),
+        earlier: new Map(),
+        assets: {},
+      }),
+    ).toThrow(/mark 1 \("thing 1"\) has no box. `decksmith plan` finds/);
+  });
+
+  it("region: each number sits outside every box, inside the picture", () => {
+    const d = draw(FIXTURES.find((f) => f.name.startsWith("what a driving model")) as Fixture);
+    const prims = d.r.frames[0]?.prims ?? [];
+    const pic = boxOf(prims.find((p) => p.p === "image") as Prim);
+    const boxes = prims.filter((p) => p.p === "rect" && p.role === "b").map(boxOf);
+    const discs = prims.filter((p) => p.p === "circle" && p.cam).map(boxOf);
+    expect(discs).toHaveLength(3);
+    const hit = (a: ReturnType<typeof boxOf>, b: ReturnType<typeof boxOf>) =>
+      a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    for (const c of discs) {
+      expect(boxes.some((b) => hit(c, b))).toBe(false);
+      expect(
+        c.x >= pic.x && c.y >= pic.y && c.x + c.w <= pic.x + pic.w && c.y + c.h <= pic.y + pic.h,
+      ).toBe(true);
+    }
   });
 
   it("place: a curve on a strip, and an item with the wrong number of values", () => {
@@ -2032,10 +2044,5 @@ describe("what each verb computes", () => {
     expect(new Set(origins).size).toBeGreaterThan(1);
     const still = stillSpans(frag.script, 1.95, 29.5).filter(([a, b]) => b - a > STILL_MAX);
     expect(still).toEqual([]);
-  });
-
-  it("region crops leave their pieces for a later stream", () => {
-    const d = draw(FIXTURES.find((f) => f.name === "training crops") as Fixture);
-    expect(d.r.material?.tiles).toHaveLength(4);
   });
 });

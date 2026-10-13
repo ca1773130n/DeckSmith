@@ -11,8 +11,8 @@
  * (0); an EMA starts at its first input. `phases` split the run, and a frozen
  * phase keeps receiving inputs while the state holds.
  *
- * INPUT. `values` the source prints (exact), or `from` an earlier operate or
- * region beat: its computed tiles stream in as pictures, each reduced to its
+ * INPUT. `values` the source prints (exact), or `from` an earlier operate
+ * beat: its computed tiles stream in as pictures, each reduced to its
  * mean, variance or std (example material: the picture is). No value computed
  * here is ever printed.
  */
@@ -53,7 +53,7 @@ function tilesFrom(c: Ctx, from: string): Tensor[] {
       for (let q = 0; q < 4; q++) out.push(tensor(th, tw, f.c, cutRect(f, q * tw, r * th, tw, th)));
     return out;
   }
-  throw new Error(`evolve: "${from}" computed nothing to stream (name an operate or region beat)`);
+  throw new Error(`evolve: "${from}" computed nothing to stream (name an operate beat)`);
 }
 
 function cut(t: Tensor, x0: number, y0: number, s: number): Float32Array {

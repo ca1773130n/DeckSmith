@@ -298,7 +298,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
           ...(opts.bands ? { bands: opts.bands } : {}),
         }),
       ],
-      advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source, opts.panels)],
+      advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source)],
     });
     const broken = findings(first);
     const all = [...broken.size, ...broken.variety, ...broken.coverage, ...broken.advice];
