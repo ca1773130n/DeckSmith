@@ -624,6 +624,12 @@ describe("the schema handed to Codex", () => {
     expect(off).not.toMatch(/"(illustration|backdrop)"/);
     expect(on).toMatch(/"illustration"/);
     expect(on).toMatch(/"backdrop"/);
+    // With the brief gone a figure archetype's id is its only picture, so it
+    // cannot be declined with null (claim-figure and stage, 2026-10-14).
+    const nullableIds = (s: string) =>
+      (s.match(/"figureId":\{"anyOf":\[\{"type":"string"\},\{"type":"null"\}\]\}/g) ?? []).length;
+    expect(nullableIds(off)).toBe(0);
+    expect(nullableIds(on)).toBeGreaterThanOrEqual(2);
   });
 
   it("offers claim-figure both a figureId and a brief, each declinable with null", () => {

@@ -186,6 +186,15 @@ function hideFromPlanner(node: unknown, hidden: ReadonlySet<string>): unknown {
       const kept: Record<string, unknown> = {};
       for (const [prop, sub] of Object.entries(value as Record<string, unknown>))
         if (!hidden.has(prop)) kept[prop] = hideFromPlanner(sub, hidden);
+      // A figure archetype takes `figureId` OR an `illustration`. With the brief
+      // hidden, the id is the only way left, so its null goes too: strict mode
+      // had made it nullable, and unseen-paper plans (2026-10-14) sent
+      // `figureId: null` on claim-figure and stage, refused twice over.
+      const fig = kept.figureId as { anyOf?: Array<{ type?: string }> } | undefined;
+      if ("illustration" in value && hidden.has("illustration") && fig?.anyOf) {
+        const real = fig.anyOf.filter((t) => t.type !== "null");
+        if (real.length === 1) kept.figureId = real[0];
+      }
       out.properties = kept;
       continue;
     }
