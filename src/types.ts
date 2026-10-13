@@ -1315,17 +1315,18 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      \`place\` plane with \`curves\` instead.`,
     slots: {
       state: {
-        what: "recur, noise, formula: title of the state (the tiles streaming in, or the picture)",
+        what: "recur, formula: legend of the inputs (the values the source prints, or the tiles streaming in)",
         optional: true,
       },
       trace: {
-        what: "recur, noise, formula: title of the trace of the state over the steps",
+        what: "recur, formula: legend of the state's bar; noise: of the signal's bar",
         optional: true,
       },
       threshold: {
-        what: "legend of the threshold line (required with a threshold)",
+        what: "legend of the threshold's tick and of a step that reaches it (required with a threshold)",
         optional: true,
       },
+      noise: { what: "noise: legend of the noise's bar", optional: true },
       caption: { what: "under the scene: what steps and what the state is", optional: true },
       example: EXAMPLE_SLOT,
     },

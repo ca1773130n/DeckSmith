@@ -503,7 +503,7 @@ const FIXTURES: Fixture[] = [
       picture: "b1",
       schedule: "linear",
       params: params({ T: "1000", betaStart: "0.0001", betaEnd: "0.02" }),
-      labels: L({ state: "x_t", trace: "signal and noise", example: "example" }),
+      labels: L({ trace: "signal", noise: "noise", example: "example" }),
     },
   },
   {
@@ -515,7 +515,7 @@ const FIXTURES: Fixture[] = [
       picture: "b1",
       schedule: "cosine",
       params: params({ T: "200" }),
-      labels: L({ state: "x_t", trace: "signal and noise", example: "example" }),
+      labels: L({ trace: "signal", noise: "noise", example: "example" }),
     },
   },
   {
@@ -1115,10 +1115,9 @@ const FILL: Record<string, number> = {
   "operate:map": 0.45,
   "operate:profile": 0.5,
   "operate:grid": 0.3,
-  evolve: 0.45,
-  // Rows of words paint little: the lit row's panel and the legend's swatches.
+  // Rows paint little: the lit row's panel, the bars, the legend's swatches.
   // What they must do is span the region, the deck's own gate, held below.
-  "evolve:trace": 0.05,
+  evolve: 0.05,
   // Pills, a token box and wires at their own size, as the approved look draws
   // them: a sparse chain paints little. What it must do is span the region,
   // which the deck's own gate measures, and the test below holds it to.
@@ -1254,7 +1253,8 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
           }
       });
       it("a flow chain's or marked picture's content spans the region the deck's gate measures", () => {
-        if (!["flow:chain", "region:marks", "evolve:trace"].includes(formOf(d.lit))) return;
+        if (!(["flow:chain", "region:marks"].includes(formOf(d.lit)) || d.lit.kind === "evolve"))
+          return;
         for (const fr of d.r.frames) {
           const bs = fr.prims.map(boxOf);
           const w = Math.max(...bs.map((b) => b.x + b.w)) - Math.min(...bs.map((b) => b.x));
@@ -1712,9 +1712,19 @@ describe("what each verb computes", () => {
 
   it("evolve: an EMA starts at its first input, and a frozen phase holds the state while inputs arrive", () => {
     const d = draw(FIXTURES.find((f) => f.name === "calibrated threshold, frozen") as Fixture);
-    // Two phases, two frames; the frozen phase reveals its inputs one by one.
-    expect(d.r.frames.map((f) => f.id)).toEqual(["p0", "p1"]);
-    expect(d.r.frames[1]?.prims.filter((p) => p.p === "circle" && p.at).length).toBeGreaterThan(0);
+    // One row a step, one frame a step; each phase names its first row.
+    const last = d.r.frames.at(-1)?.prims ?? [];
+    expect(d.r.frames).toHaveLength(8);
+    expect(
+      last.filter((p) => p.p === "text" && (p.text === "train" || p.text === "test")),
+    ).toHaveLength(2);
+    // The frozen phase's bars are dimmed: its state holds while its inputs arrive.
+    const states = last.filter(
+      (p) => p.p === "rect" && p.fill !== "rule" && p.fill !== "panel" && p.h === 18,
+    );
+    expect(states.filter((p) => p.opacity === 0.45).length).toBeGreaterThan(0);
+    // An EMA starts at its first input: the state's first bar is not empty.
+    expect((states[0] as { w: number }).w).toBeGreaterThan(3);
   });
 
   it("flow timeline: lane lengths are Σ count·dur when every duration is stated", () => {

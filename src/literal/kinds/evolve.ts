@@ -20,7 +20,7 @@ import { LITERAL_RULES, type LiteralOpDoc } from "../../types.js";
 import { evaluate, parseFormula } from "../formula.js";
 import { alphaBars, seededNormals, statOf, type Tensor, tensor } from "../ops.js";
 import type { Frame, MechanismResult, Prim, Raster } from "./common.js";
-import { fitBox, type Role, TYPE, wrapBy } from "./common.js";
+import { type Role, TYPE, wrapBy } from "./common.js";
 import { num, paramRecord } from "./read.js";
 import { placeholderPicture, rasterOf, type VerbCtx, withPushRoom } from "./stage.js";
 
@@ -132,7 +132,7 @@ function runRule(c: Ctx, xs: number[]): Run {
 }
 
 export function evolve(c: Ctx): MechanismResult {
-  if (c.lit.rule === "noise") return noise(c);
+  if (c.lit.rule === "noise") return withPushRoom(noise)(c);
   if (c.lit.rule === "trace") return withPushRoom(trace)(c);
   const d = c.lit;
   const inp = d.input;
@@ -155,246 +155,69 @@ export function evolve(c: Ctx): MechanismResult {
   const run = runRule(c, xs);
   if (run.theta.some((t) => t !== undefined) && !c.labels.threshold?.trim())
     throw new Error("evolve: a threshold needs the `threshold` slot");
-  return draw(c, run, tiles);
+  return withPushRoom((cc: Ctx) => computedRows(cc, run, tiles))(c);
 }
 
-/** The phases as [from, to) ranges with labels; one unnamed range when there are none. */
-function phaseRanges(c: Ctx, n: number): Array<{ from: number; to: number; label?: string }> {
-  const ps = [...c.lit.phases].sort((a, b) => a.from - b.from);
-  if (!ps.length) return [{ from: 0, to: n }];
-  const out: Array<{ from: number; to: number; label?: string }> = [];
-  if ((ps[0] as { from: number }).from > 0)
-    out.push({ from: 0, to: (ps[0] as { from: number }).from });
-  ps.forEach((p, i) => {
-    out.push({ from: p.from, to: ps[i + 1]?.from ?? n, label: p.label });
-  });
-  return out;
+/** A slot's words, or a refusal naming what needs it. */
+function need(c: Ctx, slot: string, what: string): string {
+  const t = c.labels[slot]?.trim();
+  if (!t) throw new Error(`evolve: ${what} needs the \`${slot}\` slot`);
+  return t;
 }
 
-function draw(c: Ctx, run: Run, tiles: Tensor[]): MechanismResult {
-  const { width: W, height: H } = c.region;
+/**
+ * A computed run as rows: each step its input (the value the source prints, or
+ * the tile streaming in), then the state as a bar on the run's own range — never
+ * its number. A step whose state reaches the threshold has its bar in the
+ * threshold's tone, and a tick marks the threshold; a phase names its first row;
+ * a frozen step's bar is dimmed.
+ */
+function computedRows(c: Ctx, run: Run, tiles: Tensor[]): MechanismResult {
+  const d = c.lit;
   const n = run.xs.length;
+  const thetas = run.theta.filter((t): t is number => t !== undefined);
+  const vals = [...run.s, ...thetas];
+  const lo = Math.min(0, ...vals);
+  const hi = Math.max(lo + 1e-9, ...vals);
+  const f = (v: number) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  const frozen = (k: number) => {
+    let z = false;
+    for (const p of d.phases) if (k >= p.from) z = p.freeze;
+    return z;
+  };
+  const tags: RowTag[] = [
+    { tag: "x", label: need(c, "state", "the inputs' legend"), tone: "b" },
+    { tag: "s", label: need(c, "trace", "the state's bar"), tone: "accent" },
+    ...(thetas.length
+      ? [{ tag: "th", label: need(c, "threshold", "a threshold"), tone: "c" as const }]
+      : []),
+  ];
+  const phaseAt = new Map(d.phases.map((p) => [p.from, p.label]));
+  const rows: Row[] = run.xs.map((_, k) => {
+    const th = run.theta[k];
+    return {
+      ...(phaseAt.has(k) ? { lead: phaseAt.get(k) } : {}),
+      parts: tiles.length ? [] : [{ text: d.input?.values[k]?.value ?? "", tag: "x" }],
+      ...(tiles.length ? { image: `t${k}` } : {}),
+      bars: [
+        {
+          value: f(run.s[k] as number),
+          tag: run.fired[k] ? "th" : "s",
+          ...(th !== undefined ? { mark: { at: f(th), tag: "th" } } : {}),
+          ...(frozen(k) ? { dim: true } : {}),
+        },
+      ],
+    };
+  });
   const rasters: Record<string, Raster> = {};
   tiles.forEach((t, k) => {
     rasters[`t${k}`] = rasterOf(t);
   });
-  const top = tiles.length ? Math.round(H * 0.55) : 0;
-  const chart = { x: 0, y: top + 64, w: W, h: H - top - 64 - 12 };
-  const vals = [...run.xs, ...run.s, ...run.theta.filter((t): t is number => t !== undefined)];
-  // The trace's own range, padded: a state that moves a little must be seen to move.
-  const vlo = Math.min(...vals);
-  const vhi = Math.max(...vals);
-  const pad = (vhi - vlo || Math.abs(vhi) || 1) * 0.15;
-  const lo = vlo - pad;
-  const hi = vhi + pad;
-  const X = (k: number) => chart.x + 30 + ((chart.w - 60) * (k + 0.5)) / n;
-  const Y = (v: number) => chart.y + chart.h - ((v - lo) / (hi - lo)) * chart.h;
-  const ranges = phaseRanges(c, n);
-  const frames: Frame[] = ranges.map((rg, f) => {
-    const prims: Prim[] = [];
-    prims.push({
-      p: "rect",
-      x: chart.x,
-      y: chart.y,
-      w: chart.w,
-      h: chart.h,
-      fill: "panel",
-      cam: true,
-      opacity: 0.6,
-    });
-    prims.push({
-      p: "text",
-      x: 0,
-      y: top + 8,
-      size: TYPE.body,
-      role: "fg",
-      anchor: "start",
-      slot: "trace",
-    });
-    if (run.theta.some((t) => t !== undefined))
-      prims.push(
-        {
-          p: "line",
-          x1: W - 420,
-          y1: top + 34,
-          x2: W - 370,
-          y2: top + 34,
-          role: "b",
-          width: 4,
-          dash: true,
-        },
-        {
-          p: "text",
-          x: W - 356,
-          y: top + 10,
-          size: TYPE.label,
-          role: "b",
-          anchor: "start",
-          slot: "threshold",
-        },
-      );
-    // Everything before this phase, already drawn.
-    const seg = (
-      k: number,
-      ys: Array<number | undefined>,
-      role: "accent" | "b",
-      extra: Partial<Prim>,
-    ): Prim[] => {
-      const a = ys[k - 1];
-      const b = ys[k];
-      if (k < 1 || a === undefined || b === undefined) return [];
-      return [
-        {
-          p: "path",
-          pts: [X(k - 1), Y(a), X(k), Y(b)],
-          role,
-          width: role === "b" ? 4 : 6,
-          cam: true,
-          ...(role === "b" ? { dash: true } : {}),
-          ...extra,
-        } as Prim,
-      ];
-    };
-    for (let k = 0; k < rg.from; k++) {
-      prims.push({
-        p: "circle",
-        cx: X(k),
-        cy: Y(run.xs[k] as number),
-        r: 8,
-        fill: "muted",
-        cam: true,
-      });
-      prims.push(...seg(k, run.s, "accent", {}), ...seg(k, run.theta, "b", {}));
-    }
-    // Phase boundaries and names.
-    for (const r of ranges)
-      if (r.from > 0)
-        prims.push({
-          p: "line",
-          x1: X(r.from) - (chart.w - 60) / n / 2,
-          y1: chart.y,
-          x2: X(r.from) - (chart.w - 60) / n / 2,
-          y2: chart.y + chart.h,
-          role: "rule",
-          width: 3,
-          dash: true,
-          cam: true,
-        });
-    if (rg.label)
-      prims.push({
-        p: "text",
-        x: X(rg.from) - 10,
-        y: chart.y + 10,
-        size: TYPE.label,
-        role: "muted",
-        anchor: "start",
-        text: rg.label,
-      });
-    // This phase's steps, one reveal each.
-    for (let k = rg.from; k < rg.to; k++) {
-      const at = Math.min(12, k - rg.from + 1);
-      prims.push({
-        p: "circle",
-        cx: X(k),
-        cy: Y(run.xs[k] as number),
-        r: 8,
-        fill: run.fired[k] ? "accent" : "muted",
-        cam: true,
-        at,
-      });
-      prims.push(
-        ...seg(k, run.s, "accent", { at, wipe: true }),
-        ...seg(k, run.theta, "b", { at, wipe: true }),
-      );
-      if (k === 0)
-        prims.push({
-          p: "circle",
-          cx: X(0),
-          cy: Y(run.s[0] as number),
-          r: 6,
-          fill: "accent",
-          cam: true,
-          at,
-        });
-    }
-    if (tiles.length) {
-      // The tiles streaming in: the current one large, every one as a small tile lit on arrival.
-      const big = fitBox(
-        tiles[0]?.w ?? 1,
-        tiles[0]?.h ?? 1,
-        0,
-        64,
-        Math.min(top - 64, W * 0.3),
-        top - 64 - 8,
-      );
-      prims.push({
-        p: "text",
-        x: 0,
-        y: 8,
-        size: TYPE.body,
-        role: "fg",
-        anchor: "start",
-        slot: "state",
-      });
-      prims.push({ p: "rect", x: big.x, y: big.y, w: big.w, h: big.h, fill: "panel", cam: true });
-      const gx = big.x + big.w + 40;
-      const cols = n <= 8 ? n : Math.min(12, Math.ceil(n / 2));
-      const rowsN = Math.ceil(n / cols);
-      const ts = Math.min(
-        (W - gx - (cols - 1) * 10) / cols,
-        (top - 64 - 8 - (rowsN - 1) * 10) / rowsN,
-      );
-      for (let k = 0; k < n; k++) {
-        const x = gx + (k % cols) * (ts + 10);
-        const y = 64 + Math.floor(k / cols) * (ts + 10);
-        const inPhase = k >= rg.from && k < rg.to;
-        prims.push({
-          p: "image",
-          x,
-          y,
-          w: ts,
-          h: ts,
-          layer: `t${k}`,
-          opacity: k < rg.from ? 1 : 0.25,
-        });
-        if (inPhase) {
-          const at = Math.min(12, k - rg.from + 1);
-          prims.push({ p: "image", x, y, w: ts, h: ts, layer: `t${k}`, at });
-          prims.push({
-            p: "image",
-            x: big.x,
-            y: big.y,
-            w: big.w,
-            h: big.h,
-            layer: `t${k}`,
-            cam: true,
-            at,
-          });
-        }
-      }
-      if (rg.from > 0)
-        prims.push({
-          p: "image",
-          x: big.x,
-          y: big.y,
-          w: big.w,
-          h: big.h,
-          layer: `t${rg.from - 1}`,
-          cam: true,
-        });
-    } else
-      prims.push({
-        p: "text",
-        x: W,
-        y: 8,
-        size: TYPE.label,
-        role: "muted",
-        anchor: "end",
-        slot: "state",
-      });
-    return { id: `p${f}`, prims, vars: {} };
+  const r = rowsLook(c, rows, tags, d.note, {
+    rasters,
+    aspect: tiles[0] ? tiles[0].w / tiles[0].h : 1,
   });
-  return { rasters, frames, data: { thumb: tiles.length ? `t${n - 1}` : undefined }, vars: {} };
+  return { ...r, data: { thumb: tiles.length ? `t${n - 1}` : undefined } };
 }
 
 /** The forward marginal of the picture at checkpoints of a stated schedule. */
@@ -407,7 +230,6 @@ function noise(c: Ctx): MechanismResult {
   const T = P.T;
   if (T === undefined) throw new Error("evolve noise needs `T`");
   const abar = alphaBars(d.schedule, T, P.betaStart, P.betaEnd);
-  const { width: W, height: H } = c.region;
   const img = c.image;
   const n = seededNormals(11);
   const eps = Float32Array.from({ length: img.d.length }, () => n());
@@ -422,63 +244,27 @@ function noise(c: Ctx): MechanismResult {
     const dd = img.d.map((v, i) => (s * (2 * v - 1) + q * (eps[i] as number) + 1) / 2);
     rasters[`x${k}`] = rasterOf(tensor(img.h, img.w, 3, dd));
   });
-  const top = 64;
-  const ph = Math.round((H - top) * 0.62);
-  const big = fitBox(img.w, img.h, 0, top, W, ph);
-  const chart = { x: 0, y: top + ph + 24, w: W, h: H - top - ph - 24 };
-  const X = (t: number) => chart.x + (chart.w * t) / T;
-  const Y = (v: number) => chart.y + chart.h - v * chart.h;
-  const curve = (f: (a: number) => number, role: "a" | "b", k: number): Prim => {
-    const pts: number[] = [];
-    const t0 = ts[k - 1] as number;
-    const t1 = ts[k] as number;
-    for (let i = 0; i <= 24; i++) {
-      const t = t0 + ((t1 - t0) * i) / 24;
-      const a = t <= 0 ? 1 : (abar[Math.min(T, Math.round(t)) - 1] as number);
-      pts.push(X(t), Y(f(a)));
-    }
-    return { p: "path", pts, role, width: 5, cam: true, at: k, wipe: true };
-  };
-  const prims: Prim[] = [
-    { p: "text", x: 0, y: 8, size: TYPE.body, role: "fg", anchor: "start", slot: "state" },
-    { p: "rect", x: big.x, y: big.y, w: big.w, h: big.h, fill: "panel", cam: true },
-    { p: "image", x: big.x, y: big.y, w: big.w, h: big.h, layer: "x0", cam: true },
-    ...ts.slice(1).map(
-      (_, j) =>
-        ({
-          p: "image",
-          x: big.x,
-          y: big.y,
-          w: big.w,
-          h: big.h,
-          layer: `x${j + 1}`,
-          cam: true,
-          at: j + 1,
-        }) as Prim,
-    ),
-    { p: "rect", x: chart.x, y: chart.y, w: chart.w, h: chart.h, fill: "panel", opacity: 0.6 },
-    {
-      p: "text",
-      x: chart.w,
-      y: chart.y - 52,
-      size: TYPE.label,
-      role: "muted",
-      anchor: "end",
-      slot: "trace",
-    },
-    ...ts
-      .slice(1)
-      .flatMap((_, j) => [
-        curve(Math.sqrt, "a", j + 1),
-        curve((a) => Math.sqrt(1 - a), "b", j + 1),
-      ]),
-  ];
-  return {
-    rasters,
-    frames: [{ id: "noise", prims, vars: {} }],
-    data: { thumb: `x${K - 1}` },
-    vars: {},
-  };
+  // Each checkpoint a row: the noised picture, then the signal's share √ᾱ and
+  // the noise's √(1−ᾱ) as two bars.
+  const share = (t: number) => (t === 0 ? 1 : (abar[t - 1] as number));
+  const r = rowsLook(
+    c,
+    ts.map((t, k) => ({
+      parts: [],
+      image: `x${k}`,
+      bars: [
+        { value: Math.sqrt(share(t)), tag: "sig" },
+        { value: Math.sqrt(1 - share(t)), tag: "noi" },
+      ],
+    })),
+    [
+      { tag: "sig", label: need(c, "trace", "the signal's bar"), tone: "a" },
+      { tag: "noi", label: need(c, "noise", "the noise's bar"), tone: "b" },
+    ],
+    d.note,
+    { rasters, aspect: img.w / img.h },
+  );
+  return { ...r, data: { thumb: `x${K - 1}` } };
 }
 
 /* ------------------------------------------------------------------- rows */
@@ -506,6 +292,15 @@ export interface RowTag {
 export interface Row {
   lead?: string;
   parts: ReadonlyArray<{ text: string; tag: string }>;
+  /** A picture at the row's start: a raster layer. */
+  image?: string;
+  /** Bars after the words, each 0..1 of its rail in its tag's tone; a tick at `mark`; `dim` when frozen. */
+  bars?: ReadonlyArray<{
+    value: number;
+    tag: string;
+    mark?: { at: number; tag: string };
+    dim?: boolean;
+  }>;
 }
 
 const ROW_SIZE = TYPE.label;
@@ -518,42 +313,58 @@ const ROW_SPREAD = 0.9;
 const LEAD_SHARE = 0.35;
 const SIDE_GAP = 56;
 const SWATCH = 38;
+const BAR_H = 18;
+const BAR_GAP = 8;
+const BAR_MIN = 160;
 
 export function rowsLook(
   c: Ctx,
   rows: readonly Row[],
   tags: readonly RowTag[],
   note: readonly string[],
+  opts: { rasters?: Record<string, Raster>; aspect?: number } = {},
 ): MechanismResult {
   const { width: W, height: H } = c.region;
   const n = rows.length;
   const byTag = new Map(tags.map((t) => [t.tag, t]));
+  const tagOf = (tag: string, i: number) => {
+    const t = byTag.get(tag);
+    if (!t)
+      throw new Error(`evolve: step ${i + 1} names the tag "${tag}", which \`tags\` does not name`);
+    return t;
+  };
   const m = c.measure;
   const space = m(" ", ROW_SIZE) || ROW_SIZE * 0.3;
-  // The side: the legend, then the note under a rule.
+  const pictures = rows.some((r) => r.image);
+  const aspect = opts.aspect ?? 1;
+  // The side: the lit step's picture large (when the rows carry pictures), the
+  // legend, then the note under a rule.
   const sideW = Math.round(
     Math.min(520, Math.max(380, ...tags.map((t) => SWATCH + 20 + m(t.label, ROW_SIZE)))),
   );
+  const bigH = pictures ? Math.round(Math.min(sideW / aspect, H * 0.45)) : 0;
+  const bigW = Math.round(bigH * aspect);
+  const legendY = bigH ? bigH + 30 : 0;
   const noteLines = note.flatMap((l) => wrapBy(l, ROW_SIZE, sideW, m));
   const LINE = Math.round(ROW_SIZE * 1.35);
-  const sideH = tags.length * (SWATCH + 34) + (noteLines.length ? 30 + noteLines.length * LINE : 0);
+  const sideH =
+    legendY + tags.length * (SWATCH + 34) + (noteLines.length ? 30 + noteLines.length * LINE : 0);
   if (sideH > H)
     throw new Error(
       `evolve: the legend and note are ${sideH}px tall and the scene holds ${H}px: a shorter \`note\``,
     );
   const rowsW = W - sideW - SIDE_GAP;
+  const rowH = Math.max(ROW_H_MIN, Math.min(ROW_H_MAX, Math.floor((H + ROW_GAP) / n) - ROW_GAP));
   const idxW = m(String(n), ROW_SIZE);
-  const textX = ROW_PAD + idxW + 22;
+  const thumbH = rowH - 12;
+  const thumbW = Math.round(thumbH * aspect);
+  const textX = ROW_PAD + idxW + 22 + (pictures ? thumbW + 16 : 0);
   const room = rowsW - textX - ROW_PAD;
   // The row's words laid left to right.
   const laid = rows.map((r, i) => {
     let x = 0;
     const parts = r.parts.map((p) => {
-      const t = byTag.get(p.tag);
-      if (!t)
-        throw new Error(
-          `evolve: step ${i + 1}'s part "${p.text}" has the tag "${p.tag}", which \`tags\` does not name`,
-        );
+      const t = tagOf(p.tag, i);
       const w = m(p.text, ROW_SIZE);
       const at = { x, w, text: p.text, tag: t };
       x += w + space;
@@ -574,22 +385,31 @@ export function rowsLook(
     while (keep > 0 && m(text(keep), ROW_SIZE) + space > cap) keep--;
     const lead = keep ? text(keep) : "";
     const leadW = lead ? m(lead, ROW_SIZE) + space : 0;
-    return { lead, leadW, parts: parts.map((q) => ({ ...q, x: q.x + leadW })) };
+    return { lead, end: leadW + partsW, parts: parts.map((q) => ({ ...q, x: q.x + leadW })) };
   });
-  const rowH = Math.max(ROW_H_MIN, Math.min(ROW_H_MAX, Math.floor((H + ROW_GAP) / n) - ROW_GAP));
+  // The bars, one column for every row: after the widest row's words.
+  const bars = rows.some((r) => r.bars?.length);
+  const wordsW = Math.max(0, ...laid.map((l) => l.end));
+  const barX = textX + (wordsW ? wordsW + 2 * space : 0);
+  const barW = rowsW - ROW_PAD - barX;
+  if (bars && barW < BAR_MIN)
+    throw new Error(
+      `evolve: the rows' words leave ${Math.round(barW)}px for the bars: shorter words`,
+    );
   const fit = Math.max(2, Math.floor((H + ROW_GAP) / (rowH + ROW_GAP)));
   const shown = Math.min(n, fit);
   const pitch = Math.max(rowH + ROW_GAP, shown > 1 ? (ROW_SPREAD * H - rowH) / (shown - 1) : 0);
   const top = Math.max(0, (H - ((shown - 1) * pitch + rowH)) / 2);
 
+  const sx = rowsW + SIDE_GAP;
   const side: Prim[] = [];
   tags.forEach((t, i) => {
-    const y = i * (SWATCH + 34);
+    const y = legendY + i * (SWATCH + 34);
     side.push(
-      { p: "rect", x: rowsW + SIDE_GAP, y, w: SWATCH, h: SWATCH, fill: t.tone, radius: 8 },
+      { p: "rect", x: sx, y, w: SWATCH, h: SWATCH, fill: t.tone, radius: 8 },
       {
         p: "text",
-        x: rowsW + SIDE_GAP + SWATCH + 20,
+        x: sx + SWATCH + 20,
         y: y + (SWATCH - ROW_SIZE * 1.18) / 2,
         size: ROW_SIZE,
         role: "fg",
@@ -599,27 +419,21 @@ export function rowsLook(
     );
   });
   if (noteLines.length) {
-    let y = tags.length * (SWATCH + 34) + 4;
-    side.push({ p: "rect", x: rowsW + SIDE_GAP, y, w: sideW, h: 2, fill: "rule" });
+    let y = legendY + tags.length * (SWATCH + 34) + 4;
+    side.push({ p: "rect", x: sx, y, w: sideW, h: 2, fill: "rule" });
     y += 28;
     for (const l of noteLines) {
-      side.push({
-        p: "text",
-        x: rowsW + SIDE_GAP,
-        y,
-        size: ROW_SIZE,
-        role: "muted",
-        anchor: "start",
-        text: l,
-      });
+      side.push({ p: "text", x: sx, y, size: ROW_SIZE, role: "muted", anchor: "start", text: l });
       y += LINE;
     }
   }
 
-  const frames: Frame[] = rows.map((_, k) => {
+  const frames: Frame[] = rows.map((row, k) => {
     // The window: the lit row second from the bottom, inside the trace.
     const first = Math.max(0, Math.min(n - shown, k - shown + 2));
     const prims: Prim[] = [...side];
+    if (row.image)
+      prims.push({ p: "image", x: sx, y: 0, w: bigW, h: bigH, layer: row.image, at: 1 });
     for (let j = first; j < first + shown; j++) {
       const y = top + (j - first) * pitch;
       const ty = y + (rowH - ROW_SIZE * 1.18) / 2;
@@ -647,8 +461,22 @@ export function rowsLook(
         cam: true,
       });
       if (j > k) continue;
+      const R = rows[j] as Row;
       const L = laid[j] as (typeof laid)[number];
       const done = j < k ? { opacity: ROW_DONE } : {};
+      const lit = (step: number) => (j === k ? { at: Math.min(12, step) } : {});
+      if (R.image)
+        prims.push({
+          p: "image",
+          x: textX - thumbW - 16,
+          y: y + 6,
+          w: thumbW,
+          h: thumbH,
+          layer: R.image,
+          cam: true,
+          ...done,
+          ...lit(1),
+        });
       if (L.lead)
         prims.push({
           p: "text",
@@ -665,7 +493,6 @@ export function rowsLook(
       let step = 0;
       L.parts.forEach((q, i) => {
         if (i === 0 || L.parts[i - 1]?.tag !== q.tag) step++;
-        const at = j === k ? { at: Math.min(12, step) } : {};
         prims.push({
           p: "text",
           x: textX + q.x,
@@ -676,7 +503,7 @@ export function rowsLook(
           text: q.text,
           cam: true,
           ...done,
-          ...at,
+          ...lit(step),
         });
         if (q.tag.strike)
           prims.push({
@@ -692,6 +519,40 @@ export function rowsLook(
             ...(j === k ? { at: Math.min(12, step), wipe: true } : {}),
           });
       });
+      // Then its bars, drawn out from the left.
+      const bs = R.bars ?? [];
+      const bh = bs.length * BAR_H + (bs.length - 1) * BAR_GAP;
+      bs.forEach((bar, q) => {
+        const by = y + (rowH - bh) / 2 + q * (BAR_H + BAR_GAP);
+        const t = tagOf(bar.tag, j);
+        prims.push(
+          { p: "rect", x: barX, y: by, w: barW, h: BAR_H, fill: "rule", radius: 4, cam: true },
+          {
+            p: "rect",
+            x: barX,
+            y: by,
+            w: Math.max(3, bar.value * barW),
+            h: BAR_H,
+            fill: t.tone,
+            radius: 4,
+            cam: true,
+            ...(bar.dim ? { opacity: 0.45 } : done),
+            ...(j === k ? { at: Math.min(12, step + 1), wipe: true } : {}),
+          },
+        );
+        if (bar.mark)
+          prims.push({
+            p: "line",
+            x1: barX + bar.mark.at * barW,
+            y1: by - 8,
+            x2: barX + bar.mark.at * barW,
+            y2: by + BAR_H + 8,
+            role: tagOf(bar.mark.tag, j).tone,
+            width: 4,
+            cam: true,
+            ...done,
+          });
+      });
     }
     // The push leans in on the lit row and is back at rest before the next frame.
     const litY = top + (k - first) * pitch + rowH / 2;
@@ -703,7 +564,7 @@ export function rowsLook(
       focus: { x: rowsW / 2, y: litY },
     };
   });
-  return { rasters: {}, frames, data: {}, vars: {} };
+  return { rasters: opts.rasters ?? {}, frames, data: {}, vars: {} };
 }
 
 /** The source's own steps, as rows. */
