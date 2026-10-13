@@ -165,7 +165,8 @@ DRAWING ARCHETYPES — reach here first
                  repeat. Leave it off only when the figure's whole layout is the
                  argument.
 
-  grid           A cols×rows lattice with up to four regions lit in turn. The
+  grid           A cols×rows lattice (cols 2–24, rows 1–16) with one to four
+                 regions lit in turn — never a fifth. The
                  tell: A FIELD WITH NO ORDER — patches, windows, tokens, tiles,
                  receptive fields, masks, strides, a neighbourhood, a block-sparse
                  pattern. Regions are cell coordinates, so the lattice IS the

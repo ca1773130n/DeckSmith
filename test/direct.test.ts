@@ -368,8 +368,15 @@ describe("design: the switch", () => {
     // s12 at 100.8s: an equation that fits small grows toward 62% of the width and
     // each legend meaning sits beside its symbol; a line-chart value keeps 16px
     // from the axis's own words (s12 unchanged to the eye).
+    // Then, merged from main (#120), the two KaTeX scenes gain one statement each
+    // flagging the nodes inside KaTeX's lap overlays `data-layout-allow-overlap`
+    // (`lapSetup`); removing those two statements gives back the previous pin
+    // byte for byte. An attribute, so nothing paints differently.
+    // Then merged from main again (2026-10-14, #122/#123): label boxes are the
+    // overprint gate's run box (`runBox`), the value and delta spots kept from r2/r3;
+    // re-pinned after reading s12 at 104.5s (every value and delta off the line).
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "c00e36db5fcfcae59e2c1b82e8dcb46b9a843de0ac7bb3722a268da8de3d2f15",
+      "bb7709726f285de08f4f8e5058a513dae01245c4e11cf8c4d4fb50a48769c36e",
     );
   });
 

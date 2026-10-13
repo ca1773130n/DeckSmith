@@ -31,7 +31,7 @@ import type { DeckNarration } from "../emit/composition.js";
 import { faceOf, typeOf } from "../emit/svg.js";
 import { deckLook } from "../emit/theme.js";
 import { familyOf, type LatinFace } from "../emit/type.js";
-import { bundleFont, familyFor } from "../source/fonts.js";
+import { bundleFont, familyFor, INTER_METRICS } from "../source/fonts.js";
 import type { Source, Storyboard } from "../types.js";
 import { assemblePiece } from "./piece.js";
 
@@ -397,10 +397,10 @@ export async function vendorFace(face: Exclude<LatinFace, "inter">, dir: string)
  * face's line box and glyph box are Inter's (measured in Chrome: ascent 0.969,
  * descent 0.242, `line-height: normal` 1.21 for all three); only the outlines
  * differ, which is the point of the face. Horizontal advances are untouched,
- * so `src/emit/faces.ts` still describes them.
+ * so `src/emit/faces.ts` still describes them. The CJK bundle gets the same
+ * descriptors from `bundleFont` (`INTER_METRICS`).
  */
-const PACK_DISPLAY =
-  "font-display: block;\n  ascent-override: 96.875%;\n  descent-override: 24.1211%;\n  line-gap-override: 0%";
+const PACK_DISPLAY = `font-display: block;\n  ${INTER_METRICS}`;
 
 async function vendorFontsource(pkgName: string, family: string, dir: string): Promise<string> {
   const pkg = dirname(createRequire(import.meta.url).resolve(pkgName));

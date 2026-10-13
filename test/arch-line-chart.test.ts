@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { lineChart } from "../src/emit/archetypes/line-chart.js";
 import type { EmitContext, Theme, Tween } from "../src/emit/kit.js";
 import { faceOf, textWidth } from "../src/emit/svg.js";
+import { THEMES } from "../src/emit/themes/index.js";
 import type { BeatOf, Format, Source } from "../src/types.js";
 import { beatSchema, FORMATS } from "../src/types.js";
 
@@ -108,44 +109,63 @@ const settlesAt = (t: Tween, n: number) => ends(t) + Number(t.to.stagger ?? 0) *
 /* ---- the painted boxes, read back out of the svg the same way the gate would */
 
 const FACE = faceOf(theme.fontStack);
-const runW = (s: string) => textWidth(s, 40, 400, 0, false, FACE);
+const runW = (s: string, face = FACE) => textWidth(s, 40, 400, 0, false, face);
 /** `.axname` is painted at 500 and `.ghostlab` at 600. Charging either of them
  *  at 400 recovers a box narrower than the one on the page, which is how a
  *  collision test can pass over markup that overprints. */
 const nameW = (s: string) => textWidth(s, 40, 500, 0, false, FACE);
-const ghostW = (s: string) => textWidth(s, 40, 600, 0, false, FACE);
+const ghostW = (s: string, face = FACE) => textWidth(s, 40, 600, 0, false, face);
 interface Box {
   x: number;
   y: number;
   w: number;
   h: number;
 }
+/**
+ * A 40px run's box as the overprint gate measures it: its client rect, which is
+ * the line box, 39px above the baseline and 10px below — measured in Chrome on a
+ * built deck. NOT `[baseline - 40, baseline]`: that cap box leaves out the
+ * descent, and a test using it passed over a ghost the gate then failed.
+ */
+const runBox = (left: number, by: number, w: number): Box => ({ x: left, y: by - 39, w, h: 49 });
 /** `overlaps` from line-chart.ts, on boxes recovered from the emitted markup. */
 const hits = (a: Box, b: Box) =>
   Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 8 &&
   Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 8;
 
-const ghostBox = (html: string): Box | undefined => {
-  const m = /id="s2-ghostlab" text-anchor="(start|end)" x="([\d.]+)" y="([\d.]+)">([^<]*)</.exec(
-    html,
-  );
+/**
+ * The ghost's name as painted: a label beside the curve, anchored start, middle
+ * or end — or, where no honest place on the plot exists, a key off it, whose box
+ * runs from its swatch to the end of its name.
+ */
+const ghostBox = (html: string, face = FACE): Box | undefined => {
+  const key =
+    /<g class="ghostkey" id="s2-ghostlab"><line x1="([\d.]+)"[^>]*\/><text class="ghostlab" text-anchor="end" x="([\d.]+)" y="([\d.]+)">/.exec(
+      html,
+    );
+  if (key) return runBox(Number(key[1]), Number(key[3]), Number(key[2]) - Number(key[1]));
+  const m =
+    /id="s2-ghostlab" text-anchor="(start|middle|end)" x="([\d.]+)" y="([\d.]+)">([^<]*)</.exec(
+      html,
+    );
   if (!m) return undefined;
-  const w = ghostW(m[4] as string);
+  const w = ghostW(m[4] as string, face);
   const cx = Number(m[2]);
-  return { x: m[1] === "start" ? cx : cx - w, y: Number(m[3]) - 40, w, h: 40 };
+  const left = m[1] === "start" ? cx : m[1] === "middle" ? cx - w / 2 : cx - w;
+  return runBox(left, Number(m[3]), w);
 };
-const valueBoxes = (html: string): Box[] =>
+const valueBoxes = (html: string, face = FACE): Box[] =>
   [...html.matchAll(/<text class="pv"( text-anchor="start")? x="([\d.]+)" y="([\d.]+)">([^<]*)</g)]
     .map((m) => ({ start: m[1] !== undefined, cx: Number(m[2]), by: Number(m[3]), t: m[4] ?? "" }))
     .map(({ start, cx, by, t }) => {
-      const w = runW(t);
-      return { x: start ? cx : cx - w / 2, y: by - 40, w, h: 40 };
+      const w = runW(t, face);
+      return runBox(start ? cx : cx - w / 2, by, w);
     });
 /** The y-axis NAME, which is on every chart this file emits whatever the data is. */
 const axisNameBox = (html: string): Box => {
   const m = /<text class="axname" x="0" y="42">([^<]*)</.exec(html);
   if (!m) throw new Error("no y-axis name in the emitted svg");
-  return { x: 0, y: 2, w: nameW(m[1] as string), h: 40 };
+  return runBox(0, 42, nameW(m[1] as string));
 };
 
 /** The vertices of one emitted polyline, read straight out of its own `d`. */
@@ -497,6 +517,123 @@ describe("the baseline's label", () => {
       for (const v of valueBoxes(scene.html)) {
         expect({ name, hit: hits(painted(g), painted(v)) }).toEqual({ name, hit: false });
       }
+    }
+  });
+
+  it("clears the endpoint value by the box the gate measures, not by a cap box", () => {
+    // HypePaper, 2026-10-11, zh-Hans on "signal": the baseline ends 32.05px of
+    // baseline above the result, so `away` put "AR CoT+Answer" 32.05px over the
+    // result's "2.25". The cap-box model called that 7.95px of overlap and kept
+    // it; Chrome's line boxes overlap by 17px and `svg_text_overprint` failed the
+    // build. The plan's own numbers, in the deck's own face.
+    const zh: Theme = {
+      ...theme,
+      fontStack: '"Noto Sans SC", "Space Grotesk", "Inter", system-ui, sans-serif',
+    };
+    const face = faceOf(zh.fontStack);
+    const xs = ["1 秒", "2 秒", "3 秒", "4 秒"];
+    const scene = lineChart(
+      beat({
+        eyebrow: "Impromptu",
+        headline: "OneVL 在二至四秒的预测时域中降低了轨迹误差",
+        xLabel: "预测时域",
+        yLabel: "轨迹 L2 误差",
+        points: [0.13, 0.48, 1.18, 2.25].map((y, i) => ({ x: xs[i] as string, y })),
+        compare: {
+          label: "AR CoT+Answer",
+          points: [0.13, 0.51, 1.27, 2.44].map((y, i) => ({ x: xs[i] as string, y })),
+        },
+      }),
+      { ...ctx(), theme: zh },
+    );
+    const g = ghostBox(scene.html, face);
+    // Named, not dropped — and not over the result's number. Every `.pv` is the
+    // RESULT's value, so a name sharing a column with one and nearer than a line
+    // of type reads as its caption: the first fix for this deck lifted the name
+    // clear of "2.25" by 0px, and the frame then said the baseline scored 2.25.
+    expect(g).toBeDefined();
+    const box = g as Box;
+    for (const v of valueBoxes(scene.html, face)) {
+      expect(hits(box, v)).toBe(false);
+      const shareColumns = Math.min(box.x + box.w, v.x + v.w) - Math.max(box.x, v.x) > 0;
+      const gap = Math.max(v.y - (box.y + box.h), box.y - (v.y + v.h));
+      if (shareColumns) expect(gap).toBeGreaterThanOrEqual(49);
+      // And the ghost, now legible, is not drawn through a value either: its last
+      // leg ran through "2.25" until that value moved under its point.
+      expect(crosses(polyline(scene.html, "base"), v)).toBe(false);
+    }
+    // The curves are never more than 32px apart, under one line of type, so no
+    // place beside the baseline is clear of the result: the name goes in a key,
+    // off the plot, above its top gridline, with a stub of the ghost's stroke.
+    expect(scene.html).toContain('<g class="ghostkey" id="s2-ghostlab">');
+    const topGrid = Math.min(
+      ...[...scene.html.matchAll(/<line x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="\1" \/>/g)].map(
+        (m) => Number(m[1]),
+      ),
+    );
+    expect(box.y + box.h).toBeLessThanOrEqual(topGrid);
+    expect(scene.html).toMatch(new RegExp(`class="ghostkey"[^>]*><line [^>]*stroke="${zh.dim}"`));
+  });
+
+  it("names the ghost where the curves part when both ends are taken", () => {
+    // Converged at both ends, a curve's height apart in the middle: no end is
+    // honest, so the name goes along the baseline at the widest separation, on
+    // its side away from the result — never in the key while a place exists.
+    const scene = lineChart(
+      beat({
+        headline: "Each extra step buys less",
+        xLabel: "Steps",
+        yLabel: "Loss",
+        points: [10, 40, 60, 61].map((y, i) => ({ x: `T=${i}`, y })),
+        compare: {
+          label: "Baseline",
+          points: [10, 15, 25, 60].map((y, i) => ({ x: `T=${i}`, y })),
+        },
+      }),
+      ctx(),
+    );
+    expect(scene.html).toMatch(/id="s2-ghostlab" text-anchor="middle"/);
+    const g = ghostBox(scene.html) as Box;
+    for (const v of valueBoxes(scene.html)) expect(hits(g, v)).toBe(false);
+    for (const id of ["base", "target"]) expect(crosses(polyline(scene.html, id), g)).toBe(false);
+    // Under the baseline, which is the side away from a result drawn above it.
+    const base = polyline(scene.html, "base");
+    const target = polyline(scene.html, "target");
+    const mid = g.x + g.w / 2;
+    const at = (pts: [number, number][]) => {
+      const i = pts.findIndex(([px]) => px >= mid);
+      const [ax, ay] = pts[i - 1] as [number, number];
+      const [bx, by] = pts[i] as [number, number];
+      return ay + ((by - ay) * (mid - ax)) / (bx - ax);
+    };
+    expect(at(target)).toBeLessThan(at(base));
+    expect(g.y).toBeGreaterThan(at(base));
+  });
+
+  it("leaves the ghost at 3:1 or better against the ground, in every theme", () => {
+    // The ghost used to fade the accent to 0.28 opacity: 1.38:1 to 1.87:1 across
+    // the nine themes, and in "signal" it all but vanished. It now turns to the
+    // theme's `dim`, a neutral the accent is told apart from by hue as well.
+    const lum = (hex: string) => {
+      const c = [1, 3, 5]
+        .map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * (c[0] as number) + 0.7152 * (c[1] as number) + 0.0722 * (c[2] as number);
+    };
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    for (const [name, deck] of Object.entries(THEMES)) {
+      const t: Theme = deck;
+      const scene = lineChart(COMPARED, { ...ctx(), theme: t });
+      const left = scene.tl.filter((tw) => tw.target === "#s2-base" && "stroke" in tw.to);
+      expect({ name, n: left.length }).toEqual({ name, n: 1 });
+      const rest = String((left[0] as Tween).to.stroke);
+      expect(rest).not.toBe(t.accent);
+      expect({ name, ok: ratio(rest, t.bg) >= 3 }).toEqual({ name, ok: true });
+      // Nothing fades it back down after it has turned.
+      expect(scene.tl.some((tw) => tw.target === "#s2-base" && "opacity" in tw.to)).toBe(false);
     }
   });
 

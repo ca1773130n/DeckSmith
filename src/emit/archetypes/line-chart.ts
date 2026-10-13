@@ -44,17 +44,19 @@ const READOUT_LH = 1.35;
 const TALL_ASPECT = 1.15;
 
 /**
- * How long the baseline curve takes to become the result, and how far it fades
- * once it has been left behind.
+ * How long the baseline curve takes to become the result.
  *
  * 1.2s is slow enough that the eye can follow one point moving rather than see a
  * cut, and short enough that the beat still has room for its own dots and values
- * afterwards. 0.28 leaves the ghost legible as a shape while making it
- * unmistakably the thing that is no longer being asserted — at 0 it is a cut, at
- * 0.5 the two curves compete.
+ * afterwards.
+ *
+ * Once left behind, the ghost turns from the accent to the theme's `dim` rather
+ * than fading. It used to fade the accent to 0.28 opacity, which measured
+ * 1.38:1 to 1.87:1 against the ground across the nine themes — in "signal" the
+ * ghost all but vanished. `dim` is 4.84:1 or better in every theme, and a
+ * neutral against a saturated accent tells the two curves apart by hue as well.
  */
 const RESHAPE_SECONDS = 1.2;
-const GHOST_OPACITY = 0.28;
 
 /**
  * The curve going on, and the half-second the copy takes to leave it.
@@ -250,7 +252,31 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   };
 
   const LABEL_SIZE = 40;
-  const DESCENT = LABEL_SIZE / 4;
+  /**
+   * HOW TALL A 40px RUN IS, AS THE OVERPRINT GATE MEASURES IT — which is not 40.
+   *
+   * Every box below used to be `[baseline - 40, baseline]`: a cap box with no
+   * descent. `svg_text_overprint` measures each run's client rect, which is the
+   * font's line box — Inter's 0.969 em above the baseline and 0.242 below, and
+   * every pack face is declared with Inter's metrics (`PACK_DISPLAY` in
+   * build/files.ts). MEASURED in Chrome on 2026-10-11, in a built zh-Hans
+   * "signal" deck: a 40px run, Latin or CJK, spans baseline -39 to +10.
+   *
+   * The 9.7px that model left out is most of the 8px tolerance `overlaps` allows,
+   * so the emitter accepted placements the gate then failed. The deck that found
+   * it: a ghost label 32.05px of baseline above the endpoint value. The cap-box
+   * model called that 7.95px of overlap, under 8, and kept it. The gate measured
+   * 17px and failed the build.
+   */
+  const RUN_ABOVE = Math.ceil(LABEL_SIZE * 0.969);
+  const RUN_BELOW = Math.ceil(LABEL_SIZE * 0.242);
+  /** A run's painted box: `w` wide from `left`, sitting on baseline `by`. */
+  const runBox = (left: number, by: number, w: number) => ({
+    x: left,
+    y: by - RUN_ABOVE,
+    w,
+    h: RUN_ABOVE + RUN_BELOW,
+  });
   /** One answer to "how wide is this", shared with every other archetype. */
   const runW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
   const catW = (s: string) => textWidth(s, LABEL_SIZE, 400, 0, false, face);
@@ -285,16 +311,51 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
         `<circle class="dot" cx="${n(x(i))}" cy="${n(y(pt.y))}" r="${i === p.points.length - 1 ? 11 : 9}" fill="${i === p.points.length - 1 ? theme.tones.b : theme.accent}" />`,
     )
     .join("");
+  /** A label's painted box: middle-anchored on `cx`, sitting on baseline `cy`. */
+  const labelBox = (cx: number, cy: number, text: string, anchorStart = false) => {
+    const w = runW(text);
+    return runBox(anchorStart ? cx : cx - w / 2, cy, w);
+  };
+  /**
+   * THE VERTICAL BAND ONE OF THE TWO CURVES OCCUPIES BETWEEN TWO X POSITIONS.
+   *
+   * Both series are polylines, so over any x range their y values form one
+   * unbroken interval — the vertices inside the range, plus the interpolated y
+   * at each edge. Continuity does the rest: every y in that interval is reached
+   * at some x inside the range, so a box whose own y range meets the interval is
+   * a box the curve is drawn through. Nothing has to be sampled, and there is no
+   * step size to get wrong.
+   */
+  const curveBand = (pts: readonly { y: number }[], x0: number, x1: number): [number, number] => {
+    const ys: number[] = [];
+    const py = (i: number) => y(pts[i]?.y ?? 0);
+    for (let i = 0; i < pts.length; i++) {
+      if (x(i) >= x0 && x(i) <= x1) ys.push(py(i));
+    }
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, bx] = [x(i), x(i + 1)];
+      for (const edge of [x0, x1]) {
+        if (edge > Math.min(ax, bx) && edge < Math.max(ax, bx)) {
+          ys.push(py(i) + ((py(i + 1) - py(i)) * (edge - ax)) / (bx - ax));
+        }
+      }
+    }
+    // An empty band never overlaps: `-Infinity - Infinity` is not greater than 8.
+    return ys.length > 0
+      ? [Math.min(...ys), Math.max(...ys)]
+      : [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  };
+
+  /** Whether a series is drawn through a box, by more than the 8px `overlaps` allows. */
+  const drawnThrough = (series: readonly { y: number }[], b: ReturnType<typeof runBox>) => {
+    const [top, bottom] = curveBand(series, b.x, b.x + b.w);
+    return Math.min(b.y + b.h, bottom) - Math.max(b.y, top) > 8;
+  };
   // The values, by the same walk. The first is anchored at the START rather than
   // centred — see the axis note below — so it occupies only its right half.
   const shownValues = fitIndices((i) => runW(String(p.points[i]?.y ?? "")), true);
   const showsValue = (i: number) => shownValues.has(i);
 
-  /** A label's painted box: middle-anchored on `cx`, sitting on baseline `cy`. */
-  const labelBox = (cx: number, cy: number, text: string, anchorStart = false) => {
-    const w = runW(text);
-    return { x: anchorStart ? cx : cx - w / 2, y: cy - LABEL_SIZE, w, h: LABEL_SIZE };
-  };
   // NO WORD ON THE LINE. The series (and the one it is reshaped from) as segments: a
   // value or a delta set where the line runs through it is the collision the
   // words-on-marks gate fails (src/verify/overprint.ts) — on the demo, "28.91" and
@@ -306,9 +367,8 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const spotBox = (s: Spot, text: string) => {
     const w = runW(text);
     const x0 = s.anchor === "start" ? s.x : s.anchor === "end" ? s.x - w : s.x - w / 2;
-    // Down to the descenders: two labels a few px apart by their cap boxes still
-    // print through each other's tails (the sweep's 16-point "+0.30" / "+0.23").
-    return { x: x0, y: s.y - LABEL_SIZE, w, h: LABEL_SIZE + 10 };
+    // Down to the descenders, as the overprint gate measures a run (`runBox`).
+    return runBox(x0, s.y, w);
   };
   const onLine = (b: { x: number; y: number; w: number; h: number }) =>
     segs.some(([x1, y1, x2, y2]) => {
@@ -341,7 +401,7 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     [
       ...ticks.map((v) => {
         const w = runW(v.toFixed(scale.decimals));
-        return { x: PAD.l - 22 - w, y: y(v) + 13 - LABEL_SIZE, w, h: LABEL_SIZE };
+        return runBox(PAD.l - 22 - w, y(v) + 13, w);
       }),
       ...p.points
         .map((pt, i) => ({ pt, i }))
@@ -496,36 +556,6 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     : lineTag("line", path);
 
   /**
-   * THE VERTICAL BAND ONE OF THE TWO CURVES OCCUPIES BETWEEN TWO X POSITIONS.
-   *
-   * Both series are polylines, so over any x range their y values form one
-   * unbroken interval — the vertices inside the range, plus the interpolated y
-   * at each edge. Continuity does the rest: every y in that interval is reached
-   * at some x inside the range, so a box whose own y range meets the interval is
-   * a box the curve is drawn through. Nothing has to be sampled, and there is no
-   * step size to get wrong.
-   */
-  const curveBand = (pts: readonly { y: number }[], x0: number, x1: number): [number, number] => {
-    const ys: number[] = [];
-    const py = (i: number) => y(pts[i]?.y ?? 0);
-    for (let i = 0; i < pts.length; i++) {
-      if (x(i) >= x0 && x(i) <= x1) ys.push(py(i));
-    }
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const [ax, bx] = [x(i), x(i + 1)];
-      for (const edge of [x0, x1]) {
-        if (edge > Math.min(ax, bx) && edge < Math.max(ax, bx)) {
-          ys.push(py(i) + ((py(i + 1) - py(i)) * (edge - ax)) / (bx - ax));
-        }
-      }
-    }
-    // An empty band never overlaps: `-Infinity - Infinity` is not greater than 8.
-    return ys.length > 0
-      ? [Math.min(...ys), Math.max(...ys)]
-      : [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
-  };
-
-  /**
    * THE TEXT THIS CHART SETS WHATEVER THE DATA SAYS.
    *
    * `valueBoxes` and `deltaBoxes` are the runs the DATA puts on the plot, and
@@ -551,9 +581,9 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
    * BECAUSE ANY OF THEM HAS BEEN SEEN TO COLLIDE. On today's clamps none can.
    * The tick labels are `end`-anchored at `PAD.l - 22`, so they end 22px left of
    * where the first-x candidates begin. The category names sit on a baseline of
-   * `H - PAD.b + 56`, so their boxes start 12px below `H - PAD.b + 4`, the
-   * lowest baseline `toward` can reach; the x-axis name's box starts 80px below
-   * it. They are in the set so that moving one of those clamps — or the padding
+   * `H - PAD.b + 56`, so their boxes start 3px below the bottom of a ghost on
+   * `H - PAD.b + 4`, the lowest baseline `toward` can reach; the x-axis name's
+   * box starts 71px below it. They are in the set so that moving one of those clamps — or the padding
    * either is measured from — cannot silently re-open this.
    *
    * AND THAT IS ALL OF THEM. The runs this archetype sets are the two `.axname`s,
@@ -570,16 +600,11 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     // `.axname` is the one run here set at weight 500 rather than 400, and
     // under-charging a width is the unrecoverable direction (see `padR`).
     // No `text-anchor` on the y half, so it runs rightwards from x=0.
-    { x: 0, y: 42 - LABEL_SIZE, w: nameW(p.yLabel), h: LABEL_SIZE },
-    {
-      x: PAD.l + plotW / 2 - nameW(p.xLabel) / 2,
-      y: H - 16 - LABEL_SIZE,
-      w: nameW(p.xLabel),
-      h: LABEL_SIZE,
-    },
+    runBox(0, 42, nameW(p.yLabel)),
+    runBox(PAD.l + plotW / 2 - nameW(p.xLabel) / 2, H - 16, nameW(p.xLabel)),
     ...ticks.map((v) => {
       const w = runW(v.toFixed(scale.decimals));
-      return { x: PAD.l - 22 - w, y: y(v) + 13 - LABEL_SIZE, w, h: LABEL_SIZE };
+      return runBox(PAD.l - 22 - w, y(v) + 13, w);
     }),
     ...p.points
       .map((pt, i) => ({ pt, i }))
@@ -590,15 +615,14 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   /**
    * THE GHOST'S NAME, THROUGH THE SAME BOXES AS EVERY OTHER LABEL HERE.
    *
-   * Anchored at one END of the baseline and set away from the frame — at the
-   * last x it is `end`-anchored and spans leftwards, at the first x it is
-   * `start`-anchored and spans rightwards — so it cannot hang past `padR` or
-   * `PAD.l` the way a middle-anchored label on either x would. That is the whole
-   * of what is fixed about it. WHERE it goes is a collision question: the end of
-   * the curve first, because that is where a series label is looked for, and on
-   * the side away from the result, because that is the side the endpoint's own
-   * value label is not on. Everything after the first candidate is what happens
-   * when the preferred place is taken.
+   * Three places, in order: at an END of the baseline, then ALONG it where the
+   * two curves are furthest apart, then a KEY off the plot. Each label candidate
+   * must be clear of every other run, cross neither curve, not sit stacked on a
+   * value label (every `.pv` is the result's), and be nearer its own curve than
+   * the result's by a line of type. A name that passes the collision tests but
+   * sits beside the result, or over the result's number, is not a collision and
+   * is still wrong: HypePaper's zh-Hans deck, 2026-10-11, set "AR CoT+Answer"
+   * directly over the result's "2.25" with 0px between them.
    *
    * WHAT EACH CANDIDATE IS TESTED AGAINST. Every other run this emitter sets:
    * `fixedBoxes` above — the axis names, the tick labels and the category names,
@@ -618,19 +642,19 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
    * [10, 11, 12, 95] against points y [40, 55, 70, 99] and the baseline's last
    * leg crosses its own label.
    *
-   * NOTHING CLEAR MEANS NO NAME, the way `deltasFit` drops the deltas rather than
-   * collide. An unnamed ghost is still legibly the fainter, earlier curve; a name
-   * printed through a number is a defect in both of them.
-   *
-   * AND THIS ONE IS SILENT, unlike the degrade below: no `Scene.warnings` entry,
-   * so `build` prints nothing and the job's warnings say nothing. The judgement
-   * is that an unnamed ghost is legible where a dropped comparison is not. It
-   * does mean a plan whose `compare.label` never reaches the slide gets no word
-   * about it, which is the failure `warnings` was added for — revisit it here if
-   * a real plan ever loses a label this way.
+   * NOTHING CLEAR MEANS NO NAME, which since the key is only when both off-plot
+   * bands are taken. Silent, unlike the degrade below: no `Scene.warnings` entry.
    */
   const lastI = p.points.length - 1;
-  const ghost = (() => {
+  /** One line of this chart's type, the top of its box to the bottom. */
+  const LINE = RUN_ABOVE + RUN_BELOW;
+  /** The key's swatch — a stub of the ghost's own stroke — and the air before its name. */
+  const SWATCH = 48;
+  const SWATCH_GAP = 16;
+  type GhostPlace =
+    | { kind: "label"; anchor: "start" | "middle" | "end"; x: number; by: number }
+    | { kind: "key"; left: number; right: number; by: number };
+  const ghost = ((): GhostPlace | undefined => {
     if (!cmp) return undefined;
     const w = ghostW(cmp.label);
     if (w > plotW) {
@@ -638,7 +662,41 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
         `line-chart ${beat.id}: the compare label "${cmp.label}" is ${Math.ceil(w)}px against the ${Math.floor(plotW)}px of plot it is set in. Shorten it.`,
       );
     }
-    /** Both sides of one end of the baseline, the one away from the result first. */
+    const drawnDeltas = deltasFit ? deltaBoxes : [];
+    type Box = ReturnType<typeof runBox>;
+    /** How far a box sits from the band a series is drawn through under it; 0 where they meet. */
+    const gapTo = (series: readonly { y: number }[], b: Box) => {
+      const [top, bottom] = curveBand(series, b.x, b.x + b.w);
+      return Math.max(0, top - (b.y + b.h), b.y - bottom);
+    };
+    const clearOfText = (b: Box) =>
+      !fixedBoxes.some((f) => overlaps(b, f)) &&
+      !valueBoxes.some((v) => overlaps(b, v)) &&
+      !drawnDeltas.some((d) => d !== null && overlaps(b, d));
+    /**
+     * STACKED ON A VALUE: sharing a column with a `.pv` and nearer to it than one
+     * line of type. Every value label here is the RESULT's, so a name directly
+     * over one reads as that value's caption — "AR CoT+Answer" over "2.25" said
+     * the baseline scored 2.25, clear of it by 0px and wrong by the whole slide.
+     */
+    const stacked = (b: Box) =>
+      valueBoxes.some(
+        (v) =>
+          Math.min(b.x + b.w, v.x + v.w) - Math.max(b.x, v.x) > 0 &&
+          Math.max(v.y - (b.y + b.h), b.y - (v.y + v.h)) < LINE,
+      );
+    const crossed = (b: Box) => [p.points, cmp.points].some((series) => drawnThrough(series, b));
+    /**
+     * BESIDE ITS OWN LINE: nearer the baseline than the result by at least a line
+     * of its own type. Where the two curves are closer than that they read as one
+     * band, and a name beside the band names either of them.
+     */
+    const owned = (b: Box) => gapTo(p.points, b) - gapTo(cmp.points, b) >= LINE;
+    const honest = (b: Box) => clearOfText(b) && !stacked(b) && !crossed(b) && owned(b);
+
+    // 1. AT AN END, where a series label is looked for: away from the result
+    //    first, end-anchored at the last x and start-anchored at the first so it
+    //    cannot hang past `padR` or `PAD.l`.
     const atEnd = (i: number, start: boolean) => {
       const cy = y(cmp.points[i]?.y ?? 0);
       const away = Math.max(44, cy - 26);
@@ -646,32 +704,62 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       const sides = cy < y(p.points[i]?.y ?? 0) ? [away, toward] : [toward, away];
       return sides.map((by) => ({ i, start, by }));
     };
-    const drawnDeltas = deltasFit ? deltaBoxes : [];
-    return [...atEnd(lastI, false), ...atEnd(0, true)].find((c) => {
-      const box = {
-        x: c.start ? x(c.i) : x(c.i) - w,
-        y: c.by - LABEL_SIZE,
-        w,
-        h: LABEL_SIZE + DESCENT,
-      };
-      if (fixedBoxes.some((f) => overlaps(box, f))) return false;
-      // Against the values, both boxes reach a quarter em below the baseline:
-      // the descent the overprint gate's client rect includes. Without it the
-      // compare label set 33px above a value measured 7px of overlap here, under
-      // the 8px floor, and 16px in the browser (OneVL: "AR CoT+Answer" through
-      // "2.25"). The deltas' fit above keeps its calibrated boxes.
-      if (valueBoxes.some((v) => overlaps(box, { ...v, h: v.h + DESCENT }))) return false;
-      if (drawnDeltas.some((d) => d !== null && overlaps(box, d))) return false;
-      return ![p.points, cmp.points].some((series) => {
-        const [top, bottom] = curveBand(series, box.x, box.x + box.w);
-        return Math.min(box.y + box.h, bottom) - Math.max(box.y, top) > 8;
-      });
+    const end = [...atEnd(lastI, false), ...atEnd(0, true)].find((c) =>
+      honest(runBox(c.start ? x(c.i) : x(c.i) - w, c.by, w)),
+    );
+    if (end) {
+      return { kind: "label", anchor: end.start ? "start" : "end", x: x(end.i), by: end.by };
+    }
+
+    // 2. ALONG THE LINE, where the two curves are furthest apart: centred on a
+    //    vertex or a segment's midpoint, on the baseline's side away from the
+    //    result, clear of the baseline's own band by the 16px `away` leaves.
+    //    Ranked by the NARROWEST separation under the label's span, not at its
+    //    centre — a label is as ambiguous as its worst column.
+    const yAt = (series: readonly { y: number }[], at: number) => curveBand(series, at, at)[0];
+    const sep = (at: number) => yAt(p.points, at) - yAt(cmp.points, at);
+    const centres = p.points.flatMap((_, i) =>
+      i < lastI ? [x(i), (x(i) + x(i + 1)) / 2] : [x(i)],
+    );
+    const along = centres
+      .map((cx) => {
+        const left = Math.min(Math.max(cx - w / 2, PAD.l), width - padR - w);
+        const side = Math.sign(sep(left + w / 2));
+        const cols = [
+          left,
+          left + w,
+          ...p.points.map((_, i) => x(i)).filter((v) => v > left && v < left + w),
+        ];
+        const narrowest = Math.min(...cols.map((c) => side * sep(c)));
+        const [top, bottom] = curveBand(cmp.points, left, left + w);
+        const by = side > 0 ? top - 16 - RUN_BELOW : bottom + 16 + RUN_ABOVE;
+        return { left, by, narrowest, side };
+      })
+      .filter((c) => c.side !== 0 && c.by >= 44 && c.by <= H - PAD.b + 4)
+      .sort((a, b) => b.narrowest - a.narrowest)
+      .find((c) => honest(runBox(c.left, c.by, w)));
+    if (along) return { kind: "label", anchor: "middle", x: along.left + w / 2, by: along.by };
+
+    // 3. A KEY, off the plot: a stub of the ghost's stroke and its name, right-
+    //    aligned to the plot, in the band beside the y-axis name or the one beside
+    //    the x-axis name. Neither band is one a curve can reach.
+    const kw = SWATCH + SWATCH_GAP + w;
+    const right = width - padR;
+    const key = [42, H - 16].find((by) => {
+      const b = runBox(right - kw, by, kw);
+      return clearOfText(b) && !stacked(b) && !crossed(b);
     });
+    // NOTHING CLEAR MEANS NO NAME, the way `deltasFit` drops the deltas rather
+    // than collide — and with the key that now takes both off-plot bands being
+    // taken at once. Silent, as before: no `Scene.warnings` entry.
+    return key === undefined ? undefined : { kind: "key", left: right - kw, right, by: key };
   })();
   const ghostLabel =
-    cmp && ghost
-      ? `\n    <text class="ghostlab" id="${sid}-ghostlab" text-anchor="${ghost.start ? "start" : "end"}" x="${n(x(ghost.i))}" y="${n(ghost.by)}">${esc(cmp.label)}</text>`
-      : "";
+    !cmp || !ghost
+      ? ""
+      : ghost.kind === "label"
+        ? `\n    <text class="ghostlab" id="${sid}-ghostlab" text-anchor="${ghost.anchor}" x="${n(ghost.x)}" y="${n(ghost.by)}">${esc(cmp.label)}</text>`
+        : `\n    <g class="ghostkey" id="${sid}-ghostlab"><line x1="${n(ghost.left)}" y1="${n(ghost.by - 14)}" x2="${n(ghost.left + SWATCH)}" y2="${n(ghost.by - 14)}" stroke="${theme.dim}" stroke-width="5" stroke-linecap="round" /><text class="ghostlab" text-anchor="end" x="${n(ghost.right)}" y="${n(ghost.by)}">${esc(cmp.label)}</text></g>`;
 
   const readout = p.readout
     ? `\n  <div class="readout" id="${sid}-read">${esc(p.readout)}</div>`
@@ -794,7 +882,12 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
       // The copy lifts off — same geometry, so the half-second reads as one line
       // separating from itself rather than as a second line arriving.
       tween(`#${sid}-line`, { opacity: 0 }, { opacity: 1, duration: SEPARATE }, lift),
-      tween(`#${sid}-base`, { opacity: 1 }, { opacity: GHOST_OPACITY, duration: SEPARATE }, lift),
+      tween(
+        `#${sid}-base`,
+        { stroke: theme.accent },
+        { stroke: theme.dim, duration: SEPARATE },
+        lift,
+      ),
       reshape(`#${sid}-line`, `#${sid}-target`, lift + SEPARATE, RESHAPE_SECONDS, true),
     );
   }

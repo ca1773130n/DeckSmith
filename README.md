@@ -1275,7 +1275,8 @@ by design; such a scene goes to its critique and falls back if it is still cards
 camera, or a viewBox, not home at the settled frame). Content
 outside a clipping `<svg>` — a camera zoomed in — is neither off the frame nor crossing
 anything. Overlap and crossing findings carry the labels' boxes in the body box's px.
-`seek_order` also runs on every other scene of a v2 deck, as a warning; it is what found
+`seek_order` also runs on every other scene of a v2 deck, as a warning, under
+`decksmith verify <dir>` (`build` skips it: +21s on a 16-beat deck for a warning); it is what found
 the equation-walk bug fixed alongside this (22,037px before, 0 after). Below the tolerance
 and not traced: v2's equation-walk on the narrated demo differs by 529px on one KaTeX
 glyph when reached from past the scene's end.
