@@ -20,6 +20,7 @@ import { operate } from "../src/literal/kinds/operate.js";
 import { placeForm, placeLabel, points, segBoxes, ticksOf } from "../src/literal/kinds/place.js";
 import { findBands, findPanels, region } from "../src/literal/kinds/region.js";
 import {
+  boxOf,
   type Earlier,
   frameFill,
   placeholderPicture,
@@ -36,6 +37,7 @@ import {
   type LiteralOpDoc,
   literalSchema,
 } from "../src/types.js";
+import { CONTENT_AREA_MIN } from "../src/verify/fill.js";
 
 const theme: Theme = {
   bg: "#14110d",
@@ -546,8 +548,8 @@ const FIXTURES: Fixture[] = [
       kind: "flow",
       form: "chain",
       stages: [
-        { id: "in", label: "input", learned: false, shape: "256×256" },
-        { id: "enc", label: "encoder", learned: true },
+        { id: "in", label: "input", learned: false, figure: "fig2" },
+        { id: "enc", label: "encoder", learned: true, shape: "256×256" },
         { id: "dec", label: "decoder", learned: true },
         { id: "out", label: "output", learned: false, show: "b1" },
       ],
@@ -555,9 +557,9 @@ const FIXTURES: Fixture[] = [
         { from: "in", to: "enc" },
         { from: "enc", to: "dec" },
         { from: "dec", to: "out" },
-        { from: "in", to: "out", skip: true },
+        { from: "in", to: "out" },
       ],
-      labels: L({ learned: "learned", example: "example" }),
+      labels: L({ example: "example" }),
     },
   },
   {
@@ -569,57 +571,85 @@ const FIXTURES: Fixture[] = [
       phases: true,
       stages: [
         { id: "q", label: "query", learned: false },
-        { id: "r", label: "retriever", learned: true, phase: "train" },
-        { id: "rank", label: "reranker", learned: true },
-        { id: "gen", label: "generator", learned: true },
-        { id: "aux", label: "auxiliary decoder", learned: true, phase: "train" },
+        { id: "p", label: "retrieved passages", learned: false },
+        {
+          id: "gen",
+          label: "generator",
+          learned: true,
+          tokens: [
+            { label: "q", count: { value: "1" } },
+            { label: "p", count: { value: "4" }, name: "passages" },
+            { label: "a" },
+          ],
+        },
+        {
+          id: "aux",
+          label: "auxiliary decoder",
+          learned: true,
+          phase: "train",
+          quote: "the passage that holds the answer",
+        },
         { id: "ans", label: "answer", learned: false },
       ],
-      labels: L({ learned: "learned", train: "training", infer: "inference" }),
+      edges: [
+        { from: "q", to: "gen" },
+        { from: "p", to: "gen" },
+        { from: "gen", to: "aux", via: "p" },
+        { from: "gen", to: "ans", via: "a" },
+      ],
+      labels: L({ train: "training only" }),
     },
   },
   {
-    name: "molecule messages",
-    domain: "chemistry",
+    name: "latent planner",
+    domain: "autonomous-driving",
     lit: {
       kind: "flow",
-      form: "graph",
-      nodes: [
-        { id: "a", label: "C1", features: [1, 0] },
-        { id: "b", label: "C2", features: [0, 1] },
-        { id: "c", label: "O", features: [1, 1] },
-        { id: "d", label: "N", features: [0, 0] },
+      form: "chain",
+      stages: [
+        { id: "cam", label: "current frame", learned: false, figure: "fig3" },
+        { id: "nav", label: "route command", learned: false },
+        { id: "ego", label: "speed · acceleration", learned: false },
+        { id: "hist", label: "past trajectory", learned: false },
+        {
+          id: "vlm",
+          label: "VLM",
+          learned: true,
+          shape: "4B",
+          tokens: [
+            { label: "img" },
+            { label: "txt" },
+            { label: "Zv", count: { value: "4" }, name: "visual latents" },
+            { label: "Zl", count: { value: "2" }, name: "language latents" },
+            { label: "ŷ" },
+          ],
+        },
+        {
+          id: "vis",
+          label: "visual decoder",
+          learned: true,
+          phase: "train",
+          figure: "fig4",
+        },
+        {
+          id: "lang",
+          label: "language decoder",
+          learned: true,
+          phase: "train",
+          quote: "cones narrow the right lane; keep left",
+        },
+        { id: "traj", label: "trajectory", learned: false, figure: "fig5" },
       ],
       edges: [
-        { from: "a", to: "b" },
-        { from: "b", to: "c" },
-        { from: "c", to: "d" },
+        { from: "cam", to: "vlm" },
+        { from: "nav", to: "vlm" },
+        { from: "ego", to: "vlm" },
+        { from: "hist", to: "vlm" },
+        { from: "vlm", to: "vis", via: "Zv" },
+        { from: "vlm", to: "lang", via: "Zl" },
+        { from: "vlm", to: "traj", via: "ŷ" },
       ],
-      labels: L({ layer: "layer {l} of {L}", field: "{count} atoms", example: "example" }),
-    },
-  },
-  {
-    name: "friend features",
-    domain: "social-networks",
-    lit: {
-      kind: "flow",
-      form: "graph",
-      aggregate: "sum",
-      layers: 3,
-      nodes: [
-        { id: "a", label: "Ann", features: [1] },
-        { id: "b", label: "Bo", features: [0] },
-        { id: "c", label: "Cy", features: [0] },
-        { id: "d", label: "Di", features: [0] },
-        { id: "e", label: "Ed", features: [0] },
-      ],
-      edges: [
-        { from: "a", to: "b" },
-        { from: "b", to: "c" },
-        { from: "c", to: "d" },
-        { from: "d", to: "e" },
-      ],
-      labels: L({ layer: "layer {l} of {L}", field: "{count} people", example: "example" }),
+      labels: L({ train: "training only" }),
     },
   },
   {
@@ -1030,9 +1060,10 @@ const FILL: Record<string, number> = {
   "operate:profile": 0.5,
   "operate:grid": 0.3,
   evolve: 0.45,
-  "flow:chain": 0.35,
-  // Nodes and edges only, spread over the region by the layout: the least of any form.
-  "flow:graph": 0.05,
+  // Pills, a token box and wires at their own size, as the approved look draws
+  // them: a sparse chain paints little. What it must do is span the region,
+  // which the deck's own gate measures, and the test below holds it to.
+  "flow:chain": 0.25,
   "flow:timeline": 0.35,
   place: 0.5,
   region: 0.4,
@@ -1168,6 +1199,17 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
             expect(x0 + w, `${fr.id}: "${p.text}"`).toBeLessThanOrEqual(region_.width + 1);
           }
       });
+      it("a flow chain's content spans the region the deck's gate measures", () => {
+        if (formOf(d.lit) !== "flow:chain") return;
+        for (const fr of d.r.frames) {
+          const bs = fr.prims.map(boxOf);
+          const w = Math.max(...bs.map((b) => b.x + b.w)) - Math.min(...bs.map((b) => b.x));
+          const h = Math.max(...bs.map((b) => b.y + b.h)) - Math.min(...bs.map((b) => b.y));
+          expect((w * h) / (region_.width * region_.height), fr.id).toBeGreaterThanOrEqual(
+            CONTENT_AREA_MIN,
+          );
+        }
+      });
       it("is drawable at plan time, by the same run", () => {
         expect(drawProblems(d.lit, region_, theme)).toEqual([]);
       });
@@ -1197,7 +1239,6 @@ describe("the library holds only what is general", () => {
       "evolve:reset:soft",
       "evolve:reset:hard",
       "flow:chain",
-      "flow:graph",
       "flow:timeline",
       "place:points:plane",
       "place:points:strip",
@@ -1360,7 +1401,7 @@ describe("what each verb refuses", () => {
           { id: "a", label: "a", learned: false },
           { id: "b", label: "net", learned: true, show: "b1" },
         ],
-        labels: L({ learned: "learned" }),
+        labels: L({}),
       })[0],
     ).toMatch(/learned/);
   });
@@ -1389,7 +1430,7 @@ describe("what each verb refuses", () => {
           { id: "a", label: "draft", learned: true, shape: "γ" },
           { id: "b", label: "verify", learned: true, shape: "γ+1" },
         ],
-        labels: L({ learned: "model" }),
+        labels: L({}),
       },
     } as never).r;
     const prims = r.frames[0]?.prims ?? [];
@@ -1772,7 +1813,7 @@ describe("what each verb computes", () => {
         { id: "a", label: "draft", learned: true, shape: "γ" },
         { id: "b", label: "one more", learned: false, shape: "1" },
       ],
-      labels: L({ learned: "model call" }),
+      labels: L({}),
     }) as Literal;
     expect(drawProblems(lit, region_, theme)[0]).toMatch(/one blank chip/);
   });

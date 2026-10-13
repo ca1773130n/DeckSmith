@@ -474,46 +474,6 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     );
   });
 
-  it("runs message passing only where the source has a graph and states its aggregation", () => {
-    const beats = covered();
-    const graph = (aggregate: string) =>
-      beatOf("b03-method", "method", ["sec4"], {
-        literal: {
-          kind: "flow",
-          form: "graph",
-          aggregate,
-          nodes: ["A", "B", "C"].map((id, k) => ({ id, label: id, features: [k] })),
-          edges: [
-            { from: "A", to: "B" },
-            { from: "B", to: "C" },
-          ],
-          labels: [
-            { slot: "layer", text: "층 {l} / {L}" },
-            { slot: "field", text: "{count}개" },
-            { slot: "example", text: "예시" },
-          ],
-        },
-      });
-    beats[3] = graph("mean");
-    expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
-      /runs message passing, and the source never names a graph/,
-    );
-    const withGraph = sourceSchema.parse({
-      ...analysis,
-      sections: [
-        ...analysis.sections,
-        { id: "secG", depth: 2, heading: "그래프", text: "각 노드는 이웃의 특징을 평균한다." },
-      ],
-    });
-    expect(literalFindings(plan(beats), withGraph).join("\n")).not.toMatch(
-      /message passing|aggregat/,
-    );
-    beats[3] = graph("max");
-    expect(literalFindings(plan(beats), withGraph).join("\n")).toMatch(
-      /aggregates by max, and no passage that names the graph says so/,
-    );
-  });
-
   it("grounds a combination's variant by words that name it, not by a syllable every passage holds", () => {
     const beats = covered();
     // A source holding only what steps 1–3 need, and the passage under test.
@@ -1241,7 +1201,6 @@ describe("the truth gate grounds every number in its role", () => {
           { id: "c", label: "그림", learned: false, figure: "gen-b02" },
         ],
         labels: [
-          { slot: "learned", text: "학습됨" },
           { slot: "example", text: "예시" },
         ],
       },
@@ -1357,7 +1316,7 @@ describe("the truth gate grounds every number in its role", () => {
             { id: "a", label: "초안", learned: true, ...(shape ? { shape } : {}) },
             { id: "b", label: "검증", learned: true },
           ],
-          labels: [{ slot: "learned", text: "모델" }],
+          labels: [],
         },
       });
       return literalFindings(plan(beats), analysis).join("\n");

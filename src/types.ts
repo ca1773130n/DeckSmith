@@ -1228,21 +1228,7 @@ export const LITERAL_ROLE_NOUNS = {
   resize: /resiz|size|해상도|크기|サイズ|尺寸|分辨率/i,
   /** A stream's statistic (mean, variance, std). */
   stat: /./,
-  /** A graph and message passing over it: a `flow` graph runs only where the source has one. */
-  graph:
-    /\b(?:graphs?|GNNs?|GCNs?|message[- ]passing|neighbou?rs?|nodes?|aggregat(?:e|es|ed|ion))\b|그래프|메시지 전달|메시지 패싱|이웃 노드|노드|グラフ|メッセージパッシング|近傍ノード|ノード|图神经|图卷积|消息传递|邻居|节点/i,
 } as const;
-
-/**
- * What a `flow` graph's `aggregate` must be named as, in a passage that names the graph:
- * the aggregation is the layer's operation, so it is stated or the graph is a diagram.
- */
-export const LITERAL_AGGREGATE_WORDS: Readonly<Record<"sum" | "mean" | "max" | "gcn", RegExp>> = {
-  sum: W.sum,
-  mean: W.mean,
-  max: W.max,
-  gcn: /\bGCN|graph convolution|normali[sz]ed adjacency|그래프 합성곱|그래프 컨볼루션|グラフ畳み込み|图卷积/i,
-};
 
 /* ------------------------------------------------------------ kinds' docs */
 
@@ -1332,22 +1318,27 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
   },
   flow: {
     doc: `data passing through stages. \`form\` chain: \`stages\` ({id,
-                     label, learned, shape as the source writes it, \`show\` an
-                     earlier verb beat's computed layer, \`figure\` the source's
-                     own figure id, \`phase\` train · infer · both}) joined by
-                     \`edges\` ({from, to, skip}), revealed in order. A
+                     label, learned, \`shape\` as the source writes it,
+                     \`tokens\` the token row a model holds ({label, count as
+                     the source states it, name, tone}), \`show\` an earlier
+                     verb beat's computed layer, \`figure\` the source's own
+                     figure id, \`quote\` what the stage puts out in the
+                     source's words, \`phase\` train · infer · both}) joined
+                     by \`edges\` ({from, to, via: the token group the wire
+                     carries}). Drawn in up to 4 columns by depth: what enters
+                     on the left (a figure under its name, plain inputs as
+                     pills), a model as a box with its token row, what comes
+                     out stacked on the right, each with a figure or a quote.
+                     A stage holds one of tokens, a picture, a quote. A
                      \`shape\` that is a stated count (4, γ, γ+1) is drawn as
-                     that many token chips (past 16: 1, 2, …, the count). A chain where NO stage has a
-                     \`show\`, a \`figure\` or a count \`shape\` is refused: it
-                     is empty boxes with names, so draw that mechanism as a
-                     \`flow\` timeline or an \`evolve\` instead. \`phases\`
-                     true draws the training graph, then inference without the
-                     train-only stages. A learned stage is a box: it never
-                     shows a computed layer, and a stage that shows one is
-                     labelled with the operation that computed it. \`form\`
-                     graph: \`nodes\`, \`edges\`, \`aggregate\` (as the source
-                     states it), \`layers\` — message passing run for real,
-                     only where the source has a graph.
+                     that many token chips (past 16: 1, 2, …, the count). A
+                     chain where NO stage has \`tokens\`, a \`show\`, a
+                     \`figure\`, a \`quote\` or a count \`shape\` is refused:
+                     it is empty boxes with names, so draw that mechanism as a
+                     \`flow\` timeline or an \`evolve\` instead. A train-only
+                     stage is dashed and tagged with the \`train\` slot;
+                     \`phases\` true then shows inference with it faded. A
+                     learned stage never shows a computed layer.
                      \`form\` timeline: \`lanes\` ({label, total, runs: [{label,
                      count, dur, parallel}]}) — a \`count\` is a NUMBER the
                      source prints (a symbol like K or γ is not a count: leave
@@ -1361,18 +1352,14 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      count is one block. Lanes of equal steps are refused.
                      A timeline always fills the \`unit\` slot: what one run is.`,
     slots: {
-      learned: {
-        what: "the key for a learned stage's dashed card, drawn once under the chain (required when one is)",
+      train: {
+        what: "the tag on a training-only stage, e.g. 'training only' (required when one is)",
         optional: true,
       },
-      train: { what: "title of the training graph (required with `phases`)", optional: true },
-      infer: { what: "title of the inference graph (required with `phases`)", optional: true },
       unit: {
         what: "what one run is, under the lanes (required with a timeline; timeline only)",
         optional: true,
       },
-      layer: { what: "graph only: which layer the colours show", vars: ["l", "L"], optional: true },
-      field: { what: "graph only: the focus node's outline", vars: ["count", "l"], optional: true },
       caption: { what: "under the scene: what flows", optional: true },
       example: EXAMPLE_SLOT,
     },
@@ -1671,35 +1658,48 @@ export const literalSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("flow"),
-    form: z.enum(["chain", "graph", "timeline"]),
+    form: z.enum(["chain", "timeline"]),
     stages: z
       .array(
         z.object({
           id: z.string(),
           label: z.string(),
           learned: z.boolean(),
-          /** As the source writes it ("256×256"); absent: drawn at a uniform size. */
+          /** As the source writes it ("4B", "256×256"), or a stated count ("γ+1") drawn as chips. */
           shape: z.string().optional(),
+          /** The token row a model holds, group by group: the chip's text and the count the source states. */
+          tokens: z
+            .array(
+              z.object({
+                label: z.string(),
+                count: numSchema.optional(),
+                /** What the group is, printed with its count under the row. */
+                name: z.string().optional(),
+                tone: tone.optional(),
+              }),
+            )
+            .default([]),
           /** An earlier verb beat whose computed layer this stage shows. */
           show: z.string().optional(),
           /** The source's own figure, shown unedited. */
           figure: z.string().optional(),
+          /** What the stage puts out, in the source's words (a reasoning line). */
+          quote: z.string().optional(),
           phase: z.enum(["train", "infer", "both"]).optional(),
         }),
       )
       .default([]),
     edges: z
-      .array(z.object({ from: z.string(), to: z.string(), skip: z.boolean().optional() }))
+      .array(
+        z.object({
+          from: z.string(),
+          to: z.string(),
+          /** The token group of `from` the wire carries: it takes that group's colour. */
+          via: z.string().optional(),
+        }),
+      )
       .default([]),
     phases: z.boolean().default(false),
-    nodes: z
-      .array(z.object({ id: z.string(), label: z.string(), features: z.array(z.number()) }))
-      .default([]),
-    aggregate: z.enum(["sum", "mean", "max", "gcn"]).default("mean"),
-    layers: z.int().default(2),
-    weights: z.array(z.array(z.array(z.number()))).default([]),
-    directed: z.boolean().default(false),
-    focus: z.string().optional(),
     lanes: z
       .array(
         z.object({

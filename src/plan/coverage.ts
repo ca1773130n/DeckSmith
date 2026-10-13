@@ -50,7 +50,6 @@ import {
   beatPartSchema,
   FORMATS,
   GENERATED_FIGURE_PREFIX,
-  LITERAL_AGGREGATE_WORDS,
   LITERAL_KIND_DOCS,
   LITERAL_OPS,
   LITERAL_ROLE_NOUNS,
@@ -603,8 +602,12 @@ function literalTexts(lit: Literal): string[] {
     case "flow":
       return [
         ...own,
-        ...lit.stages.flatMap((s) => [s.label, s.shape ?? ""]),
-        ...lit.nodes.map((n) => n.label),
+        ...lit.stages.flatMap((s) => [
+          s.label,
+          s.shape ?? "",
+          s.quote ?? "",
+          ...s.tokens.flatMap((g) => [g.label, g.name ?? "", g.count?.value ?? ""]),
+        ]),
         ...lit.lanes.flatMap((l) => [
           l.label,
           ...l.runs.flatMap((r) => [r.label, r.count?.value ?? ""]),
@@ -1456,11 +1459,18 @@ function verbGrounding(
         example = lit.stages.some((s) => !!s.show);
         // A chain of boxes holding only their names is slideware: r1 drew
         // speculative decoding as three empty 500×630 rectangles.
-        if (!lit.stages.some((s) => s.show || s.figure || (s.shape && tokenChips(s.shape))))
+        if (
+          !lit.stages.some(
+            (s) =>
+              s.tokens.length || s.show || s.figure || s.quote || (s.shape && tokenChips(s.shape)),
+          )
+        )
           out.push(
-            "is a chain of empty boxes: no stage shows a layer (`show`), a figure (`figure`) or a stated count (`shape`, e.g. γ or 4). Draw the mechanism as a `flow` timeline or an `evolve`, or give the stages what they hold",
+            "is a chain of empty boxes: no stage holds tokens (`tokens`), shows a layer (`show`) or a figure (`figure`), quotes the source (`quote`) or states a count (`shape`, e.g. γ or 4). Draw the mechanism as a `flow` timeline or an `evolve`, or give the stages what they hold",
           );
         for (const s of lit.stages) {
+          for (const g of s.tokens)
+            role(g.count, LITERAL_ROLE_NOUNS.count, `token group "${g.label}"'s count`);
           if (s.show && s.learned)
             out.push(
               `stage "${s.label}" is learned and shows a computed layer; a learned stage is drawn as a box, never as an output`,
@@ -1473,31 +1483,6 @@ function verbGrounding(
               );
           }
         }
-      } else if (lit.form === "graph") {
-        // Message passing is run for real: the source must have a graph, and say how a
-        // node aggregates its neighbours (the layer's operation, never the plan's choice).
-        const naming = passagesNaming(ps, LITERAL_ROLE_NOUNS.graph);
-        if (!naming.length)
-          out.push(
-            "runs message passing, and the source never names a graph, nodes or message passing; draw it as a `flow` chain, or leave `literal` null",
-          );
-        else if (!naming.some((p) => LITERAL_AGGREGATE_WORDS[lit.aggregate].test(p)))
-          out.push(
-            `aggregates by ${lit.aggregate}, and no passage that names the graph says so (\`aggregate\`); give the aggregation the source states, or draw it as a \`flow\` chain`,
-          );
-        const w = lit.weights.length > 0 && lit.weights.every((m) => groundedRows(m, seq));
-        example = !(
-          w &&
-          lit.nodes.every((n) => named(text, n.label)) &&
-          groundedRows(
-            lit.nodes.map((n) => n.features),
-            seq,
-          )
-        );
-        if (lit.weights.length && !w)
-          out.push(
-            "gives `weights` the source does not print row by row; give them exactly, or none (W = I)",
-          );
       } else {
         for (const l of lit.lanes) {
           role(l.total, LITERAL_ROLE_NOUNS.duration, `lane "${l.label}"'s total`);
