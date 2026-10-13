@@ -20,9 +20,9 @@ import { LITERAL_RULES, type LiteralOpDoc } from "../../types.js";
 import { evaluate, parseFormula } from "../formula.js";
 import { alphaBars, seededNormals, statOf, type Tensor, tensor } from "../ops.js";
 import type { Frame, MechanismResult, Prim, Raster } from "./common.js";
-import { fitBox, TYPE } from "./common.js";
+import { fitBox, type Role, TYPE, wrapBy } from "./common.js";
 import { num, paramRecord } from "./read.js";
-import { placeholderPicture, rasterOf, type VerbCtx } from "./stage.js";
+import { placeholderPicture, rasterOf, type VerbCtx, withPushRoom } from "./stage.js";
 
 type Ctx = VerbCtx<"evolve">;
 
@@ -133,6 +133,7 @@ function runRule(c: Ctx, xs: number[]): Run {
 
 export function evolve(c: Ctx): MechanismResult {
   if (c.lit.rule === "noise") return noise(c);
+  if (c.lit.rule === "trace") return withPushRoom(trace)(c);
   const d = c.lit;
   const inp = d.input;
   if (!inp || (!inp.values.length && !inp.from))
@@ -478,4 +479,239 @@ function noise(c: Ctx): MechanismResult {
     data: { thumb: `x${K - 1}` },
     vars: {},
   };
+}
+
+/* ------------------------------------------------------------------- rows */
+
+/**
+ * THE ROW LOOK (the approved evolve, .planning/designs/2026-10-12-verb-looks/
+ * 2-evolve.png): one row per step, its number, what it carries on from (muted)
+ * and its parts in their tags' tones; the legend and the source's note beside.
+ * One frame per step: the step's row is lit on a panel, its parts arriving run
+ * by run (a struck part is crossed out as it arrives), the rows before it stay
+ * at ROW_DONE, the rows after it show only their numbers. Frames crossfade, so
+ * the lit row walks down the trace; each frame's push leans in on the lit row
+ * and `settle`s back to rest before the next, or every row would jump between
+ * two frames and break that walk. Too many
+ * rows for the height: a window of them, the lit one second from the bottom. A
+ * short trace is spread down the scene, as a chain's column is: the deck's gate
+ * wants the content to span the region (src/verify/fill.ts).
+ */
+export interface RowTag {
+  tag: string;
+  label: string;
+  tone: Role;
+  strike?: boolean;
+}
+export interface Row {
+  lead?: string;
+  parts: ReadonlyArray<{ text: string; tag: string }>;
+}
+
+const ROW_SIZE = TYPE.label;
+const ROW_H_MAX = 80;
+const ROW_H_MIN = 56;
+const ROW_GAP = 10;
+const ROW_PAD = 24;
+const ROW_DONE = 0.6;
+const ROW_SPREAD = 0.9;
+const SIDE_GAP = 56;
+const SWATCH = 38;
+
+export function rowsLook(
+  c: Ctx,
+  rows: readonly Row[],
+  tags: readonly RowTag[],
+  note: readonly string[],
+): MechanismResult {
+  const { width: W, height: H } = c.region;
+  const n = rows.length;
+  const byTag = new Map(tags.map((t) => [t.tag, t]));
+  const m = c.measure;
+  const space = m(" ", ROW_SIZE) || ROW_SIZE * 0.3;
+  // The side: the legend, then the note under a rule.
+  const sideW = Math.round(
+    Math.min(520, Math.max(380, ...tags.map((t) => SWATCH + 20 + m(t.label, ROW_SIZE)))),
+  );
+  const noteLines = note.flatMap((l) => wrapBy(l, ROW_SIZE, sideW, m));
+  const LINE = Math.round(ROW_SIZE * 1.35);
+  const sideH = tags.length * (SWATCH + 34) + (noteLines.length ? 30 + noteLines.length * LINE : 0);
+  if (sideH > H)
+    throw new Error(
+      `evolve: the legend and note are ${sideH}px tall and the scene holds ${H}px: a shorter \`note\``,
+    );
+  const rowsW = W - sideW - SIDE_GAP;
+  const idxW = m(String(n), ROW_SIZE);
+  const textX = ROW_PAD + idxW + 22;
+  const room = rowsW - textX - ROW_PAD;
+  // The row's words laid left to right; a lead too long for the row keeps its tail.
+  const laid = rows.map((r, i) => {
+    let x = 0;
+    const parts = r.parts.map((p) => {
+      const t = byTag.get(p.tag);
+      if (!t)
+        throw new Error(
+          `evolve: step ${i + 1}'s part "${p.text}" has the tag "${p.tag}", which \`tags\` does not name`,
+        );
+      const w = m(p.text, ROW_SIZE);
+      const at = { x, w, text: p.text, tag: t };
+      x += w + space;
+      return at;
+    });
+    const partsW = Math.max(0, x - space);
+    if (partsW > room)
+      throw new Error(
+        `evolve: step ${i + 1}'s parts are ${Math.round(partsW)}px wide and a row holds ${Math.round(room)}px: split the step, or give fewer words`,
+      );
+    let lead = r.lead?.trim() ?? "";
+    while (lead && m(lead, ROW_SIZE) + space > room - partsW)
+      lead = `…${[...lead.replace(/^…/, "")].slice(1).join("")}`;
+    if (lead === "…") lead = "";
+    const leadW = lead ? m(lead, ROW_SIZE) + space : 0;
+    return { lead, leadW, parts: parts.map((q) => ({ ...q, x: q.x + leadW })) };
+  });
+  const rowH = Math.max(ROW_H_MIN, Math.min(ROW_H_MAX, Math.floor((H + ROW_GAP) / n) - ROW_GAP));
+  const fit = Math.max(2, Math.floor((H + ROW_GAP) / (rowH + ROW_GAP)));
+  const shown = Math.min(n, fit);
+  const pitch = Math.max(rowH + ROW_GAP, shown > 1 ? (ROW_SPREAD * H - rowH) / (shown - 1) : 0);
+  const top = Math.max(0, (H - ((shown - 1) * pitch + rowH)) / 2);
+
+  const side: Prim[] = [];
+  tags.forEach((t, i) => {
+    const y = i * (SWATCH + 34);
+    side.push(
+      { p: "rect", x: rowsW + SIDE_GAP, y, w: SWATCH, h: SWATCH, fill: t.tone, radius: 8 },
+      {
+        p: "text",
+        x: rowsW + SIDE_GAP + SWATCH + 20,
+        y: y + (SWATCH - ROW_SIZE * 1.18) / 2,
+        size: ROW_SIZE,
+        role: "fg",
+        anchor: "start",
+        text: t.label,
+      },
+    );
+  });
+  if (noteLines.length) {
+    let y = tags.length * (SWATCH + 34) + 4;
+    side.push({ p: "rect", x: rowsW + SIDE_GAP, y, w: sideW, h: 2, fill: "rule" });
+    y += 28;
+    for (const l of noteLines) {
+      side.push({
+        p: "text",
+        x: rowsW + SIDE_GAP,
+        y,
+        size: ROW_SIZE,
+        role: "muted",
+        anchor: "start",
+        text: l,
+      });
+      y += LINE;
+    }
+  }
+
+  const frames: Frame[] = rows.map((_, k) => {
+    // The window: the lit row second from the bottom, inside the trace.
+    const first = Math.max(0, Math.min(n - shown, k - shown + 2));
+    const prims: Prim[] = [...side];
+    for (let j = first; j < first + shown; j++) {
+      const y = top + (j - first) * pitch;
+      const ty = y + (rowH - ROW_SIZE * 1.18) / 2;
+      if (j === k)
+        prims.push({
+          p: "rect",
+          x: 0,
+          y,
+          w: rowsW,
+          h: rowH,
+          fill: "panel",
+          role: "rule",
+          width: 3,
+          radius: 14,
+          cam: true,
+        });
+      prims.push({
+        p: "text",
+        x: ROW_PAD + idxW,
+        y: ty,
+        size: ROW_SIZE,
+        role: "muted",
+        anchor: "end",
+        text: String(j + 1),
+        cam: true,
+      });
+      if (j > k) continue;
+      const L = laid[j] as (typeof laid)[number];
+      const done = j < k ? { opacity: ROW_DONE } : {};
+      if (L.lead)
+        prims.push({
+          p: "text",
+          x: textX,
+          y: ty,
+          size: ROW_SIZE,
+          role: "muted",
+          anchor: "start",
+          text: L.lead,
+          cam: true,
+          ...done,
+        });
+      // The lit row's parts arrive run by run: consecutive parts of one tag together.
+      let step = 0;
+      L.parts.forEach((q, i) => {
+        if (i === 0 || L.parts[i - 1]?.tag !== q.tag) step++;
+        const at = j === k ? { at: Math.min(12, step) } : {};
+        prims.push({
+          p: "text",
+          x: textX + q.x,
+          y: ty,
+          size: ROW_SIZE,
+          role: q.tag.tone,
+          anchor: "start",
+          text: q.text,
+          cam: true,
+          ...done,
+          ...at,
+        });
+        if (q.tag.strike)
+          prims.push({
+            p: "line",
+            x1: textX + q.x,
+            y1: ty + ROW_SIZE * 0.62,
+            x2: textX + q.x + q.w,
+            y2: ty + ROW_SIZE * 0.62,
+            role: q.tag.tone,
+            width: 4,
+            cam: true,
+            ...done,
+            ...(j === k ? { at: Math.min(12, step), wipe: true } : {}),
+          });
+      });
+    }
+    // The push leans in on the lit row and is back at rest before the next frame.
+    const litY = top + (k - first) * pitch + rowH / 2;
+    return {
+      id: `s${k}`,
+      prims,
+      vars: {},
+      settle: true,
+      focus: { x: rowsW / 2, y: litY },
+    };
+  });
+  return { rasters: {}, frames, data: {}, vars: {} };
+}
+
+/** The source's own steps, as rows. */
+function trace(c: Ctx): MechanismResult {
+  const d = c.lit;
+  if (d.tags.length < 1 || d.tags.length > 4)
+    throw new Error(`evolve trace tags its parts with 1–4 \`tags\`, got ${d.tags.length}`);
+  if (new Set(d.tags.map((t) => t.tag)).size !== d.tags.length)
+    throw new Error("evolve trace: two `tags` share a name");
+  if (d.steps.length < 2 || d.steps.length > MAX_STEPS)
+    throw new Error(`evolve trace steps through 2–${MAX_STEPS} rows, got ${d.steps.length}`);
+  d.steps.forEach((st, i) => {
+    if (!st.parts.length || st.parts.some((p) => !p.text.trim()))
+      throw new Error(`evolve trace: step ${i + 1} has an empty part, or none`);
+  });
+  return rowsLook(c, d.steps, d.tags, d.note);
 }

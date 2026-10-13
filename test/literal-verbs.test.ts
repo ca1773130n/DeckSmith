@@ -542,6 +542,79 @@ const FIXTURES: Fixture[] = [
       labels: L({ state: "gradients", trace: "velocity" }),
     },
   },
+  {
+    name: "a draft model's tokens, checked by the target",
+    domain: "language-models",
+    lit: {
+      kind: "evolve",
+      rule: "trace",
+      tags: [
+        { tag: "ok", label: "accepted draft", tone: "d" },
+        { tag: "no", label: "rejected draft", tone: "c", strike: true },
+        { tag: "fix", label: "target's correction", tone: "a" },
+      ],
+      steps: [
+        {
+          lead: "[START]",
+          parts: [
+            { text: "the market", tag: "ok" },
+            { text: "fell", tag: "no" },
+            { text: "rose", tag: "fix" },
+          ],
+        },
+        {
+          lead: "… market rose",
+          parts: [
+            { text: "2 . 5", tag: "ok" },
+            { text: "points", tag: "fix" },
+          ],
+        },
+        {
+          lead: "… 2 . 5 points",
+          parts: [
+            { text: "in", tag: "ok" },
+            { text: "the", tag: "no" },
+            { text: "late", tag: "fix" },
+          ],
+        },
+      ],
+      note: ["draft: a small model", "check: the large model"],
+      labels: [],
+    },
+  },
+  {
+    name: "a proof's steps, each justified",
+    domain: "mathematics",
+    lit: {
+      kind: "evolve",
+      rule: "trace",
+      tags: [
+        { tag: "e", label: "the expression", tone: "b" },
+        { tag: "why", label: "by", tone: "a" },
+      ],
+      steps: [
+        {
+          parts: [
+            { text: "(a + b)²", tag: "e" },
+            { text: "definition", tag: "why" },
+          ],
+        },
+        {
+          parts: [
+            { text: "a² + 2ab + b²", tag: "e" },
+            { text: "distributivity", tag: "why" },
+          ],
+        },
+        {
+          parts: [
+            { text: "≥ 4ab", tag: "e" },
+            { text: "(a − b)² ≥ 0", tag: "why" },
+          ],
+        },
+      ],
+      labels: [],
+    },
+  },
   /* flow */
   {
     name: "encoder–decoder",
@@ -1031,6 +1104,9 @@ const FILL: Record<string, number> = {
   "operate:profile": 0.5,
   "operate:grid": 0.3,
   evolve: 0.45,
+  // Rows of words paint little: the lit row's panel and the legend's swatches.
+  // What they must do is span the region, the deck's own gate, held below.
+  "evolve:trace": 0.05,
   // Pills, a token box and wires at their own size, as the approved look draws
   // them: a sparse chain paints little. What it must do is span the region,
   // which the deck's own gate measures, and the test below holds it to.
@@ -1168,7 +1244,7 @@ describe("every verb fixture runs, and keeps the deck's invariants", () => {
           }
       });
       it("a flow chain's or marked picture's content spans the region the deck's gate measures", () => {
-        if (formOf(d.lit) !== "flow:chain" && formOf(d.lit) !== "region:marks") return;
+        if (!["flow:chain", "region:marks", "evolve:trace"].includes(formOf(d.lit))) return;
         for (const fr of d.r.frames) {
           const bs = fr.prims.map(boxOf);
           const w = Math.max(...bs.map((b) => b.x + b.w)) - Math.min(...bs.map((b) => b.x));
@@ -1204,6 +1280,7 @@ describe("the library holds only what is general", () => {
       "evolve:recur:linear",
       "evolve:noise",
       "evolve:formula",
+      "evolve:trace",
       "evolve:reset:soft",
       "evolve:reset:hard",
       "flow:chain",

@@ -114,6 +114,7 @@ export function withPushRoom<K extends LiteralKind>(run: VerbRun<K>): VerbRun<K>
         ...f,
         pad: { x: mx, y: my },
         prims: f.prims.map((p) => shiftPrim(p, mx, my)),
+        ...(f.focus ? { focus: { x: f.focus.x + mx, y: f.focus.y + my } } : {}),
       })),
     };
   };
@@ -575,7 +576,7 @@ export function stagedFragment(
     const cam = s.cam;
     const originOf = (fx: number, fy: number) =>
       `${r3((100 * fx) / Math.max(1, cam.w))}% ${r3((100 * fy) / Math.max(1, cam.h))}%`;
-    const focus = (frames[i] as Frame & { focus?: { x: number; y: number } }).focus;
+    const focus = (frames[i] as Frame).focus;
     const ox = focus ? originOf(focus.x - cam.x, focus.y - cam.y) : originOf(cam.w / 2, cam.h / 2);
     // The tour: after the last reveal, each sentence pushes in on one step's material,
     // the last step first — the payoff, then back through what led to it.
@@ -603,7 +604,7 @@ export function stagedFragment(
       // a second before the cut (src/verify/fidelity.ts `FINAL_LEAD`), and a plot pushed in
       // there printed its tick values over its axis names, which sit outside the camera.
       const ending = i === n - 1 && j === S - 1;
-      const more = j < S - 1 || ending;
+      const more = j < S - 1 || ending || !!(frames[i] as Frame).settle;
       const back = ending ? u1 - FINAL_REST : u1 - 0.8;
       const stop = more ? back - 0.05 : u1 - 0.05;
       // The push starts with the sentence's reveals, not after them: a plane lighting six

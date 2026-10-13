@@ -194,6 +194,14 @@ export interface Frame {
    * than the scene read along (a band of a figure), instead of a push-in.
    */
   pan?: number;
+  /**
+   * The camera back at rest before the frame ends: frames that must line up
+   * across their crossfade (a trace's rows, the lit one walking down). Pushed in
+   * at its end, a frame would fade into the next at rest and every row jump.
+   */
+  settle?: boolean;
+  /** Where the push leans in, in the frame's own coordinates: else its material's middle. */
+  focus?: { x: number; y: number };
   /** The values this frame's slots may name. */
   vars: Record<string, string | number>;
 }

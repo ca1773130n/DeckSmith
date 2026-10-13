@@ -591,7 +591,13 @@ function literalTexts(lit: Literal): string[] {
         ...lit.bins,
       ];
     case "evolve":
-      return [...own, ...lit.phases.map((p) => p.label)];
+      return [
+        ...own,
+        ...lit.phases.map((p) => p.label),
+        ...lit.tags.map((t) => t.label),
+        ...lit.note,
+        ...lit.steps.flatMap((st) => [st.lead ?? "", ...st.parts.map((q) => q.text)]),
+      ];
     case "flow":
       return [
         ...own,

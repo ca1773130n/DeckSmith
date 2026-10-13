@@ -1208,6 +1208,10 @@ export const LITERAL_RULES = {
     doc: "s' = `expr` over `s` (the state), `x` (the input) and named params, grounded by `checks` or printed verbatim in the source",
     nouns: /./,
   },
+  trace: {
+    doc: "the source's own steps, one row each: `steps` ({lead, parts: [{text, tag}]}) whose parts are tagged by `tags` ({tag, label, tone, strike})",
+    nouns: /./,
+  },
 } as const satisfies Readonly<Record<string, LiteralOpDoc>>;
 
 export type LiteralRuleName = keyof typeof LITERAL_RULES;
@@ -1280,7 +1284,14 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
     mustNotClaim: [NO_LEARNED_OUTPUT],
   },
   evolve: {
-    doc: `a state stepping through iterations under a stated \`rule\`:
+    doc: `the source's own steps as rows, or a state stepping
+                     through iterations under a stated \`rule\`. TRACE: a
+                     worked example the source writes out step by step (tokens
+                     proposed, accepted, rejected and corrected; a derivation
+                     line by line) is \`rule\` trace — \`tags\` its legend (1–4,
+                     each a tone, \`strike\` for what is thrown away), \`steps\`
+                     one row each ({lead: what it carries on from, parts:
+                     [{text, tag}]}), \`note\` the facts beside it. Otherwise:
                      recur (EMA, leaky integration, with a threshold and a
                      reset), noise (forward noising of a \`picture\`) or formula
                      (any update the source prints). Its \`input\` is \`values\`
@@ -1299,8 +1310,14 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      rule of one variable with the values it produces is a
                      \`place\` plane with \`curves\` instead.`,
     slots: {
-      state: { what: "title of the state (the tiles streaming in, or the picture)" },
-      trace: { what: "title of the trace of the state over the steps" },
+      state: {
+        what: "recur, noise, formula: title of the state (the tiles streaming in, or the picture)",
+        optional: true,
+      },
+      trace: {
+        what: "recur, noise, formula: title of the trace of the state over the steps",
+        optional: true,
+      },
       threshold: {
         what: "legend of the threshold line (required with a threshold)",
         optional: true,
@@ -1629,7 +1646,29 @@ export const literalSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("evolve"),
-    rule: z.enum(["recur", "noise", "formula"]),
+    rule: z.enum(["recur", "noise", "formula", "trace"]),
+    /** trace: what each part is, the legend: 1–4 tags, each a tone; `strike` crosses its parts out. */
+    tags: z
+      .array(
+        z.object({
+          tag: z.string(),
+          label: z.string(),
+          tone: z.enum(["a", "b", "c", "d"]),
+          strike: z.boolean().default(false),
+        }),
+      )
+      .default([]),
+    /** trace: the steps, one row each — `lead` what the row carries on from (muted), then its tagged parts. */
+    steps: z
+      .array(
+        z.object({
+          lead: z.string().optional(),
+          parts: z.array(z.object({ text: z.string(), tag: z.string() })),
+        }),
+      )
+      .default([]),
+    /** Beside the rows, under the legend: the source's facts about the run (the models, a count). */
+    note: z.array(z.string()).default([]),
     /** recur's variant (LITERAL_RULES.recur.how). */
     how: z.enum(["ema", "leaky", "linear"]).optional(),
     params: z.array(paramSchema).default([]),
