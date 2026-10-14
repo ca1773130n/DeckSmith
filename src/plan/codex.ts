@@ -207,6 +207,64 @@ function hideFromPlanner(node: unknown, hidden: ReadonlySet<string>): unknown {
   return out;
 }
 
+/** An `operate` draws a stated formula term by term, from these fields… */
+const OPERATE_TERMS = ["equation", "given", "terms"];
+/** …or runs an input through a chain of ops, from these. */
+const OPERATE_CHAIN = [
+  "picture",
+  "vectors",
+  "bins",
+  "matrix",
+  "condition",
+  "chain",
+  "compare",
+  "alt",
+];
+
+/**
+ * THE PLANNER PICKS ONE OPERATE: a formula or a chain, never neither.
+ *
+ * As one object every one of these fields is optional, so strict mode makes each
+ * nullable, and the planner sent an operate with an `equation` and nothing to
+ * evaluate — eight times over two unseen papers (2026-10-14), each refused at
+ * plan time. The backend takes no `minItems`, so "a chain of at least one" is
+ * not sayable; two variants are. The formula variant REQUIRES `terms`,
+ * `equation` and `given` (their nulls dropped) and has no chain fields; the
+ * chain variant has no formula fields, so the only way to an equation is terms.
+ * Absent keys come back as zod's defaults, so the storyboard schema is unchanged.
+ */
+function splitOperate(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(splitOperate);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    out[key] =
+      key === "anyOf" && Array.isArray(value)
+        ? value.flatMap((v) => (isOperate(v) ? operateVariants(v) : [splitOperate(v)]))
+        : splitOperate(value);
+  }
+  return out;
+}
+
+function isOperate(v: unknown): v is { properties: Record<string, unknown> } {
+  const kind = (v as { properties?: { kind?: { const?: unknown } } } | null)?.properties?.kind;
+  return kind?.const === "operate";
+}
+
+function operateVariants(v: { properties: Record<string, unknown> }): unknown[] {
+  const only = (drop: readonly string[], need: readonly string[] = []) => {
+    const properties: Record<string, unknown> = {};
+    for (const [k, p] of Object.entries(v.properties)) {
+      if (drop.includes(k)) continue;
+      const any = (p as { anyOf?: Array<{ type?: string }> }).anyOf;
+      const real = any?.filter((t) => t.type !== "null");
+      properties[k] = need.includes(k) && real?.length === 1 ? real[0] : p;
+    }
+    return { ...v, properties, required: Object.keys(properties) };
+  };
+  return [only(OPERATE_CHAIN, OPERATE_TERMS), only(OPERATE_TERMS)];
+}
+
 /**
  * The schema for one run. `role` is present only when the paper arc was asked
  * for; `part` only when `source` has parts to cover.
@@ -215,9 +273,11 @@ export function schemaFor(
   prefs: Pick<Prefs, "genre" | "bespoke" | "design"> & { images?: Prefs["images"] },
   source?: Source,
 ): unknown {
-  return hideFromPlanner(
-    forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
-    plannerInvisible(prefs, source),
+  return splitOperate(
+    hideFromPlanner(
+      forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
+      plannerInvisible(prefs, source),
+    ),
   );
 }
 

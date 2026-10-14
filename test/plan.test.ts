@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { codexCommand, codexPlanner, SCHEMA, schemaFor } from "../src/plan/codex.js";
 import { renderSource } from "../src/plan/prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "../src/plan/refs.js";
-import { prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
+import { literalSchema, prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
 
 const source = sourceSchema.parse({
   id: "thinksr",
@@ -642,6 +642,41 @@ describe("the schema handed to Codex", () => {
       (s.match(/"figureId":\{"anyOf":\[\{"type":"string"\},\{"type":"null"\}\]\}/g) ?? []).length;
     expect(nullableIds(off)).toBe(0);
     expect(nullableIds(on)).toBeGreaterThanOrEqual(2);
+  });
+
+  it("offers operate as a formula with terms, or as a chain, never neither", () => {
+    const variants: Array<{ properties: Record<string, unknown> }> = [];
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (!n || typeof n !== "object") return;
+      const p = (n as { properties?: { kind?: { const?: string } } }).properties;
+      if (p?.kind?.const === "operate") variants.push(n as (typeof variants)[number]);
+      Object.values(n).forEach(walk);
+    };
+    // `literal` is offered only to a deck that draws scenes: v2.
+    walk(schemaFor(prefsSchema.parse({ design: "v2" })));
+    // One pair per place a literal is offered (the union is inlined per archetype).
+    const formulas = variants.filter((v) => "terms" in v.properties);
+    const chains = variants.filter((v) => "chain" in v.properties);
+    expect(formulas.length).toBeGreaterThan(0);
+    expect(formulas.length + chains.length).toBe(variants.length);
+    expect(chains).toHaveLength(formulas.length);
+    for (const formula of formulas) {
+      // The formula's three fields are required, not nullable; no chain beside them.
+      for (const k of ["equation", "given", "terms"])
+        expect((formula.properties[k] as { anyOf?: unknown }).anyOf).toBeUndefined();
+      expect(formula.properties).not.toHaveProperty("chain");
+    }
+    for (const chain of chains) expect(chain.properties).not.toHaveProperty("equation");
+    // Absent keys parse back to zod's defaults: the storyboard schema is unchanged.
+    expect(
+      literalSchema.parse({
+        kind: "operate",
+        equation: "x",
+        given: [],
+        terms: { term: "a", from: 0, to: "1", combine: "sum" },
+      }).kind,
+    ).toBe("operate");
   });
 
   it("offers claim-figure both a figureId and a brief, each declinable with null", () => {
