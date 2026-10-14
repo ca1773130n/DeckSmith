@@ -1504,6 +1504,37 @@ describe("codexPlanner coverage repair", () => {
     expect(result.beats.map((b) => b.part ?? "-")).toContain("prior-work");
   });
 
+  it("drops a literal scene the last repair leaves broken, naming the beat, and keeps the deck", async () => {
+    const lying = covered().map((b) =>
+      b.id === "b05-results"
+        ? {
+            ...b,
+            literal: {
+              kind: "table",
+              columns: ["", "PSNR"],
+              rows: [["LHID", "99.99"]],
+              highlight: [0],
+            },
+          }
+        : b,
+    );
+    let calls = 0;
+    const told: string[][] = [];
+    const result = await codexPlanner(analysis, {
+      prefs,
+      run: async ({ outPath }) => {
+        calls++;
+        await writeFile(outPath, body(lying));
+      },
+      onDropScenes: (beats, why) => told.push([...beats], [...why]),
+    });
+    expect(calls).toBe(3);
+    expect(told[0]).toEqual(["b05-results"]);
+    expect(told[1]?.join("\n")).toMatch(/b05-results's table scene says "99\.99"/);
+    expect(result.beats.find((b) => b.id === "b05-results")?.literal).toBeUndefined();
+    expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");
+  });
+
   it("fails loudly when the repair still misses it", async () => {
     let calls = 0;
     await expect(

@@ -486,6 +486,12 @@ imageFlags(
       step("plan: the plan was refused, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
+    onDropScenes: (beats, why) => {
+      step(
+        `plan: WARNING: ${beats.join(", ")} still broken after the last repair; drawn by their archetype instead —`,
+      );
+      for (const m of why) step(`plan:   ${m}`);
+    },
   });
   const unlocated: Storyboard = {
     ...planned,

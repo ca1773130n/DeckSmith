@@ -300,6 +300,8 @@ export interface CodexOptions {
   run?: Runner;
   /** Told what a plan broke, before each repair round (at most `REPAIRS`) is asked for. */
   onRepair?: (broken: readonly string[]) => void;
+  /** Told the beats whose literal scene was dropped after the last repair, and why. */
+  onDropScenes?: (beats: readonly string[], why: readonly string[]) => void;
   /** Each source figure's panel count as the build will cut it, when the caller read them. */
   panels?: Readonly<Record<string, number>>;
 }
@@ -364,17 +366,13 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     // failed plans on 2026-10-12 were one out-of-range number or one invented id.
     const prompt = buildPrompt(source, prefs);
     const takeaways = !!bespokeFor(prefs, designFor(prefs));
+    const literalBroken = (plan: Storyboard) =>
+      literalFindings(plan, source, { takeaways, ...(opts.panels ? { panels: opts.panels } : {}) });
     const findings = (plan: Storyboard): Findings => ({
       refused: [],
       size: sizeFindings(plan, prefs.slides),
       variety: varietyFindings(plan, prefs.images, prefs.design),
-      coverage: [
-        ...coverageFindings(plan, source),
-        ...literalFindings(plan, source, {
-          takeaways,
-          ...(opts.panels ? { panels: opts.panels } : {}),
-        }),
-      ],
+      coverage: [...coverageFindings(plan, source), ...literalBroken(plan)],
       advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source)],
     });
     /** One answer: the plan if it validated, the JSON either way, what it broke. */
@@ -388,6 +386,30 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         const broken = { refused: err.problems, size: [], variety: [], coverage: [], advice: [] };
         return { json: err.plan, broken, rejected: err.message };
       }
+    };
+    // A LITERAL SCENE STILL BROKEN AFTER THE LAST REPAIR IS DROPPED, NOT THE DECK.
+    // The beat keeps its archetype, which draws it; the plan is kept only when
+    // that leaves nothing broken, and the dropped beats are named. Two of sixteen
+    // unseen-paper plans (2026-10-14) were refused whole over one scene's truth check.
+    const withoutBrokenScenes = (plan: Storyboard): Storyboard | undefined => {
+      const of = (id: string) => (m: string) => m.startsWith(`${id}'s `) || m.startsWith(`${id} `);
+      const said = literalBroken(plan);
+      const bad = plan.beats.filter((b) => b.literal && said.some(of(b.id)));
+      if (!bad.length) return undefined;
+      const plain: Storyboard = {
+        ...plan,
+        beats: plan.beats.map((b) => {
+          if (!bad.includes(b)) return b;
+          const { literal: _, ...rest } = b;
+          return rest;
+        }),
+      };
+      if (listOf({ ...findings(plain), advice: [] }).length) return undefined;
+      opts.onDropScenes?.(
+        bad.map((b) => b.id),
+        said.filter((m) => bad.some((b) => of(b.id)(m))),
+      );
+      return plain;
     };
     let answer = await attempt(prompt);
     if (answer.plan && listOf(answer.broken).length === 0) return answer.plan;
@@ -417,7 +439,11 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         advice: [],
       };
       if (next.plan && listOf(still).length === 0) return next.plan;
-      if (round === REPAIRS) throw unrepaired(next, still, round);
+      if (round === REPAIRS) {
+        const plain = next.plan && !dropped.length ? withoutBrokenScenes(next.plan) : undefined;
+        if (plain) return plain;
+        throw unrepaired(next, still, round);
+      }
       merging ||= still.size.length > 0;
       answer = { ...next, broken: still };
     }
