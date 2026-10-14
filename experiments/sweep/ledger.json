@@ -71,18 +71,8 @@
   },
   "open": {},
   "format": "deck-16x9",
-  "updated": "2026-10-14T17:02:09.321Z",
-  "levels": [
-    {
-      "where": "level-0:orphans",
-      "level": 0,
-      "verdict": "deck-error",
-      "rules": [
-        "check_runtime_failure"
-      ],
-      "why": "level 0: 1 error(s) name no scene, so they could not be filed against any cell: check_runtime_failure"
-    }
-  ],
+  "updated": "2026-10-14T17:20:10.360Z",
+  "levels": [],
   "cells": {
     "b01-title:0": {
       "verdict": "ok",
