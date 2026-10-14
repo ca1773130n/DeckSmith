@@ -692,6 +692,44 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     expect(found).toMatch(/places "LHID · Temp 0" at 2.6/);
   });
 
+  it("places a cell by its row's name and its column's header", () => {
+    // FlashAttention's Table 5: a sequence length per column, a dataset per row.
+    const long = sourceSchema.parse({
+      ...analysis,
+      tables: [
+        {
+          id: "tbl6",
+          caption: "Table 5: Long Document performance (micro F1) at different sequence lengths.",
+          columns: ["", "512", "1024", "16384"],
+          rows: [
+            ["MIMIC-III [47]", "52.8", "50.7", "57.1"],
+            ["ECtHR [6]", "72.2", "74.3", "79.2"],
+          ],
+        },
+      ],
+    });
+    const beats = covered();
+    beats[5] = beatOf("b05-results", "experiments", ["sec7"], {
+      literal: {
+        kind: "place",
+        form: "plane",
+        axes: [
+          { name: "sequence length", lowerIsBetter: false },
+          { name: "micro F1", lowerIsBetter: false },
+        ],
+        items: [
+          { label: "MIMIC-III [47] · 512", values: ["512", "52.8"] },
+          { label: "MIMIC-III [47] · 16384", values: ["16384", "57.1"] },
+          // The right row, the wrong column.
+          { label: "ECtHR [6] · 1024", values: ["1024", "72.2"] },
+        ],
+      },
+    });
+    const found = literalFindings(plan(beats), long).join("\n");
+    expect(found).not.toMatch(/places "MIMIC-III/);
+    expect(found).toMatch(/places "ECtHR \[6\] · 1024" at 1024, 72.2/);
+  });
+
   it("places a point of one measure under two conditions by the two rows its axes name", () => {
     // One row per (model, sampling): α at t=0 and α at t=1 are two rows.
     const long = sourceSchema.parse({

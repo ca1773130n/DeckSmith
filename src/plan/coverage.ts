@@ -1177,6 +1177,23 @@ function tableRowStates(
             numbersIn(row[j] ?? "").includes(value),
         );
       });
+    // A cell read with its column's header: "MIMIC-III · 512" at 512, 52.8 is row
+    // MIMIC-III, column 512, cell 52.8 (FlashAttention's Table 5, 2026-10-15).
+    const byColumn = t.rows.some((row) =>
+      t.columns.some((col, j) => {
+        const got = new Set([...numbersIn(col), ...numbersIn(row[j] ?? "")]);
+        return (
+          want.every((n) => got.has(n)) &&
+          parts.every(
+            (part) =>
+              row.some((c) => cellNames(c, part)) ||
+              named(t.caption ?? "", part) ||
+              cellNames(col, part),
+          )
+        );
+      }),
+    );
+    if (byColumn) return true;
     const rows = t.rows.filter(namesAll);
     if (
       rows.some((row) => {
