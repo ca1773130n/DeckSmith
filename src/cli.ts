@@ -483,7 +483,7 @@ imageFlags(
     prefs,
     ...(panels ? { panels } : {}),
     onRepair: (broken) => {
-      step("plan: the first plan was refused, asking Codex to repair it —");
+      step("plan: the plan was refused, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
   });

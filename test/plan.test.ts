@@ -404,6 +404,18 @@ describe("codexPlanner variety repair", () => {
     ]);
   });
 
+  it("keeps a plan the second repair fixes", async () => {
+    const prompts: string[] = [];
+    const result = await codexPlanner(source, {
+      run: async ({ prompt, outPath }) => {
+        prompts.push(prompt);
+        await writeFile(outPath, prompts.length < 3 ? adjacent : reordered);
+      },
+    });
+    expect(prompts).toHaveLength(3);
+    expect(result.beats.map((b) => b.id)).toContain("b01b-arch");
+  });
+
   it("refuses a repair that drops beats, even when what is left is varied", async () => {
     let calls = 0;
     await expect(
@@ -414,7 +426,7 @@ describe("codexPlanner variety repair", () => {
         },
       }),
     ).rejects.toThrow(/returned 3 beats for a plan of 4/);
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
   });
 
   // Each ask starts from an empty out file, so a second run that writes nothing
@@ -441,8 +453,8 @@ describe("codexPlanner variety repair", () => {
           await writeFile(outPath, adjacent);
         },
       }),
-    ).rejects.toThrow(/variety rule .* after one repair:\n.*b01b-arch/s);
-    expect(calls).toBe(2);
+    ).rejects.toThrow(/variety rule .* after 2 repairs:\n.*b01b-arch/s);
+    expect(calls).toBe(3);
   });
 
   // A schema or reference miss is one number or one id: it goes through the same one

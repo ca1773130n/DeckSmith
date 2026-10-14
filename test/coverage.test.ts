@@ -1514,8 +1514,8 @@ describe("codexPlanner coverage repair", () => {
           await writeFile(outPath, body(missing));
         },
       }),
-    ).rejects.toThrow(/does not cover the source .* after one repair:\n.*prior work/s);
-    expect(calls).toBe(2);
+    ).rejects.toThrow(/does not cover the source .* after 2 repairs:\n.*prior work/s);
+    expect(calls).toBe(3);
   });
 });
 

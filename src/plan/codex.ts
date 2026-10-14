@@ -238,7 +238,7 @@ export interface CodexOptions {
   prefs?: Prefs;
   /** Swappable so a test can drive the real parse path without spawning anything. */
   run?: Runner;
-  /** Told what the first plan broke, before the one repair round is asked for. */
+  /** Told what a plan broke, before each repair round (at most `REPAIRS`) is asked for. */
   onRepair?: (broken: readonly string[]) => void;
   /** Each source figure's panel count as the build will cut it, when the caller read them. */
   panels?: Readonly<Record<string, number>>;
@@ -296,12 +296,12 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     // VARIETY AND COVERAGE ARE CHECKED, NOT HOPED FOR (src/plan/variety.ts,
     // src/plan/coverage.ts). A plan that breaks either — or that fails the
     // schema's bounds or cites what the source lacks (`PlanRejected`) — goes back
-    // ONCE with the reasons and its own JSON, so the repair keeps the planner's
-    // content and changes only what is named; a second miss is refused, loudly,
-    // rather than written to a storyboard that builds green and looks like every
-    // other deck or skips half the source. Until 0.9.5 a schema or reference miss
-    // threw on the first answer: most of HypePaper's 40 failed plans on 2026-10-12
-    // were one out-of-range number or one invented id, with no second chance.
+    // with the reasons and its own JSON, so the repair keeps the planner's content
+    // and changes only what is named, at most `REPAIRS` times; a plan still broken
+    // then is refused, loudly, rather than written to a storyboard that builds
+    // green and looks like every other deck or skips half the source. Until 0.9.5
+    // a schema or reference miss threw on the first answer: most of HypePaper's 40
+    // failed plans on 2026-10-12 were one out-of-range number or one invented id.
     const prompt = buildPrompt(source, prefs);
     const takeaways = !!bespokeFor(prefs, designFor(prefs));
     const findings = (plan: Storyboard): Findings => ({
@@ -317,64 +317,80 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       ],
       advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source)],
     });
-    let first: Storyboard | undefined;
-    let firstJson: unknown;
-    let broken: Findings;
-    try {
-      first = await ask(prompt);
-      firstJson = first;
-      broken = findings(first);
-    } catch (err) {
-      if (!(err instanceof PlanRejected)) throw err;
-      firstJson = err.plan;
-      broken = { refused: err.problems, size: [], variety: [], coverage: [], advice: [] };
-    }
-    const all = [
-      ...broken.refused,
-      ...broken.size,
-      ...broken.variety,
-      ...broken.coverage,
-      ...broken.advice,
-    ];
-    if (first && all.length === 0) return first;
-    opts.onRepair?.(all);
-    const second = await ask(repairPrompt(prompt, firstJson, broken, prefs.images.enabled)).catch(
-      (err: unknown) => {
-        throw err instanceof PlanRejected
-          ? new Error(`Codex's plan is still refused after one repair. ${err.message}`)
-          : err;
-      },
-    );
-    const firstBeats = beatCount(firstJson);
-    // A REPAIR MAY NOT SHRINK THE DECK. Dropping beats is not a shape change,
-    // and under STAGE_MIN_BEATS it also escapes the stage minimum outright: a
-    // 12-beat plan with no stage came back as 4 beats and passed (review,
-    // 2026-10-09). The prompt asks for every beat; this holds it to that.
-    const after = findings(second);
-    // Unless the plan was too long: then merging beats IS the repair.
-    const still = [
-      ...after.size,
-      ...(second.beats.length < firstBeats && broken.size.length === 0
-        ? [
-            `the repair returned ${second.beats.length} beats for a plan of ${firstBeats}; a repair changes shapes and may not drop beats.`,
-          ]
-        : []),
-      ...after.variety,
-    ];
-    if (still.length > 0) {
-      throw new Error(
-        `Codex's plan breaks the variety rule (src/plan/variety.ts) even after one repair:\n${still.map((m) => `  ${m}`).join("\n")}`,
+    /** One answer: the plan if it validated, the JSON either way, what it broke. */
+    type Answer = { plan?: Storyboard; json: unknown; broken: Findings; rejected?: string };
+    const attempt = async (p: string): Promise<Answer> => {
+      try {
+        const plan = await ask(p);
+        return { plan, json: plan, broken: findings(plan) };
+      } catch (err) {
+        if (!(err instanceof PlanRejected)) throw err;
+        const broken = { refused: err.problems, size: [], variety: [], coverage: [], advice: [] };
+        return { json: err.plan, broken, rejected: err.message };
+      }
+    };
+    let answer = await attempt(prompt);
+    if (answer.plan && listOf(answer.broken).length === 0) return answer.plan;
+    const firstBeats = beatCount(answer.json);
+    // Merging beats IS the repair of a plan that was too long.
+    let merging = answer.broken.size.length > 0;
+    for (let round = 1; ; round++) {
+      opts.onRepair?.(listOf(answer.broken));
+      const next = await attempt(
+        repairPrompt(prompt, answer.json, answer.broken, prefs.images.enabled),
       );
+      // A REPAIR MAY NOT SHRINK THE DECK. Dropping beats is not a shape change,
+      // and under STAGE_MIN_BEATS it also escapes the stage minimum outright: a
+      // 12-beat plan with no stage came back as 4 beats and passed (review,
+      // 2026-10-09). The prompt asks for every beat; this holds it to that.
+      const n = next.plan?.beats.length ?? firstBeats;
+      const dropped =
+        n < firstBeats && !merging
+          ? [
+              `the repair returned ${n} beats for a plan of ${firstBeats}; a repair changes shapes and may not drop beats.`,
+            ]
+          : [];
+      // The pictures are asked for once: a repair that still leaves one unused is kept.
+      const still: Findings = {
+        ...next.broken,
+        variety: [...dropped, ...next.broken.variety],
+        advice: [],
+      };
+      if (next.plan && listOf(still).length === 0) return next.plan;
+      if (round === REPAIRS) throw unrepaired(next, still, round);
+      merging ||= still.size.length > 0;
+      answer = { ...next, broken: still };
     }
-    if (after.coverage.length > 0) {
-      throw new Error(
-        `Codex's plan does not cover the source (src/plan/coverage.ts) even after one repair:\n${after.coverage.map((m) => `  ${m}`).join("\n")}`,
-      );
-    }
-    return second;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * How many times a broken plan goes back. One was the rule until two unseen
+ * papers (FlashAttention, Chinchilla; 2026-10-14) were refused in twelve plans of
+ * twelve: a first plan carried 10–23 findings, and the one repair fixed what it
+ * was told and broke something else.
+ */
+const REPAIRS = 2;
+
+function listOf(b: Findings): string[] {
+  return [...b.refused, ...b.size, ...b.variety, ...b.coverage, ...b.advice];
+}
+
+/** The refusal for a plan still broken after the last repair, by its first broken rule. */
+function unrepaired(answer: { rejected?: string }, still: Findings, rounds: number): Error {
+  const after = rounds === 1 ? "one repair" : `${rounds} repairs`;
+  const lines = (ms: readonly string[]) => ms.map((m) => `  ${m}`).join("\n");
+  if (answer.rejected)
+    return new Error(`Codex's plan is still refused after ${after}. ${answer.rejected}`);
+  if (still.size.length || still.variety.length)
+    return new Error(
+      `Codex's plan breaks the variety rule (src/plan/variety.ts) even after ${after}:\n${lines([...still.size, ...still.variety])}`,
+    );
+  return new Error(
+    `Codex's plan does not cover the source (src/plan/coverage.ts) even after ${after}:\n${lines(still.coverage)}`,
+  );
 }
 
 /**
@@ -475,7 +491,7 @@ function beatCount(plan: unknown): number {
 /**
  * A plan Codex answered that this source cannot build — out of the schema's
  * bounds, a picture brief with images off, an id the source lacks — with what
- * is wrong and the JSON it came as, for the one repair round.
+ * is wrong and the JSON it came as, for the repair rounds.
  */
 export class PlanRejected extends Error {
   constructor(
