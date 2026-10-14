@@ -215,6 +215,8 @@ describe("detecting a source's parts from its headings", () => {
     expect(partOfHeading("Related Work")).toBe("prior-work");
     expect(partOfHeading("Conclusion and Future Work")).toBe("summary");
     expect(partOfHeading("Cost")).toBeUndefined();
+    // FlashAttention's method section names no method, only its algorithm.
+    expect(partOfHeading("3 FlashAttention: Algorithm, Analysis, and Extensions")).toBe("method");
   });
 
   it("lists the parts in deck order, subsections inheriting their parent's part", () => {

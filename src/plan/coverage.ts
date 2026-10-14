@@ -90,7 +90,7 @@ const LEXICON: ReadonlyArray<readonly [BeatPart, RegExp]> = [
   ["experiments", /experiment|evaluat|\bresults?\b|benchmark|실험|평가|実験|評価|实验|實驗|评估/i],
   [
     "method",
-    /method|approach|architecture|\bhow\b.*\b(solve|address|work)|proposed|방법|기법|어떻게|제안|手法|方法|提案|提出|如何/i,
+    /method|approach|architecture|algorithm|\bhow\b.*\b(solve|address|work)|proposed|방법|기법|알고리즘|어떻게|제안|手法|方法|アルゴリズム|算法|提案|提出|如何/i,
   ],
   [
     "intro",
@@ -925,7 +925,7 @@ function opProblems(
   const out: string[] = [];
   const where = `step ${k} (${step.op}${step.how ? ` ${step.how}` : ""})`;
   const naming = passagesNaming(ps, doc.nouns);
-  const hint = "draw that step as a `flow` stage, or leave `literal` null";
+  const hint = "draw that step as a `flow` stage";
   if (step.op !== "formula" && !naming.length) {
     out.push(`${where}: the source never names this operation; ${hint}`);
     return out;
@@ -1397,7 +1397,7 @@ function verbGrounding(
   ) => {
     if (!n) return;
     const why = paramProblem(n.value, n.symbol, nouns, what, text);
-    if (why) out.push(`${why}; show it as a \`flow\` diagram, or leave \`literal\` null`);
+    if (why) out.push(`${why}; show it as a \`flow\` diagram`);
   };
   switch (lit.kind) {
     case "operate": {
@@ -1486,7 +1486,7 @@ function verbGrounding(
             : decl
               ? paramProblem(p.value, p.symbol, decl.nouns, decl.what, text)
               : undefined;
-        if (why) out.push(`${why}; show it as a \`flow\` diagram, or leave \`literal\` null`);
+        if (why) out.push(`${why}; show it as a \`flow\` diagram`);
       }
       if (lit.rule === "formula" && lit.expr && !verbatim(lit.expr, text))
         out.push(...formulaProblems(lit.expr, lit.checks, lit.params, text, ps));
