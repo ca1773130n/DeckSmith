@@ -426,7 +426,7 @@ describe("codexPlanner variety repair", () => {
         },
       }),
     ).rejects.toThrow(/returned 3 beats for a plan of 4/);
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
   });
 
   // Each ask starts from an empty out file, so a second run that writes nothing
@@ -453,8 +453,8 @@ describe("codexPlanner variety repair", () => {
           await writeFile(outPath, adjacent);
         },
       }),
-    ).rejects.toThrow(/variety rule .* after 2 repairs:\n.*b01b-arch/s);
-    expect(calls).toBe(3);
+    ).rejects.toThrow(/variety rule .* after 3 repairs:\n.*b01b-arch/s);
+    expect(calls).toBe(4);
   });
 
   // A schema or reference miss is one number or one id: it goes through the same one

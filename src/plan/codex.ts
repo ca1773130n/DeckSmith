@@ -456,9 +456,11 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
  * How many times a broken plan goes back. One was the rule until two unseen
  * papers (FlashAttention, Chinchilla; 2026-10-14) were refused in twelve plans of
  * twelve: a first plan carried 10–23 findings, and the one repair fixed what it
- * was told and broke something else.
+ * was told and broke something else. Two was the rule until both, with
+ * appendix coverage gone (2026-10-15), came within one or two findings after the
+ * second repair (18, 1, 1 and 11, 6, 2), every last one a variety rule.
  */
-const REPAIRS = 2;
+const REPAIRS = 3;
 
 function listOf(b: Findings): string[] {
   return [...b.refused, ...b.size, ...b.variety, ...b.coverage, ...b.advice];

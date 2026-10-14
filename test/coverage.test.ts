@@ -1553,7 +1553,7 @@ describe("codexPlanner coverage repair", () => {
       },
       onDropScenes: (beats, why) => told.push([...beats], [...why]),
     });
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
     expect(told[0]).toEqual(["b05-results"]);
     expect(told[1]?.join("\n")).toMatch(/b05-results's table scene says "99\.99"/);
     expect(result.beats.find((b) => b.id === "b05-results")?.literal).toBeUndefined();
@@ -1570,8 +1570,8 @@ describe("codexPlanner coverage repair", () => {
           await writeFile(outPath, body(missing));
         },
       }),
-    ).rejects.toThrow(/does not cover the source .* after 2 repairs:\n.*prior work/s);
-    expect(calls).toBe(3);
+    ).rejects.toThrow(/does not cover the source .* after 3 repairs:\n.*prior work/s);
+    expect(calls).toBe(4);
   });
 });
 
