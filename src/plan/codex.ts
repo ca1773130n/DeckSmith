@@ -307,6 +307,8 @@ export interface CodexOptions {
   run?: Runner;
   /** Told what a plan broke, before each repair round (at most `REPAIRS`) is asked for. */
   onRepair?: (broken: readonly string[]) => void;
+  /** Told each deck answer's beat count and the beats that carry a literal scene. */
+  onAnswer?: (beats: number, scenes: readonly string[]) => void;
   /** Told a scene is redrawn on its own, after the deck, and why. */
   onScene?: (beat: string, broken: readonly string[]) => void;
   /** Told the beats whose scene was dropped after its own repairs, and why. */
@@ -398,6 +400,10 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     const attempt = async (p: string): Promise<Answer> => {
       try {
         const plan = await ask(p);
+        opts.onAnswer?.(
+          plan.beats.length,
+          plan.beats.filter((b) => b.literal).map((b) => `${b.id} (${b.literal?.kind})`),
+        );
         return { plan, json: plan, broken: findings(plan) };
       } catch (err) {
         if (!(err instanceof PlanRejected)) throw err;

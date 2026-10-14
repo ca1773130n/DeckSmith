@@ -486,6 +486,10 @@ imageFlags(
       step("plan: the plan was refused, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
+    onAnswer: (beats, scenes) =>
+      step(
+        `plan: an answer of ${beats} beats, ${scenes.length} with a literal scene${scenes.length ? `: ${scenes.join(", ")}` : ""}`,
+      ),
     onScene: (beat, broken) => {
       step(`plan: redrawing ${beat}'s scene on its own —`);
       for (const m of broken) step(`plan:   ${m}`);
