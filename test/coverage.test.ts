@@ -230,6 +230,31 @@ describe("detecting a source's parts from its headings", () => {
     ]);
   });
 
+  it("holds a talk to the paper, not its appendix, references or acknowledgements", () => {
+    const paper = sourceSchema.parse({
+      ...analysis,
+      sections: [
+        { id: "s1", depth: 2, heading: "1 Introduction", text: "x" },
+        { id: "s2", depth: 2, heading: "2 Related Work", text: "x" },
+        { id: "s3", depth: 2, heading: "4 Experiments", text: "x" },
+        { id: "s4", depth: 4, heading: "Acknowledgments", text: "x" },
+        { id: "s5", depth: 3, heading: "4.2 Ablation with references", text: "x" },
+        { id: "s6", depth: 2, heading: "Appendix A Related Work", text: "x" },
+        { id: "s7", depth: 2, heading: "6 Acknowledgements", text: "x" },
+        { id: "s8", depth: 2, heading: "부록", text: "" },
+        { id: "s9", depth: 3, heading: "B.1 Experiments on Apex", text: "x" },
+        { id: "s10", depth: 2, heading: "References", text: "x" },
+        // After the references: appendix, though not named so.
+        { id: "s11", depth: 2, heading: "E Experiment Details", text: "x" },
+      ],
+    });
+    expect(sourceParts(paper).map((p) => [p.part, p.sections.map((s) => s.id)])).toEqual([
+      ["intro", ["s1"]],
+      ["prior-work", ["s2"]],
+      ["experiments", ["s3", "s5"]],
+    ]);
+  });
+
   it("is off for a document that is not an analysis", () => {
     const plain = sourceSchema.parse({
       ...analysis,

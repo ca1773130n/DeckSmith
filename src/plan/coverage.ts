@@ -110,6 +110,13 @@ export const MIN_PARTS = 3;
  */
 const PAPER_PARTS: readonly BeatPart[] = ["prior-work", "experiments"];
 
+/** A back-matter heading, after any "6", "A." or "Appendix A" numbering. */
+const BACK_MATTER =
+  /^(?:(?:\d+|[A-Z])(?:\.\d+)*\.?\s+)?(?:appendi(?:x|ces)|supplementary|references|bibliography|acknowledge?ments?|부록|참고\s*문헌|감사의\s*글|付録|参考文献|謝辞|附录|致谢)(?![\p{L}\p{N}])/iu;
+
+const REFERENCES =
+  /^(?:\d+\.?\s+)?(?:references|bibliography|참고\s*문헌|参考文献)(?![\p{L}\p{N}])/iu;
+
 /** The part a heading names, or undefined. */
 export function partOfHeading(heading: string): BeatPart | undefined {
   for (const [part, re] of LEXICON) if (re.test(heading)) return part;
@@ -130,18 +137,29 @@ export interface SourcePart {
  * heading's part otherwise. The document's title heading is not a section of
  * any part. Only sections with text are listed: an empty parent is covered by
  * covering its children.
+ *
+ * Back matter — an appendix, the references, the acknowledgements — and
+ * everything under or after the references is in no part: a talk is not held to its appendix. Two
+ * arXiv papers (FlashAttention, Chinchilla; 2026-10-14) each had 32 sections
+ * to cite for a 14-slide deck, about half of them appendix, and every plan was
+ * refused for missing one or for running long to cite them all.
  */
 export function sourceParts(source: Source): SourcePart[] {
   const title = source.title.trim();
-  const stack: Array<{ depth: number; part: BeatPart | undefined }> = [];
+  const stack: Array<{ depth: number; part: BeatPart | undefined; back: boolean }> = [];
   const by = new Map<BeatPart, SourcePart["sections"]>();
   const seen = new Set<BeatPart>();
+  // What follows the references is appendix, named so or not ("E Experiment Details").
+  let after = false;
   for (const s of source.sections) {
     while (stack.length && (stack[stack.length - 1]?.depth ?? 0) >= s.depth) stack.pop();
+    const heading = s.heading.trim();
+    after ||= REFERENCES.test(heading);
+    const back = after || stack.some((e) => e.back) || BACK_MATTER.test(heading);
     const inherited = [...stack].reverse().find((e) => e.part)?.part;
-    const own = s.heading.trim() === title ? undefined : partOfHeading(s.heading);
-    const part = inherited ?? own;
-    stack.push({ depth: s.depth, part });
+    const own = heading === title ? undefined : partOfHeading(s.heading);
+    const part = back ? undefined : (inherited ?? own);
+    stack.push({ depth: s.depth, part, back });
     if (!part) continue;
     seen.add(part);
     if (s.text.trim()) by.set(part, [...(by.get(part) ?? []), { id: s.id, heading: s.heading }]);
