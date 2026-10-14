@@ -20,7 +20,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
-import { prefsSchema, type Source, type Storyboard, storyboardSchema } from "../types.js";
+import {
+  type Literal,
+  literalSchema,
+  prefsSchema,
+  type Source,
+  type Storyboard,
+  storyboardSchema,
+} from "../types.js";
 import { paperArcRequested } from "./arc.js";
 import {
   coverageFindings,
@@ -300,7 +307,9 @@ export interface CodexOptions {
   run?: Runner;
   /** Told what a plan broke, before each repair round (at most `REPAIRS`) is asked for. */
   onRepair?: (broken: readonly string[]) => void;
-  /** Told the beats whose literal scene was dropped after the last repair, and why. */
+  /** Told a scene is redrawn on its own, after the deck, and why. */
+  onScene?: (beat: string, broken: readonly string[]) => void;
+  /** Told the beats whose scene was dropped after its own repairs, and why. */
   onDropScenes?: (beats: readonly string[], why: readonly string[]) => void;
   /** Each source figure's panel count as the build will cut it, when the caller read them. */
   panels?: Readonly<Record<string, number>>;
@@ -368,11 +377,20 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     const takeaways = !!bespokeFor(prefs, designFor(prefs));
     const literalBroken = (plan: Storyboard) =>
       literalFindings(plan, source, { takeaways, ...(opts.panels ? { panels: opts.panels } : {}) });
+    /** A finding a beat's own scene answers for. */
+    const of = (id: string) => (m: string) => m.startsWith(`${id}'s `) || m.startsWith(`${id} `);
+    /** The literal findings, as the deck's and as each scene's. */
+    const split = (plan: Storyboard) => {
+      const all = literalBroken(plan);
+      const ids = plan.beats.filter((b) => b.literal).map((b) => b.id);
+      const scene = all.filter((m) => ids.some((id) => of(id)(m)));
+      return { deck: all.filter((m) => !scene.includes(m)), scene };
+    };
     const findings = (plan: Storyboard): Findings => ({
       refused: [],
       size: sizeFindings(plan, prefs.slides),
       variety: varietyFindings(plan, prefs.images, prefs.design),
-      coverage: [...coverageFindings(plan, source), ...literalBroken(plan)],
+      coverage: [...coverageFindings(plan, source), ...split(plan).deck],
       advice: [...pictureFindings(plan, source), ...slidewareFindings(plan, source)],
     });
     /** One answer: the plan if it validated, the JSON either way, what it broke. */
@@ -387,32 +405,95 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         return { json: err.plan, broken, rejected: err.message };
       }
     };
-    // A LITERAL SCENE STILL BROKEN AFTER THE LAST REPAIR IS DROPPED, NOT THE DECK.
-    // The beat keeps its archetype, which draws it; the plan is kept only when
-    // that leaves nothing broken, and the dropped beats are named. Two of sixteen
-    // unseen-paper plans (2026-10-14) were refused whole over one scene's truth check.
-    const withoutBrokenScenes = (plan: Storyboard): Storyboard | undefined => {
-      const of = (id: string) => (m: string) => m.startsWith(`${id}'s `) || m.startsWith(`${id} `);
-      const said = literalBroken(plan);
-      const bad = plan.beats.filter((b) => b.literal && said.some(of(b.id)));
-      if (!bad.length) return undefined;
-      const plain: Storyboard = {
-        ...plan,
-        beats: plan.beats.map((b) => {
-          if (!bad.includes(b)) return b;
-          const { literal: _, ...rest } = b;
-          return rest;
+
+    // EACH SCENE IS REPAIRED ON ITS OWN, AFTER THE DECK (2026-10-15). Repaired
+    // with the deck, a broken scene was cheapest to fix by deleting it: twelve
+    // rounds over two unseen papers, and every plan that converged drew no scene
+    // at all. Here the deck is fixed, a scene's ask may return only that scene,
+    // and one still broken after `SCENE_REPAIRS` costs that beat its scene — it is
+    // drawn by its archetype, and named — never the deck.
+    const sceneSchemaPath = join(dir, "scene.schema.json");
+    const brokenOf = (plan: Storyboard, id: string) => split(plan).scene.filter(of(id));
+    const redraw = async (deck: Storyboard, id: string): Promise<Literal | undefined> => {
+      let plan = deck;
+      let broken = brokenOf(plan, id);
+      for (let t = 1; t <= SCENE_REPAIRS; t++) {
+        opts.onScene?.(id, broken);
+        const out = join(dir, `scene-${id}-${t}.json`);
+        try {
+          await (opts.run ?? runCodex)({
+            prompt: scenePrompt(prompt, plan, id, broken),
+            schemaPath: sceneSchemaPath,
+            outPath: out,
+            ...(opts.model === undefined ? {} : { model: opts.model }),
+            timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          });
+        } catch (err) {
+          broken = [`${id}'s scene: the ask failed: ${err instanceof Error ? err.message : err}`];
+          continue;
+        }
+        const got = await readScene(out);
+        if ("problems" in got) {
+          broken = got.problems.map((m) => `${id}'s scene: ${m}`);
+          continue;
+        }
+        const next = withScene(plan, id, got.literal);
+        try {
+          assertRefsResolve(next, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          broken = msg
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .map((m) => `${id}'s scene: ${m}`);
+          continue;
+        }
+        plan = next;
+        broken = brokenOf(plan, id);
+        if (!broken.length) return got.literal;
+      }
+      return undefined;
+    };
+    const scenes = async (deck: Storyboard): Promise<Storyboard> => {
+      const todo = deck.beats
+        .filter((b) => b.literal && brokenOf(deck, b.id).length)
+        .map((b) => b.id);
+      if (!todo.length) return deck;
+      await writeFile(sceneSchemaPath, JSON.stringify(sceneSchemaFor(prefs, source)));
+      const fixed = new Map<string, Literal>();
+      const queue = [...todo];
+      // ponytail: a fixed pool of SCENE_PARALLEL Codex runs; each holds a few hundred MB.
+      await Promise.all(
+        Array.from({ length: Math.min(SCENE_PARALLEL, queue.length) }, async () => {
+          for (let id = queue.shift(); id; id = queue.shift()) {
+            const lit = await redraw(deck, id);
+            if (lit) fixed.set(id, lit);
+          }
         }),
-      };
-      if (listOf({ ...findings(plain), advice: [] }).length) return undefined;
-      opts.onDropScenes?.(
-        bad.map((b) => b.id),
-        said.filter((m) => bad.some((b) => of(b.id)(m))),
       );
-      return plain;
+      let plan = deck;
+      for (const [id, lit] of fixed) plan = withScene(plan, id, lit);
+      // Settled together: each was redrawn against the others as first planned,
+      // and a scene can name another (a lane, a recap) that is now gone.
+      for (;;) {
+        const bad = plan.beats.filter((b) => b.literal && brokenOf(plan, b.id).length);
+        if (!bad.length) break;
+        opts.onDropScenes?.(
+          bad.map((b) => b.id),
+          split(plan).scene.filter((m) => bad.some((b) => of(b.id)(m))),
+        );
+        plan = { ...plan, beats: plan.beats.map((b) => (bad.includes(b) ? withoutScene(b) : b)) };
+      }
+      const left = listOf({ ...findings(plan), advice: [] });
+      if (left.length)
+        throw new Error(
+          `Codex's plan broke after its scenes were redrawn or dropped:\n${left.map((m) => `  ${m}`).join("\n")}`,
+        );
+      return plan;
     };
     let answer = await attempt(prompt);
-    if (answer.plan && listOf(answer.broken).length === 0) return answer.plan;
+    if (answer.plan && listOf(answer.broken).length === 0) return await scenes(answer.plan);
     const firstBeats = beatCount(answer.json);
     // Merging beats IS the repair of a plan that was too long.
     let merging = answer.broken.size.length > 0;
@@ -438,12 +519,8 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         variety: [...dropped, ...next.broken.variety],
         advice: [],
       };
-      if (next.plan && listOf(still).length === 0) return next.plan;
-      if (round === REPAIRS) {
-        const plain = next.plan && !dropped.length ? withoutBrokenScenes(next.plan) : undefined;
-        if (plain) return plain;
-        throw unrepaired(next, still, round);
-      }
+      if (next.plan && listOf(still).length === 0) return await scenes(next.plan);
+      if (round === REPAIRS) throw unrepaired(next, still, round);
       merging ||= still.size.length > 0;
       answer = { ...next, broken: still };
     }
@@ -461,6 +538,72 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
  * second repair (18, 1, 1 and 11, 6, 2), every last one a variety rule.
  */
 const REPAIRS = 3;
+
+/** How many times one broken scene goes back on its own, after the deck. */
+const SCENE_REPAIRS = 2;
+/** Scenes redrawn at once: each is a Codex run. */
+const SCENE_PARALLEL = 3;
+
+/** The schema of a scene's ask: one `literal`, never null — a scene, redrawn. */
+function sceneSchemaFor(
+  prefs: Pick<Prefs, "genre" | "bespoke" | "design"> & { images?: Prefs["images"] },
+  source: Source,
+): unknown {
+  const hidden = new Set(plannerInvisible(prefs, source));
+  hidden.delete("literal");
+  return splitOperate(
+    hideFromPlanner(
+      forStructuredOutput(z.toJSONSchema(z.object({ literal: literalSchema }), { io: "input" })),
+      hidden,
+    ),
+  );
+}
+
+/** A scene's answer: the scene, or why it is none. */
+async function readScene(outPath: string): Promise<{ literal: Literal } | { problems: string[] }> {
+  const raw = await readFile(outPath, "utf8").catch(() => "");
+  if (!raw.trim()) return { problems: ["Codex produced no final message"] };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { problems: [`the answer was not JSON: ${raw.slice(0, 120)}`] };
+  }
+  const r = literalSchema.safeParse((stripNulls(parsed) as { literal?: unknown } | null)?.literal);
+  return r.success
+    ? { literal: r.data }
+    : { problems: r.error.issues.map((i) => `${i.path.join(".") || "literal"}: ${i.message}`) };
+}
+
+function withScene(plan: Storyboard, id: string, literal: Literal): Storyboard {
+  return { ...plan, beats: plan.beats.map((b) => (b.id === id ? { ...b, literal } : b)) };
+}
+
+function withoutScene(b: Storyboard["beats"][number]): Storyboard["beats"][number] {
+  const { literal: _, ...rest } = b;
+  return rest as Storyboard["beats"][number];
+}
+
+/** One scene's ask: the deck as planned, fixed, and what that scene broke. */
+function scenePrompt(
+  prompt: string,
+  plan: Storyboard,
+  id: string,
+  broken: readonly string[],
+): string {
+  const list = broken.map((m) => `  - ${m}`).join("\n");
+  return `${prompt}
+
+THE DECK IS PLANNED. ONE SCENE IS LEFT.
+
+The storyboard below is settled. Beat ${id} draws a literal scene that is refused for:
+${list}
+
+Return {"literal": ...}: beat ${id}'s scene, redrawn so none of these hold — every number, word and figure one the source states, every slot its verb needs filled. Keep its verb unless a finding names another. Return a scene: this ask has no way to leave it out. No other beat is yours to change.
+
+THE STORYBOARD:
+${JSON.stringify(plan, null, 2)}`;
+}
 
 function listOf(b: Findings): string[] {
   return [...b.refused, ...b.size, ...b.variety, ...b.coverage, ...b.advice];

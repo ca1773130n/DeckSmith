@@ -123,10 +123,11 @@ async function askPanels<T>(
   assetsDir: string,
   ask: Ask<T>,
   opts: PassOpts,
-): Promise<Map<string, T>> {
+): Promise<{ found: Map<string, T>; dropped: Set<string> }> {
   const found = new Map<string, T>();
+  const dropped = new Set<string>();
   const todo = storyboard.beats.filter((b) => b.literal && ask.pick(b.literal));
-  if (!todo.length) return found;
+  if (!todo.length) return { found, dropped };
   const run = opts.run ?? runCodex;
   const config = opts.run ? [] : await leanCodexConfig();
   const dir = await mkdtemp(join(tmpdir(), "decksmith-look-"));
@@ -163,9 +164,13 @@ async function askPanels<T>(
         if (typeof got === "string") why = got;
         else found.set(beat.id, got);
       }
-      if (!found.has(beat.id)) throw new Error(ask.fail(beat.id, why));
+      if (found.has(beat.id)) continue;
+      // With `onDrop` a scene that cannot be read costs that scene, not the deck.
+      if (!opts.onDrop) throw new Error(ask.fail(beat.id, why));
+      opts.onDrop(beat.id, ask.fail(beat.id, why));
+      dropped.add(beat.id);
     }
-    return found;
+    return { found, dropped };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -175,6 +180,20 @@ interface PassOpts {
   run?: Runner;
   model?: string;
   onBeat?: (id: string) => void;
+  /** Told a beat whose scene could not be read twice over; that beat loses its scene. Absent: refused. */
+  onDrop?: (id: string, why: string) => void;
+}
+
+function withoutScenes(storyboard: Storyboard, ids: ReadonlySet<string>): Storyboard {
+  if (!ids.size) return storyboard;
+  return {
+    ...storyboard,
+    beats: storyboard.beats.map((b) => {
+      if (!ids.has(b.id)) return b;
+      const { literal: _, ...rest } = b;
+      return rest as Storyboard["beats"][number];
+    }),
+  };
 }
 
 /**
@@ -188,7 +207,7 @@ export async function locateMarks(
   assetsDir: string,
   opts: PassOpts = {},
 ): Promise<Storyboard> {
-  const found = await askPanels<Box[]>(
+  const { found, dropped } = await askPanels<Box[]>(
     storyboard,
     source,
     assetsDir,
@@ -205,20 +224,23 @@ export async function locateMarks(
     },
     opts,
   );
-  return {
-    ...storyboard,
-    beats: storyboard.beats.map((b) => {
-      const boxes = found.get(b.id);
-      if (!boxes || b.literal?.kind !== "region") return b;
-      return {
-        ...b,
-        literal: {
-          ...b.literal,
-          marks: b.literal.marks.map((m, i) => ({ ...m, box: boxes[i] as Box })),
-        },
-      };
-    }),
-  };
+  return withoutScenes(
+    {
+      ...storyboard,
+      beats: storyboard.beats.map((b) => {
+        const boxes = found.get(b.id);
+        if (!boxes || b.literal?.kind !== "region") return b;
+        return {
+          ...b,
+          literal: {
+            ...b.literal,
+            marks: b.literal.marks.map((m, i) => ({ ...m, box: boxes[i] as Box })),
+          },
+        };
+      }),
+    },
+    dropped,
+  );
 }
 
 type Step = { lead?: string; parts: Array<{ text: string; tag: string }> };
@@ -274,7 +296,7 @@ export async function transcribeTraces(
   opts: PassOpts = {},
 ): Promise<Storyboard> {
   const tagsOf = (l: Lit) => (l.kind === "evolve" ? l.tags : []);
-  const found = await askPanels<Step[]>(
+  const { found, dropped } = await askPanels<Step[]>(
     storyboard,
     source,
     assetsDir,
@@ -329,12 +351,15 @@ export async function transcribeTraces(
     },
     opts,
   );
-  return {
-    ...storyboard,
-    beats: storyboard.beats.map((b) => {
-      const steps = found.get(b.id);
-      if (!steps || b.literal?.kind !== "evolve") return b;
-      return { ...b, literal: { ...b.literal, steps } };
-    }),
-  };
+  return withoutScenes(
+    {
+      ...storyboard,
+      beats: storyboard.beats.map((b) => {
+        const steps = found.get(b.id);
+        if (!steps || b.literal?.kind !== "evolve") return b;
+        return { ...b, literal: { ...b.literal, steps } };
+      }),
+    },
+    dropped,
+  );
 }

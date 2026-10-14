@@ -1531,32 +1531,61 @@ describe("codexPlanner coverage repair", () => {
     expect(result.beats.map((b) => b.part ?? "-")).toContain("prior-work");
   });
 
-  it("drops a literal scene the last repair leaves broken, naming the beat, and keeps the deck", async () => {
-    const lying = covered().map((b) =>
-      b.id === "b05-results"
-        ? {
-            ...b,
-            literal: {
-              kind: "table",
-              columns: ["", "PSNR"],
-              rows: [["LHID", "99.99"]],
-              highlight: [0],
-            },
-          }
-        : b,
-    );
-    let calls = 0;
+  // A table showing a number the source never states: the one scene to redraw.
+  const table = (cell: string) => ({
+    kind: "table",
+    columns: ["", "PSNR"],
+    rows: [["LHID", cell]],
+    highlight: [0],
+  });
+  const lying = () =>
+    covered().map((b) => (b.id === "b05-results" ? { ...b, literal: table("99.99") } : b));
+
+  it("redraws a broken scene on its own, after the deck, and never sends the deck back for it", async () => {
+    const prompts: string[] = [];
+    const scenes: string[] = [];
+    const result = await codexPlanner(analysis, {
+      prefs,
+      run: async ({ prompt, schemaPath, outPath }) => {
+        if (schemaPath.endsWith("scene.schema.json")) {
+          scenes.push(prompt);
+          await writeFile(outPath, JSON.stringify({ literal: table("30.56") }));
+        } else {
+          prompts.push(prompt);
+          await writeFile(outPath, body(lying()));
+        }
+      },
+    });
+    expect(prompts).toHaveLength(1);
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]).toContain("Beat b05-results draws a literal scene that is refused for");
+    expect(scenes[0]).toMatch(/b05-results's table scene says "99\.99"/);
+    expect(result.beats.find((b) => b.id === "b05-results")?.literal).toMatchObject({
+      rows: [["LHID", "30.56"]],
+    });
+    expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");
+  });
+
+  it("drops a scene still broken after its own repairs, naming the beat, and keeps the deck", async () => {
+    let deck = 0;
+    let scene = 0;
     const told: string[][] = [];
     const result = await codexPlanner(analysis, {
       prefs,
-      run: async ({ outPath }) => {
-        calls++;
-        await writeFile(outPath, body(lying));
+      run: async ({ schemaPath, outPath }) => {
+        if (schemaPath.endsWith("scene.schema.json")) {
+          scene++;
+          await writeFile(outPath, JSON.stringify({ literal: table("88.88") }));
+        } else {
+          deck++;
+          await writeFile(outPath, body(lying()));
+        }
       },
       onDropScenes: (beats, why) => told.push([...beats], [...why]),
     });
-    expect(calls).toBe(4);
+    expect([deck, scene]).toEqual([1, 2]);
     expect(told[0]).toEqual(["b05-results"]);
+    // The reason is the scene as first planned: the redraws were never kept.
     expect(told[1]?.join("\n")).toMatch(/b05-results's table scene says "99\.99"/);
     expect(result.beats.find((b) => b.id === "b05-results")?.literal).toBeUndefined();
     expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");

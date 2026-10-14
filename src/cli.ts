@@ -486,9 +486,13 @@ imageFlags(
       step("plan: the plan was refused, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
+    onScene: (beat, broken) => {
+      step(`plan: redrawing ${beat}'s scene on its own —`);
+      for (const m of broken) step(`plan:   ${m}`);
+    },
     onDropScenes: (beats, why) => {
       step(
-        `plan: WARNING: ${beats.join(", ")} still broken after the last repair; drawn by their archetype instead —`,
+        `plan: WARNING: ${beats.join(", ")} still broken after their own repairs; drawn by their archetype instead —`,
       );
       for (const m of why) step(`plan:   ${m}`);
     },
@@ -508,13 +512,17 @@ imageFlags(
   // The planner names what a `region` marks and what an `evolve` trace reads; where
   // the things are and what the figure prints are found by looking at it
   // (src/plan/locate.ts), not guessed.
+  // A scene that cannot be read off its picture costs that scene, not the plan.
+  const onDrop = (id: string, why: string) =>
+    step(`plan: WARNING: ${id} drawn by its archetype instead — ${why}`);
   const storyboard = await transcribeTraces(
     await locateMarks(unlocated, source, assetsDir, {
       onBeat: (id) => step(`plan: finding ${id}'s marked things in its picture`),
+      onDrop,
     }),
     source,
     assetsDir,
-    { onBeat: (id) => step(`plan: reading ${id}'s trace off its figure`) },
+    { onBeat: (id) => step(`plan: reading ${id}'s trace off its figure`), onDrop },
   );
   await writeJson(o.out, storyboard);
   step(`plan: ${storyboard.beats.length} beats → ${o.out}`);

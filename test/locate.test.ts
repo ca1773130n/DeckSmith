@@ -117,6 +117,15 @@ describe("locateMarks", () => {
     );
   });
 
+  it("with onDrop, drops only that beat's scene and keeps the plan", async () => {
+    const run = async (a: RunnerArgs) => writeFile(a.outPath, JSON.stringify({ marks: [] }));
+    const told: string[] = [];
+    const out = await locateMarks(board, source, dir, { run, onDrop: (id) => told.push(id) });
+    expect(told).toEqual(["b01"]);
+    expect(out.beats[0]?.literal).toBeUndefined();
+    expect(out.beats).toHaveLength(board.beats.length);
+  });
+
   it("reads a figure trace's rows off its panel, the tags as the schema's choices", async () => {
     const traced = storyboardSchema.parse({
       ...board,
