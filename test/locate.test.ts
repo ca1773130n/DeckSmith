@@ -4,9 +4,11 @@
  * asked again, and a second miss refused naming the beat. The runner is fake;
  * the figure is decoded through ffmpeg as the build decodes it.
  */
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodePng } from "../src/bespoke/inspect.js";
 import type { RunnerArgs } from "../src/plan/codex.js";
@@ -29,7 +31,13 @@ describe("readBoxes", () => {
   });
 });
 
-describe("locateMarks", () => {
+// The panels are read through ffprobe (`readFigure`); CI installs none, as for transcode.
+const ffprobe = await promisify(execFile)("ffprobe", ["-version"]).then(
+  () => true,
+  () => false,
+);
+
+describe.skipIf(!ffprobe)("locateMarks", () => {
   let dir = "";
   // Two dark panels side by side on white, 120×80 each, under one title band.
   const W = 300;
