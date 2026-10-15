@@ -187,10 +187,10 @@ describe("one kinetic a deck, and a plan no longer than asked", () => {
     expect(varietyFindings(deck("title", "kinetic", "pipeline"), off)).toEqual([]);
   });
 
-  it("refuses a plan over 1.3x the target, and a setup beat before its results", () => {
+  it("refuses a plan over 1.5x the target, and a setup beat before its results", () => {
     // r1: 36 beats against 16.
-    const long = deck(...Array.from({ length: 21 }, (_, i) => (i % 2 ? "pipeline" : "stage")));
-    expect(sizeFindings(long, 16)).toEqual([expect.stringMatching(/21 beats .* at most 20/)]);
+    const long = deck(...Array.from({ length: 25 }, (_, i) => (i % 2 ? "pipeline" : "stage")));
+    expect(sizeFindings(long, 16)).toEqual([expect.stringMatching(/25 beats .* at most 24/)]);
     expect(sizeFindings(long, 16 * 2)).toEqual([]);
     const pair = {
       beats: [
