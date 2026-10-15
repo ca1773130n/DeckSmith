@@ -1654,6 +1654,21 @@ describe("codexPlanner coverage repair", () => {
     expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");
   });
 
+  it("gives a beat back the scene a deck repair dropped under the same id", async () => {
+    const answers = [missing, covered().map((b) => ({ ...b, literal: undefined }))];
+    const said: string[][] = [];
+    const result = await codexPlanner(analysis, {
+      prefs,
+      run: async ({ outPath }) => {
+        await writeFile(outPath, body(answers.shift() ?? []));
+      },
+      onAnswer: (_, scenes) => said.push([...scenes]),
+    });
+    expect(answers).toHaveLength(0);
+    expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");
+    expect(said[1]).toContain("b03-method (region, kept from before)");
+  });
+
   it("fails loudly when the repair still misses it", async () => {
     let calls = 0;
     await expect(

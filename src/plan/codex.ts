@@ -398,12 +398,34 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     });
     /** One answer: the plan if it validated, the JSON either way, what it broke. */
     type Answer = { plan?: Storyboard; json: unknown; broken: Findings; rejected?: string };
+    // A DECK REPAIR KEEPS ITS SCENES (2026-10-15). A deck repair is never asked
+    // to remove a scene — the scene's own findings wait for `scenes` — yet
+    // FlashAttention's seven went to none on a repair asked only for coverage,
+    // and Chinchilla's two on a merge. So a beat that comes back under its id
+    // without the scene it last had gets that scene back, and `scenes` judges
+    // it. A merged beat under a new id has no scene to get back.
+    const drawn = new Map<string, Literal>();
+    const restored = (plan: Storyboard): { plan: Storyboard; back: Set<string> } => {
+      const back = new Set(
+        plan.beats.filter((b) => !b.literal && drawn.has(b.id)).map((b) => b.id),
+      );
+      const beats = plan.beats.map((b) => {
+        const lit = back.has(b.id) ? drawn.get(b.id) : b.literal;
+        if (lit) drawn.set(b.id, lit);
+        return lit ? { ...b, literal: lit } : b;
+      });
+      return { plan: { ...plan, beats }, back };
+    };
     const attempt = async (p: string): Promise<Answer> => {
       try {
-        const plan = await ask(p);
+        const { plan, back } = restored(await ask(p));
         opts.onAnswer?.(
           plan.beats.length,
-          plan.beats.filter((b) => b.literal).map((b) => `${b.id} (${b.literal?.kind})`),
+          plan.beats
+            .filter((b) => b.literal)
+            .map(
+              (b) => `${b.id} (${b.literal?.kind}${back.has(b.id) ? ", kept from before" : ""})`,
+            ),
         );
         return { plan, json: plan, broken: findings(plan) };
       } catch (err) {
