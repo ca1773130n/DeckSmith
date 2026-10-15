@@ -55,6 +55,7 @@ import {
   LITERAL_ROLE_NOUNS,
   LITERAL_RULES,
   literalSlotProblems,
+  literalSlotsOf,
 } from "../types.js";
 import { charsPerSecond } from "./duration.js";
 
@@ -1762,6 +1763,57 @@ function earlierProblem(
 const readsOff = (lit: Literal) =>
   lit.kind === "region" || (lit.kind === "evolve" && lit.rule === "trace" && !!lit.picture);
 
+type GroundingCtx = { text: string; ps: string[]; seq: number[]; stated: ReadonlySet<string> };
+const groundingCtx = (source: Source): GroundingCtx => ({
+  text: bindingText(source),
+  ps: passages(source).map(normalizeTex),
+  seq: numberSequence(sourceText(source)),
+  stated: sourceNumbers(source),
+});
+
+/** Words no paper decides, by deck language; any other language gets the slot's English name. */
+const STOCK: Record<"example" | "input" | "output", Record<string, string>> = {
+  example: { ko: "예시", ja: "例", zh: "示例" },
+  input: { ko: "입력", ja: "入力", zh: "输入" },
+  output: { ko: "출력", ja: "出力", zh: "输出" },
+};
+
+/**
+ * Fills the slots whose words the code knows (2026-10-15): the `example` tag on
+ * a scene running on example material, and an op chain's `input` and `output`
+ * titles. Left to the planner, FlashAttention's b02 (unseen-paper round 15) was
+ * refused for its missing tag alone, and its b11 first for a chain's `input`. A
+ * slot the planner did fill is kept as written.
+ */
+export function withStockLabels(storyboard: Storyboard, source: Source): Storyboard {
+  const lang = storyboard.lang.split("-")[0] ?? "en";
+  const word = (slot: keyof typeof STOCK) => STOCK[slot][lang] ?? slot;
+  let ctx: GroundingCtx | undefined;
+  const ctxOf = () => {
+    ctx ??= groundingCtx(source);
+    return ctx;
+  };
+  return {
+    ...storyboard,
+    beats: storyboard.beats.map((beat) => {
+      const lit = beat.literal;
+      if (!lit) return beat;
+      const has = (slot: string) => lit.labels.some((l) => l.slot === slot && l.text.trim());
+      const missing: (keyof typeof STOCK)[] = [];
+      if (lit.kind === "operate" && !lit.terms && lit.chain.length)
+        missing.push(...(["input", "output"] as const).filter((s) => !has(s)));
+      if (!has("example") && verbGrounding(lit, source, ctxOf()).example) missing.push("example");
+      const slots = literalSlotsOf(lit.kind);
+      if (!missing.some((s) => slots[s])) return beat;
+      const labels = [
+        ...lit.labels.filter((l) => !missing.includes(l.slot as keyof typeof STOCK)),
+        ...missing.filter((s) => slots[s]).map((slot) => ({ slot, text: word(slot) })),
+      ];
+      return { ...beat, literal: { ...lit, labels } };
+    }),
+  };
+}
+
 /**
  * The literal-scene checks no schema can express. Run on every plan; a plan
  * with no `literal` has nothing to find.
@@ -1789,14 +1841,9 @@ export function literalFindings(
         `Beats ${bare.map((b) => b.id).join(", ")} carry no \`takeaway\`. Every beat but the title states the one thing the viewer can explain after it.`,
       );
   }
-  let ctx: { text: string; ps: string[]; seq: number[]; stated: ReadonlySet<string> } | undefined;
+  let ctx: GroundingCtx | undefined;
   const ctxOf = () => {
-    ctx ??= {
-      text: bindingText(source),
-      ps: passages(source).map(normalizeTex),
-      seq: numberSequence(sourceText(source)),
-      stated: sourceNumbers(source),
-    };
+    ctx ??= groundingCtx(source);
     return ctx;
   };
   let prevKey: { id: string; key: string } | undefined;

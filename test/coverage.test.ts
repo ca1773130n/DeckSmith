@@ -21,6 +21,7 @@ import {
   slidewareFindings,
   sourceParts,
   textShareFindings,
+  withStockLabels,
 } from "../src/plan/coverage.js";
 import { sourceBlocks } from "../src/plan/prompt.js";
 import {
@@ -1250,6 +1251,30 @@ describe("the truth gate grounds every number in its role", () => {
       literal: { ...OPERATE, labels: OPERATE.labels.filter((l) => l.slot !== "caption") },
     } as never;
     expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(/give `caption`/);
+  });
+
+  it("fills the example tag and a chain's input and output in the deck's language, keeping the planner's", () => {
+    const beats = covered();
+    const bare = OPERATE.labels.filter((l) => l.slot === "caption");
+    beats[1] = { ...(beats[1] as object), literal: { ...OPERATE, labels: bare } } as never;
+    const slots = (lang: string, b: unknown[]) =>
+      withStockLabels({ ...plan(b), lang }, analysis).beats[1]?.literal?.labels;
+    expect(slots("ko", beats)).toEqual([
+      ...bare,
+      { slot: "input", text: "입력" },
+      { slot: "output", text: "출력" },
+      { slot: "example", text: "예시" },
+    ]);
+    expect(slots("de", beats)?.map((l) => l.text)).toEqual([
+      bare[0]?.text,
+      "input",
+      "output",
+      "example",
+    ]);
+    const filled = withStockLabels({ ...plan(beats), lang: "ko" }, analysis);
+    expect(literalFindings(filled, analysis).join("\n")).not.toMatch(/needs the `example` slot/);
+    beats[1] = { ...(beats[1] as object), literal: OPERATE } as never;
+    expect(slots("ko", beats)).toEqual(OPERATE.labels);
   });
 
   it("refuses a learned stage that shows a computed layer, and an un-own figure", () => {

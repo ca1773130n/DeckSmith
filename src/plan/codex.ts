@@ -35,6 +35,7 @@ import {
   pictureFindings,
   slidewareFindings,
   sourceParts,
+  withStockLabels,
 } from "./coverage.js";
 import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
@@ -363,7 +364,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         ...(opts.model === undefined ? {} : { model: opts.model }),
         timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       });
-      return readPlan(outPath, source, prefs);
+      return withStockLabels(await readPlan(outPath, source, prefs), source);
     };
 
     // VARIETY AND COVERAGE ARE CHECKED, NOT HOPED FOR (src/plan/variety.ts,
@@ -443,7 +444,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
           broken = got.problems.map((m) => `${id}'s scene: ${m}`);
           continue;
         }
-        const next = withScene(plan, id, got.literal);
+        const next = withStockLabels(withScene(plan, id, got.literal), source);
         try {
           assertRefsResolve(next, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
         } catch (err) {
@@ -457,7 +458,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         }
         plan = next;
         broken = brokenOf(plan, id);
-        if (!broken.length) return got.literal;
+        if (!broken.length) return plan.beats.find((b) => b.id === id)?.literal;
       }
       return undefined;
     };

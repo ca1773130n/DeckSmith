@@ -803,7 +803,7 @@ export const LITERAL_COMMON_SLOTS: Readonly<Record<string, LiteralSlot>> = {
 
 /** The tag that says a scene runs on example material, in the deck's languages. */
 const EXAMPLE_SLOT: LiteralSlot = {
-  what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); required whenever any input is example material (a picture, an unprinted vector, a `condition`, a split the source does not state)",
+  what: "a tag drawn under the scene saying it is an example, in the deck's language (example · 예시 · 例 · 示例); drawn whenever any input is example material (a picture, an unprinted vector, a `condition`, a split the source does not state); left empty, the deck language's word is drawn",
   optional: true,
 };
 
@@ -1281,9 +1281,12 @@ export const LITERAL_KIND_DOCS: Readonly<Record<LiteralKind, LiteralKindDoc>> = 
                      holds for any stated rule over an array: a top-k, a
                      softmax, a cumulative sum, a threshold.`,
     slots: {
-      input: { what: "op chains: title of the input (required with a chain)", optional: true },
+      input: {
+        what: "op chains: title of the input (left empty, the deck language's word for input)",
+        optional: true,
+      },
       output: {
-        what: "op chains: title of the last output (required with a chain)",
+        what: "op chains: title of the last output (left empty, the deck language's word for output)",
         vars: ["max", "sum", "mean"],
         optional: true,
       },
