@@ -171,12 +171,22 @@ export function varietyFindings(
   const out: string[] = [];
 
   // RULE 1, which the prompt has always stated and nothing ever checked.
+  // Each finding names the shapes the redrawn beat may not take, its OTHER
+  // neighbour's included: Chinchilla (2026-10-15, round 18) was refused after
+  // three repairs, each of which redrew a named beat as the archetype of the
+  // neighbour the finding never mentioned — b11 hero-number → bar-compare
+  // beside b10 bar-compare, then b13 bar-compare → hero-number beside b12.
+  const avoid = (beat: Beat, other: Beat | undefined) =>
+    [beat.archetype, other?.archetype]
+      .filter((x, k, xs): x is Archetype => x !== undefined && xs.indexOf(x) === k)
+      .map((x) => `\`${x}\``)
+      .join(" or ");
   for (let i = 1; i < beats.length; i++) {
     const a = beats[i - 1] as Beat;
     const b = beats[i] as Beat;
     if (a.archetype === b.archetype) {
       out.push(
-        `${a.id} and ${b.id} are both \`${a.archetype}\`, next to each other. Draw one of them as a different shape.`,
+        `${a.id} and ${b.id} are both \`${a.archetype}\`, next to each other. Redraw ${a.id} as anything but ${avoid(a, beats[i - 2])}, or ${b.id} as anything but ${avoid(b, beats[i + 1])}.`,
       );
     }
   }

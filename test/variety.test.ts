@@ -60,6 +60,21 @@ describe("varietyFindings", () => {
     ]);
   });
 
+  it("names the other neighbours' shapes a redrawn beat must avoid", () => {
+    // Chinchilla round 18, repair 2: b11 was redrawn as its other neighbour's shape.
+    const [found] = varietyFindings(
+      deck("bar-compare", "hero-number", "hero-number", "bar-compare"),
+      off,
+    );
+    expect(found).toBe(
+      "b2 and b3 are both `hero-number`, next to each other. Redraw b2 as anything but `hero-number` or `bar-compare`, or b3 as anything but `hero-number` or `bar-compare`.",
+    );
+    // At the deck's edge, or beside a third of the same, only the one shape is named.
+    expect(varietyFindings(deck("callout", "callout", "callout"), off)[0]).toMatch(
+      /Redraw b1 as anything but `callout`, or b2 as anything but `callout`\.$/,
+    );
+  });
+
   it(`allows an A/B/A return of ${MAX_ALTERNATION} and refuses the fourth`, () => {
     expect(varietyFindings(deck("pipeline", "callout", "pipeline", "grid"), off)).toEqual([]);
     expect(varietyFindings(deck("pipeline", "callout", "pipeline", "callout"), off)).toEqual([
