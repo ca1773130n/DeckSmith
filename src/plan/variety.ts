@@ -66,14 +66,18 @@ export const PANEL_SHARE = 0.36;
 export const KINETIC_MAX = 1;
 
 /** A plan may come back at most this many times the beats asked for. */
-export const SLIDES_OVER = 1.3;
+export const SLIDES_OVER = 1.5;
 
 /**
  * Where a plan is too LONG, as sentences — a separate group from the variety
  * rules because its repair drops beats, which a variety repair may not.
  *
  * Over `SLIDES_OVER` × `slides`: r1 came back with 36 beats against 16, and
- * 638s. And a setup beat whose next beat is its results — "navsim-metrics"
+ * 638s. 1.3 was the rule until Chinchilla (2026-10-15, 21 sections to cover)
+ * was refused at 19 and 20 beats against 14 in two of its last five rounds,
+ * three repairs each, never merged under 18. 1.5 still refuses r1's 2.25.
+ *
+ * And a setup beat whose next beat is its results — "navsim-metrics"
  * then "navsim-results", seven times in one deck — is one point said twice:
  * the metrics belong in the results' caption.
  */
