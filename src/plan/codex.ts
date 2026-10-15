@@ -312,7 +312,7 @@ export interface CodexOptions {
   onAnswer?: (beats: number, scenes: readonly string[]) => void;
   /** Told a scene is redrawn on its own, after the deck, and why. */
   onScene?: (beat: string, broken: readonly string[]) => void;
-  /** Told the beats whose scene was dropped after its own repairs, and why. */
+  /** Told the beats whose scene was dropped (still broken after its own repairs, or broken only by a symbolic quantity), and why. */
   onDropScenes?: (beats: readonly string[], why: readonly string[]) => void;
   /** Each source figure's panel count as the build will cut it, when the caller read them. */
   panels?: Readonly<Record<string, number>>;
@@ -484,11 +484,31 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       }
       return undefined;
     };
-    const scenes = async (deck: Storyboard): Promise<Storyboard> => {
+    const scenes = async (planned: Storyboard): Promise<Storyboard> => {
+      let deck = planned;
+      // A SYMBOLIC QUANTITY IS NOT REDRAWN (2026-10-15). Θ(N²) against
+      // Θ(N²d²/M) has no length to draw (Θ hides the constants), and Codex
+      // asked again kept the symbols: 5 of FlashAttention's 8 drops in round 17.
+      // A scene broken only by them is dropped before any ask, and its beat's
+      // archetype shows the expressions as the paper writes them.
+      const symbolic = deck.beats.filter((b) => {
+        const broken = b.literal ? brokenOf(deck, b.id) : [];
+        return broken.length > 0 && broken.every(isSymbolic);
+      });
+      if (symbolic.length) {
+        opts.onDropScenes?.(
+          symbolic.map((b) => b.id),
+          split(deck).scene.filter((m) => symbolic.some((b) => of(b.id)(m))),
+        );
+        deck = {
+          ...deck,
+          beats: deck.beats.map((b) => (symbolic.includes(b) ? withoutScene(b) : b)),
+        };
+      }
       const todo = deck.beats
         .filter((b) => b.literal && brokenOf(deck, b.id).length)
         .map((b) => b.id);
-      if (!todo.length) return deck;
+      if (!todo.length && !symbolic.length) return deck;
       await writeFile(sceneSchemaPath, JSON.stringify(sceneSchemaFor(prefs, source)));
       const fixed = new Map<string, Literal>();
       const queue = [...todo];
@@ -570,6 +590,21 @@ const REPAIRS = 3;
 
 /** How many times one broken scene goes back on its own, after the deck. */
 const SCENE_REPAIRS = 2;
+
+/**
+ * A scene finding that is only a symbolic quantity where a verb takes one
+ * number: Θ(N²), N²d²/M, a ratio `s`. Not "약 19" or "100KB", which a redraw
+ * can give as the number.
+ */
+function isSymbolic(finding: string): boolean {
+  const value =
+    /"([^"]+)" is not one number as the source writes it/.exec(finding)?.[1] ??
+    /must be one number as the source writes it, got "([^"]+)"/.exec(finding)?.[1];
+  return (
+    value !== undefined && /[A-Za-zΑ-ω]/.test(value) && !/^[\d.,\s]+[\p{L}%]+$/u.test(value.trim())
+  );
+}
+
 /** Scenes redrawn at once: each is a Codex run. */
 const SCENE_PARALLEL = 3;
 

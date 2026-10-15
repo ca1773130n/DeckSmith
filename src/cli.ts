@@ -496,7 +496,7 @@ imageFlags(
     },
     onDropScenes: (beats, why) => {
       step(
-        `plan: WARNING: ${beats.join(", ")} still broken after their own repairs; drawn by their archetype instead —`,
+        `plan: WARNING: ${beats.join(", ")} drawn by their archetype instead; their scenes stay broken —`,
       );
       for (const m of why) step(`plan:   ${m}`);
     },

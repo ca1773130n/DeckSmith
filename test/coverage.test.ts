@@ -1669,6 +1669,53 @@ describe("codexPlanner coverage repair", () => {
     expect(said[1]).toContain("b03-method (region, kept from before)");
   });
 
+  it("drops a scene broken only by a symbolic quantity before asking, and asks for a number with a unit", async () => {
+    const scaled = (value: string) =>
+      covered().map((b) =>
+        b.id === "b03-method"
+          ? beatOf("b03-method", "method", ["sec4"], {
+              literal: {
+                ...OPERATE,
+                chain: [
+                  { op: "channels", how: "mean", params: [], label: "채널 평균" },
+                  {
+                    op: "threshold",
+                    how: "binary",
+                    stat: "var",
+                    over: "channel",
+                    params: [{ name: "scale", value, symbol: "α" }],
+                    label: "채널별 임계값",
+                  },
+                ],
+              },
+            })
+          : b,
+      );
+    const run = async (value: string) => {
+      const asked: string[] = [];
+      const told: string[][] = [];
+      const result = await codexPlanner(analysis, {
+        prefs,
+        run: async ({ schemaPath, outPath }) => {
+          if (schemaPath.endsWith("scene.schema.json")) await writeFile(outPath, "{}");
+          else await writeFile(outPath, body(scaled(value)));
+        },
+        onScene: (id) => asked.push(id),
+        onDropScenes: (beats, why) => told.push([...beats], [...why]),
+      });
+      return { asked, told, lit: result.beats.find((b) => b.id === "b03-method")?.literal };
+    };
+    const sym = await run("N²");
+    // The recap that named it is redrawn; the symbolic scene is not.
+    expect(sym.asked).not.toContain("b03-method");
+    expect(sym.told[0]).toEqual(["b03-method"]);
+    expect(sym.told[1]?.join("\n")).toMatch(/"N²" is not one number as the source writes it/);
+    expect(sym.lit).toBeUndefined();
+    const unit = await run("0.6x");
+    expect(unit.asked.filter((id) => id === "b03-method")).toHaveLength(2);
+    expect(unit.lit).toBeUndefined();
+  });
+
   it("fails loudly when the repair still misses it", async () => {
     let calls = 0;
     await expect(
