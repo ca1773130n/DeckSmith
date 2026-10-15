@@ -181,6 +181,17 @@ describe("toMarkdown, read back by parseMarkdown", () => {
     ]);
   });
 
+  it("hands math the page left as TeX to remark unescaped", () => {
+    // remark-math never undoes an escape inside `$…$`. Escaped, arXiv
+    // 2211.17192's `\frac{p(x)}{q(x)}` came back `\\frac…` and drew "frac".
+    const md = toMarkdown([
+      { kind: "paragraph", text: "accept if $q(x) > p(x)$ with $\\frac{p(x)}{q(x)}$, else <b>*" },
+    ]);
+    const source = parseMarkdown(md);
+    expect(source.equations.map((e) => e.tex)).toEqual(["q(x) > p(x)", "\\frac{p(x)}{q(x)}"]);
+    expect(source.sections[0]?.text).toContain("else <b>*");
+  });
+
   it("writes a table wide enough for its raggedest row", () => {
     const md = toMarkdown([
       { kind: "table", columns: ["Model", "Score"], rows: [["ours", "91.2", "±0.3"], ["theirs"]] },
@@ -456,6 +467,39 @@ describe.skipIf(chrome === null)("harvest, through a real browser", () => {
     expect(source.figures.map((f) => [f.width, f.height])).toEqual([
       [640, 360],
       [128, 128],
+    ]);
+  });
+
+  it("reads an arXiv table as a captioned table and a numbered equation as its TeX", async () => {
+    // arXiv 2211.17192 through LaTeXML: Table 2 came out as one paragraph of
+    // numbers, and each numbered equation as a one-row "table" of doubled text.
+    const one = await serve({
+      "/paper": html(`<!doctype html><html><head><title>A paper</title></head><body><main>
+        <h1>Fast inference</h1>
+        <p>The method is summarised here, at the length a summary runs to, because
+          the content pass declines under 250 characters and a page that only just
+          clears its floor is a fixture that breaks on somebody else's edit.</p>
+        <table class="ltx_equation ltx_eqn_table"><tr><td class="ltx_eqn_cell">
+          <math alttext="E=\\frac{1-\\alpha^{\\gamma+1}}{1-\\alpha}"><semantics><mrow><mi>E</mi></mrow>
+          <annotation encoding="application/x-tex">E=\\frac{1-\\alpha^{\\gamma+1}}{1-\\alpha}</annotation></semantics></math>
+        </td><td>(1)</td></tr></table>
+        <figure class="ltx_table"><figcaption>Table 2: Empirical results.</figcaption>
+          <table class="ltx_tabular"><tr><th>Task</th><th>Temp</th><th>Speed</th></tr>
+          <tr><td>EnDe</td><td>0</td><td>3.4X</td></tr></table></figure>
+      </main></body></html>`),
+    });
+    const got = await harvest(`${one.base}/paper`, await work(), local);
+    const parsed = parseMarkdown(got.markdown);
+    expect(parsed.tables).toEqual([
+      {
+        id: "tbl1",
+        caption: "Table 2: Empirical results.",
+        columns: ["Task", "Temp", "Speed"],
+        rows: [["EnDe", "0", "3.4X"]],
+      },
+    ]);
+    expect(parsed.equations.map((e) => e.tex)).toEqual([
+      "E=\\frac{1-\\alpha^{\\gamma+1}}{1-\\alpha}",
     ]);
   });
 

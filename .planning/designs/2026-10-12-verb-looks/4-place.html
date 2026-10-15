@@ -1,0 +1,42 @@
+<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+svg text{font-family:inherit}
+.side{position:absolute;left:1400px;top:200px;width:440px;display:flex;flex-direction:column;gap:14px}
+.side .lab{font-size:40px;color:var(--muted)}
+</style></head><body><div class="stage"><h1>NAVSIM：OneVL 分数最高，延迟与只答不推理相当</h1></div>
+<svg id="p" width="1920" height="1080" style="position:absolute;inset:0"></svg>
+<div class="side">
+  <div class="lab">被评分的场景</div>
+  <img src="a/navsim-front.jpg" style="width:440px;border-radius:10px">
+  <img src="a/navsim-bev.jpg" style="width:260px;border-radius:10px">
+</div>
+<script>
+// place: every coordinate is a number the paper states (NAVSIM table, sec17)
+const pts = [
+  ['OneVL', 4.46, 88.84, 1], ['AR CoT+Answer', 6.58, 88.29], ['AR Answer', 4.49, 87.47],
+  ['COCONUT', 5.93, 84.84], ['CODI', 8.62, 83.92], ['SIM-CoT', 10.86, 84.21]];
+const refs = [['LaST-VLA', 87.30], ['AdaThinkDrive', 86.20]]; // no latency reported → line, not dot
+const L = 230, R = 1320, T = 210, B = 900, x0 = 4, x1 = 11.5, y0 = 83.5, y1 = 89.3;
+const X = v => L + (v - x0) / (x1 - x0) * (R - L), Y = v => B - (v - y0) / (y1 - y0) * (B - T);
+let s = `<line x1="${L}" y1="${B}" x2="${R}" y2="${B}" stroke="#2b333d" stroke-width="3"/>
+<line x1="${L}" y1="${T}" x2="${L}" y2="${B}" stroke="#2b333d" stroke-width="3"/>`;
+for (const t of [4, 6, 8, 10]) s += `<text x="${X(t)}" y="${B + 52}" fill="#74808e" font-size="40" text-anchor="middle">${t}s</text>`;
+for (const t of [84, 86, 88]) s += `<text x="${L - 20}" y="${Y(t) + 14}" fill="#74808e" font-size="40" text-anchor="end">${t}</text>`;
+s += `<text x="${R}" y="${B + 112}" fill="#9aa7b5" font-size="40" text-anchor="end">延迟 →  越低越好</text>
+<text x="80" y="${T - 30}" fill="#9aa7b5" font-size="40">PDM-score ↑</text>`;
+for (const [n, v] of refs) s += `<line x1="${L}" y1="${Y(v)}" x2="${R}" y2="${Y(v)}" stroke="#74808e" stroke-width="2" stroke-dasharray="10 10"/>
+<text x="${R}" y="${Y(v) + 48}" fill="#74808e" font-size="40" text-anchor="end">${n} ${v.toFixed(2)}</text>`;
+for (const [n, lx, ly, hi] of pts) {
+  const cx = X(lx), cy = Y(ly);
+  s += `<circle cx="${cx}" cy="${cy}" r="${hi ? 20 : 13}" fill="${hi ? '#3d8bfd' : '#9aa7b5'}"/>`;
+  const left = n === 'SIM-CoT', dy = left ? -34 : n === 'AR Answer' ? 0 : 14;
+  s += `<text x="${left ? cx + 10 : cx + 34}" text-anchor="${left ? 'end' : 'start'}" y="${cy + dy}" fill="${hi ? '#e8eaed' : '#9aa7b5'}" font-size="${hi ? 48 : 40}" font-weight="${hi ? 700 : 400}">${n} <tspan fill="${hi ? '#7cc4ff' : '#74808e'}">${ly.toFixed(2)}</tspan></text>`;
+}
+// the comparison the paper itself draws: OneVL vs AR CoT+Answer
+const a = [X(6.58), Y(88.29)], o = [X(4.46), Y(88.84)];
+s += `<line x1="${a[0]}" y1="${a[1]}" x2="${o[0]}" y2="${o[1]}" stroke="#6ee7a8" stroke-width="3" stroke-dasharray="8 8"/>
+<text x="${a[0] + 34}" y="${a[1] + 58}" fill="#6ee7a8" font-size="40">OneVL 快 2.12 s，高 0.55</text>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="#6ee7a8"/></marker></defs>`;
+document.getElementById('p').innerHTML = s;
+</script></body></html>

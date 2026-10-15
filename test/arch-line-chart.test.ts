@@ -489,6 +489,9 @@ describe("the baseline's label", () => {
       // And the third reviewer's: the ghost spans its own width sideways, so a
       // steep final segment draws the baseline through the label naming it.
       ["steep", [40, 55, 70, 99], [10, 11, 12, 95]],
+      // OneVL's L2 error by horizon: the ghost 33px above the last value, which
+      // a box ending at the baseline measured at 7px and the browser at 16px.
+      ["horizon", [0.13, 0.48, 1.18, 2.25], [0.13, 0.51, 1.27, 2.44]],
     ];
     for (const [name, points, cmp] of converging) {
       const scene = lineChart(
@@ -509,8 +512,10 @@ describe("the baseline's label", () => {
         expect(scene.tl.some((t) => t.target.includes("ghostlab"))).toBe(false);
         continue;
       }
+      // Both runs as the gate's client rect paints them: a quarter em of descent.
+      const painted = (b: Box) => ({ ...b, h: b.h + 10 });
       for (const v of valueBoxes(scene.html)) {
-        expect({ name, hit: hits(g, v) }).toEqual({ name, hit: false });
+        expect({ name, hit: hits(painted(g), painted(v)) }).toEqual({ name, hit: false });
       }
     }
   });
@@ -793,5 +798,60 @@ describe("a compare beat as the planner would write it", () => {
       },
     };
     expect(beatSchema.safeParse(wrong).success).toBe(false);
+  });
+});
+
+describe("a value never sits on the axis's own words", () => {
+  it("the first value, near the bottom, keeps clear of the first category name", () => {
+    const b = beat({
+      headline: "Later horizons gain",
+      xLabel: "horizon (s)",
+      yLabel: "L2",
+      points: [
+        { x: "1", y: 0.13 },
+        { x: "2", y: 0.48 },
+        { x: "3", y: 1.18 },
+        { x: "4", y: 2.25 },
+      ],
+      compare: {
+        label: "Baseline",
+        points: [
+          { x: "1", y: 0.13 },
+          { x: "2", y: 0.51 },
+          { x: "3", y: 1.27 },
+          { x: "4", y: 2.44 },
+        ],
+      },
+    });
+    const html = lineChart(b, ctx()).html;
+    const run = (t: string) => textWidth(t, 40, 400, 0, false, FACE);
+    const values = [
+      ...html.matchAll(
+        /<text class="pv"( text-anchor="(\w+)")? x="([\d.]+)" y="([\d.]+)">([^<]+)</g,
+      ),
+    ].map((m) => {
+      const w = run(m[5] as string);
+      const x = Number(m[3]);
+      const x0 = m[2] === "start" ? x : m[2] === "end" ? x - w : x - w / 2;
+      return { x0, x1: x0 + w, y0: Number(m[4]) - 40, y1: Number(m[4]) + 10 };
+    });
+    const middle = html.slice(html.indexOf('text-anchor="middle">'));
+    const cats = [...middle.matchAll(/<text x="([\d.]+)" y="([\d.]+)">(\d)<\/text>/g)].map((m) => {
+      const w = run(m[3] as string);
+      return {
+        x0: Number(m[1]) - w / 2,
+        x1: Number(m[1]) + w / 2,
+        y0: Number(m[2]) - 40,
+        y1: Number(m[2]),
+      };
+    });
+    expect(values.length).toBe(4);
+    expect(cats.length).toBe(4);
+    for (const v of values)
+      for (const c of cats)
+        expect(
+          Math.min(v.x1, c.x1 + 16) - Math.max(v.x0, c.x0 - 16) > 0 &&
+            Math.min(v.y1, c.y1 + 16) - Math.max(v.y0, c.y0 - 16) > 0,
+        ).toBe(false);
   });
 });

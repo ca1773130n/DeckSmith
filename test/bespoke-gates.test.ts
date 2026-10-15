@@ -25,7 +25,10 @@ import {
   type CutSample,
   changedArea,
   changedPixels,
+  DEAD_MIN_CHANGE,
+  deadCandidates,
   gradeCuts,
+  gradeDeadSpans,
   gradeErrors,
   gradeLayout,
   gradeMorphs,
@@ -39,12 +42,14 @@ import {
   type MorphSample,
   type Probe,
   paintedShare,
+  pooled,
   probeScenes,
   readTimingFile,
   SEAM_BLANK_MAX,
   STAGE_FILL,
   sceneWindows,
   shotsOf,
+  stillRun,
   TEXT_CONTRAST,
 } from "../src/verify/scenes.js";
 
@@ -60,6 +65,62 @@ describe("the graders", () => {
       ]),
     ).toEqual([]);
     expect(gradeStillCues([{ sid: "s3", cue: 1, t0: 4, t1: 4.8, changed: 0, total }])).toEqual([]);
+  });
+
+  it("dead_stretch: photographs only stretches of 6s+ after a hold, and fails one that never changes", () => {
+    // r1's split-compare: holds [1.95, 2.85, 3.65] in a 23.6s scene.
+    const w = { sid: "s3", start: 0, duration: 23.6, cues: [], holds: [1.95, 2.85, 3.65] };
+    expect(deadCandidates(w)).toEqual([
+      [3.95, 23.1],
+      [3.15, 23.1],
+    ]);
+    // Each stretch under 6s, but two of them across a hold are photographed too: a hold
+    // with nothing to reveal joined r2's last two into one 12s still run.
+    expect(deadCandidates({ ...w, holds: [1.95, 8.5, 12.85], duration: 18 })).toEqual([
+      [2.25, 11.65],
+      [8.8, 17.5],
+    ]);
+    expect(deadCandidates({ ...w, holds: [1.95, 6.5, 10.5], duration: 14 })).toEqual([
+      [2.25, 9.3],
+      [6.8, 13.5],
+    ]);
+    const total = 1920 * 1080;
+    const dead = gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: 0, total }]);
+    expect(dead.map((f) => [f.rule, f.severity])).toEqual([["dead_stretch", "error"]]);
+    expect(gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: total, total }])).toEqual([]);
+    // A lean of the whole slide changes a few edge pixels: under 1% it is still a still.
+    const lean = Math.floor(total * DEAD_MIN_CHANGE) - 1;
+    expect(gradeDeadSpans([{ sid: "s3", t0: 3.95, t1: 23.1, changed: lean, total }])).toHaveLength(
+      1,
+    );
+  });
+
+  it("a still run is judged across two-second steps: a slow lean is still, one cut is two halves", () => {
+    const total = 1000;
+    const times = Array.from({ length: 13 }, (_, k) => k);
+    // A lean: 0.6% across every two seconds, adding up past 1% of the first frame.
+    const lean = times.map((_, k) => (k >= 2 ? 6 : undefined));
+    expect(stillRun(times, lean, total)).toEqual({ a: 0, b: 12, peak: 6 });
+    // One change between 6 and 7 (seen by the steps 5→7 and 6→8): two still halves.
+    const cut = times.map((_, k) => (k < 2 ? undefined : k === 7 || k === 8 ? 50 : 0));
+    const r = stillRun(times, cut, total);
+    expect(r.b - r.a).toBe(5);
+    // Motion in every step: no run.
+    expect(
+      stillRun(
+        times,
+        times.map((_, k) => (k >= 2 ? 20 : undefined)),
+        total,
+      ).b,
+    ).toBe(0);
+  });
+
+  it("pooled averages a frame down so a one-pixel shimmer is not a change", () => {
+    const f = { width: 8, height: 4, channels: 3, pixels: new Uint8Array(8 * 4 * 3).fill(10) };
+    f.pixels[0] = 250;
+    const p = pooled(f, 4);
+    expect([p.width, p.height]).toEqual([2, 1]);
+    expect(p.pixels[0]).toBe(Math.round((250 + 15 * 10) / 16));
   });
 
   it("graphic_crosses_text and friends: one finding per kind per frame", () => {

@@ -56,7 +56,7 @@ import type { EmitContext } from "../emit/kit.js";
 import { deckLook } from "../emit/theme.js";
 import type { DeckTheme } from "../emit/themes/index.js";
 import { assertNarrationStaging, stopCount } from "../narrate/narrate.js";
-import type { Beat, Format, Source, Storyboard, segmentSchema } from "../types.js";
+import type { Beat, Design, Format, Source, Storyboard, segmentSchema } from "../types.js";
 
 type Segment = z.infer<typeof segmentSchema>;
 
@@ -247,6 +247,9 @@ function holdsFor(
   sid: string,
   speed: number,
   bespoke?: BespokeMap,
+  /** The beat's sentences: an archetype's reveals are timed on them (`stageScene`). */
+  segments?: readonly Segment[],
+  design?: Design,
 ): { holds: number[]; open: number } {
   // `start: 0`: only `holds` and `open` leave this function, both of which are
   // scene-relative, so the absolute clock is not one of its inputs. The bespoke
@@ -259,12 +262,17 @@ function holdsFor(
     sid,
     start: 0,
     ...(bespoke ? { bespoke } : {}),
+    ...(design ? { design } : {}),
   };
   // `stageScene` is the one place pacing happens, shared with `planCut` and
   // `layout`, so the manifest cannot describe a scene the deck did not build —
   // and on a linear format there is no island for `assertHoldsAgree` to catch a
   // divergence with.
-  const { scene, open } = stageScene(emitScene(beat, ctx), speed);
+  const { scene, open } = stageScene(
+    emitScene(beat, ctx),
+    speed,
+    bespoke?.[beat.id] === undefined ? segments : undefined,
+  );
   return {
     holds: [...new Set(scene.holds.filter((h) => Number.isFinite(h) && h > 0))].sort(
       (a, b) => a - b,
@@ -442,6 +450,12 @@ export interface TimingInput {
   theme?: string;
   /** `DeckOptions.bespoke`, exactly as `emitDeck` was given it. */
   bespoke?: BespokeMap;
+  /**
+   * The design the composition was emitted in (`emitDeck`'s, else the
+   * storyboard's). Holds DO depend on it: staged without it, a v2 hero number's
+   * hold was classic's reel roll, 0.04s off the island's (r3 C s16).
+   */
+  design?: Design;
 }
 
 /**
@@ -472,11 +486,22 @@ export function planTiming(input: TimingInput): Timing {
   const stops = new Map<string, number>();
   beats.forEach((beat, i) => {
     const scene = scenes[i] as TimedScene;
-    const staging = holdsFor(beat, source, format, theme, scene.id, speed, input.bespoke);
+    const segments = narration?.beats[beat.id];
+    const design = input.design ?? storyboard.design;
+    const staging = holdsFor(
+      beat,
+      source,
+      format,
+      theme,
+      scene.id,
+      speed,
+      input.bespoke,
+      segments,
+      design,
+    );
     scene.holds = staging.holds;
     scene.open = staging.open;
     stops.set(beat.id, stopCount(staging.holds));
-    const segments = narration?.beats[beat.id];
     if (segments?.length) spoken[scene.id] = segments;
   });
   // `emitDeck` refuses this too, and a manifest is the second place narration is

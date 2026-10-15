@@ -23,7 +23,7 @@ import type { z } from "zod";
 import { copyArt } from "./bespoke/art.js";
 import { type BespokeResult, bespokePass } from "./bespoke/pipeline.js";
 import { browserGate } from "./bespoke/probe.js";
-import { BESPOKE_FILE } from "./bespoke/scene.js";
+import { BESPOKE_FILE, type BespokeMap } from "./bespoke/scene.js";
 import {
   AUDIO_DIR,
   audioNames,
@@ -40,11 +40,18 @@ import { LOOK_FILE } from "./emit/look.js";
 import { THEME_NAMES } from "./emit/theme.js";
 import { pickTheme } from "./emit/themes/pick.js";
 import { illustrate } from "./images/illustrate.js";
+import {
+  figurePanelCounts,
+  literalPass,
+  literalPlanOf,
+  literalPlanSchema,
+} from "./literal/index.js";
 import { narrate, uncheckedNarration } from "./narrate/narrate.js";
 import { type AssetRequest, mediaSummary, planMedia } from "./pack/media.js";
 import { type Pack, type PackFiles, readPack, writePack } from "./pack/pack.js";
 import { codexPlanner } from "./plan/codex.js";
 import { durationPlan } from "./plan/duration.js";
+import { locateMarks, transcribeTraces } from "./plan/locate.js";
 import {
   assertInsideResolves,
   assertRefsResolve,
@@ -465,16 +472,36 @@ imageFlags(
   const chosen = await loadPrefs(prefsFromFlags(flagsFromOptions(o)), process.cwd(), source);
   const prefs: Prefs = stated(chosen, "lang") ? chosen : { ...chosen, lang: source.lang };
 
+  // Each figure cut as the build will cut it, so a `panel` the figure does not have
+  // is repaired at plan time rather than refused by the build after narration.
+  const assetsDir = join(dirname(resolve(src)), "assets");
+  const drawn = bespokeFor(prefs, designFor(prefs));
+  const panels = drawn ? await figurePanelCounts(source, assetsDir) : undefined;
   step(`plan: asking Codex for ~${prefs.slides} ${prefs.tone} beats in ${prefs.lang}`);
   step("plan: this takes a few minutes");
   const planned = await codexPlanner(source, {
     prefs,
+    ...(panels ? { panels } : {}),
     onRepair: (broken) => {
-      step("plan: the first plan was refused, asking Codex to repair it —");
+      step("plan: the plan was refused, asking Codex to repair it —");
       for (const m of broken) step(`plan:   ${m}`);
     },
+    onAnswer: (beats, scenes) =>
+      step(
+        `plan: an answer of ${beats} beats, ${scenes.length} with a literal scene${scenes.length ? `: ${scenes.join(", ")}` : ""}`,
+      ),
+    onScene: (beat, broken) => {
+      step(`plan: redrawing ${beat}'s scene on its own —`);
+      for (const m of broken) step(`plan:   ${m}`);
+    },
+    onDropScenes: (beats, why) => {
+      step(
+        `plan: WARNING: ${beats.join(", ")} still broken after their own repairs; drawn by their archetype instead —`,
+      );
+      for (const m of why) step(`plan:   ${m}`);
+    },
   });
-  const storyboard: Storyboard = {
+  const unlocated: Storyboard = {
     ...planned,
     lang: prefs.lang,
     theme: stated(prefs, "theme") ?? planned.theme,
@@ -484,8 +511,23 @@ imageFlags(
   };
   // A brief with no picture yet is what `--images` asked for; without the flag
   // it is a hole `build` would refuse, and better refused here.
-  assertRefsResolve(storyboard, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
-  assertInsideResolves(storyboard, source);
+  assertRefsResolve(unlocated, source, { pending: prefs.images.enabled ? "allow" : "refuse" });
+  assertInsideResolves(unlocated, source);
+  // The planner names what a `region` marks and what an `evolve` trace reads; where
+  // the things are and what the figure prints are found by looking at it
+  // (src/plan/locate.ts), not guessed.
+  // A scene that cannot be read off its picture costs that scene, not the plan.
+  const onDrop = (id: string, why: string) =>
+    step(`plan: WARNING: ${id} drawn by its archetype instead — ${why}`);
+  const storyboard = await transcribeTraces(
+    await locateMarks(unlocated, source, assetsDir, {
+      onBeat: (id) => step(`plan: finding ${id}'s marked things in its picture`),
+      onDrop,
+    }),
+    source,
+    assetsDir,
+    { onBeat: (id) => step(`plan: reading ${id}'s trace off its figure`), onDrop },
+  );
   await writeJson(o.out, storyboard);
   step(`plan: ${storyboard.beats.length} beats → ${o.out}`);
   // The pictures do not exist yet and `build` will not run until they do. Said
@@ -673,7 +715,11 @@ bespokeFlags(
           "--reserve-captions",
           "keep the bottom of the frame clear for a burned caption — required by `render --subtitles burn`",
         )
-        .option("--no-fidelity", "skip the frame check — only for a machine with no browser"),
+        .option("--no-fidelity", "skip the frame check — only for a machine with no browser")
+        .option(
+          "--literal [file]",
+          "prototype: draw the storyboard's `literal` beats as their mechanism on computed layers (no Codex); a file names them instead",
+        ),
     ),
   ),
 ).action(
@@ -791,17 +837,33 @@ bespokeFlags(
     // THE BESPOKE PASS, before anything is emitted: it decides which beats are
     // drawn by a generated scene, and every artifact below must agree on that.
     // It never fails the build — a beat it cannot draw keeps its archetype.
-    const bespoke = await runBespoke(prefs, {
-      design,
-      storyboard,
-      source,
-      format,
-      narration,
-      theme,
-      speed: paced.speed,
-      assetsFrom: dirname(resolve(o.source)),
-    });
-    const generated = bespoke && Object.keys(bespoke.map).length ? { bespoke: bespoke.map } : {};
+    // `--literal` (prototype): the named beats are drawn as their mechanism on
+    // layers computed here, deterministically, and no Codex scene is asked for.
+    const literal = o.literal
+      ? await runLiteral(o.literal === true ? undefined : String(o.literal), {
+          storyboard,
+          source,
+          format,
+          narration,
+          theme,
+          out,
+          assetsDir: join(dirname(resolve(o.source)), "assets"),
+        })
+      : undefined;
+    const bespoke = literal
+      ? undefined
+      : await runBespoke(prefs, {
+          design,
+          storyboard,
+          source,
+          format,
+          narration,
+          theme,
+          speed: paced.speed,
+          assetsFrom: dirname(resolve(o.source)),
+        });
+    const map = literal?.map ?? bespoke?.map;
+    const generated = map && Object.keys(map).length ? { bespoke: map } : {};
 
     // BEFORE the emit: the composition inlines this, so it has to exist first.
     // It also writes the woff2 into `out`, which `copyAssets` then leaves alone.
@@ -1436,6 +1498,41 @@ async function runBespoke(
   } finally {
     if (!keep) await rm(work, { recursive: true, force: true });
   }
+}
+
+/**
+ * `build --literal [file]`: take the plan (the storyboard's `literal` beats, or
+ * a prototype side file), compute its layers into the deck, write
+ * `literal.json` beside it.
+ */
+async function runLiteral(
+  planPath: string | undefined,
+  deck: {
+    storyboard: Storyboard;
+    source: Source;
+    format: Format;
+    narration: DeckNarration | undefined;
+    theme: string;
+    out: string;
+    /** The source's `assets/`, where a `picture` beat's figure lives. */
+    assetsDir: string;
+  },
+): Promise<{ map: BespokeMap }> {
+  if (!deck.narration) throw new Error("--literal needs narration: its cues time every step");
+  // No file: the storyboard's own `literal` beats, pictures resolved from the source.
+  const plan = planPath
+    ? await readValidated(planPath, literalPlanSchema, "literal plan")
+    : literalPlanOf(deck.storyboard, deck.source, deck.assetsDir);
+  const { map, report } = await literalPass({
+    ...deck,
+    narration: deck.narration,
+    plan,
+    // A storyboard plan's pictures are absolute already.
+    planDir: planPath ? dirname(resolve(planPath)) : deck.assetsDir,
+    onStep: step,
+  });
+  await writeFile(join(deck.out, "literal.json"), `${JSON.stringify(report, null, 2)}\n`);
+  return { map };
 }
 
 async function writeTiming(out: string, input: Parameters<typeof planTiming>[0]): Promise<void> {

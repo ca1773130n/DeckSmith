@@ -27,6 +27,7 @@ import {
   DIAGRAMMATIC,
   type Finding,
   isGeneratedFigure,
+  literalFigures,
   type Source,
   type Storyboard,
   type Term,
@@ -337,18 +338,23 @@ async function sceneGates(
     const mine = all.filter((w) => generated.has(w.sid));
     const rest = all.filter((w) => !generated.has(w.sid));
     const strict = mine.length
-      ? await probeScenes(mine, { open: () => openDeck(dir, { watch: errors }), errors })
+      ? await probeScenes(mine, {
+          open: () => openDeck(dir, { watch: errors }),
+          errors,
+          gates: ["motion", "layout", "seek", "dead"],
+        })
       : { findings: [] };
-    const loose =
-      seekRest && rest.length
-        ? await probeScenes(rest, {
-            open: () => openDeck(dir),
-            gates: ["seek"],
-            seekSeverity: "warning",
-            cold: false,
-            sparse: true,
-          })
-        : { findings: [] };
+    // `dead` and `clip` are errors on every scene; `seek` is the warning-only
+    // pass `build` skips (`seekRest`).
+    const loose = rest.length
+      ? await probeScenes(rest, {
+          open: () => openDeck(dir),
+          gates: seekRest ? ["seek", "dead", "clip"] : ["dead", "clip"],
+          seekSeverity: "warning",
+          cold: false,
+          sparse: true,
+        })
+      : { findings: [] };
     return [...strict.findings, ...loose.findings];
   } catch (err) {
     return [
@@ -681,6 +687,7 @@ export function scanUnusedFigures(storyboard: Storyboard, source: Source): Findi
   for (const beat of storyboard.beats) {
     for (const ref of beat.evidence) if (ref.kind === "figure") used.add(ref.id);
     for (const id of figuresShown(beat.params as Record<string, unknown>)) used.add(id);
+    if (beat.literal) for (const id of literalFigures(beat.literal)) used.add(id);
   }
   const unused = figures.filter((f) => !used.has(f.id));
   if (!unused.length) return [];

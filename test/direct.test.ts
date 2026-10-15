@@ -351,12 +351,32 @@ describe("design: the switch", () => {
     // tweens: no `wipe` (s2, s7, s11 lose their clip sweep, so the hash picks
     // re-roll s9-s15's seams), and every seam fades the outgoing eyebrow and
     // headline out in 0.16s, before the incoming chrome starts at 0.3.
+    // Then annotated-figure's label column starts at 360px (2026-10-11, literal
+    // verbs r1: a 170px column set notes on four lines), re-pinned after reading
+    // s4 at 30s: labels on two lines, the strip figure a little narrower.
+    // Then the r2 layout round (2026-10-12), re-pinned after reading every
+    // scene's first hold: parts not yet spoken stand at PREVIEW from the open
+    // (previewParts), callout words spread down their box (rows right-aligned),
+    // equation legends span the box as rows (symbol left, meaning right; s6 read
+    // at 47.3s; after the walk the light walks the terms once more), the
+    // emphasis walks the parts on later sentences, grids widen,
+    // line-chart values and deltas sit off the line (s12 read at 100.8s), the
+    // stack probe moves left. Then split-compare spreads its lists down the
+    // column (s13 read at 109.65s) and bar-compare fades its bars in at their
+    // length with no counting (s10 at 83.45s): the brief bans both.
+    // Then the r3 fix round (2026-10-12), re-pinned after reading s6 at 47.3s and
+    // s12 at 100.8s: an equation that fits small grows toward 62% of the width and
+    // each legend meaning sits beside its symbol; a line-chart value keeps 16px
+    // from the axis's own words (s12 unchanged to the eye).
     // Then, merged from main (#120), the two KaTeX scenes gain one statement each
     // flagging the nodes inside KaTeX's lap overlays `data-layout-allow-overlap`
     // (`lapSetup`); removing those two statements gives back the previous pin
     // byte for byte. An attribute, so nothing paints differently.
+    // Then merged from main again (2026-10-14, #122/#123): label boxes are the
+    // overprint gate's run box (`runBox`), the value and delta spots kept from r2/r3;
+    // re-pinned after reading s12 at 104.5s (every value and delta off the line).
     expect(sha(emitDeck(demo, source, format, "", { design: "v2" }).composition)).toBe(
-      "93257ef71638ca044977bd7aa3cbc5ff28b3b06f39c455663ee75e72166ccda8",
+      "bb7709726f285de08f4f8e5058a513dae01245c4e11cf8c4d4fb50a48769c36e",
     );
   });
 

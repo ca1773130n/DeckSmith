@@ -61,7 +61,7 @@ export const PIXEL_DELTA = 24;
  */
 export const SEEK_TOLERANCE_PX = 1500;
 /** Bump whenever a gate's verdict can change: cached rejections from another version are retried. */
-export const GATES_VERSION = "gates-7";
+export const GATES_VERSION = "gates-8";
 /**
  * A cue whose picture changes by less than this share of the frame held still:
  * about 310 px at 1080p. A frame that does not move renders to the same bytes,
@@ -91,6 +91,8 @@ export interface SceneWindow {
   start: number;
   duration: number;
   cues: SceneCue[];
+  /** Scene-relative holds, from timing.json: where the scene's reveals settle. */
+  holds?: number[];
 }
 
 /* -------------------------------------------------------------------- graders */
@@ -102,6 +104,136 @@ export interface CueChange {
   t1: number;
   changed: number;
   total: number;
+}
+
+/**
+ * The longest a scene may show one unchanged picture, in seconds. The brief's
+ * rule is "no 6-9s stretches where nothing moves"; r1 of the literal verbs run
+ * had runs of up to 18.9s, all of them archetype scenes that passed every gate,
+ * because `static_hold` only ever probed generated scenes.
+ */
+export const DEAD_SECONDS = 6;
+
+export interface DeadSpan {
+  sid: string;
+  t0: number;
+  t1: number;
+  changed: number;
+  total: number;
+}
+
+/**
+ * The stretches of a scene that no reveal can be moving in: hold to the next
+ * reveal (which runs in the second before its hold), and the last hold to the
+ * settled end. Only those at least `DEAD_SECONDS` long, which are the only ones
+ * worth photographing.
+ *
+ * And each run of TWO such stretches, across the hold between them: a hold
+ * with nothing to reveal joins its neighbours into one still run that neither
+ * half shows. r2's OneVL deck had a lengths scene still for 12s over its last
+ * two holds, each window under 6s, and the gate passed it. The three frames
+ * of a two-stretch window still see a reveal at the hold between.
+ */
+export function deadCandidates(w: SceneWindow, min = DEAD_SECONDS): Array<[number, number]> {
+  const holds = [...new Set(w.holds ?? [])].filter((h) => h > 0).sort((a, b) => a - b);
+  const out: Array<[number, number]> = [];
+  const endOf = (k: number) => {
+    const next = holds[k];
+    return round(next === undefined ? w.duration - 0.5 : next - 1.2);
+  };
+  for (const span of [1, 2])
+    holds.forEach((h, i) => {
+      if (span === 2 && i + 1 >= holds.length) return;
+      const t0 = round(h + 0.3);
+      const t1 = endOf(i + span);
+      if (t1 - t0 >= min) out.push([t0, t1]);
+    });
+  return out;
+}
+
+/**
+ * A step of a long stretch moved when this share of its pixels changed across
+ * `DEAD_STEP` seconds, compared at 480×270 (`pooled`). Not `MIN_CHANGE`'s "anything at all": a literal scene's
+ * lean — a 1.5% scale breathing over a still slide — changes edge pixels on
+ * every frame and passed r2's runs of 6–10s that a viewer saw as stills.
+ */
+export const DEAD_MIN_CHANGE = 0.01;
+/** The side `pooled` averages a frame down by: 1920×1080 to 480×270. */
+export const DEAD_POOL = 4;
+
+/** A frame averaged down `k`×`k` per pixel: what a viewer sees move, not antialiasing. */
+export function pooled(f: Frame, k = DEAD_POOL): Frame {
+  const w = Math.floor(f.width / k);
+  const h = Math.floor(f.height / k);
+  const out = new Uint8Array(w * h * 3);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let dy = 0; dy < k; dy++)
+          for (let dx = 0; dx < k; dx++)
+            sum += f.pixels[((y * k + dy) * f.width + x * k + dx) * f.channels + c] as number;
+        out[(y * w + x) * 3 + c] = Math.round(sum / (k * k));
+      }
+  return { width: w, height: h, channels: 3, pixels: out };
+}
+
+/** Seconds between the two frames a step of motion is judged across. */
+export const DEAD_STEP = 2;
+
+/**
+ * The longest still run across frames at `times` (a second apart), given the
+ * changed pixels between each frame and the one `DEAD_STEP` seconds before it
+ * (`changed[k]` for frame k against frame k − DEAD_STEP; undefined for the
+ * first). A second of the stretch moved when a two-second step that spans it
+ * changed `min` of the pixels or more; the run is the longest stretch of
+ * seconds none of which moved. A slow lean — a slide breathing 1.5% across 8s —
+ * accumulates past 1% of the stretch's first frame and so read as motion to a
+ * comparison against the run's start; r3 had a line chart under 1% between every
+ * pair of frames two seconds apart for 14s, and the gate passed it.
+ */
+export function stillRun(
+  times: readonly number[],
+  changed: ReadonlyArray<number | undefined>,
+  total: number,
+  min = DEAD_MIN_CHANGE,
+): { a: number; b: number; peak: number } {
+  const n = times.length;
+  const moved = new Array<boolean>(Math.max(0, n - 1)).fill(false);
+  const peakAt = new Array<number>(Math.max(0, n - 1)).fill(0);
+  for (let k = DEAD_STEP; k < n; k++) {
+    const c = changed[k] ?? 0;
+    for (let j = k - DEAD_STEP; j < k; j++) {
+      if (c / total >= min) moved[j] = true;
+      peakAt[j] = Math.max(peakAt[j] as number, c);
+    }
+  }
+  let best = { a: 0, b: 0, peak: 0 };
+  let from = 0;
+  let peak = 0;
+  for (let j = 0; j < n - 1; j++) {
+    if (moved[j]) {
+      from = j + 1;
+      peak = 0;
+      continue;
+    }
+    peak = Math.max(peak, peakAt[j] as number);
+    const a = times[from] as number;
+    const b = times[j + 1] as number;
+    if (b - a > best.b - best.a) best = { a, b, peak };
+  }
+  return best;
+}
+
+export function gradeDeadSpans(rows: readonly DeadSpan[], min = DEAD_MIN_CHANGE): Finding[] {
+  return rows
+    .filter((r) => r.changed / r.total < min)
+    .map((r) => ({
+      severity: "error" as const,
+      gate: "motion",
+      rule: "dead_stretch",
+      message: `#${r.sid} ${r.t0.toFixed(2)}–${r.t1.toFixed(2)}s: ${(r.t1 - r.t0).toFixed(1)}s with the picture changed by ${((100 * r.changed) / r.total).toFixed(3)}% at 480×270 (under ${(100 * min).toFixed(0)}%) — nothing is revealed, panned or replaced for ${DEAD_SECONDS}s or more; a lean of the whole slide is not motion. Time the scene's steps on its sentences, or give it fewer seconds.`,
+    }));
 }
 
 export function gradeStillCues(rows: readonly CueChange[], min = MIN_CHANGE): Finding[] {
@@ -978,6 +1110,7 @@ export function sceneWindows(timing: Timing, sids?: ReadonlySet<string>): SceneW
       sid: s.id,
       start: s.start,
       duration: s.duration,
+      holds: s.holds,
       cues: timing.segments
         .filter((g) => g.scene === s.id)
         .flatMap((g) =>
@@ -1096,7 +1229,7 @@ export interface Probe {
 
 export interface ProbeOptions {
   /** Which gates. Default all three. `seek` alone is what `verify` runs on plain v2 scenes. */
-  gates?: ReadonlyArray<"motion" | "layout" | "seek">;
+  gates?: ReadonlyArray<"motion" | "layout" | "seek" | "dead" | "clip">;
   /** `seek_order` severity; `verify` passes `warning` for scenes nobody generated. */
   seekSeverity?: Finding["severity"];
   /** Keep the PNGs (the critique round needs them). */
@@ -1130,6 +1263,7 @@ export async function probeScenes(
   const cuts: CutSample[] = [];
   const morphs: MorphSample[] = [];
   const seams: SeamSample[] = [];
+  const dead: DeadSpan[] = [];
   const warm = new Map<string, Map<string, Buffer>>();
   const deck = await opts.open();
   try {
@@ -1208,6 +1342,17 @@ export async function probeScenes(
           cuts.push({ sid: w.sid, t: round(t), cut });
         }
       }
+      // `clip` alone: the words a clipping box cuts, on a scene the dense pass
+      // above did not walk (a literal scene, gated as a plain one). A seek and
+      // a read per sample, no screenshot.
+      if (gates.has("clip") && !(gates.has("layout") && bespoke)) {
+        const sid = JSON.stringify(w.sid);
+        for (let t = CAM_STEP / 2; t <= w.duration - 0.5; t += CAM_STEP) {
+          await deck.seek(w.start + t);
+          const cut = (await deck.page.evaluate(`(${CUT})(${sid})`)) as CutSample["cut"];
+          cuts.push({ sid: w.sid, t: round(t), cut });
+        }
+      }
       // Every morph, sampled through its run: what it paints between its ends.
       if (gates.has("motion") && bespoke) {
         const sid = JSON.stringify(w.sid);
@@ -1274,6 +1419,32 @@ export async function probeScenes(
           [...times].sort((a, b) => ((a.t * 7919) % 1) - ((b.t * 7919) % 1)),
         );
       }
+      // Long stretches with no change: three frames each, the LARGEST pairwise
+      // change, as for a cue. After the scene's own probe, so its history is made.
+      if (gates.has("dead")) {
+        for (const [t0, t1] of deadCandidates(w)) {
+          // A frame a second across the stretch, and the longest RUN of seconds in
+          // which no two frames two seconds apart differ by 1% (`stillRun`): one
+          // emphasis in the middle of 7s is two still halves, and a slow lean
+          // that adds up to 1% over the run is still a still picture.
+          const n = Math.max(2, Math.ceil(t1 - t0));
+          const times = Array.from({ length: n + 1 }, (_, k) => round(t0 + ((t1 - t0) * k) / n));
+          const shots: Frame[] = [];
+          for (const t of times) {
+            await deck.seek(w.start + t);
+            await settle(deck);
+            shots.push(pooled(await decodePng(await deck.shoot())));
+          }
+          const first = shots[0] as Frame;
+          const total = first.width * first.height;
+          const changed = shots.map((s, k) =>
+            k >= DEAD_STEP ? changedPixels(shots[k - DEAD_STEP] as Frame, s) : undefined,
+          );
+          const worst = stillRun(times, changed, total);
+          if (worst.b - worst.a >= DEAD_SECONDS - 1e-6)
+            dead.push({ sid: w.sid, t0: worst.a, t1: worst.b, changed: worst.peak, total });
+        }
+      }
       // The seam into this scene, after its own probe made its first history.
       if (gates.has("layout") && w.start > 0) {
         let run = 0;
@@ -1332,10 +1503,11 @@ export async function probeScenes(
     ...(gates.has("layout") && gates.has("motion")
       ? gradeShots(cams, new Map(windows.map((w) => [w.sid, w.cues[0]?.t0 ?? 0])))
       : []),
-    ...(gates.has("layout") ? gradeCuts(cuts) : []),
+    ...(gates.has("layout") || gates.has("clip") ? gradeCuts(cuts) : []),
     ...(gates.has("motion") ? gradeMorphs(morphs) : []),
     ...(gates.has("seek") ? gradeSeekOrder(seek, opts.seekSeverity ?? "error") : []),
     ...(gates.has("layout") ? gradeSeams(seams) : []),
+    ...(gates.has("dead") ? gradeDeadSpans(dead) : []),
   ];
   return { findings, frames, cueChanges, layout, seek, cams, cuts, morphs, seams };
 }

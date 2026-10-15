@@ -91,6 +91,12 @@ describe("parseMarkdown", () => {
     ]);
   });
 
+  it("lists no bare symbol as an equation", () => {
+    // arXiv 2211.17192 gave two equations that were the `1` of a table cell.
+    const eqs = parseMarkdown("# T\n\nwith $1$ and $q(x)$ but $q(x) \\leq p(x)$.\n").equations;
+    expect(eqs).toEqual([{ id: "eq1", tex: "q(x) \\leq p(x)", display: false }]);
+  });
+
   it("round-trips a GFM table", () => {
     expect(src.tables).toEqual([
       {

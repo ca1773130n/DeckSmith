@@ -351,58 +351,105 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
     const [top, bottom] = curveBand(series, b.x, b.x + b.w);
     return Math.min(b.y + b.h, bottom) - Math.max(b.y, top) > 8;
   };
-  /**
-   * A VALUE'S BASELINE: 26px over its point — unless the ghost is drawn through
-   * that box, in which case 16px under the point, if both curves leave that clear.
-   *
-   * Invisible while the ghost faded to 0.28; once it was legible, HypePaper's
-   * zh-Hans deck showed the baseline's last leg running straight through the
-   * result's "2.25". Where neither side is clear the value stays over its point,
-   * as it always has.
-   */
-  const valueBy = (i: number): number => {
-    const v = p.points[i]?.y ?? 0;
-    const over = Math.max(44, y(v) - 26);
-    if (!cmp) return over;
-    const box = (by: number) => labelBox(x(i), by, String(v), i === 0);
-    if (!drawnThrough(cmp.points, box(over))) return over;
-    const under = y(v) + 16 + RUN_ABOVE;
-    if (under > H - PAD.b + 4) return over;
-    return drawnThrough(cmp.points, box(under)) || drawnThrough(p.points, box(under))
-      ? over
-      : under;
-  };
-
   // The values, by the same walk. The first is anchored at the START rather than
   // centred — see the axis note below — so it occupies only its right half.
   const shownValues = fitIndices((i) => runW(String(p.points[i]?.y ?? "")), true);
   const showsValue = (i: number) => shownValues.has(i);
 
+  // NO WORD ON THE LINE. The series (and the one it is reshaped from) as segments: a
+  // value or a delta set where the line runs through it is the collision the
+  // words-on-marks gate fails (src/verify/overprint.ts) — on the demo, "28.91" and
+  // "+0.97" sat on the first, steepest segment.
+  const segsOf = (pts: readonly { y: number }[]) =>
+    pts.slice(1).map((pt, i) => [x(i), y((pts[i] as { y: number }).y), x(i + 1), y(pt.y)]);
+  const segs = [...segsOf(p.points), ...(cmp ? segsOf(cmp.points) : [])];
+  type Spot = { x: number; y: number; anchor: "start" | "middle" | "end" };
+  const spotBox = (s: Spot, text: string) => {
+    const w = runW(text);
+    const x0 = s.anchor === "start" ? s.x : s.anchor === "end" ? s.x - w : s.x - w / 2;
+    // Down to the descenders, as the overprint gate measures a run (`runBox`).
+    return runBox(x0, s.y, w);
+  };
+  const onLine = (b: { x: number; y: number; w: number; h: number }) =>
+    segs.some(([x1, y1, x2, y2]) => {
+      const k = Math.max(
+        1,
+        Math.ceil(Math.hypot((x2 as number) - (x1 as number), (y2 as number) - (y1 as number)) / 6),
+      );
+      for (let j = 0; j <= k; j++) {
+        const px = (x1 as number) + (((x2 as number) - (x1 as number)) * j) / k;
+        const py = (y1 as number) + (((y2 as number) - (y1 as number)) * j) / k;
+        if (px > b.x + 3 && px < b.x + b.w - 3 && py > b.y + 3 && py < b.y + b.h + 6) return true;
+      }
+      return false;
+    });
+  const inside = (b: { x: number; y: number; w: number; h: number }) =>
+    b.x >= PAD.l - 20 && b.x + b.w <= width && b.y >= 0;
+  /** The first spot whose box is inside the chart and off the line; the first one otherwise. */
+  const pick = (
+    spots: readonly Spot[],
+    text: string,
+    clear = (_: ReturnType<typeof spotBox>) => true,
+  ) =>
+    spots.find((sp) => {
+      const b = spotBox(sp, text);
+      return inside(b) && !onLine(b) && clear(b);
+    }) ?? (spots[0] as Spot);
+  const AXIS_ROOM = 16;
+  /** Whether a box comes within `AXIS_ROOM` of a tick value or a category name (as `fixedBoxes` below). */
+  const axisHit = (b: { x: number; y: number; w: number; h: number }) =>
+    [
+      ...ticks.map((v) => {
+        const w = runW(v.toFixed(scale.decimals));
+        return runBox(PAD.l - 22 - w, y(v) + 13, w);
+      }),
+      ...p.points
+        .map((pt, i) => ({ pt, i }))
+        .filter(({ i }) => shownX.has(i))
+        .map(({ pt, i }) => labelBox(x(i), H - PAD.b + 56, pt.x)),
+    ].some(
+      // With room to tell them apart: r3's "0.13" was 8px from the "1" under it.
+      (o) =>
+        Math.min(b.x + b.w, o.x + o.w + AXIS_ROOM) - Math.max(b.x, o.x - AXIS_ROOM) > 0 &&
+        Math.min(b.y + b.h, o.y + o.h + AXIS_ROOM) - Math.max(b.y, o.y - AXIS_ROOM) > 0,
+    );
+  // A value over its point, or beside it on either side, or under it. The first
+  // point sits ON the axis, so it only ever reads to the right (see the axis note).
+  const valueSpots = p.points.map((pt, i) => {
+    const cx = x(i);
+    const up = Math.max(44, y(pt.y) - 26);
+    const down = y(pt.y) + 26 + LABEL_SIZE * 0.8;
+    const spots: Spot[] =
+      i === 0
+        ? [
+            { x: cx, y: up, anchor: "start" },
+            { x: cx + 18, y: up, anchor: "start" },
+            { x: cx + 18, y: down, anchor: "start" },
+          ]
+        : [
+            { x: cx, y: up, anchor: "middle" },
+            { x: cx - 18, y: up, anchor: "end" },
+            { x: cx + 18, y: up, anchor: "start" },
+            { x: cx, y: down, anchor: "middle" },
+            { x: cx - 18, y: down, anchor: "end" },
+            { x: cx + 18, y: down, anchor: "start" },
+          ];
+    // Clear of the axis's own words too: r3 set "0.13" on the first category name "1".
+    return showsValue(i) ? pick(spots, String(pt.y), (b) => !axisHit(b)) : undefined;
+  });
   const values = p.points
-    .map((pt, i) => ({ pt, i }))
-    .filter(({ i }) => showsValue(i))
-    .map(({ pt, i }) => {
-      // The first point sits ON the axis (x(0) === PAD.l), so a middle-anchored
-      // value hangs half its width to the LEFT of the plot and prints straight
-      // through the y-axis label beside it — measured at 16.4px of baseline
-      // separation inside a 40px line at 9:16, and it is just as wrong at 16:9.
-      // The existing `Math.max(44, …)` guards the top edge only, and the test at
-      // test/archetypes.test.ts checks the LAST label against the frame; this is
-      // the same hazard at the other end, against the axis instead of the frame.
-      const anchor = i === 0 ? ' text-anchor="start"' : "";
-      return `<text class="pv"${anchor} x="${n(x(i))}" y="${n(valueBy(i))}">${esc(String(pt.y))}</text>`;
+    .map((pt, i) => ({ pt, i, sp: valueSpots[i] }))
+    .filter(({ sp }) => sp !== undefined)
+    .map(({ pt, sp }) => {
+      const s = sp as Spot;
+      const anchor = s.anchor === "middle" ? "" : ` text-anchor="${s.anchor}"`;
+      return `<text class="pv"${anchor} x="${n(s.x)}" y="${n(s.y)}">${esc(String(pt.y))}</text>`;
     })
     .join("");
-  // Deltas share the band with the values in landscape and sit half a step from
-  // them, so they need that half-step to hold both halves plus air. Stacked
-  // below the line in portrait they only have to clear each OTHER, a full step
-  // apart. Where neither holds the deltas are dropped: the values and the line
-  // still carry the shape, and a legible chart missing its annotations beats an
-  // illegible one that has them.
-  const valueBoxes = p.points
-    .map((pt, i) => ({ pt, i }))
-    .filter(({ i }) => showsValue(i))
-    .map(({ pt, i }) => labelBox(x(i), valueBy(i), String(pt.y), i === 0));
+  const valueBoxes = p.points.flatMap((pt, i) => {
+    const sp = valueSpots[i];
+    return sp ? [spotBox(sp, String(pt.y))] : [];
+  });
 
   // WHETHER THE DELTAS FIT IS A QUESTION ABOUT BOXES, NOT ABOUT SPACING.
   //
@@ -418,37 +465,50 @@ export const lineChart: Emitter<"line-chart"> = (beat, ctx) => {
   const overlaps = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
     Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 8 &&
     Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 8;
-  const deltaBoxes = (p.deltas ?? []).slice(0, p.points.length - 1).map((d, i) => {
+  // PORTRAIT: below the line. A delta sits over the midpoint between two points
+  // and a value sits over each point, so they are only half a step apart
+  // horizontally — at 1700 that half-step is ~240px and the two 40px labels clear
+  // each other, at 860 it is ~80px and "+0.09" printed through "30.47". Below the
+  // line they cannot meet at all, and on a rising curve that half of the plot is
+  // the empty one. LANDSCAPE: above where it has the room, else below.
+  const deltaSpots = (p.deltas ?? []).slice(0, p.points.length - 1).map((d, i) => {
     const a = p.points[i];
     const b = p.points[i + 1];
     if (!a || !b) return null;
     const mid = (y(a.y) + y(b.y)) / 2;
-    return labelBox((x(i) + x(i + 1)) / 2, tall ? mid + 52 : Math.max(44, mid - 28), d);
+    const cx = (x(i) + x(i + 1)) / 2;
+    const spots: Spot[] = tall
+      ? [{ x: cx, y: mid + 52, anchor: "middle" }]
+      : [
+          { x: cx, y: Math.max(44, mid - 28), anchor: "middle" },
+          { x: cx, y: mid + 52, anchor: "middle" },
+          // Off a steep segment, on its open side: upper-left of a rise, upper-right of a fall.
+          { x: cx - 14, y: Math.max(44, mid - 14), anchor: "end" },
+          { x: cx + 14, y: Math.max(44, mid - 14), anchor: "start" },
+          { x: cx + 14, y: mid + 14 + LABEL_SIZE * 0.8, anchor: "start" },
+          { x: cx - 14, y: mid + 14 + LABEL_SIZE * 0.8, anchor: "end" },
+        ];
+    return pick(spots, d, (bx) => !valueBoxes.some((v) => overlaps(bx, v)));
   });
+  const deltaBoxes = deltaSpots.map((sp, i) =>
+    sp ? spotBox(sp, (p.deltas ?? [])[i] as string) : null,
+  );
   // All or none: a chart showing the gain between some pairs and not others reads
   // as data missing rather than as a layout decision.
   const deltasFit = deltaBoxes.every(
     (d, i) =>
       d !== null &&
+      !onLine(d) &&
       !valueBoxes.some((v) => overlaps(d, v)) &&
       deltaBoxes.slice(i + 1).every((o) => o === null || !overlaps(d, o)),
   );
   const deltas = (deltasFit ? (p.deltas ?? []) : [])
     .slice(0, p.points.length - 1)
     .map((d, i) => {
-      const a = p.points[i];
-      const b = p.points[i + 1];
-      if (!a || !b) return "";
-      const mid = (y(a.y) + y(b.y)) / 2;
-      // PORTRAIT: below the line. A delta sits over the midpoint between two
-      // points and a value sits over each point, so they are only half a step
-      // apart horizontally — at 1700 that half-step is ~240px and the two 40px
-      // labels clear each other, at 860 it is ~80px and "+0.09" printed through
-      // "30.47". Below the line they cannot meet at all, and on a rising curve
-      // that half of the plot is the empty one.
-      // LANDSCAPE: above, where it has always been and has the room.
-      const dy = tall ? mid + 52 : Math.max(44, mid - 28);
-      return `<text class="dv" x="${n((x(i) + x(i + 1)) / 2)}" y="${n(dy)}">${esc(d)}</text>`;
+      const sp = deltaSpots[i];
+      if (!sp) return "";
+      const anchor = sp.anchor === "middle" ? "" : ` text-anchor="${sp.anchor}"`;
+      return `<text class="dv"${anchor} x="${n(sp.x)}" y="${n(sp.y)}">${esc(d)}</text>`;
     })
     .join("");
 

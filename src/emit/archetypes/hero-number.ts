@@ -34,8 +34,8 @@
  *
  * UNDER v2 IT IS A STATEMENT, NOT A SPECTACLE. The founder (2026-10-10): the
  * fonts are too large, and UI elements doing moves are old-fashioned. So a v2
- * hero number is set at the headline's 56px (`TYPE_SCALE`) in the accent, with no
- * reels; its label and comparison are body lines; bars are drawn at their
+ * hero number is set at 200–260px (`V2_NUM_MIN`; 56px read as an empty slide,
+ * 2026-10-12) in the accent, with no reels; its label and comparison are body lines; bars are drawn at their
  * length; and every part simply fades in where it stands. What moves is the
  * picture under it — the backdrop's drift, the field. Classic keeps the
  * odometer below, byte for byte.
@@ -59,6 +59,15 @@ import { holdsWithin, tween } from "./title.js";
  */
 const NUM_MAX = 560;
 const NUM_MIN = 160;
+/**
+ * v2's range. The founder's r2 review (2026-10-12): a 56px "10K" on a flat
+ * field read as an empty slide wasting ten seconds — the figure IS this slide,
+ * so it is set at 200px at least (not classic's 560, which he called too large
+ * on 2026-10-10), and the fill gate does not grade it (src/verify/fill.ts
+ * `NO_BODY`): its body is one number, not a region to fill.
+ */
+const V2_NUM_MAX = 260;
+const V2_NUM_MIN = 200;
 const NUM_STEP = 20;
 /** A reel's cell, as a share of the number's size: one digit with a little air. */
 const CELL_LH = 1.06;
@@ -242,8 +251,8 @@ export const heroNumber: Emitter<"hero-number"> = (beat, ctx) => {
   const across = (size: number) =>
     textWidth(p.value, size, 800, 0, true, dFace) +
     (p.unit ? size * UNIT_GAP + textWidth(p.unit, unitOf(size), 600, 0, false, face) : 0);
-  const numMin = v2 ? TYPE_SCALE.headline : NUM_MIN;
-  let size = v2 ? TYPE_SCALE.headline : NUM_MAX;
+  const numMin = v2 ? V2_NUM_MIN : NUM_MIN;
+  let size = v2 ? V2_NUM_MAX : NUM_MAX;
   while (
     size > numMin &&
     (across(size) > W * MEASURE_SLACK || Math.round(size * CELL_LH) + GAP + words > H)

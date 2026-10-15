@@ -218,3 +218,237 @@ export function gradeOverprint(rows: readonly Overprinted[]): Finding[] {
     };
   });
 }
+
+/* ---------------------------------------------- words over points and lines */
+
+/**
+ * The marks a word may not lie on, in device px: points (an SVG circle, by its
+ * centre and radius) and lines (an SVG line, polyline or open path, sampled
+ * every ~6px along its length). Visible ones only: a mark under a clip — a
+ * wipe that has not reached it, the camera's frame — is cut to the clip's box,
+ * so a series not yet drawn is not a series a label lies on.
+ */
+export interface Marks {
+  points: Array<{ x: number; y: number; r: number }>;
+  lines: Array<{ x: number; y: number }>;
+}
+
+/**
+ * Serialised into the page: every visible point and line inside this scene's
+ * SVGs. Closed shapes (rects, polygons) are not marks: a word on a panel or a
+ * chip is meant to be there.
+ */
+export function collectSvgMarks(sid: string): Marks {
+  const out = {
+    points: [] as Array<{ x: number; y: number; r: number }>,
+    lines: [] as Array<{ x: number; y: number }>,
+  };
+  const scene = document.querySelector(`[data-composition-id="${CSS.escape(sid)}"]`);
+  if (!scene) return out;
+  /**
+   * `getScreenCTM` leaves out the deck's CSS `zoom`, so every point it maps is
+   * corrected by its outermost svg: where the svg's own box lands by its CTM
+   * against where the browser lays it out (its client rect). Measured on the
+   * demo's stack, where uncorrected samples put a leader inside a label.
+   */
+  const fixes = new Map<Element, (x: number, y: number) => [number, number]>();
+  const fixOf = (el: Element) => {
+    let root: Element = el;
+    for (let e: Element | null = el; e && e !== scene; e = e.parentElement)
+      if (e.tagName.toLowerCase() === "svg") root = e;
+    const known = fixes.get(root);
+    if (known) return known;
+    const svg = root as SVGSVGElement;
+    const ctm = svg.getScreenCTM?.();
+    const r = svg.getBoundingClientRect();
+    const w = svg.viewBox?.baseVal?.width || svg.width?.baseVal?.value || r.width;
+    const h = svg.viewBox?.baseVal?.height || svg.height?.baseVal?.value || r.height;
+    let fix = (x: number, y: number): [number, number] => [x, y];
+    if (ctm && w > 0 && h > 0) {
+      const a = new DOMPoint(0, 0).matrixTransform(ctm);
+      const b = new DOMPoint(w, h).matrixTransform(ctm);
+      const dw = b.x - a.x;
+      const dh = b.y - a.y;
+      if (Math.abs(dw) > 1e-6 && Math.abs(dh) > 1e-6)
+        fix = (x, y) => [r.left + ((x - a.x) * r.width) / dw, r.top + ((y - a.y) * r.height) / dh];
+    }
+    fixes.set(root, fix);
+    return fix;
+  };
+  /** The device-px boxes of every clip-path rect on `el` and its ancestors. */
+  const clips = (el: Element): DOMRect[] => {
+    const boxes: DOMRect[] = [];
+    for (let e: Element | null = el; e && e !== scene; e = e.parentElement) {
+      const ref = e.getAttribute("clip-path");
+      const id = ref ? /url\(#([^)]+)\)/.exec(ref)?.[1] : undefined;
+      if (!id) continue;
+      const rect = document.getElementById(id)?.querySelector("rect");
+      const ctm = (e as SVGGraphicsElement).getScreenCTM?.();
+      if (!rect || !ctm) continue;
+      const n = (a: string) => Number.parseFloat(rect.getAttribute(a) ?? "0") || 0;
+      const fix = fixOf(e);
+      const p0 = new DOMPoint(n("x"), n("y")).matrixTransform(ctm);
+      const q0 = new DOMPoint(n("x") + n("width"), n("y") + n("height")).matrixTransform(ctm);
+      const [px, py] = fix(p0.x, p0.y);
+      const [qx, qy] = fix(q0.x, q0.y);
+      boxes.push(
+        new DOMRect(Math.min(px, qx), Math.min(py, qy), Math.abs(qx - px), Math.abs(qy - py)),
+      );
+    }
+    return boxes;
+  };
+  // A hairline (1.5px or less: a chart's grid) or a stroke within a wash's
+  // distance of the ground is not a mark a word lies ON: it reads through.
+  const ground = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(
+    getComputedStyle(document.body).backgroundColor,
+  );
+  const gr = ground ? [Number(ground[1]), Number(ground[2]), Number(ground[3])] : [0, 0, 0];
+  const faint = (el: Element) => {
+    const cs = getComputedStyle(el);
+    if ((Number.parseFloat(cs.strokeWidth) || 0) <= 1.5) return true;
+    const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(cs.stroke);
+    if (!m) return true;
+    let a = (m[4] === undefined ? 1 : Number(m[4])) * (Number(cs.strokeOpacity) || 1);
+    for (let e: Element | null = el; e && e !== scene; e = e.parentElement)
+      a *= Number(getComputedStyle(e).opacity) || 0;
+    const d = Math.max(
+      Math.abs(Number(m[1]) - (gr[0] as number)),
+      Math.abs(Number(m[2]) - (gr[1] as number)),
+      Math.abs(Number(m[3]) - (gr[2] as number)),
+    );
+    return d * a <= 36;
+  };
+  const inside = (x: number, y: number, boxes: DOMRect[]) =>
+    boxes.every((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
+  const walk = (el: Element, inSvg: boolean): void => {
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return;
+    if (Number(style.opacity) === 0) return;
+    const tag = el.tagName.toLowerCase();
+    const within = inSvg || tag === "svg";
+    if (within && ["circle", "line", "polyline", "path"].includes(tag)) {
+      const g = el as SVGGeometryElement;
+      const box = clips(el);
+      if (tag === "circle") {
+        // A point by its own client rect, which the browser lays out with every
+        // transform and the deck's zoom applied.
+        const r = el.getBoundingClientRect();
+        const radius = r.width / 2;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        if (radius > 2 && inside(cx, cy, box)) out.points.push({ x: cx, y: cy, r: radius });
+      } else if (!(tag === "path" && /z\s*$/i.test(el.getAttribute("d") ?? "")) && !faint(el)) {
+        // A line by its own user box against its client rect: the browser's layout
+        // carries every transform, the deck's zoom and a stack's perspective tilt,
+        // none of which `getScreenCTM` saw (demo s8: a leader 50px off).
+        const r = el.getBoundingClientRect();
+        const bb = g.getBBox();
+        const sw = Number.parseFloat(getComputedStyle(el).strokeWidth) || 0;
+        const kx = bb.width > 1 ? r.width / (bb.width + sw) : 0;
+        const ky = bb.height > 1 ? r.height / (bb.height + sw) : 0;
+        const k = kx || ky || 1;
+        const len = g.getTotalLength();
+        const n = Math.min(2000, Math.ceil(Math.max(r.width, r.height, 1) / 6));
+        for (let q = 0; q <= n; q++) {
+          const d = g.getPointAtLength((len * q) / Math.max(1, n));
+          const x = r.left + (d.x - bb.x + sw / 2) * (kx || k);
+          const y = r.top + (d.y - bb.y + sw / 2) * (ky || k);
+          if (inside(x, y, box)) out.lines.push({ x, y });
+        }
+      }
+    }
+    for (const child of Array.from(el.children)) walk(child, within);
+  };
+  walk(scene, false);
+  return out;
+}
+
+/** A word lying on a mark. */
+export interface WordOnMark {
+  word: string;
+  on: "point" | "line";
+  /** Where the mark meets the word, device px, rounded: the place to look. */
+  at: [number, number];
+}
+
+/**
+ * Every run of text that lies on a point or a line: a line sample inside the
+ * run's box shrunk by `MIN_OVERLAP / 2` a side (a fifth of its height top and
+ * bottom, the leading), or a point whose disc reaches that far into it. A word INSIDE its own dot (a key's number) is not on it:
+ * the dot holds the whole run. Pure, for the same reason `overprints` is.
+ */
+export function wordsOnMarks(runs: readonly TextRun[], marks: Marks): WordOnMark[] {
+  const m = MIN_OVERLAP / 2;
+  const out: WordOnMark[] = [];
+  const seen = new Set<number>();
+  for (const t of runs) {
+    if (seen.has(t.node)) continue;
+    // A run's box carries its line's leading above and below the glyphs; a rule
+    // set between two lines of one label is in the leading, not on a word.
+    const v = Math.max(m, t.h * 0.22);
+    const x0 = t.x + m;
+    const x1 = t.x + t.w - m;
+    const y0 = t.y + v;
+    const y1 = t.y + t.h - v;
+    if (x1 <= x0 || y1 <= y0) continue;
+    const point = marks.points.find((p) => {
+      // A key's number sits inside its own dot: that is the dot's word, not a collision.
+      const own =
+        Math.hypot(t.x + t.w / 2 - p.x, t.y + t.h / 2 - p.y) < p.r * 0.6 && t.w <= 2.2 * p.r;
+      if (own) return false;
+      const nx = Math.max(x0, Math.min(p.x, x1));
+      const ny = Math.max(y0, Math.min(p.y, y1));
+      return Math.hypot(nx - p.x, ny - p.y) < p.r;
+    });
+    // A line under a dot is hidden by it: a key's number inside its dot on a curve.
+    const under = (q: { x: number; y: number }) =>
+      marks.points.some((p) => Math.hypot(q.x - p.x, q.y - p.y) < p.r);
+    const line = point
+      ? undefined
+      : marks.lines.find((q) => q.x > x0 && q.x < x1 && q.y > y0 && q.y < y1 && !under(q));
+    const hit = point ?? line;
+    if (hit) {
+      seen.add(t.node);
+      out.push({
+        word: t.text,
+        on: point ? "point" : "line",
+        at: [Math.round(hit.x), Math.round(hit.y)],
+      });
+    }
+  }
+  return out;
+}
+
+/** One scene's words on marks at one stop. */
+export interface MarkedStop {
+  sid: string;
+  t: number;
+  hits: WordOnMark[];
+}
+
+/** Findings for the scenes that print a word on a point or a line: one per scene, its worst stop. */
+export function gradeWordsOnMarks(rows: readonly MarkedStop[]): Finding[] {
+  const byScene = new Map<string, MarkedStop[]>();
+  for (const row of rows) {
+    if (row.hits.length === 0) continue;
+    const seen = byScene.get(row.sid);
+    if (seen) seen.push(row);
+    else byScene.set(row.sid, [row]);
+  }
+  return [...byScene].map(([sid, hits]) => {
+    const worst = hits.reduce((a, b) => (a.hits.length >= b.hits.length ? a : b));
+    const examples = worst.hits
+      .slice(0, 3)
+      .map((h) => `"${h.word}" on a ${h.on} at (${h.at[0]}, ${h.at[1]})`)
+      .join(", ");
+    return {
+      severity: "error" as const,
+      gate: "overprint",
+      rule: "svg_text_on_mark",
+      message:
+        `#${sid} prints words on its own points or lines: ${worst.hits.length} at t=${worst.t}s` +
+        `${hits.length > 1 ? ` (worst of ${hits.length} stops)` : ""} — ${examples}. ` +
+        "A label goes where nothing is drawn, or the points are named by a key.",
+    };
+  });
+}

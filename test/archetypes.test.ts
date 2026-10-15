@@ -441,6 +441,22 @@ describe("archetypes", () => {
     expect(layout("f3")).toContain("cf-under");
   });
 
+  it("claim-figure sets a paper-length caption as two lines, not as the whole column", () => {
+    // arXiv captions run to 600 characters; beside the claim one took every line
+    // of the column and left the figure a 30px plate (speculative decoding, fig1).
+    const long = `Figure 1: Our technique illustrated in the case of unconditional language modeling. ${"Each line represents one iteration of the algorithm and the tokens it accepted. ".repeat(6)}`;
+    const wide = { ...source, figures: source.figures.map((f) => ({ ...f, caption: long })) };
+    const beat = structuredClone(beats[1]) as Extract<Beat, { archetype: "claim-figure" }>;
+    const html = emitScene(beat, { ...ctx("s2"), source: wide }).html;
+    const cap = /<div class="caption" id="s2-cap">([^<]*)<\/div>/.exec(html)?.[1] ?? "";
+    // The first sentence, cut at a word where even that is wider than two lines here.
+    expect(cap.startsWith("Figure 1: Our technique")).toBe(true);
+    expect(cap.length).toBeLessThanOrEqual(84);
+    expect(cap).not.toContain("Each line");
+    // The full caption stays the image's alt.
+    expect(html).toMatch(/alt="[^"]*Each line represents/);
+  });
+
   it("claim-figure refuses a brief that has not been drawn, by name and with the command", () => {
     // `emitDeck` is public, so a pending slot can arrive without
     // `assertRefsResolve` having run; `no figure "undefined"` is not an answer.
@@ -617,8 +633,10 @@ describe("archetypes", () => {
     // Sparse: every point labelled, every delta shown.
     expect(chart(5)).toEqual({ values: 5, deltas: 4 });
     // Crowded: the deltas go first — they sit half a step from a value either
-    // side, so they are the first thing to have nowhere to be.
-    expect(chart(8).deltas).toBe(0);
+    // side, so they are the first thing to have nowhere to be. All or none: each
+    // tries over, under and off its segment (never on the line), and the set is
+    // kept only when every one found a place.
+    expect([0, 7]).toContain(chart(8).deltas);
     // Denser still: the values thin too, and never to fewer than the two that
     // carry the range.
     for (const n of [12, 16, 24]) {

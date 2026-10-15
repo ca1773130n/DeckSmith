@@ -28,7 +28,7 @@
  */
 import type { BeatOf } from "../../types.js";
 import { fitOf, GROWTH, isV2, MEASURE_SLACK } from "../fit.js";
-import type { EmitContext, Emitter, Scene } from "../kit.js";
+import type { EmitContext, Emitter, Scene, Vars } from "../kit.js";
 import { esc, spotlighter } from "../kit.js";
 import { type Frame, frameOf, variantOf } from "../look.js";
 import {
@@ -618,12 +618,12 @@ ${svg(id(sid, "chart"), W, H, body)}
     tl.push(
       tween(
         `#${id(sid, "bar", r.i)}`,
-        { attr: { x: nv(zeroX), width: 0 } },
-        { attr: { x: nv(r.x), width: nv(r.len) }, duration: grow, ease: "power3.out" },
+        ...barIn(isV2(ctx), { x: nv(r.x), width: nv(r.len) }, { x: nv(zeroX), width: 0 }, grow),
         at,
       ),
     );
-    if (r.countable) {
+    // v2 counts nothing up: the value is printed as it stands (no counters).
+    if (r.countable && !isV2(ctx)) {
       tl.push(
         tween(
           `#${id(sid, "v", r.i)}`,
@@ -919,12 +919,12 @@ ${svg(id(sid, "chart"), W, H, body)}
     tl.push(
       tween(
         `#${id(sid, "bar", r.i)}`,
-        { attr: { y: nv(base), height: 0 } },
-        { attr: { y: nv(r.y), height: nv(r.h) }, duration: grow, ease: "power3.out" },
+        ...barIn(isV2(ctx), { y: nv(r.y), height: nv(r.h) }, { y: nv(base), height: 0 }, grow),
         at,
       ),
     );
-    if (r.countable) {
+    // v2 counts nothing up: the value is printed as it stands (no counters).
+    if (r.countable && !isV2(ctx)) {
       tl.push(
         tween(
           `#${id(sid, "v", r.i)}`,
@@ -1186,12 +1186,12 @@ ${svg(id(sid, "chart"), W, Math.max(H, avail), body)}
     tl.push(
       tween(
         `#${id(sid, "bar", r.i)}`,
-        { attr: { width: 0 } },
-        { attr: { width: nv(r.len) }, duration: grow, ease: "power3.out" },
+        ...barIn(isV2(ctx), { width: nv(r.len) }, { width: 0 }, grow),
         at,
       ),
     );
-    if (r.countable) {
+    // v2 counts nothing up: the value is printed as it stands (no counters).
+    if (r.countable && !isV2(ctx)) {
       tl.push(
         tween(
           `#${id(sid, "v", r.i)}`,
@@ -1242,4 +1242,22 @@ ${svg(id(sid, "chart"), W, Math.max(H, avail), body)}
       ...(F.css ? [F.css] : []),
     ].join("\n"),
   };
+}
+
+/**
+ * A bar's tween: classic grows it from its base; v2 draws it at its length and
+ * fades it in — the brief bans growing bars (r2's "97M vs 6M").
+ */
+function barIn(
+  v2: boolean,
+  at: Record<string, number>,
+  from: Record<string, number>,
+  grow: number,
+): [Vars, Vars] {
+  return v2
+    ? [
+        { attr: at, opacity: 0 },
+        { attr: at, opacity: 1, duration: grow, ease: "power2.out" },
+      ]
+    : [{ attr: from }, { attr: at, duration: grow, ease: "power3.out" }];
 }

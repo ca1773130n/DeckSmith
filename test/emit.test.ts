@@ -7,7 +7,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { emitScene, emitters } from "../src/emit/archetypes/index.js";
-import { cjkTypesetCss, emitComposition, planCut } from "../src/emit/composition.js";
+import {
+  cjkTypesetCss,
+  emitComposition,
+  leanThroughSentences,
+  planCut,
+  stageScene,
+} from "../src/emit/composition.js";
 import {
   DIM,
   type EmitContext,
@@ -1305,5 +1311,59 @@ describe("pieces", () => {
     ).toThrow(
       /split-compare b1: the left figure "f-piece" is an animate piece[\s\S]*use claim-figure/,
     );
+  });
+});
+
+describe("stageScene, given the beat's sentences", () => {
+  const seg = (stop: number, seconds: number) => ({
+    stop,
+    text: "s",
+    audio: `${stop}.mp3`,
+    seconds,
+    cues: [{ start: 0, end: seconds, text: "s" }],
+  });
+  const scene = {
+    html: "",
+    holds: [1.95, 2.85, 3.65],
+    tl: [
+      { target: "#s1-h", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 0.3 },
+      { target: "#s1-a", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 1.15 },
+      { target: "#s1-b", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 2.05 },
+      { target: "#s1-c", from: { opacity: 0 }, to: { opacity: 1, duration: 0.6 }, at: 2.95 },
+    ],
+  };
+
+  it("lands each stop's reveal as its sentence starts, not in the first four seconds", () => {
+    // r1: holds [1.95, 2.85, 3.65] in a 23.6s split-compare, still after 4s.
+    const { scene: s, open } = stageScene(scene, 1, [seg(0, 7.6), seg(1, 8.7)]);
+    expect(open).toBe(0.9);
+    // Stop 1's sentence starts when stop 0's ends; the third stop has none and
+    // is spread towards the end of speech, as a bespoke scene's is.
+    expect(s.holds).toEqual([1.95, 8.5, 12.85]);
+    expect(s.tl.map((t) => t.at)).toEqual([0.3, 1.15, 7.7, 12.15]);
+  });
+
+  it("leaves a scene with one stop, and a silent one, as they were", () => {
+    expect(stageScene({ ...scene, holds: [1.9] }, 1, [seg(0, 9)]).scene.tl).toEqual(scene.tl);
+    expect(stageScene(scene, 1).scene).toEqual(scene);
+  });
+
+  it("leans through a still stretch of a sentence and is at rest at every hold", () => {
+    // r2: a title held 8.9s and a callout panel 8.5s with nothing moving.
+    const { scene: s } = stageScene(scene, 1, [seg(0, 7.6), seg(1, 8.7)]);
+    const leaned = leanThroughSentences(s, "s1", 20);
+    const lean = leaned.tl.filter((t) => t.target === "#s1");
+    // holds [1.95, 8.5, 12.85]: 1.95 to the next reveal at 7.7 and 12.85 to the end lean;
+    // 8.5 to the reveal at 12.15 is under 4s and does not.
+    expect(lean.map((t) => t.at)).toEqual([2.15, 4.875, 13.05, 16.475]);
+    for (let k = 0; k < lean.length; k += 2) {
+      const [inn, out] = [lean[k], lean[k + 1]] as [Tween, Tween];
+      expect(inn.from).toEqual({ scale: 1 });
+      expect(out.to.scale).toBe(1);
+      expect(inn.at + (inn.to.duration as number)).toBeLessThan(out.at);
+    }
+    const last = lean.at(-1) as Tween;
+    expect(last.at + (last.to.duration as number)).toBeLessThanOrEqual(20);
+    expect(leanThroughSentences({ ...scene, holds: [1.9] }, "s1", 3).tl).toEqual(scene.tl);
   });
 });

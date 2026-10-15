@@ -23,7 +23,7 @@ import { isV2 } from "../fit.js";
 import type { Emitter } from "../kit.js";
 import { contentW, js } from "../kit.js";
 import { MIN_FONT } from "../svg.js";
-import { repairTex } from "../tex.js";
+import { escapedCommandError, repairTex } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
 import {
   chipFit,
@@ -71,6 +71,8 @@ export function prepareMorph(
   // `katex.render` that throws.
   const notes: string[] = [];
   const drawable = (eq: { id: string; tex: string }) => {
+    const doubled = escapedCommandError(`equation-morph ${beat.id}`, eq.id, eq.tex);
+    if (doubled) throw new Error(doubled);
     const fixed = repairTex(eq.tex, true);
     if (fixed.error !== null) {
       throw new Error(
@@ -237,6 +239,18 @@ export const equationMorph: Emitter<"equation-morph"> = (beat, ctx) => {
       ),
       // v2: the legend is a body line (`TYPE_SCALE`), not 48px.
       legendCss(theme, isV2(ctx)),
+      // v2: the equation at the top of the box, the legend across its foot, as the
+      // walk sets them (the fill gate measures the content's box at every hold).
+      ...(isV2(ctx)
+        ? [
+            `#${sid} .eqslide{justify-content:space-between}`,
+            // Each entry a row across the box: the symbol at the left edge, its
+            // meaning set to the right edge (a grid of columns broke on a wide TeX chip).
+            `#${sid} .legend{width:100%;margin-inline:0}`,
+            `#${sid} .leg{max-width:none;justify-content:space-between;align-items:center}`,
+            `#${sid} .leg>span:last-child{text-align:right}`,
+          ]
+        : []),
       ambient(sid, "-morph", BREATHE),
     ].join("\n"),
   };

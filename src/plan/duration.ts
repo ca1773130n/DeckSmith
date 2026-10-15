@@ -939,7 +939,7 @@ function budget(duration: number, slides: number, stops: number, cps: number) {
 }
 
 /** CJK writes far more meaning per character, so it is read out far slower. */
-function charsPerSecond(lang: string): number {
+export function charsPerSecond(lang: string): number {
   return /^(zh|ja|ko|yue)\b/i.test(lang) ? SPEECH_CPS.cjk : SPEECH_CPS.latin;
 }
 

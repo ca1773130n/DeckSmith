@@ -152,6 +152,7 @@ import type { Finding } from "../types.js";
 import { type ApparentStop, collectApparent, gradeApparent, midpoints } from "./apparent.js";
 import {
   collectFillRegion,
+  contentArea,
   type FillRow,
   fillInk,
   finalStops,
@@ -159,8 +160,18 @@ import {
   hideScenes,
   measureFill,
   readFitManifest,
+  stripContainers,
 } from "./fill.js";
-import { collectSvgTextRuns, gradeOverprint, type Overprinted, overprints } from "./overprint.js";
+import {
+  collectSvgMarks,
+  collectSvgTextRuns,
+  gradeOverprint,
+  gradeWordsOnMarks,
+  type MarkedStop,
+  type Overprinted,
+  overprints,
+  wordsOnMarks,
+} from "./overprint.js";
 import { TYPE_FLOOR_PX } from "./typefloor.js";
 
 /**
@@ -197,6 +208,11 @@ const FALLBACK_BAND_TOP = 0.22;
 const CAPTION = ".headline, .eyebrow";
 
 /** One declared stop: which scene, and where on the deck timeline. */
+/** The scene's final state is measured this long before it ends: settled, before the handoff. */
+export const FINAL_LEAD = 1;
+/** A final state is measured only this long after the last hold; nearer, the hold is it. */
+export const FINAL_GAP = 2;
+
 export interface Stop {
   /** Composition id — `s1`, `s2`. */
   sid: string;
@@ -273,8 +289,9 @@ export function readReserve(timingText: string | null): number {
 export interface FidelityReport {
   stops: Measured[];
   /**
-   * Main-axis fill at each scene's last hold — measured on every deck, graded
-   * only on a v2 one (`fit.json` present). See `./fill.ts`.
+   * Fill at each hold: every hold on a v2 deck (`fit.json` present), each with
+   * its content `area`, which is graded; each scene's last hold on a classic
+   * deck, measured and never graded. See `./fill.ts`.
    */
   fills: FillRow[];
   /**
@@ -513,15 +530,24 @@ export function readStops(timing: string | null, deckPage: string | null): Stop[
   if (timing) {
     try {
       const parsed = JSON.parse(timing) as {
-        scenes?: Array<{ id?: unknown; start?: unknown; holds?: unknown }>;
+        scenes?: Array<{ id?: unknown; start?: unknown; holds?: unknown; duration?: unknown }>;
       };
       const stops: Stop[] = [];
       for (const scene of parsed.scenes ?? []) {
         if (typeof scene.id !== "string" || typeof scene.start !== "number") continue;
+        let last = 0;
         for (const hold of Array.isArray(scene.holds) ? scene.holds : []) {
-          if (typeof hold === "number" && Number.isFinite(hold))
+          if (typeof hold === "number" && Number.isFinite(hold)) {
             stops.push({ sid: scene.id, t: Math.round((scene.start + hold) * 1000) / 1000 });
+            last = Math.max(last, hold);
+          }
         }
+        // And the scene as it ends: a step spoken after the last hold is on screen only
+        // there (r3: three scenes' payoffs 7–18s after their last hold, every gate and
+        // every hold frame blind to them).
+        const end = typeof scene.duration === "number" ? scene.duration - FINAL_LEAD : 0;
+        if (last > 0 && end > last + FINAL_GAP)
+          stops.push({ sid: scene.id, t: Math.round((scene.start + end) * 1000) / 1000 });
       }
       if (stops.length > 0) return stops;
     } catch {
@@ -765,6 +791,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
     const brokenPieces = await page.evaluate(collectBrokenPieces);
     const measured: Measured[] = [];
     const collided: Overprinted[] = [];
+    const marked: MarkedStop[] = [];
     const apparent: ApparentStop[] = [];
     const fills: FillRow[] = [];
     // v2 only — a classic deck is not graded for fill, so it pays no extra
@@ -791,9 +818,11 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
       // The frame is already seeked and already settled, so the collision rule
       // is one more DOM read on the same page. The pairwise arithmetic stays in
       // Node, where it can be tested without a browser.
-      collided.push({
+      const runs = await page.evaluate(collectSvgTextRuns, stop.sid);
+      collided.push({ ...stop, pairs: overprints(runs) });
+      marked.push({
         ...stop,
-        pairs: overprints(await page.evaluate(collectSvgTextRuns, stop.sid)),
+        hits: wordsOnMarks(runs, await page.evaluate(collectSvgMarks, stop.sid)),
       });
       // One more read on the frame that is already seeked and settled: how big
       // the glyphs actually came out. `typefloor` reads the source and says in
@@ -804,15 +833,21 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...(await page.evaluate(collectApparent, stop.sid)),
       });
       const frame = await decodePng(await deck.shoot());
-      // THE SAME FRAME again, at a scene's last hold only: how much of its
-      // region the body painted. One DOM read for the region, one more pass
-      // over pixels already decoded.
-      if (finals.has(stop)) {
-        const region = await page.evaluate(collectFillRegion, stop.sid);
-        fills.push(
-          measureFill(frame, fillInk(region, background(frame), INK_DELTA, plate), region, stop),
-        );
+      // THE SAME FRAME again, at EVERY hold: how much of its region the body
+      // painted. At the hold itself, never at a later settled frame: r2's scope
+      // revealed its second column after its last hold, and a measure taken once
+      // the reveals had run called both empty hold frames full. The content
+      // area is one more capture with the scene's containers made transparent.
+      const fillRegion = await page.evaluate(collectFillRegion, stop.sid);
+      const ink = fillInk(fillRegion, background(frame), INK_DELTA, plate);
+      const row = measureFill(frame, ink, fillRegion, stop);
+      if (manifest) {
+        await page.evaluate(stripContainers, stop.sid, true);
+        const bare = await decodePng(await deck.shoot());
+        await page.evaluate(stripContainers, stop.sid, false);
+        row.area = contentArea(bare, ink, fillRegion);
       }
+      if (finals.has(stop) || manifest) fills.push(row);
       measured.push({
         ...stop,
         ink: inkIn(frame, region, plate),
@@ -840,6 +875,7 @@ export async function fidelity(dir: string, opts: FidelityOptions = {}): Promise
         ...gradeFidelity(measured, floor),
         ...gradeReserve(measured),
         ...gradeOverprint(collided),
+        ...gradeWordsOnMarks(marked),
         ...gradeApparent(apparent),
         ...gradeUnfit(unfit),
         ...gradePieces(brokenPieces),

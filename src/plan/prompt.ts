@@ -11,16 +11,29 @@
  * `figureId` that exists in no source.
  */
 import { pieceBeatSeconds } from "../emit/archetypes/claim-figure.js";
-import { repairTex } from "../emit/tex.js";
+import { escapedCommand, repairTex } from "../emit/tex.js";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
-import { prefsSchema, type Source } from "../types.js";
+import {
+  LITERAL_KIND_DOCS,
+  LITERAL_OPS,
+  LITERAL_RULES,
+  type LiteralKind,
+  type LiteralKindDoc,
+  type LiteralOpDoc,
+  literalSlotsOf,
+  prefsSchema,
+  type Source,
+} from "../types.js";
 import { paperArcRequested, requiredRoles } from "./arc.js";
+import { PART_NAMES, sourceParts } from "./coverage.js";
 import { type DurationPlan, durationPlan, FF_BEAT_SECONDS } from "./duration.js";
 import {
+  KINETIC_MAX,
   MAX_ALTERNATION,
   PANEL_SHARE,
   panelsAllowed,
   SCENE_SHARE,
+  SLIDES_OVER,
   STAGE_EVERY,
   STAGE_MIN_BEATS,
   scenesRequired,
@@ -137,7 +150,11 @@ DRAWING ARCHETYPES — reach here first
                  plus the "the document says" line the inventory prints under it,
                  usually tell you — this beats claim-figure, which just parks the
                  image beside a sentence. Up to five notes, each pointing at one
-                 thing.
+                 thing: put its x/y ON that thing — a bar or a row at its own
+                 end, a curve at the point the note is about — never at the
+                 figure's middle, and never three notes at one x. The leader
+                 runs from the point to the nearest margin across whatever lies
+                 between.
                  USE \`crop\` — { x, y, w, h }, the same fractions — to make the
                  beat about ONE REGION rather than a whole page. A paper figure is
                  usually several panels drawn to be read at arm's length, and a
@@ -279,7 +296,8 @@ DESCRIBING ARCHETYPES — the fallbacks
                  word in each struck through by a highlight. The tell: ONE
                  STRONG CLAIM WITH NO SHAPE — a thesis, a turn in the
                  argument, the sentence the viewer must leave with — where a
-                 panel of bullets is what would otherwise be drawn. Split the
+                 panel of bullets is what would otherwise be drawn. At most
+                 ${KINETIC_MAX} a deck. Split the
                  claim into \`phrases\` where a speaker would breathe, each at
                  most about 30 characters; \`key\` is the one word or short
                  run of words that carries its phrase, copied verbatim from
@@ -816,6 +834,291 @@ a process that runs, an equation whose terms act, a curve that moves, a
 comparison that is a distance: when the call budget cannot pay for every beat,
 those are drawn first. Leave it null otherwise.`;
 
+/** A kind's label slots, from the table the build reads (src/types.ts `LITERAL_KIND_DOCS`). */
+function slotDocs(kind: LiteralKind): string {
+  return Object.entries(literalSlotsOf(kind))
+    .map(([slot, d]) => {
+      const tags = [
+        d.optional ? "optional" : "required",
+        ...(d.vars?.length ? [`may name ${d.vars.map((v) => `{${v}}`).join(", ")}`] : []),
+      ];
+      return `                     · ${slot} (${tags.join(", ")}): ${d.what}`;
+    })
+    .join("\n");
+}
+
+/**
+ * A kind's claim bans (src/types.ts `LiteralKindDoc`), under its slots:
+ * `literalFindings` checks the same entries, so the planner is told exactly
+ * what will be refused. Empty for a kind with none.
+ */
+export function ruleDocs(d: Pick<LiteralKindDoc, "mustNotClaim">): string {
+  const pad = " ".repeat(21);
+  return (d.mustNotClaim ?? [])
+    .map((b) => `\n${pad}! takeaway and labels never claim ${b.what}: ${b.because}`)
+    .join("");
+}
+
+/** One op (or rule) of the library as the prompt lists it, from the table the gate reads. */
+function opDoc(name: string, d: LiteralOpDoc): string {
+  const pad = " ".repeat(15);
+  const lines = [`  ${name.padEnd(12)} ${d.doc}`];
+  if (d.how)
+    lines.push(
+      `${pad}how: ${Object.entries(d.how)
+        .map(([k, v]) => `${k} (${v.what})`)
+        .join(" · ")}${d.defaultHow ? `; absent: ${d.defaultHow}` : ""}`,
+    );
+  if (d.params)
+    lines.push(
+      `${pad}params: ${Object.entries(d.params)
+        .map(([k, v]) => `${k} (${v.what}${v.optional ? ", optional" : ""})`)
+        .join(" · ")}`,
+    );
+  for (const [field, vs] of Object.entries(d.enums ?? {}))
+    lines.push(`${pad}${field}: ${Object.keys(vs).join(" · ")}`);
+  return lines.join("\n");
+}
+
+/**
+ * Shown when the build draws scenes (`bespokeFor`). The planner prefers a
+ * literal verb and falls back to a bespoke scene only when none fits. Every
+ * list here is generated from the tables the build and the gate read
+ * (src/types.ts `LITERAL_KIND_DOCS`, `LITERAL_OPS`, `LITERAL_RULES`), so the
+ * prompt, the gate and the build cannot drift.
+ */
+function literalScenes(): string {
+  const kinds = (Object.entries(LITERAL_KIND_DOCS) as Array<[LiteralKind, LiteralKindDoc]>)
+    .map(([k, d]) => `  ${k.padEnd(18)} ${d.doc}\n${slotDocs(k)}${ruleDocs(d)}`)
+    .join("\n");
+  const ops = Object.entries(LITERAL_OPS as Record<string, LiteralOpDoc>)
+    .map(([k, d]) => opDoc(k, d))
+    .join("\n");
+  const rules = Object.entries(LITERAL_RULES as Record<string, LiteralOpDoc>)
+    .map(([k, d]) => opDoc(k, d))
+    .join("\n");
+  return `
+
+LITERAL SCENES — THE MECHANISM AS A VERB, COMPUTED, NEVER A METAPHOR
+
+The build can draw a beat as the source's own mechanism: a VERB composes
+general operations on the source's OWN NUMBERS, the build computes every layer,
+and the scene reveals them one causal step per narration sentence. PREFER
+THIS. When a verb below shows what a beat explains, set \`literal\` on that
+beat; its archetype stays as the fallback. Only a beat no verb fits leaves
+\`literal\` null, and is drawn as a bespoke scene. Never use a verb for a point
+it does not show.
+
+${kinds}
+
+THE OP LIBRARY — the steps of an \`operate\` chain (\`op\`, \`how\`, \`params\`
+as {name, value, symbol}, \`stat\`, \`over\`, \`weights\`, \`of\`, \`expr\`,
+\`checks\`, \`label\`):
+${ops}
+
+THE RULES an \`evolve\` steps under (\`rule\`, \`how\`, \`params\`, \`reset\`,
+\`schedule\`, \`expr\`, \`checks\`):
+${rules}
+
+THE GROUNDING LADDER. Every value a verb computes with is exactly one of:
+  stated ......... printed in the source IN ITS ROLE: the value, or the symbol
+                   the source binds to it ("α=0.6" → value 0.6, symbol α),
+                   stands next to the role's name ("threshold", "patch size",
+                   "momentum"). A number printed in another role is not this
+                   one: a momentum is never a σ.
+  definitional ... fixed by an operator's NAME the source uses: the Sobel,
+                   Prewitt and Laplacian kernels, Rec. 709 luma.
+  example ........ the scene's own material: a picture (ALWAYS — it is never
+                   the method's own intermediate), a vector or matrix the
+                   source does not print, a \`condition\`, a split of a stated
+                   total. The scene carries the \`example\` tag, and prints no
+                   computed value.
+  unstated ....... a parameter of the method the source leaves out (a patch
+                   size, a leak, a rounding, a learned weight): NEVER FILLED.
+                   Draw that step as a \`flow\` stage, or leave \`literal\` null.
+
+COMPOSE
+  - One beat = one verb. Break a method into the operations the source names,
+    in its order, as one chain; a degraded input is \`compare\` condition on the
+    SAME chain, not a second beat.
+  - A variant (\`how\`, \`stat\`, \`over\`, \`reset\`, \`schedule\`, a rounding) is
+    used only when a passage naming the operation names it too ("variance",
+    "soft reset", "cosine", "floor"). A quantiser needs its step AND its
+    rounding stated; with only its levels it is a \`flow\` stage.
+  - A formula (a \`formula\` step, an \`evolve\` formula, a \`place\` curve) is
+    grounded by \`checks\` the source prints: each check's inputs and output in
+    one passage, in order, two checks or more, every variable varying. When two
+    checks come from one table, EVERY row of that table must fit it.
+  - A RULE THE SOURCE CAN COMPUTE IS COMPUTED. When the source prints a
+    closed-form rule with stated parameters — an expected count, a speedup, a
+    cost model, an update — and prints values it produces (a table, a worked
+    case), the mechanism beat is a \`place\` plane with \`curves\` {expr,
+    checks} (the rule over its range, for each stated parameter value, with the
+    measured points on it) or an \`evolve\` with rule formula. Not bullets in a
+    split-compare and not an equation-walk alone: that is slideware for a paper
+    whose point is the rule. This holds for language-model, systems and
+    optimisation papers as much as for image operations.
+  - A MECHANISM BEAT IS NEVER WORDS IN COLUMNS. A beat of part "method"
+    drawn as a split-compare, a callout, a stack or a pipeline of named boxes
+    is slideware when a verb shows it, and it is sent back. Work through
+    these, in order, for every method beat:
+      the source prints a rule and values it produces .... place plane with
+                                                          curves (one curve
+                                                          per stated value of
+                                                          the fixed parameter:
+                                                          γ = 2, 3, 5 is three
+                                                          curves) or evolve
+                                                          formula
+      a formula the source evaluates at values it states,
+        to a number it reports ............................ operate \`terms\`
+                                                          (the TeX, \`given\`,
+                                                          \`terms\` with
+                                                          \`reported\`)
+      a formula with no stated values to evaluate it at
+        (a bound, a complexity, a definition) .............. equation-walk,
+                                                          \`literal\` null
+      a sampling, acceptance or selection rule over
+        distributions or arrays ......................... operate on example
+                                                          \`vectors\` (see
+                                                          operate), tagged
+      an update over steps ................................ evolve
+      serial against parallel work, a latency budget ...... evolve lanes
+      a worked example of the method (a trace of steps,
+        rows of tokens accepted and rejected) ............. evolve trace (from
+                                                          the figure citing
+                                                          it: \`picture\`,
+                                                          \`read\`)
+      a picture whose things the source explains (what
+        drove a decision, a scan's findings) ............... region, each thing
+                                                          marked and numbered
+      an architecture whose stages hold something ......... flow chain (each
+                                                          stage a count, a
+                                                          figure or an earlier
+                                                          layer — never a
+                                                          chain of names)
+    Only a method beat none of these fits keeps \`literal\` null. Two beats in a
+    row never draw the same verb and form (two \`flow\` chains in a row are one
+    chain: merge them, or draw the second as an evolve).
+  - A setup detail (a protocol, a model size, a split) is not a beat: say it in
+    the \`caption\` of the result beat that uses it. An ablation (each setting
+    with its one reported score) is a \`place\` strip: one axis, one dot per
+    setting — combos is for experiments NOT run. A plane names at most 8
+    points beside them (more are keyed), so give the ones the beat is about.
+    \`place\` sets only where what was and was not evaluated are the point.
+  - Learned components are never computed: a \`flow\` stage with \`learned\`
+    true, a box, that may show the source's own \`figure\`.
+  - An evolve lane is as long as its stated total or Σ count·dur; with
+    neither, all lanes have one length and the runs show the difference.
+  - A TABLE IS THE LAST RESORT. Route instead:
+      results against the best other method ..... place, measure margin
+      several methods on one or two metrics ...... place plane or strip (one
+                                                   item per method, its
+                                                   values from its own passage)
+      reported costs (energy, parameters) ........ place, measure length
+      datasets evaluated, limits of a claim ...... place sets
+      future work, ablations not run ............. place combos
+      a loss or a metric over steps .............. place plane, reveal groups,
+                                                   connect (never a line-chart
+                                                   archetype: it stands still)
+      a stated formula's behaviour ............... place plane with curves
+      latency, serial against parallel ........... evolve lanes
+      the things in a picture and what each means  region on the beat citing
+                                                   it, each thing marked with
+                                                   its point, then the outcome
+      a worked example of the method, in lines ... evolve trace, never chips
+                                                   standing in for it
+      an architecture, a pipeline ................ flow chain
+      earlier approaches, family by family ....... prior-work
+    \`table\` only where none is honest, at most once a deck. Each word form
+    (place strip, margin, length, combos, sets) at most ONCE a deck, and two
+    beats in a row never draw the same verb, form and operand.
+  - WHEN A BEAT CITES A PICTURE WHOSE THINGS THE SOURCE EXPLAINS (a driving
+    scene and the factors behind a decision, a scan and its findings, a sample
+    and its defects), prefer \`region\` on that beat over showing the figure
+    small beside text. Name each thing plainly in \`thing\` — what it looks
+    like and where, as you would point it out: the build finds it in the
+    picture, you never give its \`box\` — its point in \`text\`, and the
+    source's conclusion in \`outcome\`. Give \`panel\` when the figure has
+    several. One sentence per thing, in the order the source gives them.
+  - WHEN THE SOURCE HAS A FIGURE THAT WORKS AN EXAMPLE OF THE MECHANISM (its
+    steps written out line by line: tokens proposed, accepted, rejected,
+    corrected; a trace), STEP THROUGH IT with an \`evolve\` trace on the beat that
+    cites it (\`picture\`, \`panel\`, \`read\`: \`plan\` reads its rows off the
+    figure) — one sentence per step or two — rather than
+    drawing generic chips (1, 2, …, γ) or an empty shape for what the figure
+    already shows. The paper's own example beats an invented one.
+  - A verb that takes \`picture\` names the beat whose picture it runs on: this
+    beat or an earlier one carrying a figure or an illustration brief. Use ONE
+    picture for the whole deck: give an early beat a brief for a CLEAR,
+    detailed photograph of the material the method works on, with real edges
+    and texture, and point every picture verb at that beat. It is example
+    material: say so with \`example\`, and on \`operate\` with \`caption\`.
+  - \`labels\` are the scene's few words, in the deck's language, by slot:
+    every required slot listed under the verb, and no slot it does not list.
+    An eyebrow, a caption, a step name and a slot are WORDS OF THE DECK, in its
+    language (a Korean deck's eyebrow is Korean, never "SPECULATIVE
+    DECODING"); only a name — a method, a dataset, a model, as the source
+    writes it — keeps the source's form.
+    There are no defaults. Every number in any label or step name is one the
+    source states. \`{name}\` puts a computed value into a text, where the slot
+    says it may and only when every input is stated.
+  - NAMES ARE THE SOURCE'S. Every method, dataset and condition is written as
+    the source writes it (several separated by ·), and a number is credited
+    only to a name the source states it beside: a lane's numbers beside its
+    members, a margin's two values beside its setting, the method and the
+    rival, a point's values beside its item. A combos cell with a component
+    removed holds only an ablation the source reports; the first set holds
+    only what the source gives a result for.
+
+THE PICTURE, NOT THE WORDS. A deck of text slides is slideware however true
+it is. Text-only beats (split-compare, callout, kinetic, hero-number with no
+\`literal\`) take at most a fifth of the spoken time, never two in a row; a
+kinetic statement is spoken for 8 seconds or less. THE PROBLEM BEAT SHOWS THE
+BOTTLENECK: work done one step at a time is an \`evolve\` of lanes of those serial
+steps against what the method does instead (or of the state step by step), not a sentence about it. The beat whose headline names the
+method's result shows that result as the subject (a \`place\` plane or strip
+on the source's numbers), and its headline names it, so the scene can lead
+with it.
+
+TAKEAWAY. Every beat but the title carries \`takeaway\`: ONE sentence naming
+what the viewer can now explain — a cause, a mechanism, a number and what it
+means. Not a topic ("the module"), and not two points joined by "and": a
+beat with two takeaways is two beats.`;
+}
+
+/**
+ * The prompt blocks that depend on the SOURCE, not just the preferences: the
+ * parts it must cover, when it has them, and the literal kinds, when the build
+ * draws scenes. Empty for a source with no parts and a classic plan, so those
+ * prompts are byte-for-byte what they were.
+ */
+export function sourceBlocks(source: Source, prefs: Prefs): string {
+  const parts = sourceParts(source);
+  const coverage = parts.length
+    ? `
+
+SECTION COVERAGE — this source is an analysis with these parts. The deck covers
+EVERY ONE, IN THIS ORDER, and every beat but the title names its part in \`part\`:
+
+${parts
+  .map(
+    ({ part, sections }) =>
+      `  ${part.padEnd(12)} ${PART_NAMES[part]}\n${sections.map((s) => `               [section ${s.id}] ${s.heading.trim()}`).join("\n")}`,
+  )
+  .join("\n")}
+
+  - Every section listed is cited in \`evidence\` by at least one beat of its
+    part. A part with several sections — an experiment's setup and its results
+    — gets a beat for each.
+  - The title slide covers nothing: the problem gets its own beats after it.
+  - Prior work is what earlier approaches did and where they ran out, as the
+    source says it. Never invent a baseline or a result.
+  - Write as many beats as this takes. A plan that misses a part or a section,
+    or covers the parts out of order, is sent back.`
+    : "";
+  return `${coverage}${bespokeFor(prefs, designFor(prefs)) ? literalScenes() : ""}`;
+}
+
 /**
  * The rules, then the preferences the person asking for the deck chose. They go
  * last because they are the part the model is most likely to drift from, and the
@@ -854,8 +1157,9 @@ FORMAT     This is a CONFERENCE FAST-FORWARD TALK — the one-minute teaser an a
 `
 }`
 }
-LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR — not a ceiling, and not a target to
-           come close to. LOOK FOR THEM IN THE SOURCE'S OWN SUBSTANCE: its prose,
+LENGTH     Write ${prefs.slides} beats. ${prefs.slides} is a FLOOR, and ${Math.floor(prefs.slides * SLIDES_OVER)} is the CEILING: a
+           plan of more is sent back to be merged. A setup beat that only lists
+           what the next beat measures is part of that next beat. LOOK FOR THEM IN THE SOURCE'S OWN SUBSTANCE: its prose,
            and the figures, tables and equations its authors thought worth
            drawing. A plan that comes back with fewer beats has usually stopped
            looking rather than run out, and it is reported as having missed the
@@ -1019,9 +1323,11 @@ export function renderSource(source: Source): string {
   for (const e of source.equations) {
     const fixed = repairTex(e.tex, true);
     const note =
-      fixed.error === null
-        ? ""
-        : " (KaTeX cannot draw this one: a walk shows it as plain source, a morph cannot use it)";
+      escapedCommand(e.tex) !== null
+        ? " (its backslashes were doubled when it was read: no walk or morph can draw it)"
+        : fixed.error === null
+          ? ""
+          : " (KaTeX cannot draw this one: a walk shows it as plain source, a morph cannot use it)";
     out.push(
       `[equation ${e.id}] ${e.display ? "display" : "inline"} — ${fixed.error === null ? fixed.tex : e.tex}${note}`,
     );

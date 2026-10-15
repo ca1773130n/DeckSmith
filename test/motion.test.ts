@@ -469,7 +469,9 @@ describe("a v2 deck, against the plan's M4 targets", () => {
     let reveals = 0;
     for (const [sid, list] of sceneTweens(v2.composition)) {
       for (const t of list) {
-        if (t.from.opacity !== 0 || t.to.opacity !== 1 || t.target === `#${sid}`) continue;
+        // A reveal from nothing, to full or to its preview (`previewed`).
+        if (t.from.opacity !== 0 || !((t.to.opacity as number) > 0) || t.target === `#${sid}`)
+          continue;
         if (list.some((o) => o.target === t.target && o.to.opacity === 0)) continue;
         reveals++;
         expect(

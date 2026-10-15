@@ -62,6 +62,8 @@ const GAP = 0.14;
  * slabs, which is arithmetically correct and is not a field.
  */
 const CELL_MAX = 280;
+/** v2: how much wider than tall a cell may be drawn when the field widens into its room. */
+const V2_STRETCH = 1.6;
 /**
  * A region's outline is centred on the field's edge, so half of it lies outside
  * the field. The frame carries that much on every side — without it a region in
@@ -194,12 +196,12 @@ export const grid: Emitter<"grid"> = (beat, ctx) => {
   const solve = (boxW: number, budget: number): Field => {
     const cell = solveCell(p.cols, p.rows, boxW, budget);
     const gap = cell * GAP;
-    return {
-      cell,
-      gap,
-      w: p.cols * cell + (p.cols - 1) * gap,
-      h: p.rows * cell + (p.rows - 1) * gap,
-    };
+    const w = p.cols * cell + (p.cols - 1) * gap;
+    // v2: the field widens into the room beside it, its cells up to `V2_STRETCH`
+    // times as wide as tall, so a small lattice is not a block in the left third of
+    // the frame (r2's 2×2 ablation filled 37% of the width).
+    const wide = v2 ? Math.min(w * V2_STRETCH, boxW - 2 * MARGIN) : w;
+    return { cell, gap, w: Math.max(w, wide), h: p.rows * cell + (p.rows - 1) * gap };
   };
 
   const innerW = (f: Field, w: number) => w * f.cell + (w - 1) * f.gap - 2 * PAD;

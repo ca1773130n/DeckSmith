@@ -48,6 +48,38 @@ export function texError(tex: string, display: boolean): string | null {
   }
 }
 
+/**
+ * A command whose backslash was doubled on the way in, or null.
+ *
+ * `\\frac{p}{q}` PARSES — KaTeX reads a line break, then the letters f r a c —
+ * so `texError` passes it and the slide says "fracpq". Doubling is what a
+ * markdown escape does to TeX (measured on arXiv 2211.17192, every inline
+ * equation of it). Outside an environment a line break directly before a
+ * letter is not something a formula is written with, so it is refused rather
+ * than guessed at: the fix belongs where the TeX was read, not here.
+ */
+export function escapedCommand(tex: string): string | null {
+  // Inside \begin…\end a row ends with `\\`, and the next row may open on a letter.
+  let depth = 0;
+  const re = /\\(begin|end)\{[^}]*\}|(?<!\\)\\\\([A-Za-z]+)/g;
+  for (const m of tex.matchAll(re)) {
+    if (m[1] === "begin") depth++;
+    else if (m[1] === "end") depth = Math.max(0, depth - 1);
+    else if (depth === 0) return `\\\\${m[2]}`;
+  }
+  return null;
+}
+
+/** The sentence a build fails with for `escapedCommand`'s finding. */
+export function escapedCommandError(where: string, id: string, tex: string): string | null {
+  const hit = escapedCommand(tex);
+  return hit === null
+    ? null
+    : `${where}: ${id} holds ${JSON.stringify(hit)}, a command whose backslash was doubled, ` +
+        `which KaTeX draws as a line break and the letters ${JSON.stringify(hit.slice(2))}. ` +
+        `Formula: ${JSON.stringify(tex)}. Re-ingest the source; do not draw it.`;
+}
+
 export interface Repaired {
   /** The TeX to render: the input when it parsed, otherwise the repaired form. */
   tex: string;

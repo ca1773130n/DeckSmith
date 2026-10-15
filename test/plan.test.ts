@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { codexCommand, codexPlanner, SCHEMA, schemaFor } from "../src/plan/codex.js";
 import { renderSource } from "../src/plan/prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "../src/plan/refs.js";
-import { prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
+import { literalSchema, prefsSchema, sourceSchema, storyboardSchema } from "../src/types.js";
 
 const source = sourceSchema.parse({
   id: "thinksr",
@@ -391,7 +391,7 @@ describe("codexPlanner variety repair", () => {
     expect(repaired).toEqual([
       [expect.stringMatching(/b01-arch and b01b-arch are both `claim-figure`/)],
     ]);
-    expect(prompts[1]).toContain("IS REFUSED FOR");
+    expect(prompts[1]).toContain("BREAKS THE VARIETY RULES");
     // The reasons themselves, not just the header: a repair asked for blind
     // re-rolls the shapes instead of fixing the named ones.
     for (const reason of repaired[0] ?? []) expect(prompts[1]).toContain(`  - ${reason}`);
@@ -404,6 +404,18 @@ describe("codexPlanner variety repair", () => {
     ]);
   });
 
+  it("keeps a plan the second repair fixes", async () => {
+    const prompts: string[] = [];
+    const result = await codexPlanner(source, {
+      run: async ({ prompt, outPath }) => {
+        prompts.push(prompt);
+        await writeFile(outPath, prompts.length < 3 ? adjacent : reordered);
+      },
+    });
+    expect(prompts).toHaveLength(3);
+    expect(result.beats.map((b) => b.id)).toContain("b01b-arch");
+  });
+
   it("refuses a repair that drops beats, even when what is left is varied", async () => {
     let calls = 0;
     await expect(
@@ -414,7 +426,7 @@ describe("codexPlanner variety repair", () => {
         },
       }),
     ).rejects.toThrow(/returned 3 beats for a plan of 4/);
-    expect(calls).toBe(2);
+    expect(calls).toBe(4);
   });
 
   // Each ask starts from an empty out file, so a second run that writes nothing
@@ -441,8 +453,8 @@ describe("codexPlanner variety repair", () => {
           await writeFile(outPath, adjacent);
         },
       }),
-    ).rejects.toThrow(/variety rule .* after one repair:\n.*b01b-arch/s);
-    expect(calls).toBe(2);
+    ).rejects.toThrow(/variety rule .* after 3 repairs:\n.*b01b-arch/s);
+    expect(calls).toBe(4);
   });
 
   // A schema or reference miss is one number or one id: it goes through the same one
@@ -624,6 +636,50 @@ describe("the schema handed to Codex", () => {
     expect(off).not.toMatch(/"(illustration|backdrop)"/);
     expect(on).toMatch(/"illustration"/);
     expect(on).toMatch(/"backdrop"/);
+    // With the brief gone a figure archetype's id is its only picture, so it
+    // cannot be declined with null (claim-figure and stage, 2026-10-14).
+    const nullableIds = (s: string) =>
+      (s.match(/"figureId":\{"anyOf":\[\{"type":"string"\},\{"type":"null"\}\]\}/g) ?? []).length;
+    expect(nullableIds(off)).toBe(0);
+    expect(nullableIds(on)).toBeGreaterThanOrEqual(2);
+  });
+
+  it("offers operate as a formula with terms, or as a chain, never neither", () => {
+    const variants: Array<{ properties: Record<string, unknown> }> = [];
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) {
+        n.forEach(walk);
+        return;
+      }
+      if (!n || typeof n !== "object") return;
+      const p = (n as { properties?: { kind?: { const?: string } } }).properties;
+      if (p?.kind?.const === "operate") variants.push(n as (typeof variants)[number]);
+      Object.values(n).forEach(walk);
+    };
+    // `literal` is offered only to a deck that draws scenes: v2.
+    walk(schemaFor(prefsSchema.parse({ design: "v2" })));
+    // One pair per place a literal is offered (the union is inlined per archetype).
+    const formulas = variants.filter((v) => "terms" in v.properties);
+    const chains = variants.filter((v) => "chain" in v.properties);
+    expect(formulas.length).toBeGreaterThan(0);
+    expect(formulas.length + chains.length).toBe(variants.length);
+    expect(chains).toHaveLength(formulas.length);
+    for (const formula of formulas) {
+      // The formula's three fields are required, not nullable; no chain beside them.
+      for (const k of ["equation", "given", "terms"])
+        expect((formula.properties[k] as { anyOf?: unknown }).anyOf).toBeUndefined();
+      expect(formula.properties).not.toHaveProperty("chain");
+    }
+    for (const chain of chains) expect(chain.properties).not.toHaveProperty("equation");
+    // Absent keys parse back to zod's defaults: the storyboard schema is unchanged.
+    expect(
+      literalSchema.parse({
+        kind: "operate",
+        equation: "x",
+        given: [],
+        terms: { term: "a", from: 0, to: "1", combine: "sum" },
+      }).kind,
+    ).toBe("operate");
   });
 
   it("offers claim-figure both a figureId and a brief, each declinable with null", () => {

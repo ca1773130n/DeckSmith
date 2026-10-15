@@ -9,10 +9,10 @@
 import type { Term } from "../../types.js";
 import { fitOf, isV2 } from "../fit.js";
 import type { Emitter, Theme, Vars } from "../kit.js";
-import { contentW, esc, js, raw, spotlighter } from "../kit.js";
+import { contentW, DIM, esc, js, previewed, raw, spotlighter } from "../kit.js";
 import { frameOf } from "../look.js";
 import { MIN_FONT } from "../svg.js";
-import { repairTex, texError, UNFIT_ATTR } from "../tex.js";
+import { escapedCommandError, repairTex, texError, UNFIT_ATTR } from "../tex.js";
 import { ambient, BREATHE } from "../theme.js";
 import { TYPE_SCALE } from "../type.js";
 import {
@@ -28,6 +28,9 @@ import {
 /** v2: the legend's type — a body line (`TYPE_SCALE`) — and the air between its rows. Classic is 48 and 30. */
 const LEG_SIZE_V2 = TYPE_SCALE.body;
 const LEG_GAP_V2 = 36;
+/** v2: after the walk, the second, slower pass of the light: its start and its step. */
+const REWALK_GAP = 2.5;
+const REWALK_STEP = 3;
 /** `.eqslide`'s minimum gap between the equation and its legend. */
 const EQ_GAP = 64;
 
@@ -286,6 +289,8 @@ export function prepareWalk(
   terms: readonly Term[],
   beatId: string,
 ): PreparedWalk {
+  const doubled = escapedCommandError(`equation-walk ${beatId}`, eq.id, eq.tex);
+  if (doubled) throw new Error(doubled);
   const fixed = repairTex(eq.tex, true);
   const notes = fixed.repairs.map((r) => `${eq.id} repaired before drawing: ${r}`);
   const repairedTerms = terms.map((t) => ({ ...t, tex: repairTex(t.tex, false).tex }));
@@ -471,6 +476,11 @@ const PLAIN_FONT_V2 = TYPE_SCALE.body;
  * callback (invariant 11). The terms keep their `\htmlClass` wrappers across a
  * re-render, so the walk's tweens find them either way.
  */
+/** The share of the box's width a display grows toward when it fits small. */
+const EQ_SPAN = 0.62;
+/** The most a fitting display grows over its estimated size. */
+const EQ_GROW = 1.8;
+
 function mathFit(
   sid: string,
   targets: string[],
@@ -513,7 +523,20 @@ function mathFit(
                   }
                   return fits(each);
                 }
-                if (fits(false)) return "fits";
+                if (fits(false)) {
+                  // Small on a wide box, it GROWS toward ${Math.round(EQ_SPAN * 100)}% of the width, as far as the
+                  // slide's height allows (r3: a formula over 45% of the width, y 300-700 empty).
+                  var s0 = parseFloat(box.style.fontSize);
+                  var e0 = extent(false);
+                  if (!(e0 > 0) || e0 >= ${EQ_SPAN} * bw) return "fits";
+                  var grown = Math.floor(Math.min(s0 * ${EQ_GROW}, (s0 * ${EQ_SPAN} * bw) / e0));
+                  box.style.fontSize = grown + "px";
+                  while (!fits(false) && grown > s0) {
+                    grown = Math.max(s0, grown - 2);
+                    box.style.fontSize = grown + "px";
+                  }
+                  return grown > s0 ? "grown" : "fits";
+                }
                 var size = parseFloat(box.style.fontSize);
                 if (settle(false, (size * bw) / extent(false))) return "scaled";
                 targets.forEach(function (t, i) { katex.render("\\\\displaystyle " + TEX[i], t, ${INLINE_OPTS}); });
@@ -776,12 +799,19 @@ ${slide}`;
     const at = first + i * step;
     const colour = theme.tones[term.tone];
     tl.push(
-      tween(
-        `#${sid}-leg-${term.tone}`,
-        { opacity: 0, x: -18 },
-        { opacity: 1, x: 0, duration: 0.5 },
-        at,
-      ),
+      // v2: every legend entry stands at PREVIEW from the open, so each hold shows
+      // the whole walk (the fill gate measures every hold); it comes to full on
+      // its term's cue.
+      ...(v2
+        ? previewed(`#${sid}-leg-${term.tone}`, { opacity: 0 }, { opacity: 1, duration: 0.5 }, at)
+        : [
+            tween(
+              `#${sid}-leg-${term.tone}`,
+              { opacity: 0, x: -18 },
+              { opacity: 1, x: 0, duration: 0.5 },
+              at,
+            ),
+          ]),
       ...spot.lit(`.t-${term.tone}`, at),
       // The tint stays for the rest of the slide — it is what ties the symbol to
       // its legend chip. Only the swell is taken back, on the next term's cue.
@@ -820,6 +850,40 @@ ${slide}`;
       // the argument, and what it leaves behind is the whole line, readable.
       ...spot.restore(at),
     );
+    // v2: while the narration goes on over the whole line, the light walks the
+    // terms once more, slowly, so the slide is not still for the rest of its
+    // sentences (r3 B s8: 6.5s of nothing but the lean, which the dead-stretch
+    // gate fails). After the last hold, so every hold frame is as before.
+    if (v2) {
+      const again = at + REWALK_GAP;
+      const leg = (term: Term) => `#${sid}-leg-${term.tone}`;
+      const fade = (term: Term, from: number, to: number, t: number) =>
+        tween(leg(term), { opacity: from }, { opacity: to, duration: 0.45, ...later }, t);
+      // The legend's rows step back with the equation's terms, the spoken one forward.
+      tl.push(...terms.slice(1).map((term) => fade(term, 1, DIM, again)));
+      terms.forEach((term, i) => {
+        const t = again + i * REWALK_STEP;
+        const prev = terms[i - 1];
+        if (prev) tl.push(fade(prev, 1, DIM, t), fade(term, DIM, 1, t));
+        tl.push(
+          ...spot.lit(`.t-${term.tone}`, t),
+          tween(
+            `#${sid} .t-${term.tone}`,
+            { scale: 1 },
+            { scale: swell(term), duration: 0.5, ...later },
+            t,
+          ),
+          tween(
+            `#${sid} .t-${term.tone}`,
+            { scale: swell(term) },
+            { scale: 1, duration: 0.4, ...later },
+            t + REWALK_STEP - 1.2,
+          ),
+        );
+      });
+      const end = again + terms.length * REWALK_STEP;
+      tl.push(...spot.restore(end), ...terms.slice(0, -1).map((term) => fade(term, DIM, 1, end)));
+    }
   }
 
   // v2's prediction. ESTIMATED rather than solved, unlike the SVG archetypes:
@@ -843,10 +907,6 @@ ${slide}`;
       `equation-walk ${beat.id}: the display and its legend need more than the ${Math.round(region)}px a foot headline leaves`,
     );
   }
-  const legSize = grows ? LEG_SIZE_V2 : 48;
-  const legGap = grows ? LEG_GAP_V2 : 30;
-  const legH = legHeight(legSize, legGap);
-  const slack = Math.max(0, region - eqH - legH - EQ_GAP);
 
   return {
     html,
@@ -855,7 +915,9 @@ ${slide}`;
     measure,
     ...(walk.notes.length ? { warnings: walk.notes } : {}),
     holds: holdsWithin(holds, beat.seconds),
-    ...(v2 ? { fit: fitOf(eqH + EQ_GAP + legH + slack / 3, region) } : {}),
+    // v2 spreads the equation to the top of the box and the legend to its foot,
+    // so the painted extent is the box.
+    ...(v2 ? { fit: fitOf(region, region) } : {}),
     css: [
       chromeCss(theme),
       // `flex:1`, not `height:68vh`. 68vh is 734px measured against the viewport,
@@ -887,7 +949,18 @@ ${slide}`;
       ".term{display:inline-block}",
       legendCss(theme, v2),
       // Scoped, because `legendCss` is the shared block every walk emits once.
-      ...(grows ? [`#${sid} .legend{gap:${LEG_GAP_V2}px}`] : []),
+      // v2: the equation at the top of the box and the legend across its foot, its
+      // entries spread edge to edge — the content's own box is the region, which
+      // the fill gate measures at every hold.
+      ...(grows
+        ? [
+            `#${sid} .eqslide{justify-content:space-between}`,
+            // Each entry a row across the box, its meaning beside its symbol: r3 set the
+            // meaning at the right edge, 1500px from the symbol it explains.
+            `#${sid} .legend{width:100%;margin-inline:0}`,
+            `#${sid} .leg{max-width:none;justify-content:flex-start;align-items:center}`,
+          ]
+        : []),
       // The block, not the term under discussion: which term that is, is a fact
       // about the paused timeline, and CSS cannot see it. The terms are also the
       // one thing here GSAP tints and swells, so a rule on them would win the

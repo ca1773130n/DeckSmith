@@ -3,6 +3,8 @@ import { DEFAULT_POSE, depthCss, scaleAt, tiltedFloor, worstScale } from "../src
 import {
   arrow,
   arrowDefs,
+  atomsOf,
+  captionFit,
   circle,
   cutsWord,
   elbow,
@@ -230,6 +232,33 @@ describe("cutsWord", () => {
   });
 });
 
+describe("captionFit", () => {
+  // arXiv's own Figure 1 caption for speculative decoding, 597 characters.
+  const LONG =
+    "Figure 1: Our technique illustrated in the case of unconditional language modeling. Each line represents one iteration of the algorithm. The green tokens are the suggestions made by the approximation model (here, a GPT-like Transformer decoder with 6M parameters trained on lm1b with 8k tokens) that the target model accepted, while the red and blue tokens are the rejected suggestions and their corrections, respectively.";
+
+  it("sets the first sentence when it fits", () => {
+    expect(captionFit(LONG, 40, 1500, 2)).toBe(
+      "Figure 1: Our technique illustrated in the case of unconditional language modeling.",
+    );
+  });
+
+  it("cuts at a word with a typed ellipsis inside the lines, never leaving it to a clamp", () => {
+    const cut = captionFit(LONG, 40, 600, 2);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(cut.startsWith("Figure 1: Our technique")).toBe(true);
+    expect(wrap(cut, 40, 600).length).toBeLessThanOrEqual(2);
+  });
+
+  it("cuts a caption with no spaces between characters", () => {
+    const zh =
+      "图1：本文方法在无条件语言建模中的示意图，每一行代表算法的一次迭代，绿色为近似模型提出并被接受的词元";
+    const cut = captionFit(zh, 40, 400, 2, "cjk");
+    expect(cut.endsWith("…")).toBe(true);
+    expect(wrap(cut, 40, 400, 400, 0, "cjk").length).toBeLessThanOrEqual(2);
+  });
+});
+
 describe("wrap", () => {
   it("keeps every line inside the width", () => {
     const lines = wrap("Encoder maps the image into a latent feature volume", 40, 400);
@@ -243,6 +272,17 @@ describe("wrap", () => {
     expect(lines.length).toBeGreaterThan(1);
     for (const l of lines) expect(textWidth(l, 40)).toBeLessThanOrEqual(200);
     expect(lines.join("")).toBe("영상복원파이프라인단계");
+  });
+
+  it("never breaks inside a number or a Latin name in a run with no spaces", () => {
+    // r2's ablation grid: "完整OneVL：88.84" set as "…88" / ".84".
+    expect(atomsOf("完整OneVL：88.84")).toEqual(["完", "整", "OneVL：", "88.84"]);
+    for (const w of [180, 220, 260, 320]) {
+      const lines = wrap("完整OneVL：88.84", 40, w);
+      expect(lines.join("")).toBe("完整OneVL：88.84");
+      expect(lines.some((l) => l.includes("88.84"))).toBe(true);
+      expect(lines.some((l) => l.includes("OneVL"))).toBe(true);
+    }
   });
 
   it("never returns nothing", () => {

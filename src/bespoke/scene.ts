@@ -48,6 +48,12 @@ export interface BespokeEntry {
   /** The beat's illustration, when it has one: `<image data-art="1">` shows it (src/bespoke/art.ts). */
   art?: ArtRef;
   /**
+   * The section name above the headline when the beat's archetype has no
+   * `eyebrow` of its own (a stage, a kinetic beat): a literal scene's `eyebrow`
+   * slot. The archetype's own eyebrow wins.
+   */
+  eyebrow?: string;
+  /**
    * The narration cues on the scene's clock and its length, from the same
    * timing the cue windows came from: what the shell's camera is timed to
    * (src/bespoke/shots.ts). Present on an illustrated scene.
@@ -57,6 +63,12 @@ export interface BespokeEntry {
   grammar?: Grammar;
   /** A data scene's build (src/bespoke/databuild.ts), stamped on the scene for the deck gate. */
   build?: DataBuild;
+  /**
+   * Clip the body to its box, as a camera scene is. A literal scene (src/literal/) sets it:
+   * its pictures move inside their own clipped panels (a push-in on a detail), and the
+   * clip is what tells the layout gate that what they carry past a panel is not painted.
+   */
+  clip?: true;
 }
 
 /** The file `build` writes beside a deck with the bespoke pass's account of itself. */
@@ -68,13 +80,23 @@ export type BespokeMap = Readonly<Record<string, BespokeEntry>>;
 /** Space the body box leaves under the chrome — the same 34px `bodyBudget` charges by default. */
 export const BODY_TOP = 34;
 
-/** The box the generated drawing gets, in reference px. The prompt quotes it. */
-export function bespokeRegion(beat: Beat, ctx: Pick<EmitContext, "format" | "theme">) {
+/**
+ * The box the generated drawing gets, in reference px. The prompt quotes it.
+ * `eyebrow` is the scene's own section name when the archetype has none
+ * (`BespokeEntry.eyebrow`): it takes a line of the chrome too.
+ */
+export function bespokeRegion(
+  beat: Beat,
+  ctx: Pick<EmitContext, "format" | "theme">,
+  eyebrow?: string,
+) {
   const p = beat.params as { eyebrow?: string; headline: string };
   const face = faceOf(ctx.theme.fontStack);
   return {
     width: contentW(ctx.format),
-    height: Math.round(bodyBudget(ctx.format, p.eyebrow, p.headline, 0, BODY_TOP, 320, face)),
+    height: Math.round(
+      bodyBudget(ctx.format, p.eyebrow ?? eyebrow, p.headline, 0, BODY_TOP, 320, face),
+    ),
   };
 }
 
@@ -309,13 +331,14 @@ export function usesMorph(script: string): boolean {
 }
 
 export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry): Scene {
-  const p = beat.params as { eyebrow?: string; headline: string };
+  const own = beat.params as { eyebrow?: string; headline: string };
+  const p = { headline: own.headline, eyebrow: own.eyebrow ?? entry.eyebrow };
   const { sid, theme } = ctx;
   const face = faceOf(theme.fontStack);
   const f = instantiate(entry.fragment, sid);
   // ROUND 6: a picture cut into depth planes makes the scene a full-frame shot.
   const cine = entry.art?.depth !== undefined;
-  const { width, height } = cine ? cineRegion(ctx.format) : bespokeRegion(beat, ctx);
+  const { width, height } = cine ? cineRegion(ctx.format) : bespokeRegion(beat, ctx, p.eyebrow);
   // An illustrated scene is STAGED by the shell (round 4): its subjects are
   // known boxes, and the camera follows the scene's shot list in its grammar
   // (src/bespoke/shots.ts) — in round 6 through the picture's depth planes.
@@ -348,7 +371,7 @@ export function bespokeScene(beat: Beat, ctx: EmitContext, entry: BespokeEntry):
   // SVG, which a viewBox camera does not. A scene that moves it is clipped to
   // its box, so a push-in never paints over the headline. A viewBox camera
   // (an `attr: { viewBox }` tween) zooms past the box as well.
-  const camera = cine || usesCamera(script) || /\bviewBox\b/.test(script);
+  const camera = cine || usesCamera(script) || /\bviewBox\b/.test(script) || entry.clip === true;
   const box = `<div class="ds-bespoke${cine ? " ds-cine" : ""}" id="${sid}-g"${camera ? " data-ds-clip" : ""}${subjects.length ? ` data-ds-grammar="${staged.grammar}"` : ""}${entry.build ? ` data-ds-build="${entry.build}"` : ""}${depth ? ` data-ds-depth="${depth.planes.length}"` : ""}>
 ${cine && art ? depthLayers(sid, art, width, height, theme, chromeBand(beat, ctx)) : ""}
 <div class="ds-cam" id="${sid}-cam">

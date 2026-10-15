@@ -220,6 +220,12 @@ export interface EmitContext {
   format: Format;
   theme: Theme;
   /**
+   * The deck's language (the storyboard's BCP-47 `lang`). A figure's own caption
+   * is printed only when it is written in it (`inLanguage`). Absent: printed as
+   * before.
+   */
+  lang?: string;
+  /**
    * This scene's root element id, e.g. `"s3"`. Every GSAP selector must be
    * scoped with it — an unscoped class selector reaches into other scenes and
    * `hyperframes lint` rejects it (`unscoped_gsap_selector`).
@@ -616,6 +622,39 @@ export function js(s: string): string {
 export const DIM = 0.62;
 
 /**
+ * Where a v2 part not yet spoken stands, from the scene's open: the whole
+ * layout is on screen at every hold — the fill gate measures the content's box
+ * at each one (src/verify/fill.ts) — and a part comes to full when it is spoken.
+ * Below `DIM` on purpose: it reads as "coming", not as "said".
+ */
+export const PREVIEW = 0.32;
+/**
+ * When the preview fades up, scene seconds: after the seam into the scene (the
+ * outgoing slide is gone by then, so nothing previewed overlaps its words) and
+ * before the first hold.
+ */
+export const PREVIEW_AT = 0.5;
+const PREVIEW_FADE = 0.4;
+
+/**
+ * A v2 part's two tweens: up to `PREVIEW` as the scene opens, then to `to` at
+ * `at`, from where the preview left it. A part revealed during the opening
+ * keeps its plain entrance, since its preview would not be seen.
+ */
+export function previewed(target: string, from: Vars, to: Vars, at: number): Tween[] {
+  if (at <= PREVIEW_AT + PREVIEW_FADE) return [fromTo(target, from, to, at)];
+  return [
+    fromTo(
+      target,
+      { ...from, opacity: 0 },
+      { opacity: PREVIEW, duration: PREVIEW_FADE },
+      PREVIEW_AT,
+    ),
+    fromTo(target, { ...from, opacity: PREVIEW }, { ...to, immediateRender: false }, at),
+  ];
+}
+
+/**
  * How much bigger the part under discussion stands than its neighbours.
  *
  * UP, AND ONLY UP. The obvious way to say "this one matters" is to shrink the
@@ -933,4 +972,28 @@ export function wordAtoms(text: string): { text: string; spaced: boolean }[] {
     if (carry) push("");
   }
   return out;
+}
+
+/**
+ * Whether `text` is written in the script of `lang`: Hangul for Korean, kana or
+ * Han for Japanese, Han for Chinese, and no CJK at all for any other language.
+ * A heuristic on script, which is what an untranslated caption gets wrong.
+ */
+export function inLanguage(text: string, lang: string): boolean {
+  const l = lang.toLowerCase();
+  if (l.startsWith("ko")) return /\p{Script=Hangul}/u.test(text);
+  if (l.startsWith("ja"))
+    return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text);
+  if (l.startsWith("zh")) return /\p{Script=Han}/u.test(text);
+  return !/[\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text);
+}
+
+/** The caption a figure prints: the plan's own, else the source's when it is in the deck's language, else none. */
+export function figureCaption(
+  planned: string | undefined,
+  source: string,
+  lang: string | undefined,
+): string {
+  if (planned?.trim()) return planned.trim();
+  return !lang || inLanguage(source, lang) ? source : "";
 }

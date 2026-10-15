@@ -274,6 +274,20 @@ describe("annotated-figure column solver", () => {
     expect(a.ok && b.ok).toBe(true);
   });
 
+  it("sets labels in a column of 360px at least, when they need it", () => {
+    // r1: three notes on a wide trace diagram, set in a 170px column on 3-4 lines.
+    const trace = { width: 1600, height: 400 };
+    const notes: FigureNote[] = [
+      { x: 0.46, y: 0.17, text: "γ=7: 검증 전 초안 7회" },
+      { x: 0.46, y: 0.5, text: "γ=3: 검증 전 초안 3회" },
+      { x: 0.46, y: 0.84, text: "표준 디코딩: 대상 모델 반복" },
+    ];
+    const plan = planFigure(STAGE_W, notes, trace, 640, false, "cjk");
+    expect(plan.ok).toBe(true);
+    expect(plan.col).toBeGreaterThanOrEqual(360);
+    expect(Math.max(...plan.boxes.map((b) => b.lines.length))).toBeLessThanOrEqual(2);
+  });
+
   it("gives the labels the margin a portrait figure leaves behind", () => {
     const wideFig = planFigure(
       STAGE_W,

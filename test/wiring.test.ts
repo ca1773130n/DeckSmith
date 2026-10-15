@@ -125,6 +125,9 @@ function narrationIsland(page: string): {
  * `ds-morph` already held this line the same way. If you have deliberately
  * changed what an un-reshaped deck emits, re-take the digest and say so in the
  * commit — do not delete the test.
+ *
+ * Re-taken 2026-10-12: the line chart's values now sit off its line (the first
+ * value moves; same byte count, no plugin).
  */
 const CHARTED = storyboardSchema.parse({
   ...storyboard,
@@ -153,7 +156,7 @@ describe("a deck that reshapes nothing", () => {
   it("is byte-for-byte what it was before MorphSVG was vendored", () => {
     const html = emitComposition(CHARTED, source, deck);
     expect(createHash("sha256").update(html).digest("hex")).toBe(
-      "b8ebf8f382cb05c66680fecc0dca96060e4a2b8c6a43d07ef591b54ad42e1d8a",
+      "c3ebb222d20ae21f6df2a7a3cdceec306e0f786228569e74f9db06a8f3a38440",
     );
     expect(Buffer.byteLength(html, "utf8")).toBe(14226);
     expect(html).not.toContain("MorphSVGPlugin");

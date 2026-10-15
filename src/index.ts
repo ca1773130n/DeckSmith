@@ -524,6 +524,7 @@ export async function buildDeck(
       // format cuts to its own length as well, and the two lists differ.
       beats: deck.cut.kept,
       speed,
+      design,
       ...(opts.narration ? { narration: opts.narration } : {}),
       ...(opts.theme ? { theme: opts.theme } : {}),
       ...(opts.bespoke ? { bespoke: opts.bespoke } : {}),

@@ -113,3 +113,9 @@ pilotB01.png
 # default in the justfile — which is how a machine's own choices (a non-loopback
 # DECKSMITH_HOST, a tighter rate limit) stay out of everyone else's checkout.
 .env
+
+# The literal mechanism kinds' judge frames and previews: regenerated from the
+# parameters in test/fixtures/literal-judge/*.json by
+# `scripts/literal-kinds-preview.ts --judge`. The repo is public and the frames
+# are derived, so the PNGs never enter the history.
+.cache/

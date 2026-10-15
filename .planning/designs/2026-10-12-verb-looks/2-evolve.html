@@ -1,0 +1,46 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+.wrap{display:flex;gap:56px;margin-top:44px}
+.rows{flex:1;display:flex;flex-direction:column;gap:14px}
+.r{display:flex;align-items:center;gap:22px;font-size:42px;height:80px;padding:0 24px;border-radius:14px}
+.r .i{width:44px;color:var(--dim);font-size:40px;text-align:right}
+.r .pre{color:var(--dim)}
+.g{color:var(--d)}.x{color:var(--c);text-decoration:line-through;text-decoration-thickness:4px}.c{color:var(--a)}
+.r.old{opacity:.6}
+.r.now{background:var(--panel);outline:3px solid var(--rule);opacity:1}
+.side{width:500px;display:flex;flex-direction:column;gap:34px;padding-top:12px}
+.k{display:flex;align-items:center;gap:20px;font-size:40px}
+.sw{width:38px;height:38px;border-radius:8px;flex:none}
+.note{word-break:keep-all;font-size:40px;line-height:1.35;color:var(--muted);border-top:2px solid var(--rule);padding-top:30px}
+.note b{color:var(--fg);font-weight:600}
+</style></head><body><div class="stage">
+<h1>한 줄이 목표 모델 한 번 — 초안을 받고, 틀린 곳부터 고친다</h1>
+<div class="wrap">
+  <div class="rows mono" id="rows"></div>
+  <div class="side">
+    <div class="k"><span class="sw" style="background:var(--d)"></span>수락된 초안</div>
+    <div class="k"><span class="sw" style="background:var(--c)"></span>거절된 초안</div>
+    <div class="k"><span class="sw" style="background:var(--a)"></span>목표 모델의 수정</div>
+    <div class="note">초안: 6M 모델<br>검증: 97M 모델<br><br>첫 줄에서 목표 모델은 <b>한 번</b> 실행되고 <b>5개</b> 토큰이 나왔다</div>
+  </div>
+</div>
+</div>
+<script>
+// evolve: the paper's Fig 1 trace, one row per iteration. [tail of accepted prefix, accepted, rejected, correction]
+const steps = [
+  ['[START]', "japan ' s benchmark", 'bond', 'n'],
+  ['… benchmark n', 'ikkei 22', ',', '5'],
+  ['… nikkei 225', 'index rose 22', '.', '6'],
+  ['… rose 226', '. 69', ',', 'points'],
+  ['… 69 points', ', or', '0', '1'],
+  ['… or 1', '. 5 percent , to 10 , 98', '5', '9'],
+  ['… 10 , 989', '. 79', '.', 'in'],
+  ['… . 79 in', '', 'tokyo', 'late'],
+  ['… in late', 'morning trading . [END]', '', ''],
+];
+const now = 7; // the frame's moment: row 8, "tokyo" rejected → "late"
+document.getElementById('rows').innerHTML = steps.map(([p, g, x, c], i) =>
+  `<div class="r ${i < now ? 'old' : i === now ? 'now' : 'old'}"><span class="i">${i + 1}</span>
+   <span class="pre">${p}</span>${g ? `<span class="g">${g}</span>` : ''}${x ? `<span class="x">${x}</span>` : ''}${c ? `<span class="c">${c}</span>` : ''}</div>`).join('');
+</script></body></html>

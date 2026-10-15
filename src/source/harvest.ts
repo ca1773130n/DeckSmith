@@ -211,7 +211,7 @@ export type Block =
   | { kind: "paragraph"; text: string }
   | { kind: "code"; text: string }
   | { kind: "list"; ordered: boolean; items: string[] }
-  | { kind: "table"; columns: string[]; rows: string[][] }
+  | { kind: "table"; columns: string[]; rows: string[][]; caption?: string }
   | { kind: "image"; src: string; alt: string; caption: string }
   | { kind: "video"; src: string; poster: string; href: string; caption: string };
 
@@ -568,6 +568,15 @@ function readDom(marker: string): Seen {
       out.push(block);
       return;
     }
+    // A figure holding a table is a captioned table (arXiv's LaTeXML writes every
+    // `\begin{table}` so). Read as words, arXiv 2211.17192's Table 2 came out as
+    // one paragraph of 72 numbers and no table at all.
+    const grid = el.querySelector("table");
+    const table = grid && !isEquation(grid) ? tableOf(grid) : undefined;
+    if (table) {
+      out.push(caption ? { ...table, caption } : table);
+      return;
+    }
     const text = words(el);
     if (text) out.push({ kind: "paragraph", text });
   }
@@ -635,8 +644,26 @@ function readDom(marker: string): Seen {
     };
   }
 
+  /**
+   * A display equation laid out as a table: LaTeXML's numbered equations are
+   * `<table class="ltx_equation">`. Read as a table they were five "tables"
+   * of one row each, the formula doubled (MathML text, then its TeX).
+   */
+  function isEquation(el: Element): boolean {
+    return /\bltx_(?:equation|equationgroup|eqn_table)\b/.test(el.getAttribute("class") ?? "");
+  }
+
+  /** The TeX a page carries for its math, as `$…$` spans; "" when it carries none. */
+  function texOf(el: Element): string {
+    return [...el.querySelectorAll('annotation[encoding="application/x-tex"]')]
+      .map((a) => (a.textContent ?? "").replace(/\s+/g, " ").trim())
+      .filter((t) => t && !t.includes("$"))
+      .map((t) => `$${t}$`)
+      .join(" ");
+  }
+
   /** The first row is the header, whether or not the page spelled it `<th>`. */
-  function tableOf(el: Element): Block | undefined {
+  function tableOf(el: Element): Extract<Block, { kind: "table" }> | undefined {
     const rows = [...el.querySelectorAll("tr")].map((tr) =>
       [...tr.children].filter((c) => c.tagName === "TD" || c.tagName === "TH").map(words),
     );
@@ -663,6 +690,11 @@ function readDom(marker: string): Seen {
       return;
     }
     if (tag === "table") {
+      if (isEquation(el)) {
+        const tex = texOf(el);
+        if (tex) out.push({ kind: "paragraph", text: tex });
+        return;
+      }
       const table = tableOf(el);
       if (table) out.push(table);
       return;
@@ -1665,6 +1697,8 @@ export function toMarkdown(blocks: readonly Block[]): string {
         break;
       case "table":
         out.push(pipes(item.columns, item.rows));
+        // `parseMarkdown` captions a table with the italic paragraph after it.
+        if (item.caption) out.push(`*${inline(item.caption)}*`);
         break;
       case "image":
         out.push(`![${inline(item.alt)}](${destination(item.src)})`);
@@ -1706,15 +1740,39 @@ export function toMarkdown(blocks: readonly Block[]): string {
  */
 function inline(text: string): string {
   return (
-    text
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/([\\`*_[\]<>])/g, "\\$1")
+    escapeOutsideMath(text.replace(/\s+/g, " ").trim())
       .replace(/^(#{1,6}\s|[-+]\s)/, "\\$&")
       // `\1.` is not an escape — CommonMark only escapes ASCII punctuation, so the
       // backslash would survive into the text. Escape the dot instead.
       .replace(/^(\d{1,9})([.)]\s)/, "$1\\$2")
   );
+}
+
+/**
+ * A `$…$` or `$$…$$` span, as remark-math reads one inside a paragraph: an
+ * opening run of dollars closed by a run of the same length.
+ */
+const MATH_SPAN = /(\${1,2})(?!\$)[^$]+?\1(?!\$)/g;
+
+/**
+ * Escape the markdown punctuation in `text`, except inside math spans.
+ *
+ * remark-math keeps a math span's content RAW, the way a code span is kept: no
+ * backslash escape inside it is ever undone. So escaping there is not a
+ * no-op, it rewrites the TeX. Measured on arXiv 2211.17192, whose page carries
+ * TeX the converter left as text: `$\frac{p(x)}{q(x)}$` came back as
+ * `\\frac{p(x)}{q(x)}`, which KaTeX draws as a line break and the word "frac",
+ * and `$q(x)>p(x)$` came back as `q(x)\>p(x)`, a space where the `>` was.
+ */
+function escapeOutsideMath(text: string): string {
+  const esc = (s: string) => s.replace(/([\\`*_[\]<>])/g, "\\$1");
+  let out = "";
+  let at = 0;
+  for (const m of text.matchAll(MATH_SPAN)) {
+    out += esc(text.slice(at, m.index)) + m[0];
+    at = m.index + m[0].length;
+  }
+  return out + esc(text.slice(at));
 }
 
 /**

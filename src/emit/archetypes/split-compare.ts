@@ -24,7 +24,7 @@
 import type { Figure } from "../../types.js";
 import { fitOf, isV2 } from "../fit.js";
 import type { Emitter, ListForm, Theme } from "../kit.js";
-import { esc, spotlighter } from "../kit.js";
+import { esc, previewed, spotlighter } from "../kit.js";
 import { frameOf, variantOf } from "../look.js";
 import type { Box } from "../svg.js";
 import {
@@ -326,9 +326,14 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     // block in the middle of it. The cap is half a line: at a full line the three
     // bullets came apart into three unrelated sentences, which is worse than the
     // band it was spending — a list has to still read as one list.
+    // v2 spreads the list down the whole column, its last item at the foot: the
+    // fill gate measures the content's box at every hold (r3 C s6: 49%).
     const spread =
       !fig && list.length > 1
-        ? Math.min(itemSize * 0.5, Math.max(0, (contentH - stackH) / (list.length - 1)))
+        ? Math.min(
+            v2 ? Number.POSITIVE_INFINITY : itemSize * 0.5,
+            Math.max(0, (contentH - stackH) / (list.length - 1)),
+          )
         : 0;
     // v2 sets a list-only side from the top, under its heading: centred, the
     // slack fell between the heading rule and the first item, ~250px on ja s2
@@ -479,13 +484,25 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
     // Each side enters from its own outer edge and settles against the divider —
     // the motion is the two halves being brought into comparison.
     const axis = tall ? "y" : "x";
+    // v2: both sides stand at PREVIEW from the open, so every hold shows the
+    // whole comparison (the fill gate measures each); a side comes to full when
+    // it is spoken, where it stands.
     tl.push(
-      tween(
-        `#${sid}-side${i}`,
-        { opacity: 0, [axis]: i === 0 ? -26 : 26 },
-        { opacity: 1, [axis]: 0, duration: 0.6, ease: "power2.out" },
-        t,
-      ),
+      ...(v2
+        ? previewed(
+            `#${sid}-side${i}`,
+            { opacity: 0 },
+            { opacity: 1, duration: 0.6, ease: "power2.out" },
+            t,
+          )
+        : [
+            tween(
+              `#${sid}-side${i}`,
+              { opacity: 0, [axis]: i === 0 ? -26 : 26 },
+              { opacity: 1, [axis]: 0, duration: 0.6, ease: "power2.out" },
+              t,
+            ),
+          ]),
       tween(`#${sid}-hair${i}`, DRAW_FROM, { ...DRAW_TO, duration: 0.7, ease: "power2.out" }, t),
     );
     // v2: the second side's arrival does not dim the first. Its stop is the
@@ -529,7 +546,11 @@ export const splitCompare: Emitter<"split-compare"> = (beat, ctx) => {
 
   if (p.note) {
     const t = (at[1] ?? 0) + 0.9;
-    tl.push(tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t));
+    tl.push(
+      ...(v2
+        ? previewed(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t)
+        : [tween(`#${sid}-note`, { opacity: 0 }, { opacity: 1, duration: 0.6 }, t)]),
+    );
     holds.push(t + 0.7);
   }
   // Both halves back at full weight for the last hold: the note is about the

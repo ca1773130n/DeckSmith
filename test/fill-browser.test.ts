@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FIT_FILE, type FitManifest } from "../src/emit/fit.js";
 import { chromePath } from "../src/render/capture.js";
 import { type FidelityReport, fidelity } from "../src/verify/fidelity.js";
-import { FILL_TOLERANCE } from "../src/verify/fill.js";
+import { FILL_TOLERANCE, finalStops } from "../src/verify/fill.js";
 
 const run = promisify(execFile);
 const repo = (rel: string) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
@@ -62,11 +62,16 @@ describe.skipIf(chrome === null)("v2 fill, predicted and measured on the demo", 
   it("writes a v2 manifest naming every drawn scene", () => {
     expect(manifest.design).toBe("v2");
     expect(manifest.scenes.length).toBeGreaterThan(10);
-    expect(report.fills.map((f) => f.sid).sort()).toEqual(manifest.scenes.map((s) => s.id).sort());
+    // Every hold of a v2 deck is measured; each scene once at its last.
+    expect(
+      finalStops(report.fills)
+        .map((f) => f.sid)
+        .sort(),
+    ).toEqual(manifest.scenes.map((s) => s.id).sort());
   });
 
   it("measures every prediction within the tolerance the gate allows", () => {
-    const fills = new Map(report.fills.map((f) => [f.sid, f.fill]));
+    const fills = new Map(finalStops(report.fills).map((f) => [f.sid, f.fill]));
     const off = manifest.scenes
       .filter((s) => s.fit !== undefined)
       .map((s) => ({
@@ -96,7 +101,7 @@ describe.skipIf(chrome === null)("v2 fill, predicted and measured on the demo", 
     // moved that much on the title was not chased; it is no grown body.
     const grown = new Set(manifest.scenes.filter((m) => m.fit !== undefined).map((m) => m.id));
     expect(
-      report.fills.filter((f) => grown.has(f.sid) && onGround(f.sid) && f.fill > 1.02),
+      finalStops(report.fills).filter((f) => grown.has(f.sid) && onGround(f.sid) && f.fill > 1.02),
     ).toEqual([]);
   });
 });
