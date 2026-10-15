@@ -647,7 +647,10 @@ describe("the schema handed to Codex", () => {
   it("offers operate as a formula with terms, or as a chain, never neither", () => {
     const variants: Array<{ properties: Record<string, unknown> }> = [];
     const walk = (n: unknown): void => {
-      if (Array.isArray(n)) return n.forEach(walk);
+      if (Array.isArray(n)) {
+        n.forEach(walk);
+        return;
+      }
       if (!n || typeof n !== "object") return;
       const p = (n as { properties?: { kind?: { const?: string } } }).properties;
       if (p?.kind?.const === "operate") variants.push(n as (typeof variants)[number]);
