@@ -11,6 +11,7 @@ import {
   MAX_ALTERNATION,
   panelsAllowed,
   scenesRequired,
+  shapesFor,
   sizeFindings,
   stagesRequired,
   varietyFindings,
@@ -218,5 +219,27 @@ describe("one kinetic a deck, and a plan no longer than asked", () => {
     expect(sizeFindings(pair, 4)).toEqual([
       expect.stringMatching(/b05-navsim-metrics only sets up b06-navsim-results/),
     ]);
+  });
+});
+
+describe("shapesFor", () => {
+  const all = ["title", "pipeline", "callout", "kinetic", "hero-number", "bar-compare"] as const;
+
+  it("offers neither neighbour's shape, and no title past the first beat", () => {
+    expect(shapesFor(deck("title", "bar-compare", "bar-compare", "callout"), 2, all, off)).toEqual([
+      "pipeline",
+      "kinetic",
+      "hero-number",
+    ]);
+  });
+
+  it("offers no kinetic once the deck has its one, and no panel at the panel cap", () => {
+    const full = deck(
+      ...["title", "kinetic", "pipeline", "hero-number", "callout", "bar-compare", "pipeline"],
+      ...["hero-number", "callout", "bar-compare", "pipeline", "hero-number", "callout"],
+      ...["bar-compare", "bar-compare"],
+    );
+    expect(panelsAllowed(15, on)).toBe(5);
+    expect(shapesFor(full, 14, all, on)).toEqual(["hero-number"]);
   });
 });

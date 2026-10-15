@@ -12,7 +12,8 @@
  * So the rule is a minimum, not an invitation, and it is CHECKED: the prompt
  * (src/plan/prompt.ts) states these numbers by importing them from here, and
  * `codexPlanner` (src/plan/codex.ts) runs `varietyFindings` on what comes back,
- * asks once for a repair, and refuses a plan that still breaks it. One table,
+ * asks for up to three repairs, redraws a beat still beside its own shape on
+ * its own (`shapesFor`), and refuses a plan that still breaks it. One table,
  * read by both, so the sentence the model is given and the check it is held to
  * cannot drift apart.
  *
@@ -156,6 +157,36 @@ export function isScene(beat: Beat, design?: Design): boolean {
     default:
       return pictured(p.backdrop);
   }
+}
+
+/**
+ * The shapes, of those `offered`, that beat `i` may be redrawn as: not either
+ * neighbour's, not a title past the first beat, and not one that tips the
+ * kinetic or panel cap. What the last-resort redraw of one beat
+ * (src/plan/codex.ts) offers in its schema, so the shape cannot be wrong.
+ *
+ * ponytail: the A/B/A/B and scene-share rules are not foreseen here; the plan
+ * is checked whole after the redraw, and refused if one of them broke.
+ */
+export function shapesFor(
+  storyboard: Storyboard,
+  i: number,
+  offered: readonly Archetype[],
+  images: Prefs["images"],
+): Archetype[] {
+  const beats = storyboard.beats;
+  const others = beats.filter((_, k) => k !== i);
+  const kinetic = others.filter((b) => b.archetype === "kinetic").length;
+  const panels = others.filter((b) => PANEL_ARCHETYPES.has(b.archetype)).length;
+  const panelCap = panelsAllowed(beats.length, images);
+  return offered.filter(
+    (a) =>
+      a !== beats[i - 1]?.archetype &&
+      a !== beats[i + 1]?.archetype &&
+      (a !== "title" || i === 0) &&
+      (a !== "kinetic" || kinetic < KINETIC_MAX) &&
+      (!PANEL_ARCHETYPES.has(a) || panels < panelCap),
+  );
 }
 
 /**

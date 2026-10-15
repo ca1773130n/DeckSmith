@@ -21,6 +21,8 @@ import { join } from "node:path";
 import { z } from "zod";
 import { bespokeFor, designFor, type Prefs } from "../prefs.js";
 import {
+  type Archetype,
+  type Beat,
   type Literal,
   literalSchema,
   prefsSchema,
@@ -39,7 +41,7 @@ import {
 } from "./coverage.js";
 import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
-import { sizeFindings, varietyFindings } from "./variety.js";
+import { shapesFor, sizeFindings, varietyFindings } from "./variety.js";
 
 /** Planning a long source is minutes of work, not seconds. */
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -314,6 +316,8 @@ export interface CodexOptions {
   onScene?: (beat: string, broken: readonly string[]) => void;
   /** Told the beats whose scene was dropped (still broken after its own repairs, or broken only by a symbolic quantity), and why. */
   onDropScenes?: (beats: readonly string[], why: readonly string[]) => void;
+  /** Told a beat still beside its own shape after the last repair is redrawn on its own, as one of `shapes`. */
+  onReshape?: (beat: string, shapes: readonly string[]) => void;
   /** Each source figure's panel count as the build will cut it, when the caller read them. */
   panels?: Readonly<Record<string, number>>;
 }
@@ -353,7 +357,8 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     const outPath = join(dir, "storyboard.json");
     // Per run, not the module constant: `role` exists in the schema only when
     // the paper arc was asked for.
-    await writeFile(schemaPath, JSON.stringify(schemaFor(prefs, source)));
+    const schema = schemaFor(prefs, source);
+    await writeFile(schemaPath, JSON.stringify(schema));
 
     const ask = async (prompt: string): Promise<Storyboard> => {
       await rm(outPath, { force: true });
@@ -541,6 +546,58 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         );
       return plan;
     };
+    // A LAST PAIR OF NEIGHBOURS IS REDRAWN ONE BEAT AT A TIME (2026-10-16).
+    // Chinchilla was refused after three deck repairs, each of which fixed the
+    // pairs it was told of and redrew a beat as its other neighbour's shape —
+    // also when the finding named that shape. So a plan whose only fault after
+    // the last repair is a beat sharing its neighbour's archetype gets that beat
+    // back on its own, in a schema that offers only `shapesFor` it: the planner
+    // still writes the beat, and the shape cannot be wrong.
+    const beatSchemaPath = join(dir, "beat.schema.json");
+    const offered = beatVariants(schema).map((v) => v.properties.archetype.const);
+    const reshape = async (deck: Storyboard, i: number): Promise<Storyboard> => {
+      const beat = deck.beats[i] as Beat;
+      const shapes = shapesFor(deck, i, offered, prefs.images);
+      if (!shapes.length) return deck;
+      await writeFile(beatSchemaPath, JSON.stringify(beatSchemaFor(schema, shapes)));
+      let problems: string[] = [];
+      for (let t = 1; t <= SCENE_REPAIRS; t++) {
+        opts.onReshape?.(beat.id, shapes);
+        const out = join(dir, `beat-${beat.id}-${t}.json`);
+        try {
+          await (opts.run ?? runCodex)({
+            prompt: beatPrompt(prompt, deck, beat, shapes, problems),
+            schemaPath: beatSchemaPath,
+            outPath: out,
+            ...(opts.model === undefined ? {} : { model: opts.model }),
+            timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          });
+          const got = (stripNulls(JSON.parse(await readFile(out, "utf8"))) as { beat?: object })
+            ?.beat;
+          const redrawn = {
+            ...got,
+            id: beat.id,
+            ...(beat.literal ? { literal: beat.literal } : {}),
+          };
+          const beats = deck.beats.map((b, k) => (k === i ? redrawn : b));
+          return withStockLabels(checkPlan({ ...deck, beats }, source, prefs), source);
+        } catch (err) {
+          problems =
+            err instanceof PlanRejected
+              ? err.problems
+              : [`the ask failed: ${err instanceof Error ? err.message : err}`];
+        }
+      }
+      return deck;
+    };
+    const neighbours = async (planned: Storyboard): Promise<Storyboard> => {
+      let plan = planned;
+      for (let i = 1; i < plan.beats.length; i++)
+        if (plan.beats[i]?.archetype === plan.beats[i - 1]?.archetype)
+          plan = await reshape(plan, i);
+      return plan;
+    };
+
     let answer = await attempt(prompt);
     if (answer.plan && listOf(answer.broken).length === 0) return await scenes(answer.plan);
     const firstBeats = beatCount(answer.json);
@@ -569,7 +626,13 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         advice: [],
       };
       if (next.plan && listOf(still).length === 0) return await scenes(next.plan);
-      if (round === REPAIRS) throw unrepaired(next, still, round);
+      if (round === REPAIRS) {
+        if (!next.plan || !listOf(still).every(isNeighbour)) throw unrepaired(next, still, round);
+        const plan = await neighbours(next.plan);
+        const left = { ...findings(plan), advice: [] };
+        if (listOf(left).length) throw unrepaired(next, left, round);
+        return await scenes(plan);
+      }
       merging ||= still.size.length > 0;
       answer = { ...next, broken: still };
     }
@@ -588,7 +651,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
  */
 const REPAIRS = 3;
 
-/** How many times one broken scene goes back on its own, after the deck. */
+/** How many times one broken scene, or one beat beside its own shape, goes back on its own. */
 const SCENE_REPAIRS = 2;
 
 /**
@@ -664,6 +727,55 @@ The storyboard below is settled. Beat ${id} draws a literal scene that is refuse
 ${list}
 
 Return {"literal": ...}: beat ${id}'s scene, redrawn so none of these hold — every number, word and figure one the source states, every slot its verb needs filled. Keep its verb unless a finding names another. Return a scene: this ask has no way to leave it out. No other beat is yours to change.
+
+THE STORYBOARD:
+${JSON.stringify(plan, null, 2)}`;
+}
+
+/** A variety finding that is only two neighbours sharing an archetype (`varietyFindings`, RULE 1). */
+function isNeighbour(finding: string): boolean {
+  return /^\S+ and \S+ are both `[^`]+`, next to each other\./.test(finding);
+}
+
+type BeatVariant = { properties: { archetype: { const: Archetype } } & Record<string, unknown> };
+
+/** The planner schema's beat variants, one per archetype offered. */
+function beatVariants(schema: unknown): BeatVariant[] {
+  return (schema as { properties: { beats: { items: { anyOf: BeatVariant[] } } } }).properties.beats
+    .items.anyOf;
+}
+
+/** The schema of one beat's redraw: the planner's beat, as one of `shapes`, its scene kept out. */
+function beatSchemaFor(schema: unknown, shapes: readonly Archetype[]): unknown {
+  const anyOf = beatVariants(schema)
+    .filter((v) => shapes.includes(v.properties.archetype.const))
+    .map((v) => hideFromPlanner(v, new Set(["literal"])));
+  return {
+    type: "object",
+    properties: { beat: { anyOf } },
+    required: ["beat"],
+    additionalProperties: false,
+  };
+}
+
+/** One beat's ask: the deck, fixed, and the shapes that beat may take. */
+function beatPrompt(
+  prompt: string,
+  plan: Storyboard,
+  beat: Beat,
+  shapes: readonly Archetype[],
+  problems: readonly string[],
+): string {
+  const refused = problems.length
+    ? `\nYour last answer was refused for:\n${problems.map((m) => `  - ${m}`).join("\n")}\n`
+    : "";
+  return `${prompt}
+
+THE DECK IS PLANNED. ONE BEAT'S SHAPE IS LEFT.
+
+The storyboard below is settled, but beat ${beat.id} is \`${beat.archetype}\` beside a beat of the same shape, and no two beats in a row may share an archetype.
+${refused}
+Return {"beat": ...}: beat ${beat.id} redrawn as one of ${shapes.map((s) => `\`${s}\``).join(", ")} — whichever shows its point best — with the params that shape needs, every number, word and figure one the source states. Keep its id, its point, its evidence, its narration and its part. No other beat is yours to change.
 
 THE STORYBOARD:
 ${JSON.stringify(plan, null, 2)}`;
@@ -815,7 +927,11 @@ async function readPlan(outPath: string, source: Source, prefs: Prefs): Promise<
     );
   }
 
-  const plan = stripNulls(parsed);
+  return checkPlan(stripNulls(parsed), source, prefs);
+}
+
+/** Validate and integrity-check a plan, as `readPlan` does a final message. */
+function checkPlan(plan: unknown, source: Source, prefs: Prefs): Storyboard {
   const result = storyboardSchema.safeParse(plan);
   if (!result.success) {
     const issues = result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
