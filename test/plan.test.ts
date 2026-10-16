@@ -677,6 +677,20 @@ describe("the schema handed to Codex", () => {
     expect(nullableIds(on)).toBeGreaterThanOrEqual(2);
   });
 
+  // 2026-10-16: inlined into all sixteen archetypes the schema was 327 KB, and
+  // from that day every deck ask carrying it failed on max_output_tokens.
+  it("carries the literal scene once, in $defs, and every archetype refers to it", () => {
+    const schema = schemaFor(prefsSchema.parse({ design: "v2" })) as {
+      $defs: { literal: unknown };
+      properties: { beats: { items: { anyOf: Array<{ properties: { literal: unknown } }> } } };
+    };
+    expect(schema.$defs.literal).toBeDefined();
+    const variants = schema.properties.beats.items.anyOf;
+    expect(variants).toHaveLength(16);
+    for (const v of variants) expect(v.properties.literal).toEqual({ $ref: "#/$defs/literal" });
+    expect(JSON.stringify(schema).length).toBeLessThan(100_000);
+  });
+
   it("offers operate as a formula with terms, or as a chain, never neither", () => {
     const variants: Array<{ properties: Record<string, unknown> }> = [];
     const walk = (n: unknown): void => {
@@ -691,10 +705,10 @@ describe("the schema handed to Codex", () => {
     };
     // `literal` is offered only to a deck that draws scenes: v2.
     walk(schemaFor(prefsSchema.parse({ design: "v2" })));
-    // One pair per place a literal is offered (the union is inlined per archetype).
+    // One pair: the literal is offered once, in `$defs`, and referenced per archetype.
     const formulas = variants.filter((v) => "terms" in v.properties);
     const chains = variants.filter((v) => "chain" in v.properties);
-    expect(formulas.length).toBeGreaterThan(0);
+    expect(formulas).toHaveLength(1);
     expect(formulas.length + chains.length).toBe(variants.length);
     expect(chains).toHaveLength(formulas.length);
     for (const formula of formulas) {
