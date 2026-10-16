@@ -56,6 +56,12 @@ const DEFAULT_TIMEOUT_MS = 10 * 60_000;
  * the whole storyboard. Ten minutes of planning lost to a number nobody told the
  * model about. A field with a range the backend cannot express therefore belongs
  * in `PLANNER_INVISIBLE` until the prompt can carry the range in prose.
+ *
+ * `minItems` and `maxItems` ARE kept (2026-10-16). Stripped, they cost seven
+ * refusals over two unseen papers — an empty `terms`, `notes`, or a one-item
+ * `points`, each a raw zod path the repair could not act on, Chinchilla's twice
+ * in a row. Asked live for `[]` under `minItems: 2`, Codex returned two items;
+ * asked for six under `maxItems: 3`, three. The rest here are untested.
  */
 const UNSUPPORTED = new Set([
   "$schema",
@@ -67,8 +73,6 @@ const UNSUPPORTED = new Set([
   "multipleOf",
   "minLength",
   "maxLength",
-  "minItems",
-  "maxItems",
   "uniqueItems",
 ]);
 
@@ -237,8 +241,8 @@ const OPERATE_CHAIN = [
  * As one object every one of these fields is optional, so strict mode makes each
  * nullable, and the planner sent an operate with an `equation` and nothing to
  * evaluate — eight times over two unseen papers (2026-10-14), each refused at
- * plan time. The backend takes no `minItems`, so "a chain of at least one" is
- * not sayable; two variants are. The formula variant REQUIRES `terms`,
+ * plan time. `minItems` cannot say "this one or that one" (an optional field
+ * is still nullable); two variants can. The formula variant REQUIRES `terms`,
  * `equation` and `given` (their nulls dropped) and has no chain fields; the
  * chain variant has no formula fields, so the only way to an equation is terms.
  * Absent keys come back as zod's defaults, so the storyboard schema is unchanged.

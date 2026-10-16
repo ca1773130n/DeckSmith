@@ -657,6 +657,14 @@ describe("the schema handed to Codex", () => {
     walk(SCHEMA, "schema");
   });
 
+  // 2026-10-16: stripped, an empty `terms` came back and was refused as a raw
+  // zod path, twice in a row, on Chinchilla. Codex enforces both live.
+  it("keeps array bounds, so the model cannot send an empty `terms`", () => {
+    const json = JSON.stringify(SCHEMA);
+    expect(json).toMatch(/"terms":\{[^{}]*"minItems":1,"maxItems":4/);
+    expect(json).toContain('"minItems":2');
+  });
+
   it("makes a formerly-optional field nullable rather than dropping it", () => {
     const title = (SCHEMA as { properties: Record<string, { anyOf?: unknown[] }> }).properties
       .theme;
