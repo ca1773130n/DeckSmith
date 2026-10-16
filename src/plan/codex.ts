@@ -283,12 +283,51 @@ export function schemaFor(
   prefs: Pick<Prefs, "genre" | "bespoke" | "design"> & { images?: Prefs["images"] },
   source?: Source,
 ): unknown {
-  return splitOperate(
-    hideFromPlanner(
-      forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
-      plannerInvisible(prefs, source),
+  return shareLiteral(
+    splitOperate(
+      hideFromPlanner(
+        forStructuredOutput(z.toJSONSchema(storyboardSchema, { io: "input" })),
+        plannerInvisible(prefs, source),
+      ),
     ),
   );
+}
+
+/**
+ * ONE `literal`, REFERENCED BY EVERY BEAT (2026-10-16). zod inlines it into each
+ * of the sixteen archetype variants: 18.5 KB sixteen times, 297 of the
+ * schema's 327 KB. From 12:34 that day every deck ask failed within seconds on
+ * "Incomplete response returned, reason: max_output_tokens" — FlashAttention
+ * and Chinchilla alike, at any reasoning effort, tools on or off — and so did a
+ * one-line prompt with that schema, while the same prompt with a small schema
+ * answered in 7s. With the scene in `$defs` the schema is 49 KB and the
+ * one-line prompt answers in 9s.
+ */
+function shareLiteral(schema: unknown): unknown {
+  const root = schema as {
+    properties: { beats: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } } };
+  };
+  const variants = root.properties.beats.items.anyOf;
+  const literal = variants[0]?.properties.literal;
+  if (!literal) return schema;
+  const one = JSON.stringify(literal);
+  if (!variants.every((v) => JSON.stringify(v.properties.literal) === one))
+    throw new Error("schemaFor: the beat variants carry different `literal` schemas.");
+  const ref = { $ref: "#/$defs/literal" };
+  return {
+    ...root,
+    $defs: { literal },
+    properties: {
+      ...root.properties,
+      beats: {
+        ...root.properties.beats,
+        items: {
+          ...root.properties.beats.items,
+          anyOf: variants.map((v) => ({ ...v, properties: { ...v.properties, literal: ref } })),
+        },
+      },
+    },
+  };
 }
 
 /**
