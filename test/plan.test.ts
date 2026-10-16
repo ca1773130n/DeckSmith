@@ -1,4 +1,4 @@
-import { stat, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import { codexCommand, codexPlanner, SCHEMA, schemaFor } from "../src/plan/codex.js";
@@ -454,7 +454,40 @@ describe("codexPlanner variety repair", () => {
         },
       }),
     ).rejects.toThrow(/variety rule .* after 3 repairs:\n.*b01b-arch/s);
-    expect(calls).toBe(4);
+    // Three deck repairs, then two asks for b01b on its own, neither a beat.
+    expect(calls).toBe(6);
+  });
+
+  it("redraws a beat still beside its own shape after the last repair, offered only shapes that fit", async () => {
+    const schemas: unknown[] = [];
+    const reshaped: Array<[string, readonly string[]]> = [];
+    const table = twice.beats[2];
+    const result = await codexPlanner(source, {
+      onReshape: (beat, shapes) => reshaped.push([beat, shapes]),
+      run: async ({ schemaPath, outPath }) => {
+        if (!schemaPath.endsWith("beat.schema.json")) return writeFile(outPath, adjacent);
+        schemas.push(JSON.parse(await readFile(schemaPath, "utf8")));
+        await writeFile(outPath, JSON.stringify({ beat: { ...table, id: "anything" } }));
+      },
+    });
+    // b01b sat between claim-figure b01 and equation-walk b02: neither is offered.
+    const offered = (
+      schemas[0] as {
+        properties: { beat: { anyOf: Array<{ properties: { archetype: { const: string } } }> } };
+      }
+    ).properties.beat.anyOf.map((v) => v.properties.archetype.const);
+    expect(offered).toContain("data-table");
+    expect(offered).not.toContain("claim-figure");
+    expect(offered).not.toContain("equation-walk");
+    expect(offered).not.toContain("title");
+    expect(reshaped.map(([b]) => b)).toEqual(["b01b-arch"]);
+    // The redraw keeps the beat's id, whatever the answer called it.
+    expect(result.beats.map((b) => `${b.id} ${b.archetype}`)).toEqual([
+      "b01-arch claim-figure",
+      "b01b-arch data-table",
+      "b02-loss equation-walk",
+      "b03-psnr data-table",
+    ]);
   });
 
   // A schema or reference miss is one number or one id: it goes through the same one

@@ -12,7 +12,8 @@
  * So the rule is a minimum, not an invitation, and it is CHECKED: the prompt
  * (src/plan/prompt.ts) states these numbers by importing them from here, and
  * `codexPlanner` (src/plan/codex.ts) runs `varietyFindings` on what comes back,
- * asks once for a repair, and refuses a plan that still breaks it. One table,
+ * asks for up to three repairs, redraws a beat still beside its own shape on
+ * its own (`shapesFor`), and refuses a plan that still breaks it. One table,
  * read by both, so the sentence the model is given and the check it is held to
  * cannot drift apart.
  *
@@ -159,6 +160,36 @@ export function isScene(beat: Beat, design?: Design): boolean {
 }
 
 /**
+ * The shapes, of those `offered`, that beat `i` may be redrawn as: not either
+ * neighbour's, not a title past the first beat, and not one that tips the
+ * kinetic or panel cap. What the last-resort redraw of one beat
+ * (src/plan/codex.ts) offers in its schema, so the shape cannot be wrong.
+ *
+ * ponytail: the A/B/A/B and scene-share rules are not foreseen here; the plan
+ * is checked whole after the redraw, and refused if one of them broke.
+ */
+export function shapesFor(
+  storyboard: Storyboard,
+  i: number,
+  offered: readonly Archetype[],
+  images: Prefs["images"],
+): Archetype[] {
+  const beats = storyboard.beats;
+  const others = beats.filter((_, k) => k !== i);
+  const kinetic = others.filter((b) => b.archetype === "kinetic").length;
+  const panels = others.filter((b) => PANEL_ARCHETYPES.has(b.archetype)).length;
+  const panelCap = panelsAllowed(beats.length, images);
+  return offered.filter(
+    (a) =>
+      a !== beats[i - 1]?.archetype &&
+      a !== beats[i + 1]?.archetype &&
+      (a !== "title" || i === 0) &&
+      (a !== "kinetic" || kinetic < KINETIC_MAX) &&
+      (!PANEL_ARCHETYPES.has(a) || panels < panelCap),
+  );
+}
+
+/**
  * Every way `storyboard` breaks the variety rule, as sentences the planner can
  * act on. Empty is a pass.
  */
@@ -171,12 +202,22 @@ export function varietyFindings(
   const out: string[] = [];
 
   // RULE 1, which the prompt has always stated and nothing ever checked.
+  // Each finding names the shapes the redrawn beat may not take, its OTHER
+  // neighbour's included: Chinchilla (2026-10-15, round 18) was refused after
+  // three repairs, each of which redrew a named beat as the archetype of the
+  // neighbour the finding never mentioned — b11 hero-number → bar-compare
+  // beside b10 bar-compare, then b13 bar-compare → hero-number beside b12.
+  const avoid = (beat: Beat, other: Beat | undefined) =>
+    [beat.archetype, other?.archetype]
+      .filter((x, k, xs): x is Archetype => x !== undefined && xs.indexOf(x) === k)
+      .map((x) => `\`${x}\``)
+      .join(" or ");
   for (let i = 1; i < beats.length; i++) {
     const a = beats[i - 1] as Beat;
     const b = beats[i] as Beat;
     if (a.archetype === b.archetype) {
       out.push(
-        `${a.id} and ${b.id} are both \`${a.archetype}\`, next to each other. Draw one of them as a different shape.`,
+        `${a.id} and ${b.id} are both \`${a.archetype}\`, next to each other. Redraw ${a.id} as anything but ${avoid(a, beats[i - 2])}, or ${b.id} as anything but ${avoid(b, beats[i + 1])}.`,
       );
     }
   }

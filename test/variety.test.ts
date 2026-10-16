@@ -11,6 +11,7 @@ import {
   MAX_ALTERNATION,
   panelsAllowed,
   scenesRequired,
+  shapesFor,
   sizeFindings,
   stagesRequired,
   varietyFindings,
@@ -58,6 +59,21 @@ describe("varietyFindings", () => {
     expect(varietyFindings(deck("title", "pipeline", "pipeline"), off)).toEqual([
       expect.stringMatching(/b2 and b3 are both `pipeline`/),
     ]);
+  });
+
+  it("names the other neighbours' shapes a redrawn beat must avoid", () => {
+    // Chinchilla round 18, repair 2: b11 was redrawn as its other neighbour's shape.
+    const [found] = varietyFindings(
+      deck("bar-compare", "hero-number", "hero-number", "bar-compare"),
+      off,
+    );
+    expect(found).toBe(
+      "b2 and b3 are both `hero-number`, next to each other. Redraw b2 as anything but `hero-number` or `bar-compare`, or b3 as anything but `hero-number` or `bar-compare`.",
+    );
+    // At the deck's edge, or beside a third of the same, only the one shape is named.
+    expect(varietyFindings(deck("callout", "callout", "callout"), off)[0]).toMatch(
+      /Redraw b1 as anything but `callout`, or b2 as anything but `callout`\.$/,
+    );
   });
 
   it(`allows an A/B/A return of ${MAX_ALTERNATION} and refuses the fourth`, () => {
@@ -203,5 +219,27 @@ describe("one kinetic a deck, and a plan no longer than asked", () => {
     expect(sizeFindings(pair, 4)).toEqual([
       expect.stringMatching(/b05-navsim-metrics only sets up b06-navsim-results/),
     ]);
+  });
+});
+
+describe("shapesFor", () => {
+  const all = ["title", "pipeline", "callout", "kinetic", "hero-number", "bar-compare"] as const;
+
+  it("offers neither neighbour's shape, and no title past the first beat", () => {
+    expect(shapesFor(deck("title", "bar-compare", "bar-compare", "callout"), 2, all, off)).toEqual([
+      "pipeline",
+      "kinetic",
+      "hero-number",
+    ]);
+  });
+
+  it("offers no kinetic once the deck has its one, and no panel at the panel cap", () => {
+    const full = deck(
+      ...["title", "kinetic", "pipeline", "hero-number", "callout", "bar-compare", "pipeline"],
+      ...["hero-number", "callout", "bar-compare", "pipeline", "hero-number", "callout"],
+      ...["bar-compare", "bar-compare"],
+    );
+    expect(panelsAllowed(15, on)).toBe(5);
+    expect(shapesFor(full, 14, all, on)).toEqual(["hero-number"]);
   });
 });

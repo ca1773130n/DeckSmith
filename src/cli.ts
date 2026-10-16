@@ -494,6 +494,8 @@ imageFlags(
       step(`plan: redrawing ${beat}'s scene on its own —`);
       for (const m of broken) step(`plan:   ${m}`);
     },
+    onReshape: (beat, shapes) =>
+      step(`plan: redrawing ${beat} on its own, as one of: ${shapes.join(", ")}`),
     onDropScenes: (beats, why) => {
       step(
         `plan: WARNING: ${beats.join(", ")} drawn by their archetype instead; their scenes stay broken —`,
