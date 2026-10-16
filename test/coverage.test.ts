@@ -415,7 +415,7 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     beats[4] = beatOf("b04-setup", "experiments", ["sec6"], { literal: table });
     beats[5] = beatOf("b05-results", "experiments", ["sec7"], { literal: table });
     expect(literalFindings(plan(beats), analysis)).toContainEqual(
-      expect.stringMatching(/draws 2 tables \(b04-setup, b05-results\).*`place`.*sets/),
+      expect.stringMatching(/b05-results draws a table, and so does b04-setup. .*`place`.*sets/),
     );
     beats[4] = beatOf("b04-setup", "experiments", ["sec6"]);
     expect(literalFindings(plan(beats), analysis).join("\n")).not.toMatch(/tables/);
@@ -959,7 +959,7 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     beats[4] = sets("b04-setup", "experiments", "sec6");
     beats[7] = sets("b07-limits", "limits", "sec11");
     expect(literalFindings(plan(beats), analysis)).toEqual([
-      expect.stringMatching(/draws `place sets` 2 times \(b04-setup, b07-limits\)/),
+      expect.stringMatching(/b07-limits draws `place sets`, as b04-setup already does/),
     ]);
     const again = covered();
     again[2] = beatOf("b02-prior", "prior-work", ["sec3"], { literal: OPERATE });
@@ -988,7 +988,7 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     beats[2] = beatOf("b02-prior", "prior-work", ["sec3"], { literal: vec("최솟값") });
     beats[5] = beatOf("b05-results", "experiments", ["sec7"], { literal: vec("최솟값") });
     expect(literalFindings(plan(beats), analysis).join("\n")).toMatch(
-      /b02-prior and b05-results run operate on the same vectors/,
+      /b05-results runs operate on the same vectors as b02-prior/,
     );
   });
 
@@ -1652,6 +1652,34 @@ describe("codexPlanner coverage repair", () => {
     expect(told[1]?.join("\n")).toMatch(/b05-results's table scene says "99\.99"/);
     expect(result.beats.find((b) => b.id === "b05-results")?.literal).toBeUndefined();
     expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");
+  });
+
+  // FlashAttention round 22 (2026-10-16): said of the deck, a repeat was no
+  // scene's to fix or drop, and the plan was refused after its scenes settled.
+  it("drops the later of two scenes that repeat each other, never the deck", async () => {
+    let deck = 0;
+    const told: string[][] = [];
+    const twice = covered().map((b) =>
+      b.id === "b04-setup" || b.id === "b05-results" ? { ...b, literal: table("30.56") } : b,
+    );
+    const result = await codexPlanner(analysis, {
+      prefs,
+      run: async ({ schemaPath, outPath }) => {
+        if (!schemaPath.endsWith("scene.schema.json")) deck++;
+        await writeFile(
+          outPath,
+          schemaPath.endsWith("scene.schema.json")
+            ? JSON.stringify({ literal: table("30.56") })
+            : body(twice),
+        );
+      },
+      onDropScenes: (beats, why) => told.push([...beats], [...why]),
+    });
+    expect(deck).toBe(1);
+    expect(told[0]).toEqual(["b05-results"]);
+    expect(told[1]?.join("\n")).toMatch(/b05-results draws a table, and so does b04-setup/);
+    expect(result.beats.find((b) => b.id === "b04-setup")?.literal?.kind).toBe("table");
+    expect(result.beats.find((b) => b.id === "b05-results")?.literal).toBeUndefined();
   });
 
   it("gives a beat back the scene a deck repair dropped under the same id", async () => {

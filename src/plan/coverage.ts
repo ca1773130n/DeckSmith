@@ -2037,10 +2037,15 @@ export function literalFindings(
       );
     prevKey = { id: beat.id, key };
   });
+  // A SCENE THAT REPEATS ANOTHER IS THE LATER BEAT'S FINDING (2026-10-16), led by
+  // its id so the scene pass owns it: redrawn on its own, or dropped if it stays.
+  // Said of the deck ("The plan draws `place strip` 2 times"), it was no scene's,
+  // so when two scenes redrawn side by side both came back as a strip,
+  // FlashAttention's round 22 was refused after its scenes had settled.
   const tables = beats.filter((b) => b.literal?.kind === "table");
-  if (tables.length > 1)
+  for (const t of tables.slice(1))
     out.push(
-      `The plan draws ${tables.length} tables (${tables.map((b) => b.id).join(", ")}). A table reads like a report: keep at most one, and draw the others as what they list — results as \`place\` (margin or plane), what was and was not evaluated as \`place\` sets, experiments not run as \`place\` combos, earlier approaches as \`prior-work\`, reported costs as \`place\` length — or leave \`literal\` null where nothing is honest.`,
+      `${t.id} draws a table, and so does ${tables[0]?.id}. A table reads like a report: keep at most one, and draw this one as what it lists — results as \`place\` (margin or plane), what was and was not evaluated as \`place\` sets, experiments not run as \`place\` combos, earlier approaches as \`prior-work\`, reported costs as \`place\` length — or leave \`literal\` null where nothing is honest.`,
     );
   // The same example vectors in two operate beats are one chart drawn twice (r3 C: a
   // sampling rule's p and q again under the acceptance rate): run both chains on one.
@@ -2051,20 +2056,20 @@ export function literalFindings(
     const key = JSON.stringify(l.vectors.map((v) => v.values));
     byVectors.set(key, [...(byVectors.get(key) ?? []), b.id]);
   }
-  for (const ids of byVectors.values())
-    if (ids.length > 1)
+  for (const [first, ...rest] of byVectors.values())
+    for (const id of rest)
       out.push(
-        `${ids.join(" and ")} run operate on the same vectors, so the deck shows one chart twice. Give the second beat's chain to the first (one longer chain), or draw the second another way.`,
+        `${id} runs operate on the same vectors as ${first}, so the deck shows one chart twice. Give its chain to ${first} (one longer chain), or draw ${id} another way.`,
       );
   const forms = new Map<string, string[]>();
   for (const b of beats) {
     const f = b.literal && wordForm(b.literal);
     if (f) forms.set(f, [...(forms.get(f) ?? []), b.id]);
   }
-  for (const [f, ids] of forms)
-    if (ids.length > 1)
+  for (const [f, [first, ...rest]] of forms)
+    for (const id of rest)
       out.push(
-        `The plan draws \`${f}\` ${ids.length} times (${ids.join(", ")}). It draws no picture, so a second one is the same slide again: keep it on one beat, and draw the others another way or with \`literal\` null.`,
+        `${id} draws \`${f}\`, as ${first} already does. It draws no picture, so a second one is the same slide again: draw ${id} another way, or with \`literal\` null.`,
       );
   return out;
 }
