@@ -325,9 +325,27 @@ function layoutPoints(
   const plot = two
     ? { x: 24 + yTickW, y: top, w: W - 48 - yTickW - sideW, h: H - top - 72 - nameH - 8 - keyH }
     : { x: 24, y: top, w: W - 48 - sideW, h: H - top - 24 - keyH };
-  if (plot.h < 240)
+  // A REFUSAL A REDRAW CAN AIM AT (2026-10-17). "the key leaves the plot 192px"
+  // read as an overflow and named no limit; Chinchilla's isoflop plane came back
+  // with the same names and was dropped. So it names both budgets in pixels and
+  // lines, and the count of items that would fit.
+  const PLOT_MIN = 240;
+  if (plot.h < PLOT_MIN && below) {
+    const sideLine = Math.floor(W * KEY_SHARE) - 32;
+    const fit = Math.max(0, Math.floor((plot.h + keyH - PLOT_MIN - 16) / KEY_LH));
+    const besideRows = Math.floor((H - top) / KEY_LH);
+    const why =
+      keyW - 32 > sideLine
+        ? `its longest line is ${Math.ceil(keyW - 32)}px and a line beside the plot may be ${sideLine}px`
+        : `${keyLines.length} lines are more than the ${besideRows} that fit beside the plot`;
     throw new Error(
-      `place: the key leaves the plot ${Math.floor(plot.h)}px; give fewer items or shorter names`,
+      `place: the numbered key fits neither beside the plot (${why}) nor under it (${fit} of its ${keyLines.length} lines fit before the plot is under ${PLOT_MIN}px). ` +
+        `Each line is an item's number, name and values: shorten the names${fit >= 2 ? `, or give at most ${fit} items` : ""}`,
+    );
+  }
+  if (plot.h < PLOT_MIN)
+    throw new Error(
+      `place: the plot is left ${Math.floor(plot.h)}px tall, under ${PLOT_MIN}px; give fewer legend entries or shorter names`,
     );
   const X = (v: number) => {
     const t = (tr(0)(v) - rx[0]) / (rx[1] - rx[0]);
