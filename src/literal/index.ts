@@ -400,7 +400,7 @@ export async function literalPass(
     const impl = KINDS[spec.kind];
     const rel = spec.image;
     const image = rel ? resolve(input.planDir, rel) : undefined;
-    // The verb's own refusal names its beat: "place: the key leaves the plot 103px" alone
+    // The verb's own refusal names its beat: "place: the plot is left 103px tall" alone
     // left a fourteen-beat build to be bisected by hand.
     const layers = await impl
       .layers({

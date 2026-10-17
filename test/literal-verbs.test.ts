@@ -1411,6 +1411,30 @@ describe("what each verb refuses", () => {
     expect(problems(lit).join("\n")).toMatch(/draws a curve under its points: give the rows/);
   });
 
+  // 2026-10-17: "the key leaves the plot 192px" named no limit, and Chinchilla's
+  // isoflop plane came back from its redraw with the same names.
+  it("place: a key that fits nowhere names both budgets and how many items fit", () => {
+    const sizes = ["400M", "1B", "10B", "67B", "175B", "280B", "520B", "1T", "10T"];
+    const lit = (n: number) => ({
+      kind: "place",
+      form: "plane",
+      axes: [
+        { name: "FLOPs", lowerIsBetter: false, log: true },
+        { name: "tokens", lowerIsBetter: false, log: true },
+      ],
+      items: sizes.slice(0, n).map((s, i) => ({
+        label: `${s} parameters, compute-optimal`,
+        values: [`${10 ** (19 + i)}`, `${10 * 3 ** i}`],
+      })),
+      labels: [],
+    });
+    const said = problems(lit(9)).join("\n");
+    expect(said).toMatch(/longest line is \d+px and a line beside the plot may be \d+px/);
+    const fit = Number(said.match(/give at most (\d+) items/)?.[1]);
+    expect(fit).toBeGreaterThanOrEqual(2);
+    expect(problems(lit(fit))).toEqual([]);
+  });
+
   it("operate: a parameter the op does not take, a variant it does not have, two inputs", () => {
     expect(
       problems({
