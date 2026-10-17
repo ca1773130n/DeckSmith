@@ -1,6 +1,6 @@
 {
   "name": "@jokerized/decksmith",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "description": "Turn a source document into an animated explanation deck.",
   "type": "module",
   "license": "MIT",
