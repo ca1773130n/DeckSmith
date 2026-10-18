@@ -1422,7 +1422,9 @@ function verbGrounding(
       if (lit.terms) {
         // The source's own equation, its stated values, and the result it reports:
         // the terms between are their consequence, computed (src/literal/kinds/operate.ts).
-        const bare = (t: string) => t.replace(/\s+/g, "");
+        // A sentence's own punctuation after a display equation is prose, not math:
+        // the source prints "…D^{0.28}}," and a faithful copy leaves the comma off.
+        const bare = (t: string) => t.replace(/\s+/g, "").replace(/[,.;]+$/, "");
         if (lit.equation && !source.equations.some((e) => bare(e.tex) === bare(lit.equation ?? "")))
           out.push("shows an `equation` that is not one the source prints; copy its TeX exactly");
         for (const g of lit.given) {

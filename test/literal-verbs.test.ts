@@ -379,6 +379,28 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    name: "the fastest replica",
+    domain: "distributed-systems",
+    lit: {
+      kind: "operate",
+      vectors: [{ label: "p99 ms", values: vec(8, (i) => 40 + ((i * 7) % 5) * 6) }],
+      bins: vec(8, (i) => i).map((i) => `r${i}`),
+      chain: [op("conv", "box", { size: "3" }), op("select", "argmin")],
+      labels: L({ input: "latency", output: "chosen", example: "example" }),
+    },
+  },
+  {
+    name: "the loss-optimal model size",
+    domain: "scaling-laws",
+    lit: {
+      kind: "operate",
+      vectors: [{ label: "final loss", values: vec(9, (i) => 2.6 + 0.02 * (i - 5) ** 2) }],
+      bins: vec(9, (i) => i).map((i) => `${2 ** i * 100}M`),
+      chain: [op("select", "argmin")],
+      labels: L({ input: "one compute budget", output: "the minimum", example: "example" }),
+    },
+  },
+  {
     name: "tokens one verification yields",
     domain: "language-models",
     lit: {

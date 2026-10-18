@@ -217,6 +217,11 @@ describe("ops on distributions, matrices and signals", () => {
       Array.from(runOp(step("select", { how: "topk", params: { k: 2 } }), [logits]).d),
     ).toEqual(Array.from(fromVector([0, 0.9, 0, 0.7]).d));
     expect(Array.from(runOp(step("select", { how: "argmax" }), [logits]).d)).toEqual([0, 1, 0, 0]);
+    expect(Array.from(runOp(step("select", { how: "argmin" }), [logits]).d)).toEqual([0, 0, 1, 0]);
+    // A tie goes to the first, as argmax's does.
+    expect(Array.from(runOp(step("select", { how: "argmin" }), [fromVector([2, 1, 1])]).d)).toEqual(
+      [0, 1, 0],
+    );
     close(runOp(step("select", { how: "sort" }), [logits]).d, [0.9, 0.7, 0.2, 0.1]);
     close(runOp(step("select", { how: "cumsum" }), [fromVector([0.5, 0.3, 0.2])]).d, [0.5, 0.8, 1]);
   });

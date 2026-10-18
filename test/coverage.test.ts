@@ -1237,6 +1237,64 @@ describe("the truth gate grounds every number in its role", () => {
     );
   });
 
+  it("grounds an argmin on a passage that says minimum (Chinchilla's IsoFLOP minimum)", () => {
+    const argmin = (src: typeof analysis) => {
+      const beats = covered();
+      beats[3] = beatOf("b03-method", "method", ["sec4"], {
+        literal: {
+          kind: "operate",
+          vectors: [{ label: "손실", values: [2.9, 2.7, 2.8] }],
+          bins: ["400M", "1B", "3B"],
+          chain: [{ op: "select", how: "argmin", params: [], over: "row", label: "최소 손실" }],
+          labels: [{ slot: "example", text: "예시" }],
+        },
+      });
+      return literalFindings(plan(beats), src).join("\n");
+    };
+    expect(argmin(analysis)).toMatch(
+      /step 1 \(select argmin\): the source never names this operation/,
+    );
+    const stated = sourceSchema.parse({
+      ...analysis,
+      sections: analysis.sections.map((s) =>
+        s.id === "sec4"
+          ? { ...s, text: `${s.text}\n\n각 연산 예산에서 손실이 최소가 되는 모델 크기를 고른다.` }
+          : s,
+      ),
+    });
+    expect(argmin(stated)).not.toMatch(/select argmin/);
+  });
+
+  it("takes a stated equation copied without the sentence's trailing comma", () => {
+    const withEq = sourceSchema.parse({
+      ...analysis,
+      equations: [
+        { id: "eq1", tex: "L(N,D)=E+\\frac{A}{N^{0.34}}+\\frac{B}{D^{0.28}},", display: true },
+      ],
+    });
+    const terms = (equation: string) => {
+      const beats = covered();
+      beats[3] = beatOf("b03-method", "method", ["sec4"], {
+        literal: {
+          kind: "operate",
+          equation,
+          terms: { term: "k", from: 1, to: "2", combine: "sum" },
+          labels: [],
+        },
+      });
+      return literalFindings(plan(beats), withEq).join("\n");
+    };
+    expect(terms("L(N,D)=E+\\frac{A}{N^{0.34}}+\\frac{B}{D^{0.28}}")).not.toMatch(
+      /not one the source prints/,
+    );
+    expect(terms("L(N,D) = E + \\frac{A}{N^{0.34}} + \\frac{B}{D^{0.28}},")).not.toMatch(
+      /not one the source prints/,
+    );
+    expect(terms("L(N,D)=E+\\frac{A}{N^{0.34}}+\\frac{B}{D^{0.29}}")).toMatch(
+      /not one the source prints/,
+    );
+  });
+
   it("asks for the example tag on a picture, and refuses a computed value printed on it", () => {
     const beats = covered();
     beats[1] = {
