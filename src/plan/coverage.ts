@@ -1904,13 +1904,23 @@ export function literalFindings(
     if (pic !== undefined) {
       const j = beats.findIndex((b) => b.id === pic);
       const owner = beats[j];
+      // NAME THE BEATS THAT CARRY ONE (2026-10-18). Chinchilla's b07 named
+      // "fig1", a figure, while b05 carried it; told only "not a beat", the
+      // scene redraw — which cannot give a beat a figure — was dropped.
+      const carriers = beats.slice(0, i + 1).filter(hasPicture);
+      const byFigure = carriers.find((b) => figureIds(b).includes(pic));
+      const which = byFigure
+        ? `"${pic}" is a figure; ${byFigure.id} carries it, so name ${byFigure.id}.`
+        : carriers.length
+          ? `Name one that carries a picture: ${carriers.map((b) => b.id).join(", ")}.`
+          : "No beat up to this one carries a picture: draw it without one.";
       if (!owner || j > i)
         out.push(
-          `${at} runs on the picture of "${pic}", which is ${owner ? "a later beat" : "not a beat in this plan"}. Name this beat or an earlier one that carries the picture.`,
+          `${at} runs on the picture of "${pic}", which is ${owner ? "a later beat" : "not a beat in this plan"}. ${which}`,
         );
       else if (!hasPicture(owner))
         out.push(
-          `${at} runs on the picture of "${pic}", which has none. Give that beat a figure or an illustration brief, or name a beat that has one.`,
+          `${at} runs on the picture of "${pic}", which has none. Give that beat a figure or an illustration brief, or ${which[0]?.toLowerCase()}${which.slice(1)}`,
         );
       else if (readsOff(lit)) {
         // A region's things and a figure trace's rows are read off the paper's own

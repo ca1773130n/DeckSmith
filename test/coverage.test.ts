@@ -357,10 +357,22 @@ describe("literalFindings", { timeout: 20_000 }, () => {
     beats[3] = beatOf("b03-method", "method", ["sec4"], {
       literal: { ...OPERATE, picture: "b02-prior" },
     });
+    // Chinchilla's b07 (2026-10-18): a figure's id where a beat's goes.
+    beats[2] = beatOf("b02-prior", "prior-work", ["sec3"], {
+      literal: { ...OPERATE, picture: "gen-b02" },
+    });
     const found = literalFindings(plan(beats), analysis);
     expect(found).toContainEqual(expect.stringMatching(/b01-problem's operate .*a later beat/));
+    // Each names the beats that do carry one, up to its own.
     expect(found).toContainEqual(
-      expect.stringMatching(/b03-method's operate .*"b02-prior", which has none/),
+      expect.stringMatching(
+        /b03-method's operate .*"b02-prior", which has none.* name one that carries a picture: b01-problem\.$/,
+      ),
+    );
+    expect(found).toContainEqual(
+      expect.stringMatching(
+        /b02-prior's operate .*"gen-b02", which is not a beat in this plan\. "gen-b02" is a figure; b01-problem carries it, so name b01-problem\.$/,
+      ),
     );
   });
 
