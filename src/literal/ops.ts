@@ -388,6 +388,10 @@ function select(t: Tensor, step: OpStep): Tensor {
       g.forEach((i, j) => {
         o.d[i] = j === order[0] ? 1 : 0;
       });
+    else if (how === "argmin")
+      g.forEach((i, j) => {
+        o.d[i] = j === v.indexOf(Math.min(...v)) ? 1 : 0;
+      });
     else if (how === "sort")
       g.forEach((i, j) => {
         o.d[i] = v[order[j] as number] as number;

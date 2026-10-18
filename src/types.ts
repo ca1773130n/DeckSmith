@@ -1088,13 +1088,17 @@ export const LITERAL_OPS = {
   select: {
     doc: "pick by rank along each row (`over` row) or over all",
     nouns:
-      /top-?\s?k|\btop\b|argmax|arg\s?max|sort|rank|cumulative|cumsum|상위|정렬|순위|누적|上位|並べ|累積|排序|累积|前\s?k/i,
+      /top-?\s?k|\btop\b|argmax|arg\s?max|argmin|arg\s?min|minimum|smallest|최소|最小|sort|rank|cumulative|cumsum|상위|정렬|순위|누적|上位|並べ|累積|排序|累积|前\s?k/i,
     how: {
       topk: {
         what: "keep the top `k`, zero the rest",
         words: /top-?\s?k|\btop\b|상위|上位|前\s?k/i,
       },
       argmax: { what: "one-hot at the largest", words: /argmax|arg\s?max|가장 큰|最大/i },
+      argmin: {
+        what: "one-hot at the smallest",
+        words: /argmin|arg\s?min|minimum|smallest|가장 작은|최소|最小/i,
+      },
       sort: { what: "sort descending", words: /sort|rank|정렬|순위|並べ|排序/i },
       cumsum: { what: "running sum", words: /cumulative|cumsum|누적|累積|累积/i },
     },
