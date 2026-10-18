@@ -1648,8 +1648,9 @@ describe("codexPlanner coverage repair", () => {
     });
     expect([deck, scene]).toEqual([1, 2]);
     expect(told[0]).toEqual(["b05-results"]);
-    // The reason is the scene as first planned: the redraws were never kept.
-    expect(told[1]?.join("\n")).toMatch(/b05-results's table scene says "99\.99"/);
+    // The reason is the last redraw's, the scene the beat last asked for.
+    expect(told[1]?.join("\n")).toMatch(/b05-results's table scene says "88\.88"/);
+    expect(told[1]?.join("\n")).not.toContain("99.99");
     expect(result.beats.find((b) => b.id === "b05-results")?.literal).toBeUndefined();
     expect(result.beats.find((b) => b.id === "b03-method")?.literal?.kind).toBe("region");
   });
