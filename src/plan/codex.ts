@@ -491,6 +491,10 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     // drawn by its archetype, and named — never the deck.
     const sceneSchemaPath = join(dir, "scene.schema.json");
     const brokenOf = (plan: Storyboard, id: string) => split(plan).scene.filter(of(id));
+    // A DROP IS TOLD BY THE LAST ATTEMPT (2026-10-18). The warning used to
+    // re-judge the scene as first planned, so the last redraw's findings were
+    // computed and never shown: b08's place findings for an operate scene.
+    const lastTry = new Map<string, readonly string[]>();
     const redraw = async (deck: Storyboard, id: string): Promise<Literal | undefined> => {
       let plan = deck;
       let broken = brokenOf(plan, id);
@@ -530,6 +534,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         broken = brokenOf(plan, id);
         if (!broken.length) return plan.beats.find((b) => b.id === id)?.literal;
       }
+      lastTry.set(id, broken);
       return undefined;
     };
     const scenes = async (planned: Storyboard): Promise<Storyboard> => {
@@ -576,9 +581,10 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
       for (;;) {
         const bad = plan.beats.filter((b) => b.literal && brokenOf(plan, b.id).length);
         if (!bad.length) break;
+        const now = split(plan).scene;
         opts.onDropScenes?.(
           bad.map((b) => b.id),
-          split(plan).scene.filter((m) => bad.some((b) => of(b.id)(m))),
+          bad.flatMap((b) => lastTry.get(b.id) ?? now.filter(of(b.id))),
         );
         plan = { ...plan, beats: plan.beats.map((b) => (bad.includes(b) ? withoutScene(b) : b)) };
       }

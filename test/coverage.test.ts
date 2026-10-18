@@ -1742,6 +1742,10 @@ describe("codexPlanner coverage repair", () => {
     const unit = await run("0.6x");
     expect(unit.asked.filter((id) => id === "b03-method")).toHaveLength(2);
     expect(unit.lit).toBeUndefined();
+    // The drop is told by what the last redraw broke, not the scene as first planned.
+    expect(unit.told[0]).toEqual(["b03-method"]);
+    expect(unit.told[1]?.join("\n")).toMatch(/^b03-method's scene: /);
+    expect(unit.told[1]?.join("\n")).not.toContain("0.6x");
   });
 
   it("fails loudly when the repair still misses it", async () => {
