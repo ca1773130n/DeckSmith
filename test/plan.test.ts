@@ -524,6 +524,28 @@ describe("codexPlanner variety repair", () => {
     expect(result.beats[0]?.id).toBe("b01-arch");
   });
 
+  // Chinchilla, round 27: 24 beats and one invented figure id; told only of the id,
+  // the repair kept 24 and the last round refused it for a length never told.
+  it("tells a refused plan it is too long, too, and keeps the repair that merges", async () => {
+    const prompts: string[] = [];
+    const long = JSON.parse(RECORDED) as { beats: Array<{ id: string }> };
+    const extra = (id: string, i: number) => ({ ...long.beats[i], id });
+    long.beats.push(extra("b04-loss", 1), extra("b05-psnr", 2));
+    const bad = JSON.stringify(long).replace('"figureId":"fig-arch"', '"figureId":"fig-ghost"');
+    const result = await codexPlanner(source, {
+      prefs: prefsSchema.parse({ slides: 3 }),
+      run: async ({ prompt, outPath }) => {
+        prompts.push(prompt);
+        await writeFile(outPath, prompts.length === 1 ? bad : RECORDED);
+      },
+    });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("IS REFUSED FOR");
+    expect(prompts[1]).toContain("IS TOO LONG");
+    expect(prompts[1]).toContain("5 beats against a target of 3; at most 4 may come back");
+    expect(result.beats).toHaveLength(3);
+  });
+
   it("with images off, never suggests a picture brief in the repair", async () => {
     const prompts: string[] = [];
     await codexPlanner(source, {

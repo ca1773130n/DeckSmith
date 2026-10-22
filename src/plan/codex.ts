@@ -41,7 +41,7 @@ import {
 } from "./coverage.js";
 import { renderSource, sourceBlocks, systemPrompt } from "./prompt.js";
 import { assertRefsResolve, pendingIllustrations } from "./refs.js";
-import { shapesFor, sizeFindings, varietyFindings } from "./variety.js";
+import { beatCap, lengthFindings, shapesFor, sizeFindings, varietyFindings } from "./variety.js";
 
 /** Planning a long source is minutes of work, not seconds. */
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -478,7 +478,12 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
         return { plan, json: plan, broken: findings(plan) };
       } catch (err) {
         if (!(err instanceof PlanRejected)) throw err;
-        const broken = { refused: err.problems, size: [], variety: [], coverage: [], advice: [] };
+        // A REFUSED PLAN IS STILL COUNTED (2026-10-23). Chinchilla's round 27 came
+        // back at 24 beats with one invented figure id; the repair was told only
+        // of the id, fixed it, kept 24 beats, and was refused on the last round
+        // for a length it had never been told of.
+        const size = lengthFindings(beatCount(err.plan), prefs.slides);
+        const broken = { refused: err.problems, size, variety: [], coverage: [], advice: [] };
         return { json: err.plan, broken, rejected: err.message };
       }
     };
@@ -655,7 +660,7 @@ export async function codexPlanner(source: Source, opts: CodexOptions = {}): Pro
     for (let round = 1; ; round++) {
       opts.onRepair?.(listOf(answer.broken));
       const next = await attempt(
-        repairPrompt(prompt, answer.json, answer.broken, prefs.images.enabled),
+        repairPrompt(prompt, answer.json, answer.broken, prefs.images.enabled, prefs.slides),
       );
       // A REPAIR MAY NOT SHRINK THE DECK. Dropping beats is not a shape change,
       // and under STAGE_MIN_BEATS it also escapes the stage minimum outright: a
@@ -866,7 +871,13 @@ interface Findings {
   advice: string[];
 }
 
-function repairPrompt(prompt: string, plan: unknown, broken: Findings, images: boolean): string {
+function repairPrompt(
+  prompt: string,
+  plan: unknown,
+  broken: Findings,
+  images: boolean,
+  slides: number,
+): string {
   const list = (ms: readonly string[]) => ms.map((m) => `  - ${m}`).join("\n");
   const refused = broken.refused.length
     ? `
@@ -894,14 +905,21 @@ it is; ${moves} or reorder neighbours only as far as the fix
 needs.
 `
     : "";
+  // A MISSING SECTION IS CITED BEFORE IT IS ADDED (2026-10-23). "ADDING beats"
+  // was the only move offered: Chinchilla's round 27, eight sections uncited
+  // (three of them 4.2.7 and its two subsections), went from 14 beats to 24,
+  // over the cap of 21. The rule takes a beat citing several sections.
   const coverage = broken.coverage.length
     ? `
 YOUR PREVIOUS STORYBOARD, BELOW, DOES NOT COVER THE SOURCE:
 ${list(broken.coverage)}
 
-Fix these by ADDING beats for what is missing, in their place in the part order,
-each citing the section it covers, and by correcting the fields named. Keep
-every other beat as it is.
+Fix these by CITING each missing section from the beat of that part whose point
+it belongs to (a beat may cite several sections, and a subsection goes with its
+parent's beat), and let that beat say it. ADD a beat, in its place in the part
+order, only for a section no beat's point covers.
+The deck may have at most ${beatCap(slides)} beats; this one has ${beatCount(plan)}.
+Correct the fields named, and keep every other beat as it is.
 `
     : "";
   const size = broken.size.length

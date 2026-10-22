@@ -69,6 +69,22 @@ export const KINETIC_MAX = 1;
 /** A plan may come back at most this many times the beats asked for. */
 export const SLIDES_OVER = 1.5;
 
+/** The most beats a plan for `slides` may have. */
+export const beatCap = (slides: number): number => Math.floor(slides * SLIDES_OVER);
+
+/**
+ * Over the cap, by count alone: also told of a plan refused before it was read
+ * (`PlanRejected`), so the repair that fixes its ids merges too.
+ */
+export function lengthFindings(beats: number, slides: number): string[] {
+  const cap = beatCap(slides);
+  return beats > cap
+    ? [
+        `${beats} beats against a target of ${slides}; at most ${cap} may come back. Merge beats that make one point until the deck has at most ${cap}.`,
+      ]
+    : [];
+}
+
 /**
  * Where a plan is too LONG, as sentences — a separate group from the variety
  * rules because its repair drops beats, which a variety repair may not.
@@ -84,12 +100,7 @@ export const SLIDES_OVER = 1.5;
  */
 export function sizeFindings(storyboard: Storyboard, slides: number): string[] {
   const beats = storyboard.beats;
-  const out: string[] = [];
-  const cap = Math.floor(slides * SLIDES_OVER);
-  if (beats.length > cap)
-    out.push(
-      `${beats.length} beats against a target of ${slides}; at most ${cap} may come back. Merge beats that make one point until the deck has at most ${cap}.`,
-    );
+  const out = lengthFindings(beats.length, slides);
   const stem = (id: string, suffix: RegExp) => id.replace(/^b\d+-/, "").replace(suffix, "");
   for (let i = 0; i + 1 < beats.length; i++) {
     const a = beats[i] as Beat;

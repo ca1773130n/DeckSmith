@@ -1660,6 +1660,9 @@ describe("codexPlanner coverage repair", () => {
     expect(prompts[0]).toContain("SECTION COVERAGE");
     expect(prompts[1]).toContain("DOES NOT COVER THE SOURCE");
     expect(prompts[1]).toMatch(/prior work \(\[section sec3\]/);
+    // Citing from a beat that covers it comes first, and the room left is stated.
+    expect(prompts[1]).toContain("by CITING each missing section from the beat of that part");
+    expect(prompts[1]).toContain(`at most 12 beats; this one has ${missing.length}`);
     expect(prompts[1]).not.toContain("BREAKS THE VARIETY RULES");
     expect(result.beats.map((b) => b.part ?? "-")).toContain("prior-work");
   });
